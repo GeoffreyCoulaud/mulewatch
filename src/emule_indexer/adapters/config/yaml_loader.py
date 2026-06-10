@@ -19,10 +19,18 @@ def load_yaml(path: Path) -> dict[str, Any]:
     """Lit ``path`` et renvoie sa racine (un mapping) parsée par ``yaml.safe_load``.
 
     ``safe_load`` parse les dates ISO en ``datetime.date`` et n'instancie aucun objet
-    Python arbitraire (pas de ``yaml.load`` non sûr). Racine non-mapping (liste, scalaire,
-    fichier vide → ``None``) lève :class:`YamlLoadError`.
+    Python arbitraire (pas de ``yaml.load`` non sûr). Frontière d'erreur de l'adapter :
+    fichier illisible, YAML invalide, ou racine non-mapping (liste, scalaire, fichier vide
+    → ``None``) lèvent tous :class:`YamlLoadError`.
     """
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise YamlLoadError(f"fichier YAML illisible : {path} ({exc})") from exc
+    try:
+        raw = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise YamlLoadError(f"YAML invalide dans {path} : {exc}") from exc
     if not isinstance(raw, dict):
         raise YamlLoadError(f"racine YAML attendue = mapping, obtenu {type(raw).__name__} ({path})")
     return raw

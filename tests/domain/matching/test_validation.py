@@ -415,3 +415,19 @@ def test_empty_config_validates() -> None:
     # Table de tokens vide : _max_resolution_depth doit renvoyer 0 (default), pas d'erreur.
     config = parse_matcher_config({"tokens": {}, "rules": []})
     assert config.tokens == {}
+
+
+def test_coverage_override_forward_reference_in_composite_validates() -> None:
+    # Régression : un token composite référençant {token: cov, min: …} où cov est
+    # défini APRÈS ne doit PAS être rejeté (validation override différée au graphe).
+    config = parse_matcher_config(
+        {
+            "tokens": {
+                "combo": {"any": [{"token": "title_hit", "min": 0.4}, "keroro"]},
+                "title_hit": {"coverage": "title", "min": 0.6},
+                "keroro": {"keyword": "keroro"},
+            },
+            "rules": [],
+        }
+    )
+    assert "combo" in config.tokens

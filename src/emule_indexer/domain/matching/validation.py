@@ -62,49 +62,46 @@ def _require_key(mapping: dict[str, Any], key: str, what: str) -> Any:
     return mapping[key]
 
 
-def _parse_operand(raw: Any, tokens: dict[str, TokenDef]) -> Operand:
+def _parse_operand(raw: Any) -> Operand:
     """Un opérande : nom de token nu (str), ``{token: …}`` (TokenRef), ou condition inline."""
     if isinstance(raw, str):
         return raw
     if isinstance(raw, dict):
         if any(key in raw for key in _CONDITION_KEYS):
-            return _parse_condition(raw, tokens)
+            return _parse_condition(raw)
         # Traité comme un token-ref (avec ou sans la clé «token») — _parse_token_ref
         # lèvera ConfigError si la clé «token» est absente ou invalide.
-        return _parse_token_ref(raw, tokens)
+        return _parse_token_ref(raw)
     raise ConfigError(f"opérande de type invalide : {type(raw).__name__} ({raw!r})")
 
 
-def _parse_token_ref(raw: dict[str, Any], tokens: dict[str, TokenDef]) -> TokenRef:
+def _parse_token_ref(raw: dict[str, Any]) -> TokenRef:
     name = raw.get("token")
     if not isinstance(name, str):
         raise ConfigError(f"opérande {{token: …}} sans nom de token valide : {raw!r}")
     min_value = raw.get("min")
     fuzz_value = raw.get("fuzz")
-    ref = TokenRef(
+    # La licéité d'un override min/fuzz (coverage-only, cf. EBNF §8.3) est vérifiée au
+    # niveau du graphe (validate_config), pas ici : le parsing reste purement structurel
+    # et indépendant de l'ordre de définition des tokens (réf. en avant autorisée).
+    return TokenRef(
         name=name,
         min=None if min_value is None else float(min_value),
         fuzz=None if fuzz_value is None else float(fuzz_value),
     )
-    # Override min/fuzz n'a de sens que sur un token coverage (cf. EBNF §8.3).
-    if (ref.min is not None or ref.fuzz is not None) and not isinstance(
-        tokens.get(name), CoverageDef
-    ):
-        raise ConfigError(f"override min/fuzz interdit sur le token non-coverage {name!r}")
-    return ref
 
 
-def _parse_condition(raw: dict[str, Any], tokens: dict[str, TokenDef]) -> Condition:
+def _parse_condition(raw: dict[str, Any]) -> Condition:
     present = [key for key in _CONDITION_KEYS if key in raw]
     if len(present) != 1:
         raise ConfigError(f"une seule condition (all/any/not) attendue, obtenu {present!r}")
     key = present[0]
     body = raw[key]
     if key == "not":
-        return NotDef(operand=_parse_operand(body, tokens))
+        return NotDef(operand=_parse_operand(body))
     if not isinstance(body, list):
         raise ConfigError(f"'{key}:' attend une liste d'opérandes, obtenu {type(body).__name__}")
-    operands = tuple(_parse_operand(item, tokens) for item in body)
+    operands = tuple(_parse_operand(item) for item in body)
     if key == "all":
         return AllDef(operands=operands)
     return AnyDef(operands=operands)
@@ -116,7 +113,7 @@ def _require_float(mapping: dict[str, Any], key: str) -> float | None:
     return None if value is None else float(value)
 
 
-def _parse_token_def(raw: Any, tokens: dict[str, TokenDef]) -> TokenDef:
+def _parse_token_def(raw: Any) -> TokenDef:
     """Dispatch d'une def de token : composite (all/any/not) ou feuille (4 types).
 
     Lit TOUTES les clés annexes de la def (``flags`` du regex, ``min``/``fuzz`` du
@@ -124,7 +121,7 @@ def _parse_token_def(raw: Any, tokens: dict[str, TokenDef]) -> TokenDef:
     """
     mapping = _require_mapping(raw, "définition de token")
     if any(key in mapping for key in _CONDITION_KEYS):
-        return _parse_condition(mapping, tokens)
+        return _parse_condition(mapping)
     leaf_keys = [k for k in ("keyword", "regex", "coverage", "attr_between") if k in mapping]
     if len(leaf_keys) > 1:
         raise ConfigError(f"un token feuille a exactement une clé-type, obtenu {sorted(leaf_keys)}")
@@ -157,7 +154,7 @@ def _parse_token_def(raw: Any, tokens: dict[str, TokenDef]) -> TokenDef:
     raise ConfigError(f"forme de token inconnue : clés {sorted(mapping)}")
 
 
-def _parse_rule(raw: Any, tokens: dict[str, TokenDef]) -> Rule:
+def _parse_rule(raw: Any) -> Rule:
     mapping = _require_mapping(raw, "règle")
     name = str(mapping.get("name", ""))
     if not name:
@@ -172,7 +169,7 @@ def _parse_rule(raw: Any, tokens: dict[str, TokenDef]) -> Rule:
         raise ConfigError(f"règle {name!r} sans condition (all/any/not)")
     if len(present) != 1:
         raise ConfigError(f"règle {name!r} : une seule condition attendue, obtenu {present!r}")
-    return Rule(name=name, tier=str(tier), condition=_parse_condition(mapping, tokens))
+    return Rule(name=name, tier=str(tier), condition=_parse_condition(mapping))
 
 
 def parse_matcher_config(raw: dict[str, Any]) -> MatcherConfig:
@@ -180,11 +177,11 @@ def parse_matcher_config(raw: dict[str, Any]) -> MatcherConfig:
     tokens_raw = _require_mapping(raw.get("tokens", {}), "section 'tokens'")
     tokens: dict[str, TokenDef] = {}
     for token_name, token_raw in tokens_raw.items():
-        tokens[str(token_name)] = _parse_token_def(token_raw, tokens)
+        tokens[str(token_name)] = _parse_token_def(token_raw)
     rules_raw = raw.get("rules", [])
     if not isinstance(rules_raw, list):
         raise ConfigError(f"section 'rules' : liste attendue, obtenu {type(rules_raw).__name__}")
-    rules = tuple(_parse_rule(rule_raw, tokens) for rule_raw in rules_raw)
+    rules = tuple(_parse_rule(rule_raw) for rule_raw in rules_raw)
     config = MatcherConfig(tokens=tokens, rules=rules)
     validate_config(config)
     return config
@@ -203,7 +200,7 @@ _PROBE_TARGET = TargetSegment(
 )
 
 
-def _operand_refs(operand: "str | TokenRef | AllDef | AnyDef | NotDef") -> tuple[str, ...]:
+def _operand_refs(operand: Operand) -> tuple[str, ...]:
     """Noms de tokens directement référencés par un opérande (str, TokenRef ou inline)."""
     if isinstance(operand, str):
         return (operand,)
@@ -228,6 +225,50 @@ def _def_refs(token_def: TokenDef) -> tuple[str, ...]:
     if isinstance(token_def, NotDef):
         return _operand_refs(token_def.operand)
     return ()
+
+
+def _operand_token_refs(operand: Operand) -> tuple[TokenRef, ...]:
+    """Tous les TokenRef (avec leurs overrides) atteignables depuis un opérande."""
+    if isinstance(operand, TokenRef):
+        return (operand,)
+    if isinstance(operand, NotDef):
+        return _operand_token_refs(operand.operand)
+    if isinstance(operand, AllDef | AnyDef):
+        refs: list[TokenRef] = []
+        for child in operand.operands:
+            refs.extend(_operand_token_refs(child))
+        return tuple(refs)
+    return ()  # str (nom nu) -> aucun TokenRef
+
+
+def _def_token_refs(token_def: TokenDef) -> tuple[TokenRef, ...]:
+    """Tous les TokenRef d'une def composite (vide pour une feuille)."""
+    if isinstance(token_def, AllDef | AnyDef):
+        refs: list[TokenRef] = []
+        for child in token_def.operands:
+            refs.extend(_operand_token_refs(child))
+        return tuple(refs)
+    if isinstance(token_def, NotDef):
+        return _operand_token_refs(token_def.operand)
+    return ()
+
+
+def _check_overrides_target_coverage(config: MatcherConfig) -> None:
+    """Un override min/fuzz n'est licite que sur un token coverage (cf. EBNF §8.3).
+
+    Vérifié ICI (pas au parsing) pour ne pas dépendre de l'ordre de définition :
+    une référence en avant vers un token coverage doit être acceptée.
+    """
+    refs: list[TokenRef] = []
+    for token_def in config.tokens.values():
+        refs.extend(_def_token_refs(token_def))
+    for rule in config.rules:
+        refs.extend(_operand_token_refs(rule.condition))
+    for ref in refs:
+        if (ref.min is not None or ref.fuzz is not None) and not isinstance(
+            config.tokens.get(ref.name), CoverageDef
+        ):
+            raise ConfigError(f"override min/fuzz interdit sur le token non-coverage {ref.name!r}")
 
 
 def _check_references_exist(config: MatcherConfig) -> None:
@@ -320,6 +361,7 @@ def validate_config(config: MatcherConfig, *, max_depth: int = _DEFAULT_MAX_DEPT
     ou :class:`ConfigError` (regex/interpolation). À appeler après le parsing schéma.
     """
     _check_references_exist(config)
+    _check_overrides_target_coverage(config)
     _check_acyclic(config, max_depth)
     depth = _max_resolution_depth(config)
     if depth > max_depth:
