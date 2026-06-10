@@ -103,7 +103,7 @@ episodes:
       - { letter: A, title: "Les demoiselles cambrioleuses", aliases: [] }
       - { letter: B, title: "Le grand combat sous-marin" }
 ```
-→ `target_id` stable (`S2E62A`) ; fournit `{number}`, `{segment}`, `{title}`, `{date_alt}` à l'interpolation.
+→ `target_id` stable (`S2E062A` — numéro **zéro-paddé sur 3 chiffres**, comme les noms de fichiers source `N°062A`, pour un tri lexicographique correct et un FK stable) ; fournit `{number}`, `{segment}`, `{title}`, `{date_alt}` à l'interpolation.
 
 ## 8. Moteur de matching (cœur)
 
