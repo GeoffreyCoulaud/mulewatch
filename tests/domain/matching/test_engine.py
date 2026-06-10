@@ -282,3 +282,41 @@ def test_evaluate_explanation_lists_coverage_value_even_below_threshold() -> Non
     coverage_names = [name for name, _ in decision.explanation.coverage_values]
     assert "title_hit" in coverage_names
     assert "title_hit" not in decision.explanation.tokens_matched
+
+
+def test_explanation_on_real_62a_lists_fired_rules_tokens_and_coverage() -> None:
+    decision = _canonical_engine().evaluate(FileCandidate(filename=_REAL_62A_FILENAME))
+    assert decision is not None
+    explanation = decision.explanation
+    assert explanation.target_id == "S2E062A"
+    # Le réel 62A fait feu sur les 4 règles (vérifié empiriquement) -> plusieurs rules_fired.
+    assert explanation.rules_fired == (
+        "id_segment_exact",
+        "date_teletoon_titre",
+        "numero_titre",
+        "keroro_large",
+    )
+    # Tokens nommés qui matchent (triés). title_hit est un coverage et matche (value 1.0).
+    assert "title_hit" in explanation.tokens_matched
+    assert "keroro" in explanation.tokens_matched
+    assert "segment_id" in explanation.tokens_matched
+    assert explanation.tokens_matched == tuple(sorted(explanation.tokens_matched))
+    # coverage_values : title_hit présent avec sa value (branche isinstance VRAIE).
+    assert explanation.coverage_values == (("title_hit", 1.0),)
+
+
+def test_explanation_single_rule_fired_and_no_coverage_token() -> None:
+    # Config SANS aucun token coverage -> coverage_values vide (branche isinstance FAUSSE).
+    raw: dict[str, object] = {
+        "tokens": {
+            "is_video": {"regex": r"\.(avi|mkv)$"},
+            "seg": {"regex": r"n[°o]?\s*0*{number}\s*{segment}"},
+        },
+        "rules": [{"name": "only", "tier": "download", "all": ["is_video", "seg"]}],
+    }
+    engine = MatchingEngine(parse_matcher_config(raw), (_TARGET_62A,))
+    decision = engine.evaluate(FileCandidate(filename="N°062A.avi"))
+    assert decision is not None
+    assert decision.explanation.rules_fired == ("only",)  # une seule règle
+    assert decision.explanation.coverage_values == ()  # aucun coverage
+    assert decision.explanation.tokens_matched == ("is_video", "seg")
