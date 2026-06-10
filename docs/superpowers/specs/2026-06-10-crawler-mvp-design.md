@@ -66,12 +66,13 @@ src/emule_indexer/
 
 - **Moteur = aMule seul** (`amuled` headless + API **EC**), piloté comme une brique d'infra. Adaptateur EC **écrit en Python** (aucune lib existante ; protocole binaire documenté). Image : `ngosang/docker-amule`.
 - Pas de MLDonkey (réseau Overnet mort/incompatible ; serveurs eD2k partagés). Pas de G2/Gnutella. **Pas de seeding.**
-- **High ID** (mode Full) : un **seul numéro de port** ProtonVPN (NAT-PMP), configuré **identique en TCP et UDP**. **glueforward** (étendu) synchronise le port dynamique dans la config aMule. amuled route via gluetun (**killswitch** = pas de fuite si VPN tombe).
-- **Segmentation réseau** :
-  - `vpn` : gluetun ↔ amuled (P2P uniquement).
-  - `verify-internal` (**`internal: true`**) : crawler ↔ verifier (RPC, **sans Internet**). **amuled n'y est pas.**
-  - `egress` : crawler ↔ Internet (apprise, DNS).
-  - Le **crawler** est multi-homed. Le **verifier** n'est que sur `verify-internal`. L'**enfant jetable** n'a **aucun réseau** (`net=none`).
+- **High ID** (mode Full) : **gluetun** assure le tunnel ProtonVPN **et le NAT-PMP**, et expose le port forwarded via son **control server API**. **glueforward** (étendu, voir §15.2) lit ce port et l'applique à aMule en **TCP et UDP au même numéro**. amuled partage la pile réseau de gluetun (**killswitch** = pas de fuite si le VPN tombe).
+- **Réseau** :
+  - **amuled n'a pas de réseau Docker propre** : `network_mode: service:gluetun` → il partage la stack réseau de gluetun (tout le P2P sort par le VPN). Son **port EC est exposé par le conteneur gluetun**.
+  - `ec` (interne) : crawler ↔ `gluetun:<ec_port>` (pilotage d'amuled via EC).
+  - `verify-internal` (**`internal: true`**) : crawler ↔ verifier (RPC, **sans Internet**).
+  - `egress` : crawler ↔ Internet (apprise, DNS) ; gluetun a son propre accès WAN pour le tunnel.
+  - Le **crawler** est multi-homed (`ec` + `verify-internal` + `egress`). Le **verifier** n'est que sur `verify-internal`. L'**enfant jetable** n'a **aucun réseau** (`net=none`).
 
 ## 6. Orchestration des recherches
 
@@ -103,7 +104,7 @@ episodes:
 **Principe** : moteur minimal en code, **politique 100 % en config**.
 
 ### 8.1 Normalisation
-- `raw` = basename observé. `norm(s)` = minuscules → accents retirés → non-alphanumériques → espaces → trim. `tokens(s)` = `norm(s)` sur espaces.
+- `raw` = basename observé. `norm(s)` = **normalisation Unicode NFKD** (décomposition de compatibilité, puis suppression des diacritiques combinants pour le repli d'accents) → minuscules → non-alphanumériques en espaces → trim. *(NFKC disponible comme variante de composition si besoin.)* `tokens(s)` = `norm(s)` découpé sur les espaces.
 
 ### 8.2 Types de tokens (4, en code)
 | Type | Forme | Opère sur | Vrai si… |
@@ -248,22 +249,35 @@ Remplace le « busy » : à la complétion, **enfiler** une tâche ; un **pool d
 - **Config invalide** : **fail-fast** au chargement (DAG, enum, RE2, schéma).
 - **Crash/redémarrage** : bases durables ; réconciliation ; relance scheduler ; idempotence auto-DL (dédup par hash).
 
-## 15. Stack technique
+## 15. Stack technique & empaquetage
 
-- **Python** ; `uv`, `mypy --strict`, `ruff` (lint+format). Repli **Kotlin** seulement si CPU-bound démontré (attendu IO-bound).
+- **Python uniquement** (pour ce projet) ; `uv`, `mypy --strict`, `ruff` (lint+format).
 - **Clean/Hexagonal** (cf. §4). Dépendances : `rapidfuzz`, `pyre2`/`google-re2`, `apprise`, `prometheus_client`, SQLite (stdlib).
-- **Docker compose** : gluetun, `ngosang/docker-amule`, **glueforward** (étendu), crawler, verifier (Full). Profils observer/full.
 - **Adaptateur EC** = notre code Python (aucune lib) ; **test-first** sur trames capturées + intégration opt-in contre un vrai `amuled`.
 
-## 16. Stratégie de tests
+### 15.1 Points d'entrée & images
+- **Un seul codebase** (domaine partagé : types de verdict, config, modèle de données) avec **deux points d'entrée** → **deux images Docker** : `crawler` et `verifier`. Footprints de dépendances distincts (le verifier embarquera plus tard ffprobe/libmagic/ClamAV ; le crawler porte rapidfuzz/re2/apprise/prometheus).
+- **`docker compose`** avec **profils `observer` / `full`** : observer = crawler + amuled + gluetun ; full = + verifier (+ glueforward). **glueforward** = conteneur séparé (image `ghcr.io/geoffreycoulaud/glueforward`).
 
-- **Domaine (pur, property-based)** : moteur de matching = joyau → cycles/DAG, profondeur, interpolation, seuils `coverage`/`fuzz`, ordre des règles, **déterminisme** du palier. Propriétés (« une règle plus prioritaire ne baisse jamais le palier », « config acyclique termine »).
-- **Corpus golden** de noms (réels + forgés : accents, encodages, quasi-collisions, leurres, ép. 62A) → palier/cible attendus ; **non-régression** extensible par la communauté.
-- **Contrats de ports** : chaque port joué contre fake + adaptateur réel.
-- **EC** : fixtures de trames (rapide) + intégration opt-in vs `amuled` réel → **mesure empirique** de la richesse des champs (dé-risque l'unique gros inconnu).
-- **Déterminisme** : shuffle seedé (`node_id`), `Clock`/random injectables.
+### 15.2 glueforward — extension service `amule`
+- Projet existant : <https://github.com/GeoffreyCoulaud/glueforward> (Python, AGPL-3.0). Il interroge l'**API control de gluetun** (`GLUETUN_URL`, `GLUETUN_API_KEY`) pour le port forwarded et l'applique à un service cible (abstraction `SERVICE_TYPE`, actuellement qBittorrent). **C'est gluetun, pas glueforward, qui fait le NAT-PMP.**
+- **On contribue un service `amule`** : il applique le port à aMule en **TCP et UDP au même numéro** (via EC si le réglage du port d'écoute y est supporté, sinon écriture d'`amule.conf` + reload/restart d'amuled). Config par variables d'env, comme les autres services.
+
+### 15.3 Outils opérationnels (ergonomie non-dev)
+- **Fusion** : conçue pour être **triviale et utilisable par un non-dev** — une commande (ex. `docker compose run --rm merge <autres catalog.db…>`), **idempotente** (UNION par clés de contenu, cf. §11). *(Le moteur de fusion complet est un sous-projet ultérieur, mais l'ergonomie est un objectif de conception dès maintenant — la propreté append-only/adressée-contenu existe pour ça.)*
+- **`rebuild-local`** : re-dérive `local.db` depuis `catalog.db` + la file réelle d'aMule (réconciliation EC) en **une commande**.
+
+## 16. Stratégie de tests — TDD
+
+- **TDD strict** : les **tests sont la spec d'une feature**. **Aucun code de prod écrit avant les tests.** La **revue de code porte d'abord sur l'exactitude des tests** — ce sont eux qui décident si le code est bon.
+- **Quatre niveaux combinés** :
+  - **Unitaires (domaine pur)** : moteur de matching = joyau → cycles/DAG, profondeur, interpolation, seuils `coverage`/`fuzz`, ordre des règles, **déterminisme** du palier ; property-based (« une règle plus prioritaire ne baisse jamais le palier », « config acyclique termine »). **Corpus golden** de noms (réels + forgés : accents, encodages, quasi-collisions, leurres, ép. 62A) → palier/cible attendus, extensible par la communauté.
+  - **Intégration** : contrats de ports (fake + adaptateur réel) ; **EC** = fixtures de trames (rapide) + intégration opt-in vs `amuled` réel → **mesure empirique** de la richesse des champs (dé-risque l'unique gros inconnu).
+  - **DB** : sur **SQLite réel** — schéma/migrations, append-only, **claim atomique + lease/reclaim** de la file, idempotence, fusion (UNION par clés).
+  - **End-to-end** : `docker compose` contrôlé ; option serveur eD2k local + fichier planté (lourd, opt-in).
+- **Déterminisme** : shuffle seedé (`node_id`), `Clock`/random injectables → zéro flakiness.
 - **Sécurité** : sandbox de l'enfant (`net=none`, rlimits, timeout-kill), dead-letter sur poison, parse défensif de la sortie de l'enfant.
-- **E2E** : compose `amuled` contrôlé ; option serveur eD2k local + fichier planté (lourd, opt-in).
+- **Coverage validé sans ambiguïté** : `coverage.py` via `pytest-cov`, **seuil minimal imposé** (statement + branch ; le build/CI **échoue sous le seuil**) → preuve objective que le TDD est suivi.
 
 ## 17. Questions ouvertes / différé
 
