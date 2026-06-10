@@ -14,8 +14,12 @@ from emule_indexer.domain.matching.config import (
 )
 from emule_indexer.domain.matching.validation import (
     ConfigError,
+    CycleError,
+    DepthExceededError,
+    UnknownTokenError,
     parse_matcher_config,
     parse_targets,
+    validate_config,
 )
 
 
@@ -40,12 +44,23 @@ def test_parse_leaf_token_defs() -> None:
 
 
 def test_parse_composite_token_def() -> None:
-    config = parse_matcher_config({"tokens": {"kt": {"any": ["keroro", "titar"]}}, "rules": []})
+    config = parse_matcher_config(
+        {
+            "tokens": {
+                "keroro": {"keyword": "keroro"},
+                "titar": {"keyword": "titar"},
+                "kt": {"any": ["keroro", "titar"]},
+            },
+            "rules": [],
+        }
+    )
     assert config.tokens["kt"] == AnyDef(operands=("keroro", "titar"))
 
 
 def test_parse_not_token_def() -> None:
-    config = parse_matcher_config({"tokens": {"nk": {"not": "keroro"}}, "rules": []})
+    config = parse_matcher_config(
+        {"tokens": {"keroro": {"keyword": "keroro"}, "nk": {"not": "keroro"}}, "rules": []}
+    )
     assert config.tokens["nk"] == NotDef(operand="keroro")
 
 
@@ -271,3 +286,132 @@ def test_parse_targets_episode_without_segments() -> None:
     """Épisode sans clé 'segments' : boucle vide, aucun segment émis."""
     targets = parse_targets({"episodes": [{"season": 1, "number": 1}]})
     assert targets == ()
+
+
+# --- Task 6 : graph validation (DAG, depth, RE2 compile-check) ---
+
+
+def test_unknown_token_reference_raises_and_names_it() -> None:
+    with pytest.raises(UnknownTokenError, match="ghost"):
+        parse_matcher_config(
+            {
+                "tokens": {"kt": {"any": ["keroro", "ghost"]}, "keroro": {"keyword": "keroro"}},
+                "rules": [],
+            }
+        )
+
+
+def test_unknown_token_in_rule_raises() -> None:
+    with pytest.raises(UnknownTokenError, match="ghost"):
+        parse_matcher_config(
+            {
+                "tokens": {"keroro": {"keyword": "keroro"}},
+                "rules": [{"name": "r", "tier": "catalog", "all": ["keroro", "ghost"]}],
+            }
+        )
+
+
+def test_direct_cycle_is_detected_and_named() -> None:
+    with pytest.raises(CycleError) as excinfo:
+        parse_matcher_config({"tokens": {"a": {"any": ["b"]}, "b": {"any": ["a"]}}, "rules": []})
+    message = str(excinfo.value)
+    assert "a -> b -> a" in message or "b -> a -> b" in message
+
+
+def test_self_cycle_is_detected() -> None:
+    with pytest.raises(CycleError, match="loop"):
+        parse_matcher_config({"tokens": {"loop": {"any": ["loop"]}}, "rules": []})
+
+
+def test_acyclic_composite_graph_validates() -> None:
+    config = parse_matcher_config(
+        {
+            "tokens": {
+                "keroro": {"keyword": "keroro"},
+                "titar": {"keyword": "titar"},
+                "kt": {"any": ["keroro", "titar"]},
+                "deep": {"all": ["kt", "keroro"]},
+            },
+            "rules": [{"name": "r", "tier": "catalog", "any": ["deep"]}],
+        }
+    )
+    assert "deep" in config.tokens
+
+
+def test_regex_compile_check_rejects_bad_pattern() -> None:
+    with pytest.raises(ConfigError, match="RE2"):
+        parse_matcher_config({"tokens": {"bad": {"regex": "(unbalanced"}}, "rules": []})
+
+
+def test_regex_unknown_placeholder_rejected_at_load() -> None:
+    with pytest.raises(ConfigError, match="bogus"):
+        parse_matcher_config({"tokens": {"bad": {"regex": "n {bogus}"}}, "rules": []})
+
+
+def test_regex_with_known_placeholders_validates() -> None:
+    config = parse_matcher_config(
+        {"tokens": {"seg": {"regex": "n[°o]?\\s*0*{number}\\s*{segment}"}}, "rules": []}
+    )
+    assert "seg" in config.tokens
+
+
+def test_regex_date_alt_placeholder_validates_via_probe() -> None:
+    # {date_alt} exige un broadcast_date ; la sonde de validation en fournit un.
+    config = parse_matcher_config({"tokens": {"air": {"regex": "{date_alt}"}}, "rules": []})
+    assert "air" in config.tokens
+
+
+def test_depth_within_bound_validates() -> None:
+    # Chaîne a -> b -> c (profondeur 3) avec max_depth=3 : OK.
+    config = parse_matcher_config(
+        {
+            "tokens": {
+                "c": {"keyword": "x"},
+                "b": {"any": ["c"]},
+                "a": {"any": ["b"]},
+            },
+            "rules": [],
+        }
+    )
+    validate_config(config, max_depth=3)
+
+
+def test_depth_exceeded_raises() -> None:
+    config = parse_matcher_config(
+        {
+            "tokens": {
+                "c": {"keyword": "x"},
+                "b": {"any": ["c"]},
+                "a": {"any": ["b"]},
+            },
+            "rules": [],
+        }
+    )
+    with pytest.raises(DepthExceededError, match="profondeur"):
+        validate_config(config, max_depth=2)
+
+
+def test_default_max_depth_is_32() -> None:
+    # Une chaîne de 33 tokens dépasse le défaut 32.
+    tokens: dict[str, object] = {"t0": {"keyword": "x"}}
+    for i in range(1, 34):
+        tokens[f"t{i}"] = {"any": [f"t{i - 1}"]}
+    with pytest.raises(DepthExceededError):
+        parse_matcher_config({"tokens": tokens, "rules": []})
+
+
+def test_deep_chain_root_first_caught_by_dfs_guard() -> None:
+    # Ordre racine-d'abord : le DFS de _check_acyclic descend toute la chaîne, donc le
+    # garde-fou len(stack)>=max_depth lève DepthExceededError avant tout RecursionError.
+    tokens: dict[str, object] = {}
+    for i in range(40, 0, -1):  # t40 (racine) défini en premier, t0 (feuille) en dernier
+        tokens[f"t{i}"] = {"any": [f"t{i - 1}"]}
+    tokens["t0"] = {"keyword": "x"}
+    with pytest.raises(DepthExceededError):
+        parse_matcher_config({"tokens": tokens, "rules": []})
+
+
+def test_empty_config_validates() -> None:
+    # Table de tokens vide : _max_resolution_depth doit renvoyer 0 (default), pas d'erreur.
+    config = parse_matcher_config({"tokens": {}, "rules": []})
+    assert config.tokens == {}

@@ -9,6 +9,8 @@ La validation de graphe (DAG/profondeur) et le compile-check RE2 sont ajoutés e
 import datetime
 from typing import Any
 
+import re2
+
 from emule_indexer.domain.matching.config import (
     TIERS,
     AllDef,
@@ -25,6 +27,7 @@ from emule_indexer.domain.matching.config import (
     TokenDef,
     TokenRef,
 )
+from emule_indexer.domain.matching.interpolation import InterpolationError, interpolate
 from emule_indexer.domain.matching.matchers import ATTR_NAMES
 from emule_indexer.domain.matching.models import TargetSegment
 
@@ -33,6 +36,18 @@ _CONDITION_KEYS = ("all", "any", "not")
 
 class ConfigError(Exception):
     """Erreur fatale de configuration au chargement (schéma, tier, enum, override)."""
+
+
+class UnknownTokenError(ConfigError):
+    """Une référence pointe vers un token absent de la table."""
+
+
+class CycleError(ConfigError):
+    """Le graphe de références token->token contient un cycle (le message le nomme)."""
+
+
+class DepthExceededError(ConfigError):
+    """La profondeur de résolution dépasse la borne (défaut 32)."""
 
 
 def _require_mapping(value: Any, what: str) -> dict[str, Any]:
@@ -170,7 +185,148 @@ def parse_matcher_config(raw: dict[str, Any]) -> MatcherConfig:
     if not isinstance(rules_raw, list):
         raise ConfigError(f"section 'rules' : liste attendue, obtenu {type(rules_raw).__name__}")
     rules = tuple(_parse_rule(rule_raw, tokens) for rule_raw in rules_raw)
-    return MatcherConfig(tokens=tokens, rules=rules)
+    config = MatcherConfig(tokens=tokens, rules=rules)
+    validate_config(config)
+    return config
+
+
+_DEFAULT_MAX_DEPTH = 32
+
+# Cible-sonde pour le compile-check : fournit number/segment/title/date_alt afin que
+# l'interpolation de toute RegexDef soit testable au chargement (cf. spec §8.4/§8.5).
+_PROBE_TARGET = TargetSegment(
+    season=2,
+    number=62,
+    segment="a",
+    title="sonde",
+    broadcast_date=datetime.date(2008, 9, 21),
+)
+
+
+def _operand_refs(operand: "str | TokenRef | AllDef | AnyDef | NotDef") -> tuple[str, ...]:
+    """Noms de tokens directement référencés par un opérande (str, TokenRef ou inline)."""
+    if isinstance(operand, str):
+        return (operand,)
+    if isinstance(operand, TokenRef):
+        return (operand.name,)
+    if isinstance(operand, NotDef):
+        return _operand_refs(operand.operand)
+    # AllDef | AnyDef
+    refs: list[str] = []
+    for child in operand.operands:
+        refs.extend(_operand_refs(child))
+    return tuple(refs)
+
+
+def _def_refs(token_def: TokenDef) -> tuple[str, ...]:
+    """Noms de tokens directement référencés par une def (vide pour une feuille)."""
+    if isinstance(token_def, AllDef | AnyDef):
+        refs: list[str] = []
+        for child in token_def.operands:
+            refs.extend(_operand_refs(child))
+        return tuple(refs)
+    if isinstance(token_def, NotDef):
+        return _operand_refs(token_def.operand)
+    return ()
+
+
+def _check_references_exist(config: MatcherConfig) -> None:
+    """Toute référence (dans un token composite OU une règle) doit exister."""
+    known = set(config.tokens)
+    for token_def in config.tokens.values():
+        for ref in _def_refs(token_def):
+            if ref not in known:
+                raise UnknownTokenError(f"référence vers un token inconnu : {ref!r}")
+    for rule in config.rules:
+        for ref in _operand_refs(rule.condition):
+            if ref not in known:
+                raise UnknownTokenError(
+                    f"règle {rule.name!r} : référence vers un token inconnu : {ref!r}"
+                )
+
+
+def _check_acyclic(config: MatcherConfig, max_depth: int) -> None:
+    """Détecte un cycle dans le graphe token->token et le NOMME (cf. spec §8.4).
+
+    Le garde-fou ``len(stack) >= max_depth`` borne aussi la récursion : un chemin
+    plus profond que ``max_depth`` est déjà une violation de profondeur, levée
+    proprement ici (évite un ``RecursionError`` Python sur une chaîne pathologique).
+    """
+    graph = {name: _def_refs(token_def) for name, token_def in config.tokens.items()}
+    visiting: set[str] = set()
+    done: set[str] = set()
+    stack: list[str] = []
+
+    def walk(name: str) -> None:
+        if name in done:
+            return
+        if name in visiting:
+            cycle = stack[stack.index(name) :] + [name]
+            raise CycleError(f"cycle de références : {' -> '.join(cycle)}")
+        if len(stack) >= max_depth:
+            tail = " -> ".join([*stack[-3:], name])
+            raise DepthExceededError(
+                f"profondeur de résolution > {max_depth} (chaîne : … -> {tail})"
+            )
+        visiting.add(name)
+        stack.append(name)
+        for ref in graph.get(name, ()):  # ref existe (vérifié par _check_references_exist)
+            walk(ref)
+        stack.pop()
+        visiting.discard(name)
+        done.add(name)
+
+    for token_name in graph:
+        walk(token_name)
+
+
+def _max_resolution_depth(config: MatcherConfig) -> int:
+    """Profondeur maximale d'un token (feuille = 1). Suppose le graphe acyclique."""
+    graph = {name: _def_refs(token_def) for name, token_def in config.tokens.items()}
+    memo: dict[str, int] = {}
+
+    def depth(name: str) -> int:
+        if name in memo:
+            return memo[name]
+        refs = graph.get(name, ())
+        result = 1 if not refs else 1 + max(depth(ref) for ref in refs)
+        memo[name] = result
+        return result
+
+    return max((depth(name) for name in graph), default=0)
+
+
+def _check_regexes_compile(config: MatcherConfig) -> None:
+    """Chaque RegexDef s'interpole (placeholders connus) et compile sous RE2 (cf. §8.4)."""
+    for name, token_def in config.tokens.items():
+        if not isinstance(token_def, RegexDef):
+            continue
+        try:
+            pattern = interpolate(token_def.pattern, _PROBE_TARGET)
+        except InterpolationError as exc:
+            raise ConfigError(f"token {name!r} : interpolation invalide : {exc}") from exc
+        if "i" in token_def.flags:
+            pattern = "(?i)" + pattern
+        try:
+            re2.compile(pattern)
+        except re2.error as exc:
+            raise ConfigError(f"token {name!r} : regex non compilable sous RE2 : {exc}") from exc
+
+
+def validate_config(config: MatcherConfig, *, max_depth: int = _DEFAULT_MAX_DEPTH) -> None:
+    """Valide le graphe (références, DAG, profondeur) et les regex (cf. spec §8.4).
+
+    Lève :class:`UnknownTokenError`, :class:`CycleError`, :class:`DepthExceededError`
+    ou :class:`ConfigError` (regex/interpolation). À appeler après le parsing schéma.
+    """
+    _check_references_exist(config)
+    _check_acyclic(config, max_depth)
+    depth = _max_resolution_depth(config)
+    if depth > max_depth:
+        raise DepthExceededError(
+            f"profondeur de résolution {depth} > max {max_depth} (défaut {_DEFAULT_MAX_DEPTH})"
+        )
+    _check_regexes_compile(config)
 
 
 def parse_targets(raw: dict[str, Any]) -> tuple[TargetSegment, ...]:
