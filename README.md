@@ -17,7 +17,7 @@ quand un épisode manquant apparaît.
 
 ## Pour les chercheurs (faire tourner un nœud)
 
-Le mode **observer** ne télécharge rien : il cherche, catalogue et notifie (avec un lien
+Le mode **observer** ne téléchargera rien : il cherchera, cataloguera et notifiera (avec un lien
 `ed2k://` pour récupérer un fichier d'un clic). Portable (Linux, macOS, Windows via Docker
 Desktop), sans configuration réseau particulière.
 

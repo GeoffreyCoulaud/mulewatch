@@ -2,6 +2,8 @@
 # Pré-push : refuse le push si un check échoue (mêmes checks que la CI).
 set -euo pipefail
 
+command -v uv >/dev/null 2>&1 || { echo "[pre-push] ERROR: 'uv' introuvable. Installe-le : https://docs.astral.sh/uv/"; exit 1; }
+
 echo "[pre-push] ruff check…";          uv run ruff check .
 echo "[pre-push] ruff format --check…"; uv run ruff format --check .
 echo "[pre-push] mypy…";                uv run mypy
