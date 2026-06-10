@@ -110,13 +110,16 @@ episodes:
 **Principe** : moteur minimal en code, **politique 100 % en config**.
 
 ### 8.1 Normalisation
-- `raw` = basename observé. `norm(s)` = **normalisation Unicode NFKD** (décomposition de compatibilité, puis suppression des diacritiques combinants pour le repli d'accents) → minuscules → non-alphanumériques en espaces → trim. *(NFKC disponible comme variante de composition si besoin.)* `tokens(s)` = `norm(s)` découpé sur les espaces.
+- `raw` = basename observé.
+- **Repli commun** : `NFKD` (décompose les ligatures de compatibilité comme `ﬁ→fi` + sépare les diacritiques) → suppression des diacritiques combinants → **`str.casefold()`** (gère `ß→ss` + casse, plus correct que `lower()`) → table explicite des **deux** lettres qu'Unicode ne replie jamais (lettres à part entière, pas des ligatures de compatibilité) : `{œ→oe, æ→ae}`.
+- **`fold(s)`** = repli commun seul, **ponctuation et chiffres préservés** → utilisé par les tokens **`regex`** (ainsi `teletoon`/`fevrier` matchent sans classes d'accents, et `°` reste pour `n°062a`).
+- **`norm(s)`** = `fold(s)` → non-alphanumériques convertis en espaces → espaces compactés → trim → utilisé par **`keyword`** et **`coverage`**. `tokens(s)` = `norm(s)` découpé sur les espaces.
 
 ### 8.2 Types de tokens (4, en code)
 | Type | Forme | Opère sur | Vrai si… |
 |---|---|---|---|
 | `keyword` | `{ keyword: "mission titar" }` | `tokens(norm)` | phrase = sous-suite contiguë de tokens |
-| `regex` | `{ regex: "...", flags: "i" }` | `raw` (flag `i` défaut), **après interpolation** | `re.search` ≠ ∅ |
+| `regex` | `{ regex: "...", flags: "i" }` | `fold(raw)` (flag `i` défaut), **après interpolation** | match RE2 ≠ ∅ |
 | `coverage` | `{ coverage: title, min: 0.6, fuzz: 0.85 }` | `tokens(norm)` | fraction fuzzy des tokens significatifs de `title` ≥ `min` |
 | `attr_between` | `{ attr_between: size_mb, min: 30, max: 600 }` | attribut fichier | attribut **présent** et dans `[min,max]` |
 
