@@ -1,7 +1,7 @@
 # Spec — emule-indexer : Crawler MVP (+ auto-download)
 
 > Conception validée en brainstorming le 2026-06-10. Premier sous-projet d'emule-indexer.
-> Voir aussi `docs/knowledge-brief.md` (cadrage initial).
+> Voir aussi `docs/handoffs/2026-06-10 - handoff - knowledge brief.md` (cadrage initial).
 
 ## 1. Contexte & objectif
 

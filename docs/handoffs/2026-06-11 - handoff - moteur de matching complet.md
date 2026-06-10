@@ -174,7 +174,7 @@ Le moteur est complet ; il reste à **alimenter en données réelles** et **agir
 ## 9. Où tout se trouve
 
 - **Spec MVP (autorité)** : `docs/superpowers/specs/2026-06-10-crawler-mvp-design.md` (17 sections ; §7 cibles, §8 moteur, §9 download, §10 sécurité, §11 données, §16 tests).
-- **Brief de cadrage** : `docs/knowledge-brief.md`.
+- **Handoffs** (dont le brief de cadrage de tout début) : `docs/handoffs/` — fichiers `<date ISO> - handoff - <contexte>.md` (le cadrage initial : `2026-06-10 - handoff - knowledge brief.md` ; ce document : `2026-06-11 - handoff - moteur de matching complet.md`).
 - **Plans (exécutés)** : `docs/superpowers/plans/2026-06-10-crawler-mvp-{01-foundation,02a-matchers,02b-config-graph,02c-engine}.md`. Chaque plan a un en-tête + des tâches TDD complètes + une self-review.
 - **Fixtures de référence** (forme de config réelle) : `tests/fixtures/*.yaml`.
 - **Mémoire auto** (chargée chaque session) : `~/.claude/projects/-home-geoffrey-Repositories-emule-indexer/memory/` — style de code, décisions projet, feedback de méthode (TDD-first, non pressé, sous-agents), réf glueforward.
