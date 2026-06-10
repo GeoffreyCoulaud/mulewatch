@@ -95,3 +95,35 @@ class CoverageMatcher:
 
     def matches(self, candidate: FileCandidate) -> bool:
         return self.value(candidate) >= self._min
+
+
+# Enum fermé des attributs numériques de FileCandidate utilisables par attr_between
+# (cf. spec §8.2). Tout autre nom -> erreur.
+ATTR_NAMES: frozenset[str] = frozenset({"size_mb", "duration_sec", "bitrate_kbps"})
+
+
+class AttrBetweenMatcher:
+    """Vrai si l'attribut numérique est PRÉSENT et dans ``[min, max]`` (cf. spec §8.2).
+
+    Bornes ouvertes quand ``min``/``max`` valent ``None``. Attribut absent -> faux.
+    """
+
+    def __init__(
+        self,
+        attr: str,
+        min: float | None = None,
+        max: float | None = None,
+    ) -> None:
+        if attr not in ATTR_NAMES:
+            raise ValueError(f"attribut inconnu : {attr!r} (attendu l'un de {sorted(ATTR_NAMES)})")
+        self._attr = attr
+        self._min = min
+        self._max = max
+
+    def matches(self, candidate: FileCandidate) -> bool:
+        value: float | None = getattr(candidate, self._attr)
+        return (
+            value is not None
+            and (self._min is None or value >= self._min)
+            and (self._max is None or value <= self._max)
+        )

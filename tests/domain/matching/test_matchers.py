@@ -1,4 +1,11 @@
-from emule_indexer.domain.matching.matchers import CoverageMatcher, KeywordMatcher, RegexMatcher
+import pytest
+
+from emule_indexer.domain.matching.matchers import (
+    AttrBetweenMatcher,
+    CoverageMatcher,
+    KeywordMatcher,
+    RegexMatcher,
+)
 from emule_indexer.domain.matching.models import FileCandidate
 
 
@@ -105,3 +112,51 @@ def test_coverage_partial_fraction_below_min_does_not_match() -> None:
     candidate = FileCandidate(filename="demoiselles autre.avi")
     assert matcher.value(candidate) == 0.5
     assert matcher.matches(candidate) is False
+
+
+def test_attr_between_unknown_attr_raises() -> None:
+    with pytest.raises(ValueError) as excinfo:
+        AttrBetweenMatcher("codec", min=1.0)
+    message = str(excinfo.value)
+    assert "codec" in message
+    # le message liste les attributs valides pour guider l'auteur de config
+    assert "size_mb" in message
+    assert "duration_sec" in message
+    assert "bitrate_kbps" in message
+
+
+def test_attr_between_absent_value_is_false() -> None:
+    matcher = AttrBetweenMatcher("size_mb", min=30.0, max=600.0)
+    assert matcher.matches(FileCandidate(filename="x.avi")) is False
+
+
+def test_attr_between_in_range_is_true() -> None:
+    matcher = AttrBetweenMatcher("size_mb", min=30.0, max=600.0)
+    assert matcher.matches(FileCandidate(filename="x.avi", size_mb=120.0)) is True
+
+
+def test_attr_between_below_min_is_false() -> None:
+    matcher = AttrBetweenMatcher("size_mb", min=30.0, max=600.0)
+    assert matcher.matches(FileCandidate(filename="x.avi", size_mb=10.0)) is False
+
+
+def test_attr_between_above_max_is_false() -> None:
+    matcher = AttrBetweenMatcher("size_mb", min=30.0, max=600.0)
+    assert matcher.matches(FileCandidate(filename="x.avi", size_mb=900.0)) is False
+
+
+def test_attr_between_open_lower_bound() -> None:
+    matcher = AttrBetweenMatcher("duration_sec", max=1800.0)
+    assert matcher.matches(FileCandidate(filename="x.avi", duration_sec=10.0)) is True
+    assert matcher.matches(FileCandidate(filename="x.avi", duration_sec=2000.0)) is False
+
+
+def test_attr_between_open_upper_bound() -> None:
+    matcher = AttrBetweenMatcher("bitrate_kbps", min=500.0)
+    assert matcher.matches(FileCandidate(filename="x.avi", bitrate_kbps=900.0)) is True
+    assert matcher.matches(FileCandidate(filename="x.avi", bitrate_kbps=100.0)) is False
+
+
+def test_attr_between_no_bounds_accepts_any_present_value() -> None:
+    matcher = AttrBetweenMatcher("size_mb")
+    assert matcher.matches(FileCandidate(filename="x.avi", size_mb=1.0)) is True
