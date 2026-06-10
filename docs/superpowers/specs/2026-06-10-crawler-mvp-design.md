@@ -16,12 +16,12 @@
 
 **Hors-scope (sous-projets ultérieurs) :** outil d'export/fusion multi-chercheurs ; hub central (option C : push, identités de bots) ; **vérification de contenu réelle** (ffprobe/type-sniff/ClamAV) — **NO-OP en MVP** ; durcissement gVisor/nsjail (opt-in Linux) ; UI web d'admin (déprioritisée) ; politique de rétention/compaction (défaut : tout garder) ; autres lost media que Keroro.
 
-## 3. Modes de déploiement (même image, un flag)
+## 3. Modes de déploiement (deux conteneurs indépendants)
 
 | | **Observer** (défaut, distribution) | **Full** (homelab Linux) |
 |---|---|---|
 | Recherche + catalogue + notif (avec **lien ed2k**) | ✅ | ✅ |
-| Auto-download | ❌ | ✅ (`download.enabled`) |
+| Auto-download | ❌ | ✅ (déclenché par `VERIFIER_URL`) |
 | Contenu hostile sur disque | aucun | oui → confinement |
 | Sandbox de contenu / vérif | sans objet (amuled reste durci) | confinement (MVP) + vérif (NO-OP) |
 | High ID / NAT-PMP | non requis | oui (via gluetun) |
@@ -29,6 +29,12 @@
 
 - **Observer** : portable (Docker Desktop/Windows), onboarding trivial pour les chercheurs Discord (`docker compose up -d`, VPN optionnel, pas de port-forward). Sert le « filet large ».
 - **Full** : le download (risqué/peu portable) se concentre sur les nœuds capables et de confiance.
+
+**Exactement deux modes** (pas d'entre-deux « download sans verifier ») :
+- **Observer** = conteneur **crawler** seul (catalogue uniquement).
+- **Full** = conteneur **crawler** + conteneur **verifier**, **deux conteneurs indépendants** reliés par RPC (§10.5).
+
+**Activation du mode full** : par la **présence de l'adresse du verifier** dans la config du crawler (env **`VERIFIER_URL`**). Défini ⇒ full (download activé) ; absent ⇒ observer. Propriété recherchée : **on ne peut pas activer le download sans déclarer le verifier** (la brique de confinement est l'interrupteur de la capacité risquée). **Fail-fast** : si `VERIFIER_URL` est défini mais le verifier est **injoignable au démarrage** (health-check), le crawler **refuse de démarrer en full** plutôt que de télécharger sans vérif.
 
 ## 4. Architecture — vue d'ensemble
 
@@ -263,9 +269,11 @@ Remplace le « busy » : à la complétion, **enfiler** une tâche ; un **pool d
 - Projet existant : <https://github.com/GeoffreyCoulaud/glueforward> (Python, AGPL-3.0). Il interroge l'**API control de gluetun** (`GLUETUN_URL`, `GLUETUN_API_KEY`) pour le port forwarded et l'applique à un service cible (abstraction `SERVICE_TYPE`, actuellement qBittorrent). **C'est gluetun, pas glueforward, qui fait le NAT-PMP.**
 - **On contribue un service `amule`** : il applique le port à aMule en **TCP et UDP au même numéro** (via EC si le réglage du port d'écoute y est supporté, sinon écriture d'`amule.conf` + reload/restart d'amuled). Config par variables d'env, comme les autres services.
 
-### 15.3 Outils opérationnels (ergonomie non-dev)
-- **Fusion** : conçue pour être **triviale et utilisable par un non-dev** — une commande (ex. `docker compose run --rm merge <autres catalog.db…>`), **idempotente** (UNION par clés de contenu, cf. §11). *(Le moteur de fusion complet est un sous-projet ultérieur, mais l'ergonomie est un objectif de conception dès maintenant — la propreté append-only/adressée-contenu existe pour ça.)*
-- **`rebuild-local`** : re-dérive `local.db` depuis `catalog.db` + la file réelle d'aMule (réconciliation EC) en **une commande**.
+### 15.3 Outils opérationnels (commandes de l'image crawler)
+Ces outils sont des **sous-commandes livrées dans l'image Docker du crawler**, invocables via `docker run …` (CLI `emule-indexer <sous-commande>`, le daemon de crawl étant la commande par défaut) — donc accessibles aux chercheurs sans environnement de dev :
+- **`merge`** : fusion de catalogues, **triviale et utilisable par un non-dev** — `docker run --rm -v …:/data <crawler-image> merge <autres catalog.db…>`, **idempotente** (UNION par clés de contenu, cf. §11). *(Le moteur de fusion complet est un sous-projet ultérieur ; l'ergonomie « une commande » est un objectif dès maintenant — la propreté append-only/adressée-contenu existe pour ça.)*
+- **`rebuild-local`** : `docker run … <crawler-image> rebuild-local` → re-dérive `local.db` depuis `catalog.db` + la file réelle d'aMule (réconciliation EC).
+- **`validate-config`** : valide `targets.yaml` + tokens/règles (DAG, enum, RE2, schéma) sans rien lancer — utile en CI pour les PR de règles communautaires.
 
 ## 16. Stratégie de tests — TDD
 
