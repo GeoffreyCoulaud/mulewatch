@@ -5,6 +5,7 @@ description = "Surveillance eMule pour retrouver le lost media Keroro VF"
 requires-python = ">=3.12"
 dependencies = [
     "google-re2>=1.1.20251105",
+    "pyyaml>=6.0.3",
     "rapidfuzz>=3.14.5",
 ]
 
@@ -14,6 +15,7 @@ dev = [
   "pytest-cov>=5",
   "mypy>=1.10",
   "ruff>=0.5",
+  "types-pyyaml>=6.0.12.20260518",
 ]
 
 [build-system]
