@@ -1,0 +1,15 @@
+# Config matcher canonique (cf. spec §8.3). Sert le corpus golden bout-en-bout.
+tokens:
+  keroro:       { keyword: keroro }
+  titar:        { keyword: titar }
+  keroro_titar: { any: [keroro, titar] }
+  teletoon:     { regex: "t[eé]l[eé]toon" }
+  segment_id:   { regex: "n[°o]?\\s*0*{number}\\s*{segment}" }
+  air_date:     { regex: "{date_alt}" }
+  title_hit:    { coverage: title, min: 0.6 }
+  is_video:     { regex: "\\.(avi|mkv|mp4|mpg|ogm)$" }
+rules:
+  - { name: id_segment_exact,    tier: download, all: [is_video, segment_id, keroro] }
+  - { name: date_teletoon_titre, tier: download, all: [air_date, teletoon, { token: title_hit, min: 0.4 }] }
+  - { name: numero_titre,        tier: notify,   all: [segment_id, { token: title_hit, min: 0.5 }] }
+  - { name: keroro_large,        tier: catalog,  any: [keroro_titar] }
