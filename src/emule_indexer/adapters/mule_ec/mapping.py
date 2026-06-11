@@ -8,12 +8,15 @@ Tolérance aux inconnus : un tag inconnu n'est JAMAIS une erreur ; seule une ent
 hash/nom/taille exploitables est écartée — et COMPTÉE, jamais fatale au lot (spec §6).
 """
 
+from typing import Final
+
 from emule_indexer.adapters.mule_ec import codes
 from emule_indexer.adapters.mule_ec.codec import INT_WIDTHS, EcTag
 from emule_indexer.adapters.mule_ec.errors import EcProtocolError
 from emule_indexer.domain.observation import FileObservation
 
-# Tags d'entrée mappés vers des champs structurés (donc EXCLUS de raw_meta).
+# Tags d'entrée mappés vers des champs structurés (donc EXCLUS de raw_meta — la PREMIÈRE
+# occurrence seulement, celle que ``find()`` lit ; un doublon hostile tombe dans raw_meta).
 _MAPPED_CHILD_TAGS = frozenset(
     {
         codes.EC_TAG_PARTFILE_NAME,
@@ -23,6 +26,11 @@ _MAPPED_CHILD_TAGS = frozenset(
         codes.EC_TAG_PARTFILE_SOURCE_COUNT_XFER,
     }
 )
+
+# Tags écartés de TOUTE sortie (réf. §9 piège 13) : EC_TAG_SEARCH_PARENT pointe l'ECID
+# d'une AUTRE entrée — identifiant de SESSION volatil, comme l'ECID propre de l'entrée ;
+# le persister casserait la dédup inter-sessions du plan A.
+_DISCARDED_CHILD_TAGS: Final[frozenset[int]] = frozenset({codes.EC_TAG_SEARCH_PARENT})
 
 
 def map_search_results(
@@ -80,21 +88,46 @@ def _hash_hex(tag: EcTag) -> str:
 
 
 def _optional_int(entry: EcTag, name: int) -> int:
-    """Entier optionnel d'une entrée : absence = 0 (réf. §3 : absence = valeur nulle)."""
+    """Entier optionnel d'une entrée : absence = 0 (réf. §3 : absence = valeur nulle).
+
+    Présent-mais-malformé = absent = 0 : un compteur pourri ne coûte JAMAIS l'observation
+    (seuls hash/nom/taille sont éliminatoires). Les octets malformés ne sont délibérément
+    pas ressuscités dans raw_meta (simplicité ; le hash identifie le fichier).
+    """
     tag = entry.find(name)
     if tag is None:
         return 0
-    return tag.int_value()
+    try:
+        return tag.int_value()
+    except EcProtocolError:
+        return 0
 
 
 def _raw_meta(entry: EcTag) -> tuple[tuple[str, str], ...]:
-    """Capture-all (DÉCISION 7) : tout tag non mappé → ``("0xNNNN", valeur_rendue)``."""
+    """Capture-all (DÉCISION 7) : tout tag non mappé → ``("0xNNNN", valeur_rendue)``.
+
+    Seule la PREMIÈRE occurrence d'un nom mappé est consommée (celle que ``find()`` lit) ;
+    un doublon hostile reste visible dans raw_meta. Chaque sous-arbre non mappé est
+    parcouru en ENTIER (profondeur d'abord, ordre wire) : aucun petit-fils n'est perdu.
+    """
     collected: list[tuple[str, str]] = []
+    consumed: set[int] = set()
     for child in entry.children:
-        if child.name in _MAPPED_CHILD_TAGS:
+        if child.name in _MAPPED_CHILD_TAGS and child.name not in consumed:
+            consumed.add(child.name)
             continue
-        collected.append((f"0x{child.name:04X}", _render_value(child)))
+        _collect_subtree(child, collected)
     return tuple(collected)
+
+
+def _collect_subtree(tag: EcTag, collected: list[tuple[str, str]]) -> None:
+    """Un nœud non mappé → sa paire, puis ses enfants récursivement (profondeur bornée
+    en amont par le codec, _MAX_TAG_DEPTH). Les tags écartés (piège 13) ne sortent JAMAIS."""
+    if tag.name in _DISCARDED_CHILD_TAGS:
+        return
+    collected.append((f"0x{tag.name:04X}", _render_value(tag)))
+    for child in tag.children:
+        _collect_subtree(child, collected)
 
 
 def _render_value(tag: EcTag) -> str:
