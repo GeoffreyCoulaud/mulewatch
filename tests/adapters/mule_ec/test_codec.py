@@ -25,6 +25,17 @@ def test_uint_tag_encodes_shortest_width_like_amule_initint() -> None:
         0x0001, codes.EC_TAGTYPE_UINT64, b"\x6b\x5e\x8d\x3a\x12\xf0\xc4\xd7"
     )
     assert uint_tag(0x0001, 0) == EcTag(0x0001, codes.EC_TAGTYPE_UINT8, b"\x00")
+    # Bornes exactes de transition de largeur (régression interop : sel d'auth tronqué sinon).
+    assert uint_tag(0x0001, 0xFF) == EcTag(0x0001, codes.EC_TAGTYPE_UINT8, b"\xff")
+    assert uint_tag(0x0001, 0x100) == EcTag(0x0001, codes.EC_TAGTYPE_UINT16, b"\x01\x00")
+    assert uint_tag(0x0001, 0xFFFF) == EcTag(0x0001, codes.EC_TAGTYPE_UINT16, b"\xff\xff")
+    assert uint_tag(0x0001, 0x10000) == EcTag(0x0001, codes.EC_TAGTYPE_UINT32, b"\x00\x01\x00\x00")
+    assert uint_tag(0x0001, 0xFFFFFFFF) == EcTag(
+        0x0001, codes.EC_TAGTYPE_UINT32, b"\xff\xff\xff\xff"
+    )
+    assert uint_tag(0x0001, 0x100000000) == EcTag(
+        0x0001, codes.EC_TAGTYPE_UINT64, b"\x00\x00\x00\x01\x00\x00\x00\x00"
+    )
 
 
 def test_uint_tag_rejects_negative_and_oversized_values() -> None:
@@ -114,6 +125,11 @@ def test_find_returns_first_child_by_logical_name_or_none() -> None:
     parent = EcTag(0x0700, codes.EC_TAGTYPE_UINT8, b"\x01", (child_a, child_b))
     assert parent.find(0x030D) is child_b
     assert parent.find(0x9999) is None
+    # Doublons : le PREMIER gagne (sémantique documentée, le décodeur s'y fiera).
+    dup_a = uint_tag(0x030A, 1)
+    dup_b = uint_tag(0x030A, 2)
+    parent_dup = EcTag(0x0700, codes.EC_TAGTYPE_UINT8, b"\x01", (dup_a, dup_b))
+    assert parent_dup.find(0x030A) is dup_a
 
 
 def test_packet_find_returns_first_top_level_tag_or_none() -> None:
@@ -122,3 +138,7 @@ def test_packet_find_returns_first_top_level_tag_or_none() -> None:
     assert packet.find(codes.EC_TAG_STRING) is tag
     assert packet.find(codes.EC_TAG_CONNSTATE) is None
     assert EcPacket(codes.EC_OP_NOOP).tags == ()
+    # Doublons au premier niveau : le PREMIER gagne.
+    dup_a = string_tag(codes.EC_TAG_STRING, "premier")
+    dup_b = string_tag(codes.EC_TAG_STRING, "second")
+    assert EcPacket(codes.EC_OP_STRINGS, (dup_a, dup_b)).find(codes.EC_TAG_STRING) is dup_a
