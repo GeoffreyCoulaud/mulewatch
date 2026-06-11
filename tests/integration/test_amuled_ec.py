@@ -11,7 +11,7 @@ from collections.abc import Iterator
 
 import pytest
 from testcontainers.core.container import DockerContainer
-from testcontainers.core.waiting_utils import wait_for_logs
+from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
 from emule_indexer.adapters.mule_ec.client import AmuleEcClient
 from emule_indexer.adapters.mule_ec.errors import EcAuthError, EcFailureError
@@ -25,15 +25,21 @@ _IMAGE = "ngosang/amule:3.0.0-1"  # DÉCISION 10 : image Docker Hub du dépôt n
 
 @pytest.fixture(scope="module")
 def amuled() -> Iterator[tuple[str, int]]:
-    container = DockerContainer(_IMAGE).with_env("GUI_PWD", _EC_PASSWORD).with_exposed_ports(4712)
-    container.start()
+    # Readiness (réf. §8) : « *** TCP socket (ECServer) listening on 0.0.0.0:4712 »
+    # (ExternalConn.cpp:333). Motif regex SANS les parenthèses littérales. La stratégie
+    # détecte aussi un conteneur mort avant la ligne attendue (RuntimeError immédiate).
+    ready = LogMessageWaitStrategy(r"listening on 0\.0\.0\.0:4712").with_startup_timeout(180)
+    container = (
+        DockerContainer(_IMAGE)
+        .with_env("GUI_PWD", _EC_PASSWORD)
+        .with_exposed_ports(4712)
+        .waiting_for(ready)
+    )
     try:
-        # Readiness (réf. §8) : « *** TCP socket (ECServer) listening on 0.0.0.0:4712 »
-        # (ExternalConn.cpp:333). Motif regex SANS les parenthèses littérales.
-        wait_for_logs(container, r"listening on 0\.0\.0\.0:4712", timeout=180)
+        container.start()  # la readiness est attendue PENDANT start() (stratégie ci-dessus)
         yield container.get_container_host_ip(), int(container.get_exposed_port(4712))
     finally:
-        container.stop()
+        container.stop()  # no-op sûr si le conteneur n'a jamais été créé
 
 
 @pytest.mark.asyncio
