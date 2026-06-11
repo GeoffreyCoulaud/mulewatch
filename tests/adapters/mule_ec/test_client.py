@@ -356,6 +356,24 @@ async def test_request_timeout_invalidates_the_transport() -> None:
         await client.close()  # toujours idempotent après invalidation
 
 
+@pytest.mark.asyncio
+async def test_protocol_error_from_receive_packet_invalidates_the_transport() -> None:
+    # Réf. : flux potentiellement désynchronisé après une trame illisible (en-tête avec
+    # flags inconnus → decode_header lève EcProtocolError AVANT d'avoir lu le payload).
+    # Le client doit JETER le transport et signaler proprement — l'appel suivant doit
+    # échouer avec EcConnectError("non connecté"), pas tenter de lire une trame périmée.
+    bad_flags_frame = (0xFF000000).to_bytes(4, "big") + (3).to_bytes(4, "big") + b"\x01\x00\x00"
+    async with FakeEcServer(_auth_replies(1) + [bad_flags_frame]) as server:
+        client = AmuleEcClient("127.0.0.1", server.port, _PASSWORD, timeout=2.0)
+        await client.connect()
+        with pytest.raises(EcProtocolError):
+            await client.stop_search()
+        # Transport invalidé : l'appel suivant ne tente PAS de relire le flux désynchronisé.
+        with pytest.raises(EcConnectError, match="non connecté"):
+            await client.stop_search()
+        await client.close()
+
+
 # ---------------------------------------------------------------- statut réseau
 
 

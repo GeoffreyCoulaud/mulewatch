@@ -131,7 +131,9 @@ Logs amuled :
 
 **Interprétation :** le conteneur était connecté à eD2k (LowID `169693`, serveur
 `ed2k-rust`) et Kad (firewalled). L'authentification a réussi (`Access granted.`) —
-deux connexions : une pour `network_status()`, une pour le cycle recherche. La recherche
+deux lignes `Access granted.` correspondant à deux runs `ec_probe` successifs (~9 s
+d'écart), chacun faisant UNE connexion pour l'ensemble du cycle (`network_status()`
+puis la recherche). La recherche
 `keroro` (canal `global`) a abouti proprement (`progression 100%`) mais sans résultats :
 le réseau eD2k du conteneur éphémère ne disposait pas d'index de recherche (LowID +
 environnement réseau contraint). **C'est le résultat attendu et valide** pour ce contexte

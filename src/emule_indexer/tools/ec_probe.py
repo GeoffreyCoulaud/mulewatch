@@ -13,6 +13,7 @@ contre le homelab.
 
 import argparse
 import asyncio
+import contextlib
 import math
 import os
 import sys
@@ -118,7 +119,11 @@ async def search_and_wait(
             if round_index < rounds - 1:
                 await sleep(interval)
     finally:
-        await client.stop_search()
+        # Le diagnostic d'origine prime : si fetch_results/search_progress a échoué
+        # (ex. EcTimeoutError → transport invalidé), stop_search() lèverait EcConnectError
+        # qui remplacerait l'exception d'origine. Un stop_search() impossible n'apporte rien.
+        with contextlib.suppress(EcError):
+            await client.stop_search()
     return results
 
 

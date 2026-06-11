@@ -1,7 +1,13 @@
 import pytest
 
 from emule_indexer.adapters.mule_ec.client import AmuleEcClient
-from emule_indexer.adapters.mule_ec.errors import EcAuthError, EcError, EcFailureError
+from emule_indexer.adapters.mule_ec.errors import (
+    EcAuthError,
+    EcConnectError,
+    EcError,
+    EcFailureError,
+    EcTimeoutError,
+)
 from emule_indexer.domain.observation import FileObservation
 from emule_indexer.ports.mule_client import KadStatus, NetworkStatus, SearchChannel
 from emule_indexer.tools.ec_probe import (
@@ -42,6 +48,7 @@ class FakeMuleClient:
         progresses: list[int | None],
         connect_error: EcError | None = None,
         fetch_error: BaseException | None = None,
+        stop_error: BaseException | None = None,
     ) -> None:
         self.calls: list[str] = []
         self._status = status
@@ -49,6 +56,7 @@ class FakeMuleClient:
         self._progresses = progresses
         self._connect_error = connect_error
         self._fetch_error = fetch_error
+        self._stop_error = stop_error
 
     async def connect(self) -> None:
         self.calls.append("connect")
@@ -69,6 +77,8 @@ class FakeMuleClient:
 
     async def stop_search(self) -> None:
         self.calls.append("stop")
+        if self._stop_error is not None:
+            raise self._stop_error
 
     async def search_progress(self) -> int | None:
         self.calls.append("progress")
@@ -262,6 +272,29 @@ async def test_search_and_wait_stops_search_even_when_fetch_raises() -> None:
             client, "keroro", SearchChannel.GLOBAL, timeout=10.0, interval=5.0, sleep=_instant_sleep
         )
     assert "stop" in client.calls  # stop_search() TOUJOURS appelé (finally)
+
+
+@pytest.mark.asyncio
+async def test_search_and_wait_propagates_original_error_when_stop_search_also_fails() -> None:
+    # Diagnostic d'origine prime : si fetch_results échoue (ex. EcTimeoutError → transport
+    # invalidé), le finally tente stop_search() qui lève EcConnectError — cette seconde
+    # erreur NE DOIT PAS remplacer l'exception d'origine (le diagnostic montré à l'utilisateur
+    # serait faux). Le stop_search() impossible n'apporte rien : contextlib.suppress(EcError).
+    async def _instant_sleep(delay: float) -> None:
+        pass  # jamais atteint
+
+    client = FakeMuleClient(
+        status=_STATUS_OFF,
+        batches=[()],
+        progresses=[None],
+        fetch_error=EcTimeoutError("délai dépassé"),
+        stop_error=EcConnectError("non connecté"),
+    )
+    with pytest.raises(EcTimeoutError):
+        await search_and_wait(
+            client, "keroro", SearchChannel.GLOBAL, timeout=10.0, interval=5.0, sleep=_instant_sleep
+        )
+    assert "stop" in client.calls  # stop_search() toujours tenté
 
 
 # ---------------------------------------------------------------- fabrique réelle

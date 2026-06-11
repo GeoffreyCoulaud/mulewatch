@@ -195,12 +195,19 @@ class AmuleEcClient:
         Sur ``EcTimeoutError``/``EcConnectError``, le flux peut être désynchronisé
         (contrat du transport) : le transport est JETÉ (fermeture best-effort) avant de
         re-signaler — l'appel SUIVANT échoue vite et proprement avec « non connecté ».
+
+        ``EcProtocolError`` levée PAR ``transport.receive_packet()`` (header ou payload
+        illisible, avant qu'une trame complète ait été consommée) désynchronise également
+        le flux : les 8 octets de l'en-tête ont été lus, le payload non. La même politique
+        s'applique : transport JETÉ, re-raise. En revanche, un ``EcProtocolError`` levé par
+        les vérifications de l'opcode/des tags CI-DESSOUS (trame complète déjà reçue) ne
+        désynchronise pas le flux — seul le bloc try/except couvre la différence.
         """
         transport = self._require_transport()
         try:
             await transport.send_packet(packet)
             reply = await transport.receive_packet()
-        except (EcTimeoutError, EcConnectError):
+        except (EcTimeoutError, EcConnectError, EcProtocolError):
             await self.close()
             raise
         if reply.opcode == codes.EC_OP_FAILED:
