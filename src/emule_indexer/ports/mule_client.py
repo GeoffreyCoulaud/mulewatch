@@ -3,6 +3,12 @@
 Le port n'importe QUE le domaine. Les stubs du Protocol tiennent sur UNE ligne (le ``def``
 s'exécute à la création de la classe : couvert). La convenance ``search_and_wait`` (poll +
 timeout) vit dans l'outil probe, PAS ici : le polling appartient à l'appelant (spec §3).
+
+Le port déclare aussi le CONTRAT d'ERREUR du client (spec orchestration §7, « le client
+signale, le plan C décide ») : ``MuleUnreachableError`` (flux mort → reconnexion par
+l'appelant) vs ``MuleSearchFailedError`` (échec applicatif d'un canal → backoff). L'adapter
+EC fait inhériter ses ``EcError`` de ces classes (dépendance adapter→port, licite), de
+sorte que l'APPLICATION ne dépende JAMAIS d'un adapter (règle de dépendance §4).
 """
 
 from dataclasses import dataclass
@@ -10,6 +16,18 @@ from enum import StrEnum
 from typing import Protocol
 
 from emule_indexer.domain.observation import FileObservation
+
+
+class MuleClientError(Exception):
+    """Base du contrat d'erreur du client eMule (spec orchestration §7)."""
+
+
+class MuleUnreachableError(MuleClientError):
+    """Le daemon est injoignable ou le flux est mort → reconnexion par l'appelant (§7)."""
+
+
+class MuleSearchFailedError(MuleClientError):
+    """Échec applicatif d'une recherche signalé par le daemon → backoff de canal (§7)."""
 
 
 class SearchChannel(StrEnum):
