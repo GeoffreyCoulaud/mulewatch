@@ -94,11 +94,17 @@ class SqliteLocalStateRepository:
             if row is not None:
                 return str(row[0])
             generated = str(uuid.uuid4())
+            # Stamp calculé AVANT le BEGIN (même hygiène que claim_verification) : une
+            # horloge boguée ne doit pas lever en pleine transaction.
+            created_at = utc_iso(self._clock())
             self._connection.execute("BEGIN IMMEDIATE")
             try:
-                self._connection.execute(_INSERT_NODE_IDENTITY, (generated, utc_iso(self._clock())))
+                self._connection.execute(_INSERT_NODE_IDENTITY, (generated, created_at))
                 self._connection.execute("COMMIT")
-            except sqlite3.Error:
+            except BaseException:
+                # Rollback sur BaseException (même discipline que catalog_repository) :
+                # une panne NON-sqlite ne doit pas laisser la connexion in_transaction —
+                # sinon le repository serait définitivement cassé.
                 with suppress(sqlite3.Error):
                     self._connection.execute("ROLLBACK")
                 raise

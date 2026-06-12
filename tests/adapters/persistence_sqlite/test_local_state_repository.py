@@ -78,6 +78,21 @@ def test_node_id_creation_failure_is_wrapped_and_rolled_back(
     assert connection.execute(_NODE_ID_QUERY).fetchone() is None
 
 
+def test_node_id_clock_failure_does_not_wedge_the_connection(
+    connection: sqlite3.Connection, clock: _FakeClock
+) -> None:
+    # Horloge BOGUÉE (naïve) : utc_iso lève ValueError — une panne NON-sqlite ne doit
+    # JAMAIS laisser la connexion in_transaction (sinon tout appel suivant meurt avec
+    # « cannot start a transaction within a transaction », diagnostic trompeur).
+    broken = SqliteLocalStateRepository(connection, clock=lambda: datetime(2026, 6, 11, 12, 0, 0))
+    with pytest.raises(ValueError, match="aware"):
+        broken.node_id()
+    assert connection.in_transaction is False  # connexion saine, pas de transaction zombie
+    assert connection.execute(_NODE_ID_QUERY).fetchone() is None  # rien d'à moitié écrit
+    healthy = SqliteLocalStateRepository(connection, clock=clock)
+    assert uuid.UUID(healthy.node_id())  # la MÊME connexion reste pleinement utilisable
+
+
 # --- enqueue idempotent (spec §6 : l'index UNIQUE partiel absorbe le doublon actif) ----
 
 
