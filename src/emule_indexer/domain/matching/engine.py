@@ -51,6 +51,33 @@ class MatchDecision:
     explanation: Explanation
 
 
+@dataclass(frozen=True)
+class DecisionRecord:
+    """Les 3 colonnes COMPARABLES d'une décision persistée, sans l'explicabilité runtime.
+
+    C'est exactement ce que ``match_decisions`` stocke (§11) — ``target_id``/``rule_name``/
+    ``tier`` — relu pour l'anti-redondance (spec orchestration §3 : ne ré-``record_decision``
+    que si le verdict CHANGE). Volontairement distinct de :class:`MatchDecision` : la lecture
+    ne peut pas reconstruire l'``explanation`` (non persistée), et deux ``DecisionRecord``
+    s'égalent ssi leurs trois champs s'égalent (dataclass gelé → ``==`` champ par champ).
+    """
+
+    target_id: str
+    rule_name: str
+    tier: str
+
+
+def to_record(decision: MatchDecision) -> DecisionRecord:
+    """Projette une :class:`MatchDecision` (qui vient de tomber) sur sa forme comparable.
+
+    Permet à l'application de comparer le verdict FRAIS au dernier ``DecisionRecord`` connu
+    sans manipuler l'``explanation`` (spec orchestration §3, anti-redondance).
+    """
+    return DecisionRecord(
+        target_id=decision.target_id, rule_name=decision.rule_name, tier=decision.tier
+    )
+
+
 # Rang des paliers (cf. spec §8.5 : « palier le plus haut, download>notify>catalog »).
 # Entier croissant = palier plus haut. `TIERS` (config) donne l'ensemble LICITE ; ce
 # rang donne l'ORDRE de décision. Un test vérifie set(_TIER_RANK) == TIERS.
