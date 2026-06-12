@@ -49,10 +49,11 @@ module = "testcontainers.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-addopts = '--cov=emule_indexer --cov-report=term-missing --cov-fail-under=100 --strict-markers -m "not ec_integration"'
+addopts = '--cov=emule_indexer --cov-report=term-missing --cov-fail-under=100 --strict-markers -m "not ec_integration and not orchestration_integration"'
 testpaths = ["tests"]
 markers = [
     "ec_integration: tests d'intégration contre un amuled réel (Docker requis) — déselectionnés par défaut ; run dédié : uv run pytest -m ec_integration --no-cov",
+    "orchestration_integration: boucle de crawl réelle contre un amuled testcontainers (Docker requis) — déselectionnés par défaut ; run dédié : uv run pytest -m orchestration_integration --no-cov",
 ]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
