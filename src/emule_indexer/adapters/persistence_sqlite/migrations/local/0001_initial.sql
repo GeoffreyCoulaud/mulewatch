@@ -21,6 +21,12 @@ CREATE UNIQUE INDEX idx_verification_tasks_active_hash
 ON verification_tasks (ed2k_hash)
 WHERE status IN ('pending', 'in_progress');
 
+-- Le scan du claim (plus ancienne tâche pending) doit coûter selon la profondeur
+-- ACTIVE de la file, pas selon l'historique all-time.
+CREATE INDEX idx_verification_tasks_pending
+ON verification_tasks (enqueued_at)
+WHERE status = 'pending';
+
 CREATE TABLE downloads (
     ed2k_hash TEXT PRIMARY KEY,
     target_id TEXT NOT NULL,

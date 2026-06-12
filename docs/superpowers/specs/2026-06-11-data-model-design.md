@@ -62,7 +62,9 @@ fusionnables entre chercheurs.
 - **Append-only IMPOSÉ PAR LA BASE** : triggers SQLite `BEFORE UPDATE`/`BEFORE DELETE`
   → `RAISE(ABORT, …)` sur toutes les tables de `catalog.db`, posés par la migration
   initiale. Propriété de la base, pas convention de code — tient face à un outil tiers.
-- **PRAGMA d'ouverture** (chaque connexion) : `journal_mode=WAL`, `foreign_keys=ON`.
+- **PRAGMA d'ouverture** (chaque connexion) : `journal_mode=WAL`, `foreign_keys=ON`,
+  `recursive_triggers=ON` (sans quoi `INSERT OR REPLACE` traverse les triggers
+  append-only).
 - **Writer unique = le crawler** (invariant MVP §11) — le code ne le vérifie pas, le
   déploiement le garantit ; `BEGIN IMMEDIATE` au claim par défense en profondeur.
 
@@ -151,6 +153,10 @@ file_verifications(id INTEGER PRIMARY KEY,
 
 -- Sur CHAQUE table ci-dessus : triggers BEFORE UPDATE et BEFORE DELETE → RAISE(ABORT).
 ```
+
+La clé de fusion est verrouillée par la base : `files` porte un
+`CHECK (LENGTH(ed2k_hash) = 32 AND ed2k_hash NOT GLOB '*[^0-9a-f]*')` (canon hex
+minuscule 32 — les FK propagent le canon aux tables filles par égalité textuelle).
 
 **Déviations assumées vs §11 du spec MVP** (toutes deux éclairées par v0.5.0) :
 1. **`file_observations.size_bytes` ajouté** (le §11 ne met la taille que dans `files`).

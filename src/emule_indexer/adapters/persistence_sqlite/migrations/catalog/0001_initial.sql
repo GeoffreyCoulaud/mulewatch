@@ -1,12 +1,16 @@
 -- catalog.db — migration 0001 : schéma complet (spec data-model §5 ; spec MVP §11).
 -- Append-only IMPOSÉ PAR LA BASE : triggers BEFORE UPDATE / BEFORE DELETE sur CHAQUE
--- table → RAISE(ABORT). Clé contenu = hash eD2k (hex minuscule 32, canon v0.5.0).
+-- table → RAISE(ABORT). Tient contre UPDATE/DELETE/UPSERT dans tous les cas ; contre
+-- INSERT OR REPLACE seulement si la connexion pose PRAGMA recursive_triggers=ON (nos
+-- connexions le font ; un outil tiers sur PRAGMA par défaut peut passer outre, comme
+-- il peut DROP TRIGGER). Clé contenu = hash eD2k (hex minuscule 32, canon v0.5.0).
 -- Timestamps ISO-8601 UTC en TEXT ; raw_meta = JSON liste de paires (ordre + doublons).
 
 CREATE TABLE files (
     ed2k_hash TEXT PRIMARY KEY,
     size_bytes INTEGER NOT NULL,
-    aich_hash TEXT
+    aich_hash TEXT,
+    CHECK (LENGTH(ed2k_hash) = 32 AND ed2k_hash NOT GLOB '*[^0-9a-f]*')
 );
 
 CREATE TABLE file_observations (
@@ -46,7 +50,7 @@ CREATE TABLE source_observations (
     client_version TEXT,
     country TEXT,
     id_type TEXT,
-    has_complete_file INTEGER,
+    has_complete_file INTEGER CHECK (has_complete_file IN (0, 1)),
     origin TEXT,
     raw_meta TEXT NOT NULL,
     observed_at TEXT NOT NULL,
@@ -77,6 +81,10 @@ CREATE TABLE file_verifications (
     verified_at TEXT NOT NULL,
     node_id TEXT NOT NULL
 );
+
+-- ATTENTION migrations futures : une migration de type rebuild (CREATE nouvelle table /
+-- INSERT … SELECT / DROP / ALTER … RENAME) supprime les triggers AVEC l'ancienne table —
+-- toute migration de ce type DOIT les recréer (rien n'échouera bruyamment sinon).
 
 CREATE TRIGGER files_no_update
 BEFORE UPDATE ON files
