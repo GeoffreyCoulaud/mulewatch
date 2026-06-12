@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from emule_indexer.adapters.persistence_sqlite import connection as connection_module
 from emule_indexer.adapters.persistence_sqlite.connection import (
     _apply_migrations,
     _load_scripts,
@@ -189,3 +190,78 @@ def test_insert_or_replace_on_existing_hash_raises_integrity_error(tmp_path: Pat
             )
     finally:
         connection.close()
+
+
+# --- Hardening (revue adversariale post-6c389b1) ---
+
+
+def test_load_scripts_rejects_duplicate_version_numbers(tmp_path: Path) -> None:
+    (tmp_path / "0001_a.sql").write_text("A", encoding="utf-8")
+    (tmp_path / "0001_b.sql").write_text("B", encoding="utf-8")
+    with pytest.raises(MigrationError, match="croissantes"):
+        _load_scripts(tmp_path)
+
+
+def test_load_scripts_rejects_non_padded_prefixes_that_misorder(tmp_path: Path) -> None:
+    # Tri lexicographique : "10_b.sql" < "2_a.sql" -> versions (10, 2), non croissantes.
+    (tmp_path / "2_a.sql").write_text("A", encoding="utf-8")
+    (tmp_path / "10_b.sql").write_text("B", encoding="utf-8")
+    with pytest.raises(MigrationError, match="croissantes"):
+        _load_scripts(tmp_path)
+
+
+def test_stray_commit_in_a_script_is_detected_before_stamping(tmp_path: Path) -> None:
+    # Un COMMIT dans un script clot l'enveloppe du runner : detection AVANT le stamp,
+    # version inchangee, AUCUN etat partiel (le script-attaque ne fait que COMMIT).
+    connection = sqlite3.connect(tmp_path / "commit.db", autocommit=True)
+    try:
+        with pytest.raises(MigrationError, match="migration 2"):
+            _apply_migrations(connection, ((1, "CREATE TABLE survit (x INTEGER);"), (2, "COMMIT;")))
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert _table_names(connection) == {"survit"}
+    finally:
+        connection.close()
+
+
+def test_stray_commit_followed_by_a_failure_keeps_the_version_unstamped(tmp_path: Path) -> None:
+    # Variante d'attaque 2 : COMMIT parasite PUIS instruction qui echoue. Le travail
+    # commite par le COMMIT parasite est irrecuperable, mais la version ne DOIT PAS
+    # etre posee (sinon la migration serait marquee appliquee alors qu'elle a echoue).
+    connection = sqlite3.connect(tmp_path / "commit2.db", autocommit=True)
+    script = "CREATE TABLE t (x INTEGER);\nCOMMIT;\nINSERT INTO inexistante VALUES (1);"
+    try:
+        with pytest.raises(MigrationError, match="migration 1"):
+            _apply_migrations(connection, ((1, script),))
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+def test_open_closes_the_connection_on_a_non_persistence_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # FileNotFoundError n'est ni sqlite3.Error ni PersistenceError : elle doit se
+    # propager TELLE QUELLE, mais la connexion ne doit pas fuir (close inconditionnel).
+    captured: list[sqlite3.Connection] = []
+    real_connect = sqlite3.connect
+
+    def capturing_connect(database: str | Path, *, autocommit: bool) -> sqlite3.Connection:
+        connection = real_connect(database, autocommit=autocommit)
+        captured.append(connection)
+        return connection
+
+    def exploding_load_scripts(directory: object) -> tuple[tuple[int, str], ...]:
+        raise FileNotFoundError("repertoire de migrations disparu")
+
+    monkeypatch.setattr(sqlite3, "connect", capturing_connect)
+    monkeypatch.setattr(connection_module, "_load_scripts", exploding_load_scripts)
+    with pytest.raises(FileNotFoundError):
+        open_catalog(tmp_path / "catalog.db")
+    assert len(captured) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="[Cc]losed"):
+        captured[0].execute("SELECT 1")
+
+
+def test_utc_iso_rejects_a_naive_datetime() -> None:
+    with pytest.raises(ValueError, match="aware"):
+        utc_iso(datetime(2026, 6, 11, 14, 0, 0))

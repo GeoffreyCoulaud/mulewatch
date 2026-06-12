@@ -26,6 +26,7 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from importlib import resources
 from importlib.resources.abc import Traversable
+from itertools import pairwise
 from pathlib import Path
 
 from emule_indexer.adapters.persistence_sqlite.errors import (
@@ -47,7 +48,10 @@ def utc_now() -> datetime:
 def utc_iso(moment: datetime) -> str:
     """ISO-8601 UTC à largeur fixe (microsecondes TOUJOURS écrites), p.ex.
     ``2026-06-11T12:00:00.000000+00:00``. ``moment`` doit être AWARE (contrat de
-    ``Clock``) ; un fuseau non-UTC est normalisé, jamais stocké tel quel."""
+    ``Clock``, IMPOSÉ : naïf → ``ValueError``) ; un fuseau non-UTC est normalisé,
+    jamais stocké tel quel."""
+    if moment.tzinfo is None:
+        raise ValueError("utc_iso exige un datetime aware (contrat de Clock)")
     return moment.astimezone(UTC).isoformat(timespec="microseconds")
 
 
@@ -68,7 +72,9 @@ def _open(path: Path | str, scripts_dir: Traversable) -> sqlite3.Connection:
         with wrap_sqlite_errors():
             _configure(connection)
             _apply_migrations(connection, _load_scripts(scripts_dir))
-    except PersistenceError:
+    except BaseException:
+        # Close inconditionnel : une erreur NON-sqlite (p.ex. OSError d'iterdir) ne doit
+        # pas faire fuir la connexion ; elle se propage ensuite telle quelle.
         connection.close()
         raise
     return connection
@@ -89,6 +95,10 @@ def _load_scripts(directory: Traversable) -> tuple[tuple[int, str], ...]:
 
     Un fichier non-``.sql`` est ignoré ; un ``.sql`` sans préfixe numérique est un BUG
     d'empaquetage → ``MigrationError`` (fail-fast, pas de migration silencieusement sautée).
+    Les versions doivent être STRICTEMENT croissantes dans l'ordre lexicographique des
+    noms : un doublon (``0001_a`` + ``0001_b``) ou un préfixe non zéro-paddé qui inverse
+    l'ordre (``10_b`` trié avant ``2_a``) → ``MigrationError`` (sinon migration sautée
+    ou rejouée en silence). Les trous (0001 puis 0003) restent permis.
     """
     scripts: list[tuple[int, str]] = []
     for entry in sorted(directory.iterdir(), key=lambda item: item.name):
@@ -98,15 +108,26 @@ def _load_scripts(directory: Traversable) -> tuple[tuple[int, str], ...]:
         if not prefix.isdigit():
             raise MigrationError(f"nom de script invalide (attendu NNNN_*.sql) : {entry.name}")
         scripts.append((int(prefix), entry.read_text(encoding="utf-8")))
+    for (left, _), (right, _) in pairwise(scripts):
+        if right <= left:
+            raise MigrationError(
+                f"versions de migration non strictement croissantes : {left} puis {right} "
+                "(préfixes NNNN uniques et zéro-paddés exigés)"
+            )
     return tuple(scripts)
 
 
 def _apply_migrations(connection: sqlite3.Connection, scripts: tuple[tuple[int, str], ...]) -> None:
     """Applique les scripts de version > ``user_version``, chacun dans SA transaction.
 
-    ``PRAGMA user_version = N`` est posé DANS la transaction du script N (le pragma est
-    transactionnel : un ROLLBACK le rend — vérifié empiriquement, SQLite 3.47.1). PRAGMA
-    n'accepte pas de paramètre lié : ``version`` vient d'``int()``, l'interpolation est sûre.
+    Enveloppe POSÉE PAR LE RUNNER, pièce par pièce : ``BEGIN`` explicite, puis
+    ``executescript(script)`` (vérifié empiriquement sous ``autocommit=True``, SQLite
+    3.47.1 : il ne commet PAS la transaction en cours), puis GARDE ``in_transaction``
+    — un script qui contient un ``COMMIT`` parasite clot l'enveloppe et serait sinon
+    stampé/commité partiellement → ``MigrationError`` AVANT le stamp — puis ``PRAGMA
+    user_version = N`` DANS la transaction (le pragma est transactionnel : un ROLLBACK
+    le rend), puis ``COMMIT``. PRAGMA n'accepte pas de paramètre lié : ``version``
+    vient d'``int()``, l'interpolation est sûre.
     """
     current = int(connection.execute("PRAGMA user_version").fetchone()[0])
     latest = scripts[-1][0] if scripts else 0
@@ -115,11 +136,21 @@ def _apply_migrations(connection: sqlite3.Connection, scripts: tuple[tuple[int, 
             f"base en version {current}, code en version {latest} : "
             "base plus récente que le code, refus de démarrer (spec §3)"
         )
+    # Course entre deux runners concurrents : le perdant échoue proprement (sqlite3.Error
+    # → MigrationError), jamais de corruption — writer unique par doctrine (spec §3).
     for version, script in scripts:
         if version <= current:
             continue
         try:
-            connection.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {version};\nCOMMIT;")
+            connection.execute("BEGIN")
+            connection.executescript(script)
+            if not connection.in_transaction:
+                raise MigrationError(
+                    f"migration {version} : le script a clos la transaction du runner "
+                    "(COMMIT/ROLLBACK interdits dans un script de migration)"
+                )
+            connection.execute(f"PRAGMA user_version = {version}")
+            connection.execute("COMMIT")
         except sqlite3.Error as error:
             with suppress(sqlite3.Error):
                 connection.execute("ROLLBACK")
