@@ -18,7 +18,10 @@ from contextlib import suppress
 from datetime import timedelta
 
 from emule_indexer.adapters.persistence_sqlite.connection import Clock, utc_iso, utc_now
-from emule_indexer.adapters.persistence_sqlite.errors import wrap_sqlite_errors
+from emule_indexer.adapters.persistence_sqlite.errors import (
+    PersistenceError,
+    wrap_sqlite_errors,
+)
 from emule_indexer.ports.local_state_repository import ClaimedTask
 
 _SELECT_NODE_ID = "SELECT value FROM node_runtime WHERE key = 'node_id'"
@@ -48,6 +51,17 @@ WHERE id = (
     LIMIT 1
 )
 RETURNING id, ed2k_hash, attempts
+"""
+
+_COMPLETE = "UPDATE verification_tasks SET status = 'done' WHERE id = ? AND status = 'in_progress'"
+
+_FAIL = """
+UPDATE verification_tasks
+SET
+    status = CASE WHEN attempts >= :max_attempts THEN 'dead_letter' ELSE 'pending' END,
+    claimed_at = NULL,
+    lease_until = NULL
+WHERE id = :task_id AND status = 'in_progress'
 """
 
 
@@ -111,3 +125,23 @@ class SqliteLocalStateRepository:
         if row is None:
             return None
         return ClaimedTask(task_id=row[0], ed2k_hash=row[1], attempts=row[2])
+
+    def complete_verification(self, task_id: int) -> None:
+        """Marque ``done`` (la ligne RESTE : historique local). Exige une tâche ``in_progress``."""
+        with wrap_sqlite_errors():
+            cursor = self._connection.execute(_COMPLETE, (task_id,))
+        if cursor.rowcount != 1:
+            raise PersistenceError(
+                f"tâche {task_id} introuvable en in_progress (bug du code appelant)"
+            )
+
+    def fail_verification(self, task_id: int) -> None:
+        """Repasse en ``pending``, sauf ``attempts >= max_attempts`` → ``dead_letter`` (§12)."""
+        with wrap_sqlite_errors():
+            cursor = self._connection.execute(
+                _FAIL, {"max_attempts": self._max_attempts, "task_id": task_id}
+            )
+        if cursor.rowcount != 1:
+            raise PersistenceError(
+                f"tâche {task_id} introuvable en in_progress (bug du code appelant)"
+            )
