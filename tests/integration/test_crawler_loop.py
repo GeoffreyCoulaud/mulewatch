@@ -20,6 +20,10 @@ from emule_indexer.adapters.config.crawler_config import BackoffConfig, CrawlerC
 from emule_indexer.adapters.config.local_config import AmuleEndpoint, LocalConfig
 from emule_indexer.adapters.config.yaml_loader import load_yaml
 from emule_indexer.adapters.decision_signal_asyncio import AsyncioDecisionSignal
+from emule_indexer.adapters.persistence_sqlite.connection import open_local
+from emule_indexer.adapters.persistence_sqlite.scheduler_state_repository import (
+    SqliteSchedulerStateRepository,
+)
 from emule_indexer.composition.app import CrawlerApp
 from emule_indexer.domain.matching.models import TargetSegment
 from emule_indexer.domain.matching.validation import parse_matcher_config
@@ -57,13 +61,20 @@ def amuled() -> Iterator[tuple[str, int]]:
         container.stop()
 
 
-class _ShutdownAfterFirstStatusClient:
-    """Enveloppe un vrai client et déclenche l'arrêt après le 1er relevé de statut (1 cycle)."""
+class _ShutdownAfterFirstCycleClient:
+    """Enveloppe un vrai client et déclenche l'arrêt au relevé de statut du 2e cycle.
+
+    On NE déclenche PAS au 1er relevé (début du 1er cycle) : l'arrêt posé pendant le coverage
+    annule le cycle en vol AVANT son ``write_cycle_state`` final, l'index n'avancerait jamais
+    (vérifié empiriquement). On laisse donc le 1er cycle COMPLÉTER (il écrit ``cycle_index=1``),
+    puis on déclenche l'arrêt au 1er relevé du 2e cycle — l'index reste à 1, preuve qu'un cycle
+    complet a bien tourné. Le ``cycle_interval`` est minuscule → le 2e cycle démarre tout de
+    suite après le 1er (le run reste borné, bien sous le ``wait_for`` de 120 s)."""
 
     def __init__(self, inner: object, app_holder: dict[str, CrawlerApp]) -> None:
         self._inner = inner
         self._app_holder = app_holder
-        self._fired = False
+        self._status_calls = 0
 
     async def connect(self) -> None:
         await self._inner.connect()  # type: ignore[attr-defined]
@@ -85,8 +96,8 @@ class _ShutdownAfterFirstStatusClient:
 
     async def network_status(self) -> NetworkStatus:
         status = await self._inner.network_status()  # type: ignore[attr-defined]
-        if not self._fired:
-            self._fired = True
+        self._status_calls += 1
+        if self._status_calls == 2:  # 1er relevé du 2e cycle (le 1er cycle a écrit son index)
             self._app_holder["app"]._on_signal()
         return status  # type: ignore[no-any-return]
 
@@ -100,9 +111,15 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_p
     host, port = amuled
     matcher_config = parse_matcher_config(load_yaml(_FIXTURES / "canonical_config.yaml"))
     crawler_config = CrawlerConfig(
-        cycle_interval_seconds=300.0,
-        search_poll_budget_seconds=10.0,
-        search_poll_interval_seconds=5.0,
+        # Intervalle minuscule : le 2e cycle démarre juste après le 1er (qui a écrit son index)
+        # → l'arrêt déclenché au coverage du 2e cycle borne le run, bien sous le wait_for 120 s.
+        cycle_interval_seconds=0.05,
+        # Budget/intervalle de polling MINUSCULES : contre un vrai amuled, search_progress des
+        # recherches Kad n'atteint pas 100 % → sans cela, CHAQUE tâche Kad brûlerait tout le
+        # budget (10 s) et le 1er cycle dépasserait le shutdown_deadline. Ici le 1er cycle
+        # complète en ~1 s → il écrit son index AVANT que l'arrêt (2e coverage) ne soit posé.
+        search_poll_budget_seconds=0.2,
+        search_poll_interval_seconds=0.05,
         keyword_pause_min_seconds=0.01,  # pauses minuscules (le test ne mesure pas le spacing)
         keyword_pause_max_seconds=0.05,
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=60.0, factor=2.0, jitter_ratio=0.3),
@@ -117,9 +134,9 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_p
     )
     app_holder: dict[str, CrawlerApp] = {}
 
-    def factory(endpoint: AmuleEndpoint) -> _ShutdownAfterFirstStatusClient:
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownAfterFirstCycleClient:
         inner = AmuleEcClient(endpoint.host, endpoint.port, endpoint.password, timeout=30.0)
-        return _ShutdownAfterFirstStatusClient(inner, app_holder)
+        return _ShutdownAfterFirstCycleClient(inner, app_holder)
 
     app = CrawlerApp(
         crawler_config=crawler_config,
@@ -133,4 +150,14 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_p
     )
     app_holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=120.0)
+    # catalog.db ET local.db existent (open_catalog/open_local les créent), MAIS surtout le
+    # cycle a COMPLÉTÉ : l'index de cycle a avancé (write_cycle_state(cycle_index+1, …) ne tourne
+    # qu'en FIN de cycle). Sans cette assertion, le test passait avant même qu'un cycle tourne.
     assert (tmp_path / "catalog.db").exists()
+    assert (tmp_path / "local.db").exists()
+    local_conn = open_local(Path(local_config.local_db_path))
+    try:
+        scheduler_state = SqliteSchedulerStateRepository(local_conn)
+        assert scheduler_state.read_cycle_index() >= 1  # un cycle complet a avancé l'index
+    finally:
+        local_conn.close()

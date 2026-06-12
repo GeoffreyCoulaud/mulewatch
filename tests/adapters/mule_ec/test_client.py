@@ -174,15 +174,18 @@ async def test_connect_refuses_empty_password_before_any_io() -> None:
 
 
 @pytest.mark.asyncio
-async def test_connect_twice_raises_and_keeps_the_first_connection_usable() -> None:
-    # Un second connect() ne doit PAS fuiter le premier transport : refus immédiat,
-    # et la première connexion reste pleinement utilisable ensuite.
+async def test_connect_twice_is_idempotent_and_keeps_the_first_connection_usable() -> None:
+    # Un second connect() est un NO-OP IDEMPOTENT : il ne refait PAS le handshake (aucun
+    # octet supplémentaire émis) et ne fuit pas le premier transport. Indispensable au pool :
+    # le composition root connecte au montage, puis le travailleur rappelle connect() dans son
+    # _ensure_connected() — ce second appel doit rester un no-op sûr (spec orchestration §3).
     stop_ok = encode_packet(EcPacket(codes.EC_OP_MISC_DATA))
+    # Le serveur ne scripte QU'UN seul handshake (+ la réponse au stop_search). Si connect()
+    # rejouait l'auth, il consommerait des octets non scriptés et lèverait → le no-op est prouvé.
     async with FakeEcServer(_auth_replies(1) + [stop_ok]) as server:
         client = AmuleEcClient("127.0.0.1", server.port, _PASSWORD, timeout=2.0)
         await client.connect()
-        with pytest.raises(EcConnectError, match="déjà connecté"):
-            await client.connect()
+        await client.connect()  # second appel : no-op idempotent (pas de re-handshake)
         await client.stop_search()  # la première connexion fonctionne toujours
         await client.close()
 

@@ -137,6 +137,17 @@ class FakeMuleClient:
         return self._status
 
 
+class UnreachableStatusClient(FakeMuleClient):
+    """Variante dont ``network_status`` lève ``MuleUnreachableError`` (instance injoignable).
+
+    Modélise le vrai adapter EC : un client non connecté lève ``EcConnectError`` (qui EST un
+    ``MuleUnreachableError``) au relevé de statut. Sert à couvrir la branche tolérante de
+    ``_aggregate_coverage`` (instance injoignable → non search-capable, pas de crash)."""
+
+    async def network_status(self) -> NetworkStatus:
+        raise MuleUnreachableError("client EC non connecté (instance injoignable)")
+
+
 def make_unreachable(message: str = "down") -> MuleUnreachableError:
     return MuleUnreachableError(message)
 

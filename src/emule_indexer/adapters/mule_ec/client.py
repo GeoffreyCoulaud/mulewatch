@@ -79,9 +79,14 @@ class AmuleEcClient:
         self.skipped_entries_total = 0
 
     async def connect(self) -> None:
-        """TCP + handshake d'auth (réf. §4). Échec → exception, SANS retry (spec §5)."""
+        """TCP + handshake d'auth (réf. §4). Échec → exception, SANS retry (spec §5).
+
+        IDEMPOTENT : un second appel sur un client DÉJÀ connecté est un no-op (pas de
+        re-handshake, transport préservé). Indispensable au pool (spec orchestration §3) : le
+        composition root connecte au montage, puis le travailleur rappelle ``connect()`` dans
+        son ``_ensure_connected()`` — ce second appel reste un no-op sûr."""
         if self._transport is not None:
-            raise EcConnectError("déjà connecté (appeler close() d'abord)")
+            return
         if not self._password:
             raise EcAuthError("mot de passe EC vide (refusé, miroir de RemoteConnect.cpp:117)")
         transport = await open_ec_transport(self._host, self._port, timeout=self._timeout)

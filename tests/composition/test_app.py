@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from emule_indexer.domain.matching.config import MatcherConfig
 from emule_indexer.domain.matching.models import TargetSegment
 from emule_indexer.domain.matching.validation import parse_matcher_config
 from emule_indexer.domain.observation import FileObservation
-from emule_indexer.ports.mule_client import NetworkStatus
+from emule_indexer.ports.mule_client import MuleUnreachableError, NetworkStatus
 from tests.application.fakes import FakeClock, FakeMuleClient, RecordingSignal
 
 _TARGETS = (
@@ -125,8 +126,127 @@ async def test_app_runs_one_cycle_then_shuts_down_cleanly(
     app_holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
     assert created and created[0].close_calls == 1  # client fermé APRÈS l'unwind
+    assert created[0].connect_calls >= 1  # connecté au montage du pool (avant le coverage)
     assert (tmp_path / "catalog.db").exists()
     assert (tmp_path / "local.db").exists()
+
+
+class _OrderRecordingClient(FakeMuleClient):
+    """Enregistre l'ORDRE des appels (connect / network_status) pour prouver le bug d'ordre.
+
+    Le bug : ``_aggregate_coverage`` relève le statut AVANT toute connexion → le 1er
+    ``network_status`` frappe un client non connecté et lève. La correction connecte au
+    montage du pool → ``connect`` PRÉCÈDE le 1er ``network_status`` sur chaque client. Un
+    seul client du pool déclenche l'arrêt (drapeau PARTAGÉ) → le run est borné à un cycle
+    sans double-signal (qui escaladerait en SystemExit)."""
+
+    def __init__(
+        self, app_holder: dict[str, CrawlerApp], events: list[str], fired: list[bool]
+    ) -> None:
+        super().__init__()
+        self._app_holder = app_holder
+        self._events = events
+        self._fired = fired  # partagé par tout le pool : un seul arrêt
+
+    async def connect(self) -> None:
+        self._events.append("connect")
+        await super().connect()
+
+    async def network_status(self) -> NetworkStatus:
+        self._events.append("status")
+        if not self._fired:
+            self._fired.append(True)
+            self._app_holder["app"]._on_signal()
+        return await super().network_status()
+
+
+@pytest.mark.asyncio
+async def test_pool_setup_connects_each_client_before_coverage(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # Le composition root CONNECTE chaque client au montage du pool, AVANT que
+    # _aggregate_coverage ne relève le statut : sinon le 1er network_status frappe un client
+    # non connecté et lève (bug d'ordre attrapé par l'e2e). On vérifie, sur CHAQUE client d'un
+    # pool multi-instances, que le 1er événement observé est un connect (et non un status).
+    created: list[_OrderRecordingClient] = []
+    events: dict[str, list[str]] = {}
+    fired: list[bool] = []  # partagé : un seul arrêt pour tout le pool
+    app_holder: dict[str, CrawlerApp] = {}
+
+    def factory(endpoint: AmuleEndpoint) -> _OrderRecordingClient:
+        log: list[str] = []
+        events[endpoint.name] = log
+        client = _OrderRecordingClient(app_holder, log, fired)
+        created.append(client)
+        return client
+
+    app = CrawlerApp(
+        crawler_config=_crawler_config(),
+        local_config=_local_config(tmp_path, count=2),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        client_factory=factory,
+    )
+    app_holder["app"] = app
+    await asyncio.wait_for(app.run(), timeout=5.0)
+    assert len(created) == 2
+    for log in events.values():
+        assert log[0] == "connect"  # connecté au montage AVANT tout relevé de statut
+        assert "status" in log  # le coverage a bien relevé le statut ensuite
+
+
+class _UnreachableAtStartupClient(_ShutdownOnStatusClient):
+    """Client dont le 1er ``connect`` (au montage du pool) lève ``MuleUnreachableError``.
+
+    Modélise un daemon down au démarrage : le composition root doit ATTRAPER, logger, et
+    CONTINUER (un crawler multi-instances ne tombe pas parce qu'une instance est down ;
+    le backoff du travailleur gouvernera les reconnexions). Déclenche aussi l'arrêt au 1er
+    relevé de statut pour borner le run à un cycle."""
+
+    def __init__(self, app_holder: dict[str, CrawlerApp]) -> None:
+        super().__init__(app_holder, results=None)
+        self._connect_seen = 0
+
+    async def connect(self) -> None:
+        self._connect_seen += 1
+        self.connect_calls += 1
+        if self._connect_seen == 1:
+            raise MuleUnreachableError("daemon injoignable au démarrage")
+
+
+@pytest.mark.asyncio
+async def test_unreachable_client_at_startup_does_not_crash_the_run(
+    tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Un client injoignable au montage du pool (connect lève MuleUnreachableError) ne doit PAS
+    # faire tomber run() : le composition root attrape, logge un warning NOMMANT l'instance, et
+    # CONTINUE. La phase de cycle tourne quand même (network_status atteint → l'arrêt fire).
+    created: list[_UnreachableAtStartupClient] = []
+    app_holder: dict[str, CrawlerApp] = {}
+
+    def factory(endpoint: AmuleEndpoint) -> _UnreachableAtStartupClient:
+        client = _UnreachableAtStartupClient(app_holder)
+        created.append(client)
+        return client
+
+    app = _make_app(tmp_path, matcher_config, factory=factory)
+    app_holder["app"] = app
+    with caplog.at_level(logging.WARNING, logger="emule_indexer.composition.app"):
+        await asyncio.wait_for(app.run(), timeout=5.0)  # ne lève PAS (instance down tolérée)
+    # Le warning de tolérance vient du COMPOSITION ROOT (pas du travailleur) et nomme
+    # l'instance : c'est la branche `except MuleUnreachableError` du montage du pool.
+    startup_warnings = [
+        record
+        for record in caplog.records
+        if record.name == "emule_indexer.composition.app" and record.levelno == logging.WARNING
+    ]
+    assert startup_warnings, "le composition root doit logger la tolérance au démarrage"
+    assert "amule-0" in startup_warnings[0].getMessage()  # le warning nomme l'instance down
+    assert created and created[0].connect_calls >= 1  # connect tenté au montage (puis re-tenté)
+    assert created[0]._fired  # network_status atteint → la phase de cycle a bien démarré
 
 
 @pytest.mark.asyncio

@@ -45,7 +45,7 @@ from emule_indexer.domain.matching.engine import MatchingEngine
 from emule_indexer.domain.matching.models import TargetSegment
 from emule_indexer.ports.clock import Clock, Rng
 from emule_indexer.ports.decision_signal import DecisionSignal
-from emule_indexer.ports.mule_client import MuleClient
+from emule_indexer.ports.mule_client import MuleClient, MuleUnreachableError
 from emule_indexer.ports.scheduler_state_repository import SchedulerStateRepository
 
 _logger = logging.getLogger("emule_indexer.composition.app")
@@ -225,6 +225,22 @@ class CrawlerApp:
             for endpoint in self._local_config.amules:
                 client = self._client_factory(endpoint)
                 stack.push_async_callback(client.close)
+                # CONNECTE au montage du pool, AVANT le 1er relevé de coverage (sinon
+                # _aggregate_coverage frappe un client non connecté et lève). Un daemon down au
+                # démarrage ne doit PAS faire tomber un crawler multi-instances : on TOLÈRE le
+                # MuleUnreachableError (warning nommant l'instance) et on CONTINUE — le backoff
+                # de reconnexion du travailleur gouvernera les retentatives. connect() est
+                # idempotent → le _ensure_connected() ultérieur du travailleur reste un no-op.
+                # On NE catch PAS plus large : EcAuthError (mot de passe faux) n'est PAS un
+                # MuleUnreachableError → il continue de propager (fail-fast config, spec §14).
+                try:
+                    await client.connect()
+                except MuleUnreachableError as error:
+                    _logger.warning(
+                        "instance %s injoignable au démarrage (%s) — tolérée, backoff au cycle",
+                        endpoint.name,
+                        error,
+                    )
                 clients.append(client)
                 workers.append(SearchWorker(endpoint.name, client, deps))
 

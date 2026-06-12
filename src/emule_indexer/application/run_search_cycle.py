@@ -29,7 +29,12 @@ from emule_indexer.domain.search.coverage import Coverage, effective_coverage
 from emule_indexer.domain.search.cycle import Rng, shuffle_for_cycle
 from emule_indexer.domain.search.keywords import generate_keywords
 from emule_indexer.ports.clock import Clock
-from emule_indexer.ports.mule_client import KadStatus, MuleClient, SearchChannel
+from emule_indexer.ports.mule_client import (
+    KadStatus,
+    MuleClient,
+    MuleUnreachableError,
+    SearchChannel,
+)
 from emule_indexer.ports.scheduler_state_repository import SchedulerStateRepository
 
 _logger = logging.getLogger("emule_indexer.application.run_search_cycle")
@@ -52,7 +57,17 @@ async def _aggregate_coverage(clients: Sequence[MuleClient]) -> None:
     """Relève le statut de chaque client → ``effective_coverage`` agrégé (loggé, spec §7)."""
     capable: list[bool] = []
     for client in clients:
-        status = await client.network_status()
+        # Une instance injoignable au relevé (flux EC mort / pas encore connectée) ne doit PAS
+        # faire tomber tout le cycle : on la compte NON search-capable (l'agrégat reportera
+        # alors BLIND/DEGRADED, le vrai état). On NE (re)connecte PAS ici — le travailleur
+        # possède le cycle de connexion et son backoff anti-ban (re-connecter chaque cycle
+        # martèlerait un daemon down et court-circuiterait ce backoff, spec §3/§7).
+        try:
+            status = await client.network_status()
+        except MuleUnreachableError as error:
+            _logger.warning("instance injoignable au relevé de statut (%s) — non capable", error)
+            capable.append(False)
+            continue
         capable.append(_is_search_capable(ed2k_high=status.ed2k_high, kad_status=status.kad_status))
     coverage = effective_coverage(capable)
     if coverage == Coverage.BLIND:

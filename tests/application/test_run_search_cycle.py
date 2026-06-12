@@ -21,7 +21,13 @@ from emule_indexer.domain.matching.engine import MatchingEngine
 from emule_indexer.domain.matching.models import TargetSegment
 from emule_indexer.domain.observation import FileObservation
 from emule_indexer.ports.mule_client import KadStatus, NetworkStatus
-from tests.application.fakes import FakeClock, FakeMuleClient, FakeRng, RecordingSignal
+from tests.application.fakes import (
+    FakeClock,
+    FakeMuleClient,
+    FakeRng,
+    RecordingSignal,
+    UnreachableStatusClient,
+)
 
 _HASH = "31d6cfe0d16ae931b73c59d7e0c089c0"
 _DL_NAME = "Keroro N°062A Les demoiselles cambrioleuses.avi"
@@ -202,6 +208,71 @@ async def test_cycle_logs_blind_coverage(
             clock=clock,
         )
     assert "blind" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_unreachable_status_makes_instance_not_capable_and_logs_blind(
+    catalog: SqliteCatalogRepository,
+    local_connection: sqlite3.Connection,
+    engine: MatchingEngine,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # network_status lève MuleUnreachableError (instance injoignable, p.ex. non connectée au
+    # moment du relevé de coverage) → l'instance est traitée NON search-capable au lieu de
+    # faire tomber tout le cycle. Une seule instance, toutes injoignables → BLIND loggé, et le
+    # cycle AVANCE quand même (résilience, spec §7).
+    clock = FakeClock()
+    backoff = BackoffRegistry(_POLICY, clock, FakeRng())
+    client = UnreachableStatusClient()
+    worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
+    scheduler_state = SqliteSchedulerStateRepository(local_connection)
+    with caplog.at_level(logging.WARNING, logger="emule_indexer.application.run_search_cycle"):
+        await run_search_cycle(
+            workers=[worker],
+            clients=[client],
+            targets=_TARGETS,
+            rng=_NoopRng(),
+            node_id="node-A",
+            cycle_index=0,
+            scheduler_state=scheduler_state,
+            backoff=backoff,
+            clock=clock,
+        )
+    assert "injoignable" in caplog.text  # warning au relevé de statut de l'instance down
+    assert "blind" in caplog.text  # effective_coverage=BLIND (aucune instance capable)
+    assert scheduler_state.read_cycle_index() == 1  # le cycle a quand même avancé
+
+
+@pytest.mark.asyncio
+async def test_unreachable_instance_does_not_blind_a_healthy_peer(
+    catalog: SqliteCatalogRepository,
+    local_connection: sqlite3.Connection,
+    engine: MatchingEngine,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Une instance injoignable (status lève) + une instance saine → DEGRADED (pas BLIND) :
+    # la branche tolérante ne contamine PAS le pair sain (couvre le côté capable=True du for).
+    clock = FakeClock()
+    backoff = BackoffRegistry(_POLICY, clock, FakeRng())
+    down = UnreachableStatusClient()
+    healthy = FakeMuleClient()  # status par défaut : HighID + Kad CONNECTED → capable
+    deps = _deps(catalog, engine, clock, backoff)
+    workers = [_worker("amule-1", down, deps), _worker("amule-2", healthy, deps)]
+    scheduler_state = SqliteSchedulerStateRepository(local_connection)
+    with caplog.at_level(logging.INFO, logger="emule_indexer.application.run_search_cycle"):
+        await run_search_cycle(
+            workers=workers,
+            clients=[down, healthy],
+            targets=_TARGETS,
+            rng=_NoopRng(),
+            node_id="node-A",
+            cycle_index=0,
+            scheduler_state=scheduler_state,
+            backoff=backoff,
+            clock=clock,
+        )
+    assert "blind" not in caplog.text  # un pair reste capable → pas aveugle
+    assert scheduler_state.read_cycle_index() == 1
 
 
 @pytest.mark.asyncio
