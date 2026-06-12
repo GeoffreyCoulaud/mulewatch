@@ -19,12 +19,35 @@ from datetime import timedelta
 
 from emule_indexer.adapters.persistence_sqlite.connection import Clock, utc_iso, utc_now
 from emule_indexer.adapters.persistence_sqlite.errors import wrap_sqlite_errors
+from emule_indexer.ports.local_state_repository import ClaimedTask
 
 _SELECT_NODE_ID = "SELECT value FROM node_runtime WHERE key = 'node_id'"
 
 _INSERT_NODE_IDENTITY = """
 INSERT INTO node_runtime (key, value)
 VALUES ('node_id', ?), ('created_at', ?)
+"""
+
+_ENQUEUE = """
+INSERT INTO verification_tasks (ed2k_hash, status, enqueued_at)
+VALUES (?, 'pending', ?)
+ON CONFLICT (ed2k_hash) WHERE status IN ('pending', 'in_progress') DO NOTHING
+"""
+
+_CLAIM = """
+UPDATE verification_tasks
+SET
+    status = 'in_progress',
+    claimed_at = :now,
+    lease_until = :lease,
+    attempts = attempts + 1
+WHERE id = (
+    SELECT id FROM verification_tasks
+    WHERE status = 'pending'
+    ORDER BY enqueued_at, id
+    LIMIT 1
+)
+RETURNING id, ed2k_hash, attempts
 """
 
 
@@ -60,3 +83,31 @@ class SqliteLocalStateRepository:
                     self._connection.execute("ROLLBACK")
                 raise
         return generated
+
+    def enqueue_verification(self, ed2k_hash: str) -> bool:
+        """``True`` si une tâche a été créée ; ``False`` si une tâche ACTIVE existait déjà."""
+        with wrap_sqlite_errors():
+            cursor = self._connection.execute(_ENQUEUE, (ed2k_hash, utc_iso(self._clock())))
+        return cursor.rowcount == 1
+
+    def claim_verification(self) -> ClaimedTask | None:
+        """Claim atomique FIFO (``BEGIN IMMEDIATE`` + ``RETURNING``) ; file vide → ``None``.
+
+        FIFO = ``ORDER BY enqueued_at, id`` (l'ISO UTC à largeur fixe rend l'ordre
+        lexicographique chronologique ; ``id`` départage les égalités d'horloge).
+        ``attempts`` est compté AU CLAIM (spec §6).
+        """
+        now = self._clock()
+        parameters = {"now": utc_iso(now), "lease": utc_iso(now + self._lease_duration)}
+        with wrap_sqlite_errors():
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._connection.execute(_CLAIM, parameters).fetchone()
+                self._connection.execute("COMMIT")
+            except sqlite3.Error:
+                with suppress(sqlite3.Error):
+                    self._connection.execute("ROLLBACK")
+                raise
+        if row is None:
+            return None
+        return ClaimedTask(task_id=row[0], ed2k_hash=row[1], attempts=row[2])
