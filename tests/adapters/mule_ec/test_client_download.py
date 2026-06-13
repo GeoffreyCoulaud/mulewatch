@@ -5,13 +5,26 @@ from emule_indexer.adapters.mule_ec.client import AmuleEcClient
 from emule_indexer.adapters.mule_ec.codec import (
     EcPacket,
     EcTag,
+    encode_packet,
     string_tag,
     uint_tag,
 )
 from emule_indexer.adapters.mule_ec.errors import EcConnectError, EcFailureError
 from emule_indexer.ports.mule_download_client import DownloadEntry
+from tests.adapters.mule_ec.ec_fakes import FakeEcServer
 
 _HASH = "a1b2c3d4e5f6071829303142535465f0"
+_PASSWORD = "secret123"
+
+
+def _auth_replies(salt: int) -> list[bytes]:
+    """Handshake d'auth pré-encodé (même idiome que test_client.py)."""
+    return [
+        encode_packet(EcPacket(codes.EC_OP_AUTH_SALT, (uint_tag(codes.EC_TAG_PASSWD_SALT, salt),))),
+        encode_packet(
+            EcPacket(codes.EC_OP_AUTH_OK, (string_tag(codes.EC_TAG_SERVER_VERSION, "3.0.0"),))
+        ),
+    ]
 
 
 class _ScriptedTransport:
@@ -137,6 +150,24 @@ async def test_download_queue_treats_missing_size_as_zero() -> None:
     client = _connected_client(_ScriptedTransport([EcPacket(codes.EC_OP_DLOAD_QUEUE, (entry,))]))
     queue = await client.download_queue()
     assert queue == (DownloadEntry(ed2k_hash=_HASH, size_done=0, size_full=0),)
+
+
+@pytest.mark.asyncio
+async def test_download_queue_survives_a_real_codec_round_trip() -> None:
+    # Round-trip RÉEL (FakeEcServer + vrais streams asyncio + vrai codec, idiome du reste du
+    # suite EC) : prouve qu'une entrée PARTFILE (valeur PROPRE HASH16 + enfants name/size_*)
+    # survit à encode_packet → socket → decode_payload → map. Les autres tests court-circuitent
+    # le codec en injectant des EcPacket/EcTag directement dans _transport.
+    entry = _partfile_entry(_HASH, done=4, full=9)
+    reply = encode_packet(EcPacket(codes.EC_OP_DLOAD_QUEUE, (entry,)))
+    async with FakeEcServer(_auth_replies(1) + [reply]) as server:
+        client = AmuleEcClient("127.0.0.1", server.port, _PASSWORD, timeout=2.0)
+        await client.connect()
+        queue = await client.download_queue()
+        await client.close()
+    assert queue == (DownloadEntry(ed2k_hash=_HASH, size_done=4, size_full=9),)
+    request = server.received[2]  # [0]/[1] = handshake ; [2] = la requête de file
+    assert request.opcode == codes.EC_OP_GET_DLOAD_QUEUE
 
 
 @pytest.mark.asyncio
