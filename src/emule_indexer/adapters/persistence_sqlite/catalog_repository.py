@@ -65,6 +65,8 @@ LIMIT 1
 # Hash dont le DERNIER verdict est tier=download (spec download §5). Fenêtre :
 # ROW_NUMBER par hash, ordre (decided_at, id) DÉCROISSANT (le plus récent = rang 1) ; on ne
 # garde que rang 1 ET tier='download'. Tri stable par hash pour un résultat déterministe.
+# La fenêtre fait actuellement un scan complet ; un index couvrant
+# (ed2k_hash, decided_at DESC, id DESC) la servirait (prématuré à l'échelle MVP — note seule).
 _SELECT_DOWNLOAD_DECISIONS = """
 SELECT ed2k_hash, target_id FROM (
     SELECT
