@@ -19,6 +19,7 @@ VISIBLE (log niveau ``error``, pour qu'un échec persistant se remarque).
 
 import logging
 
+from emule_indexer.application.run_download_cycle import DOWNLOAD_NUDGE_SUBJECT
 from emule_indexer.domain.matching.engine import MatchingEngine, to_record
 from emule_indexer.domain.observation import FileObservation
 from emule_indexer.ports.catalog_repository import CatalogRepository
@@ -67,4 +68,9 @@ def record_observation(
         decision.rule_name,
     )
     signal.signal(observation.ed2k_hash)
+    if decision.tier == "download":
+        # Nudge le sujet conventionnel "download" (DÉCISION DV9) : la boucle de download s'y
+        # abonne et rejoue le journal dès qu'un verdict download change. Best-effort (le poll
+        # de repli reste le filet) — un nudge perdu est inoffensif (même contrat que le hash).
+        signal.signal(DOWNLOAD_NUDGE_SUBJECT)
     return True

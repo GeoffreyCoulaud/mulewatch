@@ -5,6 +5,7 @@ import pytest
 
 from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
 from emule_indexer.application.record_observations import record_observation
+from emule_indexer.application.run_download_cycle import DOWNLOAD_NUDGE_SUBJECT
 from emule_indexer.domain.matching.engine import MatchingEngine
 from emule_indexer.domain.observation import FileObservation
 from tests.application.fakes import RecordingSignal
@@ -54,7 +55,7 @@ def test_new_verdict_is_persisted_and_nudged(
     assert catalog_connection.execute("SELECT tier FROM match_decisions").fetchone() == (
         "download",
     )
-    assert signal.signalled == [_HASH_DL]
+    assert signal.signalled == [_HASH_DL, DOWNLOAD_NUDGE_SUBJECT]
 
 
 def test_unchanged_verdict_is_not_reappended_or_nudged(
@@ -94,7 +95,7 @@ def test_changed_verdict_is_reappended_and_nudged_again(
         ).fetchall()
     ]
     assert tiers == ["catalog", "download"]
-    assert signal.signalled == [_HASH_DL, _HASH_DL]
+    assert signal.signalled == [_HASH_DL, _HASH_DL, DOWNLOAD_NUDGE_SUBJECT]
 
 
 def test_persistence_error_is_absorbed_and_cycle_continues(
@@ -128,3 +129,31 @@ async def test_signal_consumer_awaits_the_nudge(
     record_observation(_obs(_HASH_DL, _DL_NAME), catalog=catalog, engine=engine, signal=signal)
     await asyncio.wait_for(waiter, timeout=1.0)
     assert waiter.done()
+
+
+def test_download_tier_verdict_also_nudges_the_download_subject(
+    catalog: SqliteCatalogRepository,
+    engine: MatchingEngine,
+) -> None:
+    # un NOUVEAU verdict de tier "download" signale le sujet par hash PUIS le sujet "download"
+    # (réveille la boucle de download, DÉCISION DV9) — dans cet ordre.
+    signal = RecordingSignal()
+    changed = record_observation(
+        _obs(_HASH_DL, _DL_NAME), catalog=catalog, engine=engine, signal=signal
+    )
+    assert changed is True
+    assert signal.signalled == [_HASH_DL, DOWNLOAD_NUDGE_SUBJECT]
+
+
+def test_non_download_tier_verdict_does_not_nudge_the_download_subject(
+    catalog: SqliteCatalogRepository,
+    engine: MatchingEngine,
+) -> None:
+    # un verdict de tier "catalog" signale le sujet par hash mais JAMAIS le sujet "download".
+    signal = RecordingSignal()
+    changed = record_observation(
+        _obs(_HASH_CAT, "keroro something.avi"), catalog=catalog, engine=engine, signal=signal
+    )
+    assert changed is True
+    assert signal.signalled == [_HASH_CAT]
+    assert DOWNLOAD_NUDGE_SUBJECT not in signal.signalled
