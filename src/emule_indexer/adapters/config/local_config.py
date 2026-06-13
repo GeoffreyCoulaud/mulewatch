@@ -89,6 +89,8 @@ def parse_local_config(raw: dict[str, Any]) -> LocalConfig:
     download_endpoint: AmuleEndpoint | None = None
     staging_dir: str | None = None
     quarantine_dir: str | None = None
+    # Enforcement UNIDIRECTIONNEL : staging_dir/quarantine_dir SANS download_endpoint sont
+    # silencieusement ignorés ici ; D-verify valide l'ensemble complet à la composition.
     if "download_endpoint" in raw:
         endpoint_raw = _require_mapping(raw["download_endpoint"], "section 'download_endpoint'")
         download_endpoint = AmuleEndpoint(

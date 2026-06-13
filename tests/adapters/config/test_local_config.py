@@ -157,6 +157,14 @@ def test_download_endpoint_present_requires_dirs() -> None:
         parse_local_config(raw)
 
 
+def test_download_endpoint_present_requires_quarantine_dir() -> None:
+    raw = _valid_raw()
+    raw["download_endpoint"] = {"name": "d", "host": "h", "port": 4713, "password": "p"}
+    raw["staging_dir"] = "/data/incoming"  # quarantine_dir manquant
+    with pytest.raises(ConfigError, match="quarantine_dir"):
+        parse_local_config(raw)
+
+
 def test_download_endpoint_must_be_a_mapping() -> None:
     raw = _valid_raw()
     raw["download_endpoint"] = "pas-un-mapping"

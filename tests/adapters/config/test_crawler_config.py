@@ -150,6 +150,20 @@ def test_download_disk_cap_key_is_required() -> None:
         parse_crawler_config(raw)
 
 
+def test_download_disk_cap_must_be_an_integer() -> None:
+    raw = _valid_raw()
+    raw["download"] = {"poll_interval_seconds": 10.0, "disk_cap_bytes": 50.5}
+    with pytest.raises(ConfigError, match="strictement positif"):
+        parse_crawler_config(raw)
+
+
+def test_download_poll_interval_key_is_required() -> None:
+    raw = _valid_raw()
+    raw["download"] = {"disk_cap_bytes": 1}  # poll_interval_seconds manquant
+    with pytest.raises(ConfigError, match="poll_interval_seconds"):
+        parse_crawler_config(raw)
+
+
 def test_download_section_must_be_a_mapping() -> None:
     raw = _valid_raw()
     raw["download"] = [1, 2]
