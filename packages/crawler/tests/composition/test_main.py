@@ -41,6 +41,25 @@ def test_main_returns_zero_on_clean_run(monkeypatch: pytest.MonkeyPatch) -> None
     assert entry.main([]) == 0
 
 
+def test_main_renders_runtime_config_error_from_run_as_clean_message(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Le gate full-mode lève un ``ConfigError`` AU RUNTIME (health-check verifier KO / ensemble
+    # download incomplet) depuis ``app.run()`` — pas depuis ``build_app``. ``main`` doit le rendre
+    # avec le MÊME message propre + code de sortie 1 (et non un traceback nu).
+    from emule_indexer.adapters.config.crawler_config import ConfigError
+
+    def fake_run(coro: object) -> None:
+        coro.close()  # type: ignore[attr-defined]  # ferme la coroutine sans la lancer
+        raise ConfigError("verifier injoignable au démarrage (health-check KO)")
+
+    monkeypatch.setattr("emule_indexer.composition.__main__.asyncio.run", fake_run)
+    monkeypatch.setattr(entry, "build_app", lambda args: _SpyApp())
+    code = entry.main([])
+    assert code == 1
+    assert "Config invalide" in capsys.readouterr().err
+
+
 def test_main_refuses_to_start_on_invalid_config(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

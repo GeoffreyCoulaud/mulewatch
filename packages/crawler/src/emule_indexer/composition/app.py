@@ -317,41 +317,51 @@ class CrawlerApp:
         download_deps: DownloadLoopDeps | None,
         verify_deps: VerifyLoopDeps | None,
     ) -> None:
-        """Lance la boucle, attend l'arrêt (NON borné), ARME la borne, annule et unwind.
+        """Lance les boucles, attend l'arrêt (NON borné), ARME la borne, annule TOUT et unwind.
 
         L'attente du signal d'arrêt est LIBRE (``shutdown_timeout`` entre ici DÉSARMÉ —
         échéance ``None`` — donc le crawler tourne tant qu'on ne l'arrête pas, sur un temps
         non borné). DÈS l'arrêt demandé, on ARME la borne (``reschedule`` à ``maintenant +
         shutdown_deadline_seconds``) AVANT d'annuler : ainsi l'unwind du ``TaskGroup`` (l'``await``
-        du ``loop_task`` annulé à la sortie du ``async with``) PUIS la fermeture LIFO du stack
+        des tâches annulées à la sortie du ``async with``) PUIS la fermeture LIFO du stack
         (dans ``run``) sont tous deux bornés — l'app ne PEUT pas paraître bloquée à l'arrêt.
-        L'annulation atterrit au prochain ``await`` réseau d'un travailleur (jamais en pleine
-        écriture DB, repos sync, spec §6).
-        VÉRIFICATION EMPIRIQUE : annuler UN enfant d'un ``TaskGroup`` (le groupe lui-même
+        L'annulation atterrit au prochain ``await`` réseau (jamais en pleine écriture DB, repos
+        sync, spec §6).
+        ARRÊT PROMPT DE TOUTES LES BOUCLES : il faut annuler EXPLICITEMENT chaque tâche sœur —
+        annuler ``loop_task`` (search) N'annule PAS les boucles download/verify, qui sont ses
+        sœurs dans le ``TaskGroup``. Sans cela, l'arrêt attendrait le sleep in-cycle de chaque
+        boucle (``_sleep_or_nudge`` du download ne surveille QUE poll/nudge, pas ``self._shutdown``
+        ; le poll de la vérif dort ``verify.poll_interval``), et le ``shutdown_deadline`` armé
+        au-dessus tirerait un ``TimeoutError`` AVANT — un Ctrl-C de routine forcerait alors la
+        sortie au lieu d'un arrêt propre. On annule donc l'ENSEMBLE des tâches créées.
+        VÉRIFICATION EMPIRIQUE : annuler les enfants d'un ``TaskGroup`` (le groupe lui-même
         n'étant pas annulé) NE propage PAS de ``CancelledError`` au sortir du ``async with``
         — l'unwind est PROPRE. On affiche donc la progression APRÈS le bloc, sans ``except*``
         (qui serait du code mort). Une vraie exception d'un travailleur, elle, propagerait en
         ``ExceptionGroup`` — on ne la masque pas.
         """
         async with asyncio.TaskGroup() as group:
-            loop_task = group.create_task(
-                self._run_loop(
-                    workers=workers,
-                    clients=clients,
-                    node_id=node_id,
-                    scheduler_state=scheduler_state,
-                    backoff=backoff,
+            tasks = [
+                group.create_task(
+                    self._run_loop(
+                        workers=workers,
+                        clients=clients,
+                        node_id=node_id,
+                        scheduler_state=scheduler_state,
+                        backoff=backoff,
+                    )
                 )
-            )
+            ]
             if download_deps is not None:
-                group.create_task(download_loop(download_deps))
+                tasks.append(group.create_task(download_loop(download_deps)))
             if verify_deps is not None:
-                group.create_task(verification_loop(verify_deps))
+                tasks.append(group.create_task(verification_loop(verify_deps)))
             await self._shutdown.wait()  # NON borné (la borne est désarmée tant qu'on tourne)
             shutdown_timeout.reschedule(
                 asyncio.get_running_loop().time() + self._crawler_config.shutdown_deadline_seconds
             )
-            loop_task.cancel()
+            for task in tasks:
+                task.cancel()
         _human("Travailleurs arrêtés.")
 
     async def run(self) -> None:

@@ -749,3 +749,73 @@ async def test_full_mode_tolerates_download_daemon_unreachable_at_startup(
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)  # ne lève pas : connect toléré
     assert verifier.closed is True  # full a démarré (boucles armées), verifier fermé à l'arrêt
+
+
+class _BlockingPollClock(FakeClock):
+    """Horloge dont les LONGS sleeps (≥ 5 s) BLOQUENT pour de bon (sur un Event jamais positionné).
+
+    Modélise le sleep IN-CYCLE des boucles : ``download._sleep_or_nudge`` (poll 30 s) et le poll
+    de la vérif (10 s) restent BLOQUÉS dans ``clock.sleep`` — donc ces boucles ne peuvent PAS
+    re-tester ``self._shutdown`` d'elles-mêmes ; seule une ANNULATION explicite par ``_supervise``
+    les en sort. Une BARRIÈRE : dès que les DEUX boucles (download 30 s + vérif 10 s) sont entrées
+    dans un long sleep, on ARME ``self._shutdown`` — l'arrêt est donc demandé pendant qu'elles
+    sont bloquées. Si ``_supervise`` ne les annulait PAS, le ``TaskGroup`` attendrait à jamais et
+    le ``shutdown_deadline`` armé tirerait un ``TimeoutError`` (force-exit) : le test échouerait
+    fail-closed. Les sleeps COURTS (pauses inter-mots-clés du search) rendent la main tout de suite
+    (déterminisme, pas de temps réel). Le sleep inter-cycle du search (≥ 5 s) bloque aussi → il est
+    sorti par l'annulation de ``loop_task`` (déjà en place)."""
+
+    def __init__(self, app_holder: dict[str, CrawlerApp]) -> None:
+        super().__init__()
+        self._app_holder = app_holder
+        self._blocked_long_polls: set[float] = set()
+        self._never = asyncio.Event()
+
+    async def sleep(self, seconds: float) -> None:
+        if seconds < 5.0:
+            await super().sleep(seconds)  # pause courte : rend la main (instantané)
+            return
+        # Long sleep (poll in-cycle d'une boucle, ou inter-cycle du search) : on note la cadence
+        # et, dès que les DEUX polls des nouvelles boucles (30 s download + 10 s vérif) sont
+        # bloqués, on demande l'arrêt PENDANT qu'elles dorment, puis on BLOQUE pour de bon.
+        self._blocked_long_polls.add(seconds)
+        if {10.0, 30.0} <= self._blocked_long_polls:
+            self._app_holder["app"]._shutdown.set()
+        await self._never.wait()  # ne se résout JAMAIS : sortie uniquement par annulation
+
+
+@pytest.mark.asyncio
+async def test_full_mode_shutdown_cancels_download_and_verify_loops_promptly(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # RÉGRESSION (revue holistique) : à l'arrêt, ``_supervise`` doit annuler EXPLICITEMENT les
+    # boucles download/verify (tâches sœurs du search ``loop_task``). Sans cela, elles restent
+    # bloquées dans leur sleep in-cycle (``_sleep_or_nudge`` ne surveille PAS ``self._shutdown``),
+    # le ``TaskGroup`` attend leur poll (30 s/10 s), le ``shutdown_deadline`` tire AVANT un
+    # ``TimeoutError`` et l'arrêt est FORCÉ — pas propre. Ici : un clock dont les longs sleeps
+    # BLOQUENT, qui ARME l'arrêt une fois les deux boucles bloquées dans leur poll. Si l'annulation
+    # est faite, ``run()`` RETOURNE promptement (sans atteindre le deadline) ; sinon il
+    # ``TimeoutError``-erait (deadline) ou bloquerait jusqu'au garde externe → échec fail-closed.
+    holder: dict[str, CrawlerApp] = {}
+    verifier = FakeContentVerifier(healthy=True)
+    clock = _BlockingPollClock(holder)
+
+    # _full_crawler_config : download poll 30 s, verify poll 10 s, shutdown_deadline 30 s.
+    app = CrawlerApp(
+        crawler_config=_full_crawler_config(),
+        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=clock,
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        client_factory=lambda endpoint: FakeMuleClient(),
+        download_client_factory=lambda endpoint: FakeDownloadClient(),
+        verifier_factory=lambda url: verifier,
+    )
+    holder["app"] = app
+    # Le garde externe (3 s de temps RÉEL) est BIEN sous le shutdown_deadline (30 s) ET sous les
+    # polls (10 s/30 s) : il ne peut tirer que si l'arrêt N'est PAS prompt. Avec l'annulation, le
+    # run revient en quelques ticks d'event loop (aucun temps réel n'est consommé).
+    await asyncio.wait_for(app.run(), timeout=3.0)
+    assert verifier.closed is True  # arrêt propre : le teardown a bien fermé le verifier

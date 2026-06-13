@@ -64,15 +64,22 @@ def build_app(args: argparse.Namespace) -> CrawlerApp:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entrée CLI. Rend un code de sortie (0 = arrêt propre, 1 = config invalide)."""
+    """Entrée CLI. Rend un code de sortie (0 = arrêt propre, 1 = config invalide).
+
+    Le ``try`` couvre AUSSI ``asyncio.run(app.run())`` : le gate full-mode (mode ``verifier_url``)
+    lève un ``ConfigError`` AU RUNTIME — health-check du verifier KO ou ensemble download
+    incomplet — qui est un refus de démarrer au même titre qu'une config invalide build-time.
+    On le rend donc avec le MÊME message propre + code de sortie non-zéro (au lieu d'un traceback
+    nu). Les ressources sont déjà fermées proprement par le ``run`` (stack LIFO) avant la levée.
+    """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     try:
         app = build_app(args)
+        asyncio.run(app.run())
     except (YamlLoadError, ConfigError, MatcherConfigError) as error:
         print(f"Config invalide, refus de démarrer : {error}", file=sys.stderr, flush=True)
         return 1
-    asyncio.run(app.run())
     return 0
 
 
