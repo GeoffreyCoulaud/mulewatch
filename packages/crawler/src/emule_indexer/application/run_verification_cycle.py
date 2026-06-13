@@ -144,13 +144,18 @@ async def run_verification_cycle(deps: VerifyDeps) -> None:
             return
         except RepositoryError as error:
             _logger.error(
-                "écriture du verdict échouée pour task=%d hash=%s (%s) — fail (retry, "
+                "écriture du verdict échouée pour task=%d hash=%s (%s) — fail + backoff (retry, "
                 "duplicate possible au reclaim : at-least-once)",
                 task.task_id,
                 task.ed2k_hash,
                 error,
             )
             deps.queue.fail_verification(task.task_id)
+            # backoff : pas de spin (``fail`` remet ``pending`` immédiatement) — si ``complete``
+            # (local.db) échoue durablement alors que verify/record réussissent, sans ce sleep
+            # chaque cycle ré-émettrait un RPC verify + une ligne ``file_verifications`` dupliquée
+            # en rafale. Avec le sleep : au plus une tentative par ``poll_interval``.
+            await deps.clock.sleep(deps.poll_interval_seconds)
             return
         _logger.info(
             "task=%d hash=%s vérifiée (verdict=%s)", task.task_id, task.ed2k_hash, result.verdict

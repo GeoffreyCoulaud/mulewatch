@@ -268,18 +268,23 @@ async def test_repository_error_on_claim_is_absorbed_and_sleeps() -> None:
 
 
 @pytest.mark.asyncio
-async def test_repository_error_on_complete_fails_the_task() -> None:
+async def test_repository_error_on_complete_fails_the_task_and_backs_off() -> None:
     # complete lève RepositoryError APRÈS un record réussi : at-least-once → fail_verification
-    # (le lease re-vérifiera, duplicate possible que D-analysis dédupliquera). Pas de crash.
+    # (le lease re-vérifiera, duplicate possible que D-analysis dédupliquera). Pas de crash, et
+    # backoff : sans ce sleep, un complete durablement KO spinnerait (RPC + ligne dupliquée/cycle).
     queue = FakeQueue(
         claims=[ClaimedTask(task_id=6, ed2k_hash=_A, attempts=1)], complete_raises=True
     )
     writer = FakeWriter()
-    deps = _deps(queue=queue, verifier=FakeVerifier(), writer=writer, targets=FakeTargets())
+    clock = FakeClock()
+    deps = _deps(
+        queue=queue, verifier=FakeVerifier(), writer=writer, targets=FakeTargets(), clock=clock
+    )
     await run_verification_cycle(deps)  # ne lève pas
     assert writer.records == [(_A, "unverified")]  # le verdict a été enregistré
     assert queue.completed == []
     assert queue.failed == [6]  # retry via lease
+    assert clock.sleeps == [10.0]  # backoff sur le chemin record/complete (anti-spin)
 
 
 @pytest.mark.asyncio
