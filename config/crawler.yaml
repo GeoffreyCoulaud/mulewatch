@@ -18,3 +18,6 @@ backoff:                             # backoff par (instance, canal) — exponen
 download:                            # auto-download (D-download ; activé live en D-verify)
   poll_interval_seconds: 30.0        # cadence de relevé de la file de download (le nudge réveille plus tôt)
   disk_cap_bytes: 53687091200        # plafond disque applicatif (~50 Gio) ; au-dessus → on diffère
+
+verify:                              # pipeline de vérification (D-verify ; activé live si verifier_url défini)
+  poll_interval_seconds: 10.0        # cadence de claim de la file de vérification quand elle est vide

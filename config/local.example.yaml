@@ -22,3 +22,8 @@ local_db_path: /data/local.db        # base opérationnelle (jamais fusionnée)
 #   password: change-me
 # staging_dir: /data/incoming        # où amuled écrit les fichiers complétés
 # quarantine_dir: /data/quarantine   # cible du rename atomique (même FS que staging_dir)
+
+# URL du service verifier (D-verify) — sa présence ACTIVE le mode full (download + vérif) ;
+# absente = mode observateur (les deux boucles restent OFF). Au démarrage en full, le crawler
+# health-check le verifier et REFUSE de démarrer s'il est injoignable (pas de download sans vérif).
+# verifier_url: http://verifier:8000

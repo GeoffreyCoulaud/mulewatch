@@ -35,6 +35,7 @@ class LocalConfig:
     download_endpoint: AmuleEndpoint | None = None
     staging_dir: str | None = None
     quarantine_dir: str | None = None
+    verifier_url: str | None = None
 
 
 def _require_mapping(value: Any, what: str) -> dict[str, Any]:
@@ -101,6 +102,7 @@ def parse_local_config(raw: dict[str, Any]) -> LocalConfig:
         )
         staging_dir = _require_str(raw, "staging_dir", "local")
         quarantine_dir = _require_str(raw, "quarantine_dir", "local")
+    verifier_url = _require_str(raw, "verifier_url", "local") if "verifier_url" in raw else None
     return LocalConfig(
         amules=tuple(endpoints),
         catalog_db_path=_require_str(raw, "catalog_db_path", "local"),
@@ -109,4 +111,5 @@ def parse_local_config(raw: dict[str, Any]) -> LocalConfig:
         download_endpoint=download_endpoint,
         staging_dir=staging_dir,
         quarantine_dir=quarantine_dir,
+        verifier_url=verifier_url,
     )

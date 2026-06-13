@@ -7,6 +7,7 @@ from emule_indexer.adapters.config.crawler_config import (
     ConfigError,
     CrawlerConfig,
     DownloadConfig,
+    VerifyConfig,
     parse_crawler_config,
 )
 
@@ -168,4 +169,37 @@ def test_download_section_must_be_a_mapping() -> None:
     raw = _valid_raw()
     raw["download"] = [1, 2]
     with pytest.raises(ConfigError, match="section 'download'"):
+        parse_crawler_config(raw)
+
+
+def test_verify_section_is_optional() -> None:
+    config = parse_crawler_config(_valid_raw())  # pas de section verify
+    assert config.verify is None
+
+
+def test_verify_section_is_parsed_when_present() -> None:
+    raw = _valid_raw()
+    raw["verify"] = {"poll_interval_seconds": 5.0}
+    config = parse_crawler_config(raw)
+    assert config.verify == VerifyConfig(poll_interval_seconds=5.0)
+
+
+def test_verify_poll_interval_must_be_positive() -> None:
+    raw = _valid_raw()
+    raw["verify"] = {"poll_interval_seconds": 0.0}
+    with pytest.raises(ConfigError, match="strictement positif"):
+        parse_crawler_config(raw)
+
+
+def test_verify_poll_interval_key_is_required() -> None:
+    raw = _valid_raw()
+    raw["verify"] = {}
+    with pytest.raises(ConfigError, match="poll_interval_seconds"):
+        parse_crawler_config(raw)
+
+
+def test_verify_section_must_be_a_mapping() -> None:
+    raw = _valid_raw()
+    raw["verify"] = [1, 2]
+    with pytest.raises(ConfigError, match="section 'verify'"):
         parse_crawler_config(raw)

@@ -43,6 +43,17 @@ class DownloadConfig:
 
 
 @dataclass(frozen=True)
+class VerifyConfig:
+    """Politique de vérification (spec verify §6). OPTIONNELLE (DÉCISION DV12).
+
+    ``poll_interval_seconds`` : cadence à laquelle la boucle de vérif ``claim`` la file quand
+    elle est vide (la file durable est le couplage — pas de nudge dédié, DÉCISION DV5).
+    """
+
+    poll_interval_seconds: float
+
+
+@dataclass(frozen=True)
 class CrawlerConfig:
     """Politique du crawler (spec §5). Toutes les durées en SECONDES.
 
@@ -63,6 +74,7 @@ class CrawlerConfig:
     decision_poll_interval_seconds: float
     shutdown_deadline_seconds: float
     download: DownloadConfig | None = None
+    verify: VerifyConfig | None = None
 
 
 def _require_mapping(value: Any, what: str) -> dict[str, Any]:
@@ -134,6 +146,12 @@ def parse_crawler_config(raw: dict[str, Any]) -> CrawlerConfig:
             poll_interval_seconds=_positive(download_raw, "poll_interval_seconds", "download"),
             disk_cap_bytes=_positive_int(download_raw, "disk_cap_bytes", "download"),
         )
+    verify: VerifyConfig | None = None
+    if "verify" in raw:
+        verify_raw = _require_mapping(raw["verify"], "section 'verify'")
+        verify = VerifyConfig(
+            poll_interval_seconds=_positive(verify_raw, "poll_interval_seconds", "verify")
+        )
     return CrawlerConfig(
         cycle_interval_seconds=_positive(raw, "cycle_interval_seconds", "crawler"),
         search_poll_budget_seconds=_positive(raw, "search_poll_budget_seconds", "crawler"),
@@ -144,4 +162,5 @@ def parse_crawler_config(raw: dict[str, Any]) -> CrawlerConfig:
         decision_poll_interval_seconds=_positive(raw, "decision_poll_interval_seconds", "crawler"),
         shutdown_deadline_seconds=_positive(raw, "shutdown_deadline_seconds", "crawler"),
         download=download,
+        verify=verify,
     )

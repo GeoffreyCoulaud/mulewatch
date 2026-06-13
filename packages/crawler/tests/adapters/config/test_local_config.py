@@ -179,3 +179,29 @@ def test_download_endpoint_invalid_port_is_fatal() -> None:
     raw["quarantine_dir"] = "/q"
     with pytest.raises(ConfigError, match="1..65535"):
         parse_local_config(raw)
+
+
+def test_verifier_url_is_optional() -> None:
+    config = parse_local_config(_valid_raw())
+    assert config.verifier_url is None
+
+
+def test_verifier_url_is_parsed_when_present() -> None:
+    raw = _valid_raw()
+    raw["verifier_url"] = "http://verifier:8000"
+    config = parse_local_config(raw)
+    assert config.verifier_url == "http://verifier:8000"
+
+
+def test_verifier_url_empty_string_is_fatal() -> None:
+    raw = _valid_raw()
+    raw["verifier_url"] = ""
+    with pytest.raises(ConfigError, match="verifier_url"):
+        parse_local_config(raw)
+
+
+def test_verifier_url_non_string_is_fatal() -> None:
+    raw = _valid_raw()
+    raw["verifier_url"] = 1234
+    with pytest.raises(ConfigError, match="verifier_url"):
+        parse_local_config(raw)
