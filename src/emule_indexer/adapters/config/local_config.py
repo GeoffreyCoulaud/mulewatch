@@ -32,6 +32,9 @@ class LocalConfig:
     catalog_db_path: str
     local_db_path: str
     node_id: str | None
+    download_endpoint: AmuleEndpoint | None = None
+    staging_dir: str | None = None
+    quarantine_dir: str | None = None
 
 
 def _require_mapping(value: Any, what: str) -> dict[str, Any]:
@@ -83,9 +86,25 @@ def parse_local_config(raw: dict[str, Any]) -> LocalConfig:
     node_id_raw = raw.get("node_id")
     if node_id_raw is not None and (not isinstance(node_id_raw, str) or not node_id_raw):
         raise ConfigError(f"node_id : chaîne non vide ou absent attendu, obtenu {node_id_raw!r}")
+    download_endpoint: AmuleEndpoint | None = None
+    staging_dir: str | None = None
+    quarantine_dir: str | None = None
+    if "download_endpoint" in raw:
+        endpoint_raw = _require_mapping(raw["download_endpoint"], "section 'download_endpoint'")
+        download_endpoint = AmuleEndpoint(
+            name=_require_str(endpoint_raw, "name", "download_endpoint"),
+            host=_require_str(endpoint_raw, "host", "download_endpoint"),
+            port=_require_port(endpoint_raw, "download_endpoint"),
+            password=_require_str(endpoint_raw, "password", "download_endpoint"),
+        )
+        staging_dir = _require_str(raw, "staging_dir", "local")
+        quarantine_dir = _require_str(raw, "quarantine_dir", "local")
     return LocalConfig(
         amules=tuple(endpoints),
         catalog_db_path=_require_str(raw, "catalog_db_path", "local"),
         local_db_path=_require_str(raw, "local_db_path", "local"),
         node_id=node_id_raw,
+        download_endpoint=download_endpoint,
+        staging_dir=staging_dir,
+        quarantine_dir=quarantine_dir,
     )

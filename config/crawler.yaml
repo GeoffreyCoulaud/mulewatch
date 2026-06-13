@@ -14,3 +14,7 @@ backoff:                             # backoff par (instance, canal) — exponen
   cap_seconds: 300.0
   factor: 2.0
   jitter_ratio: 0.3                  # jitter additionnel : jusqu'à +30 % du délai nominal
+
+download:                            # auto-download (D-download ; activé live en D-verify)
+  poll_interval_seconds: 30.0        # cadence de relevé de la file de download (le nudge réveille plus tôt)
+  disk_cap_bytes: 53687091200        # plafond disque applicatif (~50 Gio) ; au-dessus → on diffère

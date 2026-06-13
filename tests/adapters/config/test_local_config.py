@@ -118,3 +118,56 @@ def test_empty_node_id_string_is_fatal() -> None:
     raw["node_id"] = ""
     with pytest.raises(ConfigError, match="node_id"):
         parse_local_config(raw)
+
+
+def test_download_endpoint_is_optional() -> None:
+    config = parse_local_config(_valid_raw())
+    assert config.download_endpoint is None
+    assert config.staging_dir is None
+    assert config.quarantine_dir is None
+
+
+def test_download_endpoint_is_parsed_when_present() -> None:
+    raw = _valid_raw()
+    raw["download_endpoint"] = {
+        "name": "amule-dl",
+        "host": "gluetun",
+        "port": 4713,
+        "password": "dl-secret",
+    }
+    raw["staging_dir"] = "/data/incoming"
+    raw["quarantine_dir"] = "/data/quarantine"
+    config = parse_local_config(raw)
+    assert config.download_endpoint == AmuleEndpoint(
+        name="amule-dl", host="gluetun", port=4713, password="dl-secret"
+    )
+    assert config.staging_dir == "/data/incoming"
+    assert config.quarantine_dir == "/data/quarantine"
+
+
+def test_download_endpoint_present_requires_dirs() -> None:
+    raw = _valid_raw()
+    raw["download_endpoint"] = {
+        "name": "amule-dl",
+        "host": "h",
+        "port": 4713,
+        "password": "p",
+    }  # staging_dir/quarantine_dir manquants
+    with pytest.raises(ConfigError, match="staging_dir"):
+        parse_local_config(raw)
+
+
+def test_download_endpoint_must_be_a_mapping() -> None:
+    raw = _valid_raw()
+    raw["download_endpoint"] = "pas-un-mapping"
+    with pytest.raises(ConfigError, match="download_endpoint"):
+        parse_local_config(raw)
+
+
+def test_download_endpoint_invalid_port_is_fatal() -> None:
+    raw = _valid_raw()
+    raw["download_endpoint"] = {"name": "d", "host": "h", "port": 0, "password": "p"}
+    raw["staging_dir"] = "/s"
+    raw["quarantine_dir"] = "/q"
+    with pytest.raises(ConfigError, match="1..65535"):
+        parse_local_config(raw)

@@ -29,6 +29,20 @@ class BackoffConfig:
 
 
 @dataclass(frozen=True)
+class DownloadConfig:
+    """Politique de téléchargement (spec download §3/§7). OPTIONNELLE (DÉCISION D11).
+
+    ``poll_interval_seconds`` : cadence de relevé de la file de download (le nudge réveille
+    plus tôt). ``disk_cap_bytes`` : plafond disque APPLICATIF — somme des ``size_bytes`` des
+    downloads actifs au-dessus de laquelle on diffère (back-pressure gracieux, jamais
+    d'abandon). Le quota INFRA (FS/Docker) est hors périmètre (Plan F).
+    """
+
+    poll_interval_seconds: float
+    disk_cap_bytes: int
+
+
+@dataclass(frozen=True)
 class CrawlerConfig:
     """Politique du crawler (spec §5). Toutes les durées en SECONDES.
 
@@ -48,6 +62,7 @@ class CrawlerConfig:
     backoff: BackoffConfig
     decision_poll_interval_seconds: float
     shutdown_deadline_seconds: float
+    download: DownloadConfig | None = None
 
 
 def _require_mapping(value: Any, what: str) -> dict[str, Any]:
@@ -79,6 +94,16 @@ def _non_negative(mapping: dict[str, Any], key: str, what: str) -> float:
     return number
 
 
+def _positive_int(mapping: dict[str, Any], key: str, what: str) -> int:
+    """Entier strictement positif (bool refusé), sinon ``ConfigError`` (fail-fast §5/§14)."""
+    if key not in mapping:
+        raise ConfigError(f"{what} : clé {key!r} manquante")
+    value = mapping[key]
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ConfigError(f"{what}.{key} : entier strictement positif attendu, obtenu {value!r}")
+    return value
+
+
 def parse_crawler_config(raw: dict[str, Any]) -> CrawlerConfig:
     """Construit un ``CrawlerConfig`` validé depuis le dict YAML parsé (fail-fast §5/§14)."""
     backoff_raw = _require_mapping(raw.get("backoff", {}), "section 'backoff'")
@@ -102,6 +127,13 @@ def parse_crawler_config(raw: dict[str, Any]) -> CrawlerConfig:
         raise ConfigError(
             f"keyword_pause_max_seconds ({pause_max}) < min ({pause_min}) : intervalle vide"
         )
+    download: DownloadConfig | None = None
+    if "download" in raw:
+        download_raw = _require_mapping(raw["download"], "section 'download'")
+        download = DownloadConfig(
+            poll_interval_seconds=_positive(download_raw, "poll_interval_seconds", "download"),
+            disk_cap_bytes=_positive_int(download_raw, "disk_cap_bytes", "download"),
+        )
     return CrawlerConfig(
         cycle_interval_seconds=_positive(raw, "cycle_interval_seconds", "crawler"),
         search_poll_budget_seconds=_positive(raw, "search_poll_budget_seconds", "crawler"),
@@ -111,4 +143,5 @@ def parse_crawler_config(raw: dict[str, Any]) -> CrawlerConfig:
         backoff=backoff,
         decision_poll_interval_seconds=_positive(raw, "decision_poll_interval_seconds", "crawler"),
         shutdown_deadline_seconds=_positive(raw, "shutdown_deadline_seconds", "crawler"),
+        download=download,
     )

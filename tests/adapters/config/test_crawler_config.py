@@ -6,6 +6,7 @@ from emule_indexer.adapters.config.crawler_config import (
     BackoffConfig,
     ConfigError,
     CrawlerConfig,
+    DownloadConfig,
     parse_crawler_config,
 )
 
@@ -110,4 +111,47 @@ def test_keyword_pause_max_below_min_is_fatal() -> None:
     raw["keyword_pause_min_seconds"] = 5.0
     raw["keyword_pause_max_seconds"] = 1.0
     with pytest.raises(ConfigError, match="intervalle vide"):
+        parse_crawler_config(raw)
+
+
+def test_download_section_is_optional() -> None:
+    config = parse_crawler_config(_valid_raw())  # _valid_raw n'a pas de section download
+    assert config.download is None
+
+
+def test_download_section_is_parsed_when_present() -> None:
+    raw = _valid_raw()
+    raw["download"] = {"poll_interval_seconds": 10.0, "disk_cap_bytes": 5_000_000_000}
+    config = parse_crawler_config(raw)
+    assert config.download == DownloadConfig(
+        poll_interval_seconds=10.0, disk_cap_bytes=5_000_000_000
+    )
+
+
+def test_download_poll_interval_must_be_positive() -> None:
+    raw = _valid_raw()
+    raw["download"] = {"poll_interval_seconds": 0.0, "disk_cap_bytes": 1}
+    with pytest.raises(ConfigError, match="strictement positif"):
+        parse_crawler_config(raw)
+
+
+def test_download_disk_cap_must_be_positive_integer() -> None:
+    raw = _valid_raw()
+    raw["download"] = {"poll_interval_seconds": 10.0, "disk_cap_bytes": 0}
+    with pytest.raises(ConfigError, match="strictement positif"):
+        parse_crawler_config(raw)
+
+
+def test_download_disk_cap_key_is_required() -> None:
+    # section download présente mais sans disk_cap_bytes → _positive_int branche clé manquante.
+    raw = _valid_raw()
+    raw["download"] = {"poll_interval_seconds": 10.0}
+    with pytest.raises(ConfigError, match="disk_cap_bytes"):
+        parse_crawler_config(raw)
+
+
+def test_download_section_must_be_a_mapping() -> None:
+    raw = _valid_raw()
+    raw["download"] = [1, 2]
+    with pytest.raises(ConfigError, match="section 'download'"):
         parse_crawler_config(raw)

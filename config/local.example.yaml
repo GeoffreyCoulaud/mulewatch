@@ -11,3 +11,14 @@ catalog_db_path: /data/catalog.db    # base catalogue (append-only, partageable)
 local_db_path: /data/local.db        # base opérationnelle (jamais fusionnée)
 
 # node_id: optionnel — override l'identité du nœud ; sinon celle de local.db est utilisée.
+
+# Endpoint EC de DOWNLOAD (D-download) — sa PROPRE connexion (peut viser un daemon dédié ou
+# partagé). Optionnel tant que l'auto-download n'est pas activé (D-verify) ; si présent,
+# staging_dir et quarantine_dir sont requis et DOIVENT être sur le même système de fichiers.
+# download_endpoint:
+#   name: amule-dl
+#   host: gluetun
+#   port: 4712
+#   password: change-me
+# staging_dir: /data/incoming        # où amuled écrit les fichiers complétés
+# quarantine_dir: /data/quarantine   # cible du rename atomique (même FS que staging_dir)
