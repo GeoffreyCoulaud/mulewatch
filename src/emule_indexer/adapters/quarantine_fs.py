@@ -26,4 +26,7 @@ class FilesystemQuarantine:
         re-promote idempotent du même hash est sûr) et ne modifie pas les permissions (jamais
         +x). Une source absente lève ``FileNotFoundError`` ; la boucle retentera.
         """
+        # ed2k_hash : toujours 32 caractères [0-9a-f] (garanti en amont — _map_partfile .hex(),
+        # _CANONICAL_HASH_RE, et la contrainte CHECK SQLite) → aucun '/'/'..' possible, pas de
+        # traversée de chemin hors quarantine_dir.
         os.replace(staging_path, self._quarantine_dir / ed2k_hash)
