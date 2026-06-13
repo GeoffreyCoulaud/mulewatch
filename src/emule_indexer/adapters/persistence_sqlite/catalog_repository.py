@@ -26,8 +26,13 @@ from contextlib import suppress
 
 from emule_indexer.adapters.persistence_sqlite.connection import Clock, utc_iso, utc_now
 from emule_indexer.adapters.persistence_sqlite.errors import PersistenceError, wrap_sqlite_errors
-from emule_indexer.domain.matching.engine import DecisionRecord, MatchDecision
+from emule_indexer.domain.matching.engine import (
+    DecisionRecord,
+    DownloadCandidate,
+    MatchDecision,
+)
 from emule_indexer.domain.observation import FileObservation
+from emule_indexer.ports.catalog_repository import ObservedFile
 
 _CANONICAL_HASH_RE = re.compile(r"[0-9a-f]{32}\Z")
 
@@ -54,6 +59,27 @@ _SELECT_LAST_DECISION = """
 SELECT target_id, rule_name, tier FROM match_decisions
 WHERE ed2k_hash = ?
 ORDER BY decided_at DESC, id DESC
+LIMIT 1
+"""
+
+# Hash dont le DERNIER verdict est tier=download (spec download §5). Fenêtre :
+# ROW_NUMBER par hash, ordre (decided_at, id) DÉCROISSANT (le plus récent = rang 1) ; on ne
+# garde que rang 1 ET tier='download'. Tri stable par hash pour un résultat déterministe.
+_SELECT_DOWNLOAD_DECISIONS = """
+SELECT ed2k_hash, target_id FROM (
+    SELECT
+        ed2k_hash, target_id, tier,
+        ROW_NUMBER() OVER (PARTITION BY ed2k_hash ORDER BY decided_at DESC, id DESC) AS rn
+    FROM match_decisions
+) WHERE rn = 1 AND tier = 'download'
+ORDER BY ed2k_hash
+"""
+
+# Dernière observation d'un hash (nom + taille pour le lien ed2k, spec download §5).
+_SELECT_LAST_OBSERVATION = """
+SELECT filename, size_bytes FROM file_observations
+WHERE ed2k_hash = ?
+ORDER BY observed_at DESC, id DESC
 LIMIT 1
 """
 
@@ -138,3 +164,17 @@ class SqliteCatalogRepository:
         if row is None:
             return None
         return DecisionRecord(target_id=row[0], rule_name=row[1], tier=row[2])
+
+    def download_decisions(self) -> tuple[DownloadCandidate, ...]:
+        """Hash dont le DERNIER verdict est tier=download, à rejouer (download §5) — LECTURE."""
+        with wrap_sqlite_errors():
+            rows = self._connection.execute(_SELECT_DOWNLOAD_DECISIONS).fetchall()
+        return tuple(DownloadCandidate(ed2k_hash=row[0], target_id=row[1]) for row in rows)
+
+    def last_observation(self, ed2k_hash: str) -> ObservedFile | None:
+        """Dernière observation d'un hash (nom+taille pour le lien ed2k), ou ``None`` — LECTURE."""
+        with wrap_sqlite_errors():
+            row = self._connection.execute(_SELECT_LAST_OBSERVATION, (ed2k_hash,)).fetchone()
+        if row is None:
+            return None
+        return ObservedFile(filename=row[0], size_bytes=row[1])

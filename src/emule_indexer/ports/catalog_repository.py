@@ -9,21 +9,34 @@ Le port n'importe QUE le domaine. Les stubs tiennent sur UNE ligne (le ``def`` s
 persistance).
 """
 
+from dataclasses import dataclass
 from typing import Protocol
 
-from emule_indexer.domain.matching.engine import DecisionRecord, MatchDecision
+from emule_indexer.domain.matching.engine import DecisionRecord, DownloadCandidate, MatchDecision
 from emule_indexer.domain.observation import FileObservation
+
+
+@dataclass(frozen=True)
+class ObservedFile:
+    """Forme de LECTURE minimale d'une observation : nom + taille (pour bâtir un lien ed2k).
+
+    La boucle de download (spec §5) lit la DERNIÈRE observation d'un hash pour reconstruire
+    son lien ed2k (``build_ed2k_link(filename, size_bytes, hash)``). On ne rend que les deux
+    champs nécessaires — pas tout ``FileObservation`` (le reste est inutile au download).
+    """
+
+    filename: str
+    size_bytes: int
 
 
 class CatalogRepository(Protocol):
     """Contrat sync d'écriture du catalogue (append-only ; l'adapter signale, il ne décide pas).
 
-    ``last_decision`` est une LECTURE (anti-redondance, spec orchestration §3) : le dernier
-    verdict CONNU pour un hash, ou ``None`` si jamais décidé. Elle rend un
-    :class:`DecisionRecord` (les 3 colonnes comparables ``target_id``/``rule_name``/``tier``)
-    et NON un :class:`MatchDecision` : ``explanation`` n'est PAS persisté (spec data-model),
-    le fabriquer vide serait un mensonge — la comparaison de verdict n'a besoin que de ces
-    trois champs.
+    ``last_decision`` (anti-redondance, spec orchestration §3) rend un :class:`DecisionRecord`.
+    ``download_decisions`` (spec download §5) rend les :class:`DownloadCandidate` dont le
+    DERNIER verdict est tier=download (à rejouer par la boucle de download). ``last_observation``
+    rend l':class:`ObservedFile` la plus récente d'un hash (nom+taille pour le lien ed2k), ou
+    ``None``. Ces trois lectures sont inoffensives (aucune écriture).
     """
 
     def record_observation(self, observation: FileObservation) -> None: ...
@@ -31,3 +44,7 @@ class CatalogRepository(Protocol):
     def record_decision(self, ed2k_hash: str, decision: MatchDecision) -> None: ...
 
     def last_decision(self, ed2k_hash: str) -> DecisionRecord | None: ...
+
+    def download_decisions(self) -> tuple[DownloadCandidate, ...]: ...
+
+    def last_observation(self, ed2k_hash: str) -> ObservedFile | None: ...

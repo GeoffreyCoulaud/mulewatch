@@ -78,6 +78,21 @@ def to_record(decision: MatchDecision) -> DecisionRecord:
     )
 
 
+@dataclass(frozen=True)
+class DownloadCandidate:
+    """Forme de LECTURE d'une décision tier=download : ``ed2k_hash`` + ``target_id``.
+
+    C'est ce que ``CatalogRepository.download_decisions`` rend (spec download §5) : les hash
+    dont le DERNIER verdict est tier=download, à rejouer par la boucle de download. Distinct
+    de :class:`MatchDecision`/:class:`DecisionRecord` : la boucle de download n'a besoin que
+    du hash (clé contenu) et du ``target_id`` (pour le lookup de statut de la cible). Gelé →
+    comparaison par valeur triviale en test.
+    """
+
+    ed2k_hash: str
+    target_id: str
+
+
 # Rang des paliers (cf. spec §8.5 : « palier le plus haut, download>notify>catalog »).
 # Entier croissant = palier plus haut. `TIERS` (config) donne l'ensemble LICITE ; ce
 # rang donne l'ORDRE de décision. Un test vérifie set(_TIER_RANK) == TIERS.
