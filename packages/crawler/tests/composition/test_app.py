@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.config.crawler_config import BackoffConfig, CrawlerConfig
+from emule_indexer.adapters.config.crawler_config import (
+    BackoffConfig,
+    ConfigError,
+    CrawlerConfig,
+    DownloadConfig,
+    VerifyConfig,
+)
 from emule_indexer.adapters.config.local_config import AmuleEndpoint, LocalConfig
 from emule_indexer.adapters.config.yaml_loader import load_yaml
 from emule_indexer.composition.app import CrawlerApp, default_client_factory
@@ -14,7 +20,9 @@ from emule_indexer.domain.matching.config import MatcherConfig
 from emule_indexer.domain.matching.models import TargetSegment
 from emule_indexer.domain.matching.validation import parse_matcher_config
 from emule_indexer.domain.observation import FileObservation
+from emule_indexer.ports.content_verifier import VerificationResult
 from emule_indexer.ports.mule_client import MuleUnreachableError, NetworkStatus
+from emule_indexer.ports.mule_download_client import DownloadEntry
 from tests.application.fakes import FakeClock, FakeMuleClient, RecordingSignal
 
 _TARGETS = (
@@ -378,6 +386,22 @@ def test_default_client_factory_builds_an_amule_client() -> None:
     assert isinstance(default_client_factory(endpoint), AmuleEcClient)
 
 
+def test_default_download_client_factory_builds_an_amule_client() -> None:
+    from emule_indexer.adapters.mule_ec.client import AmuleEcClient
+    from emule_indexer.composition.app import default_download_client_factory
+
+    endpoint = AmuleEndpoint(name="dl", host="gluetun", port=4799, password="secret")
+    assert isinstance(default_download_client_factory(endpoint), AmuleEcClient)
+
+
+def test_default_verifier_factory_builds_an_http_verifier() -> None:
+    from emule_indexer.adapters.verifier_http import HttpContentVerifier
+    from emule_indexer.composition.app import default_verifier_factory
+
+    verifier = default_verifier_factory("http://verifier:8000")
+    assert isinstance(verifier, HttpContentVerifier)
+
+
 # Fermeture qui traîne BIEN AU-DELÀ de la borne armée (0.05 s), mais BIEN EN DEÇÀ du garde
 # externe (5 s) : ainsi seule la borne INTERNE (armée par ``reschedule``) peut couper la
 # fermeture. Si ``reschedule`` régressait, l'``aclose`` bloquerait ~1 s puis SORTIRAIT
@@ -445,3 +469,283 @@ async def test_observations_are_catalogued_during_the_cycle(
     finally:
         catalog.close()
     assert count == 1
+
+
+# ---------------------------------------------------------------------------
+# Task 11 — mode full (verifier_url) : gate + câblage des 2 boucles
+# ---------------------------------------------------------------------------
+
+
+class FakeContentVerifier:
+    """ContentVerifier de test : santé scriptable, verdict NO-OP."""
+
+    def __init__(self, *, healthy: bool = True) -> None:
+        self._healthy = healthy
+        self.closed = False
+
+    async def verify(self, ed2k_hash: str, expected: object) -> VerificationResult:
+        return VerificationResult(verdict="unverified", real_meta={}, checks=())
+
+    async def health(self) -> bool:
+        return self._healthy
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class FakeDownloadClient(FakeMuleClient):
+    """Client download de test : satisfait aussi add_link/download_queue (no-op).
+
+    ``queue_calls`` compte les relevés de la file : preuve qu'un cycle de la boucle de download
+    s'est BIEN exécuté (``download_queue`` est l'unique ``await`` réseau d'un cycle vide)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.queue_calls = 0
+
+    async def add_link(self, ed2k_link: str) -> None:
+        return None
+
+    async def download_queue(self) -> tuple[DownloadEntry, ...]:
+        self.queue_calls += 1
+        return ()
+
+
+class _ShutdownOnQueueDownloadClient(FakeDownloadClient):
+    """Client download qui déclenche l'arrêt au PREMIER ``download_queue`` (1 cycle puis stop).
+
+    Borne le run de façon DÉTERMINISTE sur la boucle de DOWNLOAD elle-même : l'arrêt n'est posé
+    QUE lorsque la boucle de download a exécuté un cycle (relevé de la file) → prouve que le
+    corps de la boucle a tourné (pas seulement que la tâche a été créée), sans course de timing
+    ni ``sleep`` réel. Le compteur ``queue_calls`` reste lisible après coup."""
+
+    def __init__(self, app_holder: dict[str, CrawlerApp]) -> None:
+        super().__init__()
+        self._app_holder = app_holder
+
+    async def download_queue(self) -> tuple[DownloadEntry, ...]:
+        result = await super().download_queue()
+        self._app_holder["app"]._on_signal()  # arrêt APRÈS le 1er cycle de download
+        return result
+
+
+class _UnreachableDownloadClient(FakeDownloadClient):
+    """Client download dont ``connect`` lève ``MuleUnreachableError`` (daemon down au démarrage)."""
+
+    async def connect(self) -> None:
+        raise MuleUnreachableError("download daemon down")
+
+
+def _full_local_config(tmp_path: Path, *, verifier_url: str | None) -> LocalConfig:
+    base = _local_config(tmp_path)
+    staging = tmp_path / "staging"
+    quarantine = tmp_path / "quarantine"
+    staging.mkdir(exist_ok=True)
+    quarantine.mkdir(exist_ok=True)
+    return LocalConfig(
+        amules=base.amules,
+        catalog_db_path=base.catalog_db_path,
+        local_db_path=base.local_db_path,
+        node_id=base.node_id,
+        download_endpoint=AmuleEndpoint(name="dl", host="h", port=4799, password="p"),
+        staging_dir=str(staging),
+        quarantine_dir=str(quarantine),
+        verifier_url=verifier_url,
+    )
+
+
+def _full_crawler_config() -> CrawlerConfig:
+    base = _crawler_config()
+    return CrawlerConfig(
+        cycle_interval_seconds=base.cycle_interval_seconds,
+        search_poll_budget_seconds=base.search_poll_budget_seconds,
+        search_poll_interval_seconds=base.search_poll_interval_seconds,
+        keyword_pause_min_seconds=base.keyword_pause_min_seconds,
+        keyword_pause_max_seconds=base.keyword_pause_max_seconds,
+        backoff=base.backoff,
+        decision_poll_interval_seconds=base.decision_poll_interval_seconds,
+        shutdown_deadline_seconds=base.shutdown_deadline_seconds,
+        download=DownloadConfig(poll_interval_seconds=30.0, disk_cap_bytes=1_000_000_000),
+        verify=VerifyConfig(poll_interval_seconds=10.0),
+    )
+
+
+@pytest.mark.asyncio
+async def test_observer_mode_runs_without_download_or_verify_loops(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # verifier_url absent → observateur : démarre, tourne un cycle, s'arrête ; aucun verifier
+    # construit, aucune boucle download/verif. (Comportement Plan C inchangé.)
+    holder: dict[str, CrawlerApp] = {}
+    verifier = FakeContentVerifier()
+
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(holder)
+
+    app = CrawlerApp(
+        crawler_config=_crawler_config(),
+        local_config=_local_config(tmp_path),  # pas de verifier_url
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        client_factory=factory,
+        verifier_factory=lambda url: verifier,
+    )
+    holder["app"] = app
+    await asyncio.wait_for(app.run(), timeout=5.0)
+    assert verifier.closed is False  # observateur : le verifier n'est jamais utilisé/fermé
+
+
+@pytest.mark.asyncio
+async def test_full_mode_health_ok_runs_both_loops(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # L'arrêt est piloté de façon DÉTERMINISTE par la boucle de DOWNLOAD elle-même (le client
+    # download fire l'arrêt à son 1er relevé de file) → on prouve que le CORPS de la boucle
+    # download a tourné (pas seulement que la tâche a été créée), sans course de timing. Le
+    # corps de la boucle de VÉRIFICATION est couvert par ses tests unitaires (Task 9) ; ICI on
+    # couvre le CÂBLAGE (sa tâche est créée dans le TaskGroup) + le health-check + le teardown.
+    holder: dict[str, CrawlerApp] = {}
+    verifier = FakeContentVerifier(healthy=True)
+    download_client = _ShutdownOnQueueDownloadClient(holder)
+
+    def search_factory(endpoint: AmuleEndpoint) -> FakeMuleClient:
+        return FakeMuleClient()  # ne pilote PAS l'arrêt : c'est la boucle download qui l'arme
+
+    app = CrawlerApp(
+        crawler_config=_full_crawler_config(),
+        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        client_factory=search_factory,
+        download_client_factory=lambda endpoint: download_client,
+        verifier_factory=lambda url: verifier,
+    )
+    holder["app"] = app
+    await asyncio.wait_for(app.run(), timeout=5.0)
+    # full : le verifier a été health-checké et fermé proprement à l'arrêt.
+    assert verifier.closed is True
+    # la boucle de download a exécuté ≥ 1 cycle (corps tourné, pas juste la tâche créée).
+    assert download_client.queue_calls >= 1
+
+
+@pytest.mark.asyncio
+async def test_full_mode_health_failure_is_fail_fast(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    verifier = FakeContentVerifier(healthy=False)  # health() → False → fail-fast
+
+    def search_factory(endpoint: AmuleEndpoint) -> FakeMuleClient:
+        return FakeMuleClient()
+
+    app = CrawlerApp(
+        crawler_config=_full_crawler_config(),
+        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        client_factory=search_factory,
+        download_client_factory=lambda endpoint: FakeDownloadClient(),
+        verifier_factory=lambda url: verifier,
+    )
+    with pytest.raises(ConfigError, match="verifier"):
+        await app.run()
+    assert verifier.closed is True  # le client verifier est fermé même en fail-fast
+
+
+@pytest.mark.asyncio
+async def test_full_mode_missing_download_config_is_fail_fast(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # verifier_url présent MAIS l'ensemble download incomplet (download_endpoint absent) →
+    # fail-fast au montage (handoff §3.5 : on ne télécharge jamais sans la config complète).
+    local = _local_config(tmp_path)
+    local = LocalConfig(
+        amules=local.amules,
+        catalog_db_path=local.catalog_db_path,
+        local_db_path=local.local_db_path,
+        node_id=local.node_id,
+        verifier_url="http://verifier:8000",  # full déclenché, mais pas d'endpoint/dirs
+    )
+    app = CrawlerApp(
+        crawler_config=_full_crawler_config(),
+        local_config=local,
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        client_factory=lambda endpoint: FakeMuleClient(),
+        verifier_factory=lambda url: FakeContentVerifier(),
+    )
+    with pytest.raises(ConfigError, match="download"):
+        await app.run()
+
+
+@pytest.mark.asyncio
+async def test_full_mode_missing_crawler_verify_and_download_sections_is_fail_fast(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # verifier_url présent MAIS crawler_config sans sections verify ET download →
+    # fail-fast : couvre les branches verify is None et download is None de _require_full_config.
+    local = _local_config(tmp_path)
+    local = LocalConfig(
+        amules=local.amules,
+        catalog_db_path=local.catalog_db_path,
+        local_db_path=local.local_db_path,
+        node_id=local.node_id,
+        verifier_url="http://verifier:8000",
+    )
+    crawler = _crawler_config()  # download=None, verify=None
+    app = CrawlerApp(
+        crawler_config=crawler,
+        local_config=local,
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        client_factory=lambda endpoint: FakeMuleClient(),
+        verifier_factory=lambda url: FakeContentVerifier(),
+    )
+    with pytest.raises(ConfigError, match="verify"):
+        await app.run()
+
+
+@pytest.mark.asyncio
+async def test_full_mode_tolerates_download_daemon_unreachable_at_startup(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # le daemon download injoignable au démarrage est TOLÉRÉ (handoff / DV8) : on n'échoue
+    # PAS, les boucles sont quand même armées (le backoff de la boucle gouverne les retries).
+    holder: dict[str, CrawlerApp] = {}
+    verifier = FakeContentVerifier(healthy=True)
+
+    def search_factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(holder)
+
+    def download_factory(endpoint: AmuleEndpoint) -> _UnreachableDownloadClient:
+        return _UnreachableDownloadClient()
+
+    app = CrawlerApp(
+        crawler_config=_full_crawler_config(),
+        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        client_factory=search_factory,
+        download_client_factory=download_factory,
+        verifier_factory=lambda url: verifier,
+    )
+    holder["app"] = app
+    await asyncio.wait_for(app.run(), timeout=5.0)  # ne lève pas : connect toléré
+    assert verifier.closed is True  # full a démarré (boucles armées), verifier fermé à l'arrêt

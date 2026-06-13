@@ -18,22 +18,35 @@ travailleur ne peut écrire), le tout sous un délai borné (``shutdown_deadline
 import asyncio
 import logging
 import signal
+import sqlite3
 import sys
 from collections.abc import Callable, Sequence
 from contextlib import AsyncExitStack, suppress
+from pathlib import Path
 
-from emule_indexer.adapters.config.crawler_config import CrawlerConfig
+import httpx
+
+from emule_indexer.adapters.config.crawler_config import ConfigError, CrawlerConfig
 from emule_indexer.adapters.config.local_config import AmuleEndpoint, LocalConfig
 from emule_indexer.adapters.mule_ec.client import AmuleEcClient
 from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
 from emule_indexer.adapters.persistence_sqlite.connection import open_catalog, open_local
+from emule_indexer.adapters.persistence_sqlite.download_repository import SqliteDownloadRepository
 from emule_indexer.adapters.persistence_sqlite.local_state_repository import (
     SqliteLocalStateRepository,
 )
 from emule_indexer.adapters.persistence_sqlite.scheduler_state_repository import (
     SqliteSchedulerStateRepository,
 )
+from emule_indexer.adapters.quarantine_fs import FilesystemQuarantine
+from emule_indexer.adapters.verifier_http import HttpContentVerifier
+from emule_indexer.application.run_download_cycle import (
+    CatalogReader,
+    DownloadLoopDeps,
+    download_loop,
+)
 from emule_indexer.application.run_search_cycle import run_search_cycle
+from emule_indexer.application.run_verification_cycle import VerifyLoopDeps, verification_loop
 from emule_indexer.application.search_worker import (
     BackoffRegistry,
     SearchWorker,
@@ -44,14 +57,62 @@ from emule_indexer.domain.matching.config import MatcherConfig
 from emule_indexer.domain.matching.engine import MatchingEngine
 from emule_indexer.domain.matching.models import TargetSegment
 from emule_indexer.ports.clock import Clock, Rng
+from emule_indexer.ports.content_verifier import ContentVerifier
 from emule_indexer.ports.decision_signal import DecisionSignal
 from emule_indexer.ports.mule_client import MuleClient, MuleUnreachableError
+from emule_indexer.ports.mule_download_client import DownloadEntry, MuleDownloadClient
 from emule_indexer.ports.scheduler_state_repository import SchedulerStateRepository
 
 _logger = logging.getLogger("emule_indexer.composition.app")
 
 # Type de la factory de client (injectable en test pour substituer un FakeMuleClient).
 ClientFactory = Callable[[AmuleEndpoint], MuleClient]
+
+# Factory du client de DOWNLOAD : même type d'endpoint, mais le client satisfait
+# MuleDownloadClient (AmuleEcClient satisfait les deux Protocols structurellement, DÉCISION D3).
+DownloadClientFactory = Callable[[AmuleEndpoint], MuleDownloadClient]
+# Factory du verifier : prend l'URL (verifier_url) et rend un ContentVerifier.
+VerifierFactory = Callable[[str], ContentVerifier]
+
+
+def default_download_client_factory(endpoint: AmuleEndpoint) -> MuleDownloadClient:
+    """Un ``AmuleEcClient`` dédié au download (connexion EC distincte, DÉCISION D3)."""
+    return AmuleEcClient(endpoint.host, endpoint.port, endpoint.password)
+
+
+def default_verifier_factory(verifier_url: str) -> ContentVerifier:
+    """Un ``HttpContentVerifier`` httpx sur l'URL du verifier (timeout dev raisonnable)."""
+    client = httpx.AsyncClient(base_url=verifier_url, timeout=httpx.Timeout(10.0))
+    return HttpContentVerifier(client)
+
+
+def resolve_staging_path(staging_base: Path, catalog: CatalogReader, entry: DownloadEntry) -> Path:
+    """Chemin du fichier complété en staging pour une entrée de file (DÉCISION DV10).
+
+    Dérive le nom du fichier de la DERNIÈRE observation du hash (le vrai layout amuled est
+    PENDING-homelab) ; si aucune observation n'a survécu, retombe sur ``staging_base/<hash>``
+    (best-effort : ce chemin échouera simplement à ``os.replace`` → ``_promote_completion``
+    laisse ``completed`` et retente, JAMAIS de crash). ``catalog`` est typé au Protocol narrow
+    ``CatalogReader`` (``application.run_download_cycle``) → ``SqliteCatalogRepository`` ET le
+    faux de test le satisfont.
+
+    Ce chemin est la SOURCE d'un ``os.replace`` dans ``quarantine.promote`` : il DOIT rester
+    confiné à ``staging_base`` (la destination, par hash, l'est déjà côté ``quarantine_fs``).
+    """
+    observation = catalog.last_observation(entry.ed2k_hash)
+    if observation is None:
+        return staging_base / entry.ed2k_hash
+    # filename = input HOSTILE (CLAUDE.md : « filenames are hostile input ») : confiner au
+    # basename pour que la SOURCE de ``os.replace`` ne puisse JAMAIS sortir de ``staging_base``
+    # (anti-traversal — ``staging_base / "/etc/passwd"`` rendrait ``/etc/passwd``, et
+    # ``staging_base / "../../etc/passwd"`` échapperait). ATTENTION : ``Path.name`` ne suffit
+    # PAS seul — ``Path("..").name == ".."`` (pas ``""`` !), donc ``staging_base / ".."``
+    # remonterait d'un cran. On rejette donc EXPLICITEMENT les noms dégénérés ``""``/``.``/``..``
+    # → fallback sur le hash (confiné, échouera proprement à ``os.replace``, retry idempotent).
+    safe_name = Path(observation.filename).name
+    if safe_name in {"", ".", ".."}:
+        return staging_base / entry.ed2k_hash
+    return staging_base / safe_name
 
 
 def _human(message: str) -> None:
@@ -92,6 +153,8 @@ class CrawlerApp:
         rng: Rng,
         signal_hub: DecisionSignal,
         client_factory: ClientFactory = default_client_factory,
+        download_client_factory: DownloadClientFactory = default_download_client_factory,
+        verifier_factory: VerifierFactory = default_verifier_factory,
     ) -> None:
         self._crawler_config = crawler_config
         self._local_config = local_config
@@ -101,6 +164,8 @@ class CrawlerApp:
         self._rng = rng
         self._signal = signal_hub
         self._client_factory = client_factory
+        self._download_client_factory = download_client_factory
+        self._verifier_factory = verifier_factory
         self._shutdown = asyncio.Event()
         self._signal_count = 0
 
@@ -146,6 +211,100 @@ class CrawlerApp:
             remaining = max(0.0, self._crawler_config.cycle_interval_seconds - elapsed)
             await self._clock.sleep(remaining)
 
+    def _require_full_config(self) -> None:
+        """Fail-fast au montage si le mode full est déclenché sans config complète (DV15).
+
+        ``verifier_url`` est le DÉCLENCHEUR du mode full ; l'ensemble download DOIT suivre
+        (handoff §3.5 — la lacune unidirectionnelle du parser : des dirs sans endpoint sont
+        ignorés, mais un crawler full SANS endpoint/dirs/section download/verify ne doit PAS
+        démarrer : on ne télécharge jamais sans pouvoir vérifier ni sans staging/quarantaine).
+        """
+        missing: list[str] = []
+        if self._crawler_config.verify is None:
+            missing.append("crawler.verify")
+        if self._crawler_config.download is None:
+            missing.append("crawler.download")
+        if self._local_config.download_endpoint is None:
+            missing.append("local.download_endpoint")
+        if self._local_config.staging_dir is None:
+            missing.append("local.staging_dir")
+        if self._local_config.quarantine_dir is None:
+            missing.append("local.quarantine_dir")
+        if missing:
+            raise ConfigError(
+                "mode full (verifier_url défini) exige aussi : "
+                + ", ".join(missing)
+                + " (refus de télécharger sans config complète)"
+            )
+
+    async def _build_full_loops(
+        self,
+        *,
+        stack: AsyncExitStack,
+        catalog_repo: SqliteCatalogRepository,
+        local_repo: SqliteLocalStateRepository,
+        local_conn: sqlite3.Connection,
+        verifier: ContentVerifier,
+    ) -> tuple[DownloadLoopDeps, VerifyLoopDeps]:
+        """Assemble les deps des boucles download + vérification (mode full, spec §7).
+
+        Repos UNIQUES partagés (``catalog_repo``/``local_repo`` déjà construits ; un
+        ``SqliteDownloadRepository`` sur la MÊME ``local_conn`` — writer unique sur l'event
+        loop, aucune course). Une 2e connexion EC (``download_endpoint``) connectée en tolérant
+        ``MuleUnreachableError`` (un daemon down au démarrage ne tue pas le crawler ; le backoff
+        de la boucle gouverne). ``staging_path_for`` dérive le chemin du fichier complété du
+        ``staging_dir`` configuré + le filename de la dernière observation (DÉCISION DV10 ;
+        ``None`` → chemin best-effort qui échouera à ``os.replace``, laissant ``completed``).
+        """
+        endpoint = self._local_config.download_endpoint
+        assert endpoint is not None  # garanti par _require_full_config (mypy : narrow)
+        staging_dir = self._local_config.staging_dir
+        quarantine_dir = self._local_config.quarantine_dir
+        assert staging_dir is not None and quarantine_dir is not None
+        download_config = self._crawler_config.download
+        verify_config = self._crawler_config.verify
+        assert download_config is not None and verify_config is not None
+
+        download_client = self._download_client_factory(endpoint)
+        stack.push_async_callback(download_client.close)
+        try:
+            await download_client.connect()
+        except MuleUnreachableError as error:
+            _logger.warning(
+                "daemon download injoignable au démarrage (%s) — toléré, retry par la boucle",
+                error,
+            )
+        downloads_repo = SqliteDownloadRepository(local_conn)
+        quarantine = FilesystemQuarantine(Path(quarantine_dir))
+        staging_base = Path(staging_dir)
+        # ``resolve_staging_path`` est une fonction MODULE-LEVEL (unit-testée à 100 % branch,
+        # test_staging_resolver.py) — le lambda ne fait que la lier au staging + catalogue
+        # (DÉCISION DV10 ; observation None → chemin sous staging par hash, best-effort).
+        download_deps = DownloadLoopDeps(
+            client=download_client,
+            quarantine=quarantine,
+            downloads=downloads_repo,
+            catalog=catalog_repo,
+            local=local_repo,
+            targets=self._targets,
+            disk_cap_bytes=download_config.disk_cap_bytes,
+            staging_path_for=lambda entry: resolve_staging_path(staging_base, catalog_repo, entry),
+            clock=self._clock,
+            signal=self._signal,
+            poll_interval_seconds=download_config.poll_interval_seconds,
+            shutdown=self._shutdown,
+        )
+        verify_deps = VerifyLoopDeps(
+            queue=local_repo,
+            verifier=verifier,
+            writer=catalog_repo,
+            targets=downloads_repo,
+            poll_interval_seconds=verify_config.poll_interval_seconds,
+            clock=self._clock,
+            shutdown=self._shutdown,
+        )
+        return download_deps, verify_deps
+
     async def _supervise(
         self,
         *,
@@ -155,6 +314,8 @@ class CrawlerApp:
         node_id: str,
         scheduler_state: SchedulerStateRepository,
         backoff: BackoffRegistry,
+        download_deps: DownloadLoopDeps | None,
+        verify_deps: VerifyLoopDeps | None,
     ) -> None:
         """Lance la boucle, attend l'arrêt (NON borné), ARME la borne, annule et unwind.
 
@@ -182,6 +343,10 @@ class CrawlerApp:
                     backoff=backoff,
                 )
             )
+            if download_deps is not None:
+                group.create_task(download_loop(download_deps))
+            if verify_deps is not None:
+                group.create_task(verification_loop(verify_deps))
             await self._shutdown.wait()  # NON borné (la borne est désarmée tant qu'on tourne)
             shutdown_timeout.reschedule(
                 asyncio.get_running_loop().time() + self._crawler_config.shutdown_deadline_seconds
@@ -259,6 +424,32 @@ class CrawlerApp:
                 workers.append(SearchWorker(endpoint.name, client, deps))
 
             _logger.info("crawler démarré : %d instance(s), node_id=%s", len(clients), node_id)
+
+            verifier: ContentVerifier | None = None
+            download_deps: DownloadLoopDeps | None = None
+            verify_deps: VerifyLoopDeps | None = None
+            if self._local_config.verifier_url is not None:
+                self._require_full_config()
+                verifier = self._verifier_factory(self._local_config.verifier_url)
+                # Ferme le client verifier au teardown. Le port ``ContentVerifier`` ne déclare
+                # PAS ``aclose`` (détail d'adapter http) → ``# type: ignore`` documenté ; toute
+                # impl passée à la composition (HttpContentVerifier, faux de test) l'expose
+                # (DÉCISION DV16 : pas de getattr/branche → pas de branche partielle à couvrir).
+                stack.push_async_callback(verifier.aclose)  # type: ignore[attr-defined]
+                if not await verifier.health():
+                    raise ConfigError(
+                        "verifier injoignable au démarrage (health-check KO) — "
+                        "refus de démarrer en mode full"
+                    )
+                download_deps, verify_deps = await self._build_full_loops(
+                    stack=stack,
+                    catalog_repo=catalog_repo,
+                    local_repo=local_repo,
+                    local_conn=local_conn,
+                    verifier=verifier,
+                )
+                _logger.info("mode full : boucles download + vérification armées")
+
             # Borne ENTRÉE DÉSARMÉE (None) : le régime permanent est non borné ; ``_supervise``
             # l'arme (reschedule) dès l'arrêt demandé → seule la phase d'arrêt + l'aclose ci-dessous
             # sont bornés. (Vérifié empiriquement : timeout(None) ne tire pas ; reschedule de
@@ -271,6 +462,8 @@ class CrawlerApp:
                     node_id=node_id,
                     scheduler_state=scheduler_state,
                     backoff=backoff,
+                    download_deps=download_deps,
+                    verify_deps=verify_deps,
                 )
                 _human(f"{len(clients)} connexion(s) EC en fermeture…")
                 await stack.aclose()
