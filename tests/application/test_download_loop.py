@@ -166,3 +166,23 @@ async def test_nudge_wins_and_cancels_the_pending_sleep() -> None:
 
     await asyncio.gather(asyncio.wait_for(download_loop(deps), timeout=2.0), stop_when_waited())
     assert DOWNLOAD_NUDGE_SUBJECT in signal.waited
+
+
+@pytest.mark.asyncio
+async def test_loop_cancelled_mid_wait_propagates_cleanly() -> None:
+    # Le vrai déclencheur d'arrêt en prod : le TaskGroup de CrawlerApp annule la tâche de
+    # boucle PENDANT qu'elle dort dans _sleep_or_nudge. _BlockingClock + aucun nudge → la
+    # boucle se gare sur asyncio.wait ; l'annulation y atterrit, le finally annule les enfants,
+    # et le CancelledError se propage proprement (la boucle s'arrête, sans tâche en fuite).
+    shutdown = asyncio.Event()  # JAMAIS posé : seule l'annulation arrête la boucle
+    signal = RecordingSignal()
+    deps = _loop_deps(signal=signal, shutdown=shutdown)
+    deps.clock = _BlockingClock()
+    task = asyncio.ensure_future(download_loop(deps))
+    # attendre que la boucle soit garée dans _sleep_or_nudge (nudge_task a appelé wait())
+    while DOWNLOAD_NUDGE_SUBJECT not in signal.waited:
+        await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert task.cancelled()
