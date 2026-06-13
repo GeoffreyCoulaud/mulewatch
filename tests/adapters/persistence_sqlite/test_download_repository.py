@@ -93,6 +93,8 @@ def test_committed_bytes_sums_only_active_downloads(
     assert repository.committed_bytes() == 300
     repository.set_state(_A, DownloadState.COMPLETED)  # terminal → ne compte plus
     assert repository.committed_bytes() == 200
+    repository.set_state(_B, DownloadState.FAILED)  # terminal → ne compte plus non plus
+    assert repository.committed_bytes() == 0
 
 
 def test_committed_bytes_is_zero_on_empty(repository: SqliteDownloadRepository) -> None:

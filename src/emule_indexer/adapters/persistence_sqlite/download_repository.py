@@ -34,6 +34,7 @@ _IS_DOWNLOADED = "SELECT 1 FROM downloads WHERE ed2k_hash = ?"
 _ACTIVE_STATES = "SELECT ed2k_hash, state FROM downloads"
 
 # Le plafond ne compte que les downloads ACTIFS (états non terminaux, DÉCISION D7).
+# Les 3 terminaux listés ici DOIVENT rester synchronisés avec _TERMINAL_STATES (states.py).
 _COMMITTED_BYTES = (
     "SELECT COALESCE(SUM(size_bytes), 0) FROM downloads "
     "WHERE state NOT IN ('completed', 'quarantined', 'failed')"
