@@ -43,8 +43,9 @@ Desktop), sans configuration réseau particulière.
 ### Démarrer
 ```bash
 git clone <repo> && cd emule-indexer
-./scripts/setup-dev.sh   # active les hooks Git (core.hooksPath) + installe l'env (uv sync)
-uv run pytest
+./scripts/setup-dev.sh   # active les hooks Git (core.hooksPath) + installe l'env (uv sync --dev)
+( cd packages/crawler  && uv run pytest -q )
+( cd packages/verifier && uv run pytest -q )
 ```
 
 > Les **hooks Git ne sont pas activés automatiquement au clone** (sécurité Git) : `setup-dev.sh`

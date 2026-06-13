@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Pré-push : refuse le push si un check échoue (mêmes checks que la CI).
+# Pré-push : refuse le push si un check échoue (mêmes checks que la CI, les 2 paquets).
 set -euo pipefail
 
 command -v uv >/dev/null 2>&1 || { echo "[pre-push] ERROR: 'uv' introuvable. Installe-le : https://docs.astral.sh/uv/"; exit 1; }
 
 echo "[pre-push] ruff check…";          uv run ruff check .
 echo "[pre-push] ruff format --check…"; uv run ruff format --check .
-echo "[pre-push] sqlfluff lint…";       uv run sqlfluff lint src
+echo "[pre-push] sqlfluff lint…";       uv run sqlfluff lint packages/crawler/src
 echo "[pre-push] mypy…";                uv run mypy
-echo "[pre-push] pytest…";              uv run pytest
+echo "[pre-push] pytest crawler…";      ( cd packages/crawler  && uv run pytest )
+echo "[pre-push] pytest verifier…";     ( cd packages/verifier && uv run pytest )
 echo "[pre-push] OK"

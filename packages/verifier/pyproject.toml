@@ -1,0 +1,31 @@
+[project]
+name = "download-verifier"
+version = "0.0.0"
+description = "Service de vérification (NO-OP) des fichiers en quarantaine — déployable séparé"
+requires-python = ">=3.12"
+dependencies = [
+    "starlette>=1.3",
+    "uvicorn>=0.30",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/download_verifier"]
+
+[tool.pytest.ini_options]
+addopts = '--cov=download_verifier --cov-report=term-missing --cov-fail-under=100 --strict-markers'
+testpaths = ["tests"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+branch = true
+source = ["download_verifier"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
+exclude_also = ["if TYPE_CHECKING:"]

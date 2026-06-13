@@ -6,7 +6,7 @@ import pytest
 from emule_indexer.composition import __main__ as entry
 from emule_indexer.composition.app import CrawlerApp
 
-_CONFIG = Path(__file__).resolve().parents[2] / "config"
+_CONFIG = Path(__file__).resolve().parents[4] / "config"
 
 
 def _args(**overrides: Path) -> argparse.Namespace:

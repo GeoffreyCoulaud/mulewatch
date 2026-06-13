@@ -17,21 +17,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 uv sync --dev                          # install (also: scripts/setup-dev.sh installs the pre-push hook)
 
-# The full gate (must be green before any commit; the pre-push hook + CI run the same five):
-uv run pytest -q                       # tests + 100% BRANCH coverage gate (fails the run under 100%)
+# The full gate (must be green before any commit; the pre-push hook + CI run the same six):
+( cd packages/crawler  && uv run pytest -q )          # crawler tests, 100% BRANCH coverage
+( cd packages/verifier && uv run pytest -q )          # verifier tests, 100% BRANCH coverage
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
-uv run sqlfluff lint src               # lint SQL (migrations SQLite embarquées)
+uv run sqlfluff lint packages/crawler/src             # lint SQL (migrations SQLite embarquées)
 ```
 
 **Running a single test:** the pytest config applies `--cov-fail-under=100` over the whole package, so running one file/test alone reports <100% and the run "fails" even when the tests pass. Disable coverage for focused runs:
 
 ```bash
-uv run pytest "tests/domain/matching/test_engine.py::test_evaluate_real_62a_is_download_via_first_rule_on_62a" --no-cov -q
+( cd packages/crawler && uv run pytest tests/domain/matching/test_engine.py::test_evaluate_real_62a_is_download_via_first_rule_on_62a --no-cov -q )
 ```
 
-Always run the full `uv run pytest -q` before considering work done — that's what enforces the gate.
+Always run the full gate (both packages + ruff + mypy + sqlfluff) before considering work done — that's what enforces the gate.
+
+**Le gate est PAR PAQUET** (`cd packages/<pkg> && uv run pytest`) — obligatoire. Un `uv run pytest` nu **depuis la racine n'est PAS le gate** : la racine n'a pas de `[tool.pytest.ini_options]`, donc pas de coverage et pas de désélection des marqueurs d'intégration. Un `conftest.py` racine (`collect_ignore_glob = ["packages/*"]`) le neutralise : depuis la racine, pytest ne collecte rien (exit 5).
+
+**Workspace uv VIRTUEL :** `packages/crawler` (paquet `emule_indexer`, dist `emule-indexer`) + `packages/verifier` (paquet `download_verifier`, dist `download-verifier`) ; `[tool.ruff]`/`[tool.mypy]` à la racine (spannent les deux paquets), `[tool.pytest]`/`[tool.coverage]`/`[tool.sqlfluff]` par paquet ; un seul `uv.lock` racine ; `config/` reste racine.
 
 ## Hard rules (enforced, non-negotiable — do not relax)
 
