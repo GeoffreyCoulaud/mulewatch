@@ -40,6 +40,9 @@ class AnalysisConfig:
             timeout_s=_parse_float(env.get("ANALYSIS_TIMEOUT_S"), 30.0),
             rlimit_cpu_s=_parse_int(env.get("RLIMIT_CPU_S"), 20),
             rlimit_as_bytes=_parse_int(env.get("RLIMIT_AS_BYTES"), 512 * 1024 * 1024),
+            # RLIMIT_NPROC est PAR-UID GLOBAL (pas par sous-arbre) : 64 est sain UNIQUEMENT parce
+            # que le verifier tourne sur un UID dédié peu peuplé (image Docker, Plan F). En dev/CI
+            # bare-metal où l'UID a déjà >64 process, overrider RLIMIT_NPROC (sinon fork refusé).
             rlimit_nproc=_parse_int(env.get("RLIMIT_NPROC"), 64),
             rlimit_nofile=_parse_int(env.get("RLIMIT_NOFILE"), 64),
             rlimit_fsize_bytes=_parse_int(env.get("RLIMIT_FSIZE_BYTES"), 16 * 1024 * 1024),
