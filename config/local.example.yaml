@@ -7,8 +7,8 @@ amules:                              # ≥ 1 instance amuled joignable par EC
     port: 4712                       # port EC
     password: change-me              # mot de passe EC (secret)
 
-catalog_db_path: /data/catalog.db    # base catalogue (append-only, partageable)
-local_db_path: /data/local.db        # base opérationnelle (jamais fusionnée)
+catalog_db_path: /data/catalog/catalog.db  # base catalogue (append-only, partageable ; volume catalog-db @ /data/catalog)
+local_db_path: /data/local/local.db        # base opérationnelle (jamais fusionnée ; volume local-db @ /data/local)
 
 # node_id: optionnel — override l'identité du nœud ; sinon celle de local.db est utilisée.
 
@@ -20,8 +20,8 @@ local_db_path: /data/local.db        # base opérationnelle (jamais fusionnée)
 #   host: gluetun
 #   port: 4712
 #   password: change-me
-# staging_dir: /data/incoming        # où amuled écrit les fichiers complétés
-# quarantine_dir: /data/quarantine   # cible du rename atomique (même FS que staging_dir)
+# staging_dir: /data/quarantine      # où amuled écrit les fichiers complétés (volume quarantine partagé)
+# quarantine_dir: /data/quarantine   # cible du rename atomique (même FS que staging_dir ; même volume)
 
 # URL du service verifier (D-verify) — sa présence ACTIVE le mode full (download + vérif) ;
 # absente = mode observateur (les deux boucles restent OFF). Au démarrage en full, le crawler

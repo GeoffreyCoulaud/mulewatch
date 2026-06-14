@@ -21,8 +21,8 @@ Le mode **observer** ne téléchargera rien : il cherchera, cataloguera et notif
 `ed2k://` pour récupérer un fichier d'un clic). Portable (Linux, macOS, Windows via Docker
 Desktop), sans configuration réseau particulière.
 
-> ⚙️ Le packaging `docker compose` arrive dans un incrément ultérieur (voir la feuille de route).
-> Le projet en est aux **fondations** (voir « Pour les développeurs »).
+> 🐳 Déploiement `docker compose` (profils `observer`/`full`) disponible — voir
+> [`docs/runbook-deployment.md`](docs/runbook-deployment.md). Le mode `observer` ne télécharge rien.
 
 ## Pour les curieux (comment ça marche)
 
@@ -55,6 +55,7 @@ git clone <repo> && cd emule-indexer
 ### Conception
 - Spec : [`docs/superpowers/specs/2026-06-10-crawler-mvp-design.md`](docs/superpowers/specs/2026-06-10-crawler-mvp-design.md)
 - Plans d'implémentation : [`docs/superpowers/plans/`](docs/superpowers/plans/)
+- Déploiement (Docker / compose) : [`docs/runbook-deployment.md`](docs/runbook-deployment.md)
 
 ## Statut
 
