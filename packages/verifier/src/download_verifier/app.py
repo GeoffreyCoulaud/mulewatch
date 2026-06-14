@@ -37,7 +37,10 @@ def _bad_request(detail: str) -> JSONResponse:
 
 
 async def verify_endpoint(request: Request) -> JSONResponse:
-    """``POST /verify`` : valide (strict + borné), vérifie (NO-OP), rend le résultat."""
+    """``POST /verify`` : valide (strict + borné), analyse (enfant confiné, DA6), rend le résultat.
+
+    Le NO-OP n'existe plus : l'analyse spawne un enfant confiné (``check.verify_file`` → DA6).
+    """
     raw = await request.body()
     if len(raw) > _MAX_BODY_BYTES:
         return _bad_request("corps trop volumineux")

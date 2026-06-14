@@ -1,10 +1,25 @@
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import httpx
 import pytest
 
+import download_verifier.check as check_module
 from download_verifier.app import build_app
+
+
+class _FakeProdChildRunner:
+    """Faux ``ProdChildRunner`` (signature conforme au Protocol ``ChildRunner``) : rend un égress
+    canné SANS spawner de sous-process — garde les tests d'analyse dans le gate par défaut."""
+
+    def __init__(self, cfg: object) -> None:
+        self._cfg = cfg
+
+    def __call__(
+        self, argv: Sequence[str], *, cwd: str, env: Mapping[str, str], timeout: float
+    ) -> tuple[int, bytes, bool]:
+        return 0, b'{"verdict": "suspicious", "real_meta": {}, "checks": []}', False
 
 
 @pytest.fixture
@@ -28,7 +43,11 @@ async def test_health_returns_200(quarantine: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_verify_existing_file_returns_unverified(quarantine: Path) -> None:
+async def test_verify_existing_file_returns_suspicious(
+    quarantine: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # fichier présent → analyse ; égress canné (pas de spawn réel dans le gate par défaut).
+    monkeypatch.setattr(check_module, "ProdChildRunner", _FakeProdChildRunner)
     (quarantine / ("a" * 32)).write_bytes(b"\x00\x01")
     async with _client(quarantine) as client:
         response = await client.post(
@@ -36,7 +55,7 @@ async def test_verify_existing_file_returns_unverified(quarantine: Path) -> None
         )
     assert response.status_code == 200
     body = response.json()
-    assert body == {"verdict": "unverified", "real_meta": {}, "checks": []}
+    assert body["verdict"] == "suspicious"
 
 
 @pytest.mark.asyncio
@@ -101,12 +120,16 @@ async def test_verify_rejects_non_canonical_hash(quarantine: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_verify_defaults_expected_to_empty_mapping(quarantine: Path) -> None:
+async def test_verify_defaults_expected_to_empty_mapping(
+    quarantine: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # expected omis → défaut {} acceptable ; le pipeline analyse (égress canné, pas de spawn réel).
+    monkeypatch.setattr(check_module, "ProdChildRunner", _FakeProdChildRunner)
     (quarantine / ("d" * 32)).write_bytes(b"x")
     async with _client(quarantine) as client:
         response = await client.post("/verify", json={"hash": "d" * 32})  # expected omis
     assert response.status_code == 200
-    assert response.json()["verdict"] == "unverified"
+    assert response.json()["verdict"] == "suspicious"
 
 
 @pytest.mark.asyncio

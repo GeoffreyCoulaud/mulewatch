@@ -4,8 +4,9 @@ Run dédié : ( cd packages/crawler && uv run pytest -m verify_integration --no-
 Sans Docker : le service ``download_verifier`` tourne IN-PROCESS via ``httpx.ASGITransport``.
 Un fichier est PRÉ-PLACÉ en quarantaine + une tâche enfilée → ``run_verification_cycle`` (avec
 un VRAI ``HttpContentVerifier``, de VRAIS repos SQLite sur ``tmp_path``) produit une ligne
-``file_verifications`` ``unverified``. Prouve le contrat de fil DTO↔réponse + l'écriture
-durable, sans vrai download (le download→verify complet = validation homelab manuelle).
+``file_verifications`` ``suspicious`` (l'analyseur réel : 3 octets ne sont pas un média).
+Prouve le contrat de fil DTO↔réponse + l'écriture durable, sans vrai download
+(le download→verify complet = validation homelab manuelle).
 """
 
 import sqlite3
@@ -58,7 +59,7 @@ def local(tmp_path: Path) -> Iterator[sqlite3.Connection]:
 
 
 @pytest.mark.asyncio
-async def test_verify_loop_produces_unverified_row(
+async def test_verify_loop_produces_suspicious_row(
     tmp_path: Path, catalog: sqlite3.Connection, local: sqlite3.Connection
 ) -> None:
     quarantine = tmp_path / "quarantine"
@@ -100,6 +101,6 @@ async def test_verify_loop_produces_unverified_row(
     row = catalog.execute(
         "SELECT ed2k_hash, verdict FROM file_verifications WHERE ed2k_hash = ?", (_A,)
     ).fetchone()
-    assert row == (_A, "unverified")
+    assert row == (_A, "suspicious")
     # la tâche est complétée (plus claimable).
     assert local_repo.claim_verification() is None

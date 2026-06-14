@@ -1,35 +1,38 @@
-"""Logique de vérification NO-OP (spec verify §4 — DÉCISION DV1).
+"""Couture service-side de l'analyse (spec analysis §3/§6 — DA6).
 
-Le verifier est trivial : il confirme l'EXISTENCE du fichier en quarantaine (``stat`` RO)
-et rend ``unverified`` — il ne lit JAMAIS les octets, n'exécute rien dessus, et ignore
-``expected``. Le VRAI travail d'analyse (confinement jetable + checks type_sniff/ffprobe/
-clamav remplissant ``real_meta``) est D-analysis. La forme de résultat (verdict, real_meta,
-checks) est définie ICI, indépendamment du DTO crawler (frontière de paquet, DÉCISION DV4) ;
-le contrat de fil JSON les garde en phase (test de contrat + e2e).
+``verify_file`` est la couture STABLE que ``app.py`` appelle (signature inchangée) : elle vérifie
+l'EXISTENCE du fichier en quarantaine (``is_file`` — métadonnée seulement, le parent ne lit JAMAIS
+les octets, DA8), puis spawne l'enfant d'analyse jetable (``spawn.run_analysis``) qui exécute les
+checks et imprime un égress parsé défensivement (``egress.parse``). Mapping (DA6, toujours 200) :
+fichier absent / non-régulier → ``("error", {}, [])`` ; sinon le verdict réel de l'enfant
+(``clean``/``suspicious``/``malicious``, ou ``suspicious`` si l'enfant timeout/crashe/égresse mal).
 
-Le verifier est stateless, no-DB, no-domain, no-Internet : il ne connaît que le dossier de
-quarantaine (config du service) et le hash demandé.
+``cfg``/``runner`` sont injectables (tests) ; les défauts sont la config d'env + le
+``ProdChildRunner`` réel. ``expected`` reste minimal et non décisif (DA2 ; le pipeline ne
+l'exploite pas en D-analysis).
 """
 
+import os
 from collections.abc import Mapping
 from pathlib import Path
 
-# Verdict NO-OP : un fichier présent est "unverified" (existence prouvée, contenu non analysé) ;
-# absent (ou non-fichier) est "error" (rien à vérifier — la boucle l'enregistre + complète).
-_VERDICT_UNVERIFIED = "unverified"
+from download_verifier import spawn
+from download_verifier.config import AnalysisConfig
+from download_verifier.spawn import ChildRunner, ProdChildRunner
+
 _VERDICT_ERROR = "error"
 
 
 def verify_file(
-    quarantine_path: Path, expected: Mapping[str, object]
+    quarantine_path: Path,
+    expected: Mapping[str, object],
+    *,
+    cfg: AnalysisConfig | None = None,
+    runner: ChildRunner | None = None,
 ) -> tuple[str, dict[str, object], list[object]]:
-    """Vérifie (NO-OP) un fichier en quarantaine. Rend ``(verdict, real_meta, checks)``.
-
-    Ne lit JAMAIS les octets (``is_file`` ne touche que les métadonnées d'inode) et ignore
-    ``expected`` (le NO-OP n'en fait rien ; D-analysis l'exploitera pour comparer aux attendus).
-    Fichier régulier présent → ``("unverified", {}, [])`` ; absent ou non-fichier (répertoire,
-    lien cassé…) → ``("error", {}, [])``.
-    """
-    if quarantine_path.is_file():
-        return _VERDICT_UNVERIFIED, {}, []
-    return _VERDICT_ERROR, {}, []
+    """Vérifie un fichier en quarantaine. Rend ``(verdict, real_meta, checks)`` (DA6)."""
+    config = cfg if cfg is not None else AnalysisConfig.from_env(os.environ)
+    child_runner = runner if runner is not None else ProdChildRunner(config)
+    if not quarantine_path.is_file():
+        return _VERDICT_ERROR, {}, []
+    return spawn.run_analysis(quarantine_path.name, config, child_runner)

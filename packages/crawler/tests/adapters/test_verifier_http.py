@@ -6,18 +6,32 @@ Deux familles :
 - Tests fabriqués (``MockTransport``) : couvrent le parsing défensif, les erreurs réseau, etc.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import httpx
 import pytest
 
+import download_verifier.check as check_module
 from download_verifier.app import build_app
 from emule_indexer.adapters.verifier_http import HttpContentVerifier
 from emule_indexer.ports.content_verifier import VerificationResult
 from emule_indexer.ports.verifier_errors import VerifierUnavailableError
 
 _HASH = "a" * 32
+
+
+class _FakeProdChildRunner:
+    """Faux ``ProdChildRunner`` (signature conforme au Protocol ``ChildRunner``) : rend un égress
+    canné SANS spawner de sous-process — garde le contract test dans le gate par défaut."""
+
+    def __init__(self, cfg: object) -> None:
+        self._cfg = cfg
+
+    def __call__(
+        self, argv: Sequence[str], *, cwd: str, env: Mapping[str, str], timeout: float
+    ) -> tuple[int, bytes, bool]:
+        return 0, b'{"verdict": "suspicious", "real_meta": {}, "checks": []}', False
 
 
 def _verifier_against(app: object) -> HttpContentVerifier:
@@ -30,7 +44,11 @@ def _verifier_against(app: object) -> HttpContentVerifier:
 
 
 @pytest.mark.asyncio
-async def test_contract_verify_against_real_app(tmp_path: Path) -> None:
+async def test_contract_verify_against_real_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Contrat de fil end-to-end (égress JSON → réponse → DTO) ; égress canné, pas de spawn réel.
+    monkeypatch.setattr(check_module, "ProdChildRunner", _FakeProdChildRunner)
     quarantine = tmp_path / "quarantine"
     quarantine.mkdir()
     (quarantine / _HASH).write_bytes(b"\x00")
@@ -39,7 +57,7 @@ async def test_contract_verify_against_real_app(tmp_path: Path) -> None:
         result = await verifier.verify(_HASH, {"target_id": "S2E062A"})
     finally:
         await verifier.aclose()
-    assert result == VerificationResult(verdict="unverified", real_meta={}, checks=())
+    assert result.verdict == "suspicious"
 
 
 @pytest.mark.asyncio
