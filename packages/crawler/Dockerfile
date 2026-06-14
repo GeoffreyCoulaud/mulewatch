@@ -27,6 +27,12 @@ FROM python:3.12-slim-bookworm
 RUN groupadd --system --gid 999 nonroot \
     && useradd --system --gid 999 --uid 999 --create-home nonroot
 
+# Points de montage des volumes nommes (catalog-db/local-db/quarantine) : les creer possedes
+# par nonroot pour qu'un volume nomme VIDE herite de la propriete 999:999 au premier mount
+# (le crawler tourne en read_only + non-root et doit pouvoir creer ses bases SQLite).
+RUN mkdir -p /data/catalog /data/local /data/quarantine \
+    && chown -R nonroot:nonroot /data
+
 COPY --from=builder --chown=nonroot:nonroot /app/.venv /app/.venv
 
 ENV PATH="/app/.venv/bin:$PATH"

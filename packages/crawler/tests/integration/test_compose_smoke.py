@@ -13,11 +13,12 @@ Volumes éphémères : chaque scénario fait `docker compose down -v` dans un fi
 Mécaniques arrêtées EMPIRIQUEMENT (compose v5, Docker 29) :
   * Les chemins de volumes relatifs des fichiers compose (`./deploy/smoke/...`) sont résolus
     contre le `working_dir` du projet : tous les `subprocess.run` tournent donc `cwd=_REPO_ROOT`.
-  * Les DB sont écrites par le crawler (uid 999, ``read_only: true``). Les volumes nommés
-    ``catalog-db``/``local-db`` sont créés *root* => le crawler ne peut pas y créer ses fichiers
-    SQLite (défaut de perms hors périmètre du smoke). Chaque override de scénario remplace donc
-    la liste de volumes (``!override``) pour LARGUER ces 2 volumes nommés et monte ``/data/catalog``
-    + ``/data/local`` en **tmpfs** (inscriptibles par 999, éphémères — idéal pour un smoke).
+  * Les DB sont écrites par le crawler (uid 999, ``read_only: true``) dans les VRAIS volumes
+    nommés ``catalog-db``/``local-db`` (montés ``/data/catalog`` + ``/data/local``). Le Dockerfile
+    crée ces points de montage possédés par ``nonroot`` => un volume nommé VIDE hérite de la
+    propriété 999:999 au premier mount, donc le crawler non-root peut y créer ses fichiers SQLite.
+    Le smoke exerce DÉLIBÉRÉMENT ce chemin de persistance réel pour attraper toute régression de
+    perms (volume nommé root-owned => ``unable to open database file``).
   * Full : un override ré-ajoute ``depends_on: { verifier: service_healthy }`` (absent de la base
     smoke pour que le profil ``observer`` valide) => démarrage DÉTERMINISTE après le verifier sain.
   * Observer : un override re-monte ``local.observer.yaml`` (pas de ``verifier_url``) et on lève
@@ -54,14 +55,18 @@ _ENV_STUB = {
     "SERVER_COUNTRIES": "",
 }
 
-# Listes de volumes des overrides : on LARGUE catalog-db/local-db (volumes nommés root-owned)
-# au profit de tmpfs (cf. le module docstring). Les chemins restent relatifs au working_dir.
+# Listes de volumes des overrides : on monte les configs smoke + les VRAIS volumes nommés
+# (catalog-db/local-db/quarantine). Le crawler non-root (uid 999) y crée ses bases SQLite —
+# le Dockerfile possède les points de montage en nonroot pour que les volumes vides héritent
+# de 999:999. Les chemins de bind restent relatifs au working_dir du projet.
 _FULL_LOCAL_VOLUMES = [
     "./deploy/smoke/local.full.yaml:/app/config/local.yaml:ro",
     "./deploy/smoke/crawler.yaml:/app/config/crawler.yaml:ro",
     "./deploy/smoke/targets.yaml:/app/config/targets.yaml:ro",
     "./deploy/smoke/matcher.yaml:/app/config/matcher.yaml:ro",
     "quarantine:/data/quarantine",
+    "catalog-db:/data/catalog",
+    "local-db:/data/local",
 ]
 _OBSERVER_LOCAL_VOLUMES = [
     "./deploy/smoke/local.observer.yaml:/app/config/local.yaml:ro",
@@ -69,8 +74,9 @@ _OBSERVER_LOCAL_VOLUMES = [
     "./deploy/smoke/targets.yaml:/app/config/targets.yaml:ro",
     "./deploy/smoke/matcher.yaml:/app/config/matcher.yaml:ro",
     "quarantine:/data/quarantine",
+    "catalog-db:/data/catalog",
+    "local-db:/data/local",
 ]
-_TMPFS_DB = ["/tmp", "/data/catalog", "/data/local"]
 
 
 def _write_override(tmp_path: Path, name: str, crawler_body: str) -> Path:
@@ -168,7 +174,6 @@ def test_full_verifier_healthy_and_crawler_up(
                 "        condition: service_healthy\n"
             ),
             volumes=_FULL_LOCAL_VOLUMES,
-            tmpfs=_TMPFS_DB,
         ),
     )
     files = (*project_files, override)
@@ -201,7 +206,6 @@ def test_observer_starts_without_verifier(project_files: tuple[Path, ...], tmp_p
         _yaml_crawler(
             depends_on=None,
             volumes=_OBSERVER_LOCAL_VOLUMES,
-            tmpfs=_TMPFS_DB,
         ),
     )
     files = (*project_files, override)
@@ -219,7 +223,6 @@ def test_full_without_verifier_fails_fast(project_files: tuple[Path, ...], tmp_p
         _yaml_crawler(
             depends_on=None,
             volumes=_FULL_LOCAL_VOLUMES,
-            tmpfs=_TMPFS_DB,
             restart_no=True,
         ),
     )
@@ -239,10 +242,9 @@ def _yaml_crawler(
     *,
     depends_on: str | None,
     volumes: list[str],
-    tmpfs: list[str],
     restart_no: bool = False,
 ) -> str:
-    """Compose un override `services.crawler` (volumes !override + tmpfs DB inscriptibles)."""
+    """Compose un override `services.crawler` (volumes !override ; tmpfs /tmp hérité de la base)."""
     lines = ["services:", "  crawler:"]
     if restart_no:
         lines.append('    restart: !override "no"')
@@ -250,6 +252,4 @@ def _yaml_crawler(
         lines.append(depends_on.rstrip("\n"))
     lines.append("    volumes: !override")
     lines += [f"      - {volume}" for volume in volumes]
-    lines.append("    tmpfs:")
-    lines += [f"      - {mount}" for mount in tmpfs]
     return "\n".join(lines) + "\n"
