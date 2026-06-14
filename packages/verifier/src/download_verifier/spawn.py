@@ -4,7 +4,8 @@
 cwd ``tempfile.mkdtemp()`` jetable (supprimé en ``finally`` même en cas d'exception), env EXPLICITE
 minimal (on n'hérite PAS de ``os.environ`` — secrets/VPN ; on ne passe que QUARANTINE_DIR + la
 config des checks + un PATH minimal). Le ``ChildRunner`` est INJECTABLE : l'impl PROD fait le vrai
-``subprocess.Popen`` (``close_fds=True``, ``preexec_fn=_confine`` = rlimits + setsid, timeout-kill du
+``subprocess.Popen`` (``close_fds=True``, ``preexec_fn=_confine`` = rlimits + setsid,
+timeout-kill du
 groupe via ``killpg``) — ces lignes système sont ``# pragma: no cover`` (couvertes par
 analysis_integration). Le mapping de l'issue (stdout/timeout/exit) est délégué à ``egress.parse``
 (défensif, DA6). Le parent ne lit JAMAIS d'octets du fichier (DA8).
