@@ -1,0 +1,14 @@
+# Override DURCISSEMENT OPT-IN (spec packaging §6 — ring noyau, F-D2 / D-analysis DA1).
+# NON requis : ajoute le runtime gVisor (runsc) aux services batis pour confiner l'enfant
+# d'analyse (verifier) et le crawler au niveau noyau. Exige gVisor installe sur l'hote
+# (`runsc` enregistre comme runtime Docker). Usage :
+#   docker compose -f compose.yaml -f compose.hardening.yml --profile full up -d
+# Si l'hote ne supporte pas runsc, NE PAS utiliser cet override (la stack de base est deja
+# durcie au niveau conteneur : non-root, cap_drop ALL, no-new-privileges, read_only, internal).
+
+services:
+  crawler:
+    runtime: runsc
+
+  verifier:
+    runtime: runsc
