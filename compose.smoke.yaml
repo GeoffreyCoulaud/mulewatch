@@ -1,0 +1,53 @@
+# Override SMOKE (spec packaging §5) : stack assemblee SANS gluetun, sans secrets ProtonVPN.
+# amuled tourne directement sur le reseau `ec` ; le crawler vise amuled (configs deploy/smoke/).
+# Volumes ephemeres (pas de persistance). Usage :
+#   docker compose -f compose.yaml -f compose.smoke.yaml --profile full up -d --build
+# Le test compose_integration (Task 5) pilote cette stack et asserte le cablage.
+
+services:
+  # gluetun retire du smoke : !override REMPLACE la liste de profils heritee de la base
+  # ([observer, full]) au lieu de l'etendre (les listes fusionnent par concatenation au merge).
+  # Sans ca, gluetun resterait dans observer/full et demarrerait (or il exige des secrets
+  # WireGuard + /dev/net/tun). Avec `[disabled]` (profil jamais active), il n'est JAMAIS lance.
+  gluetun:
+    profiles: !override [disabled]
+
+  amuled:
+    # Plus de network_mode service:gluetun : !reset le SUPPRIME (sinon network_mode + networks
+    # sont mutuellement exclusifs au merge) => amuled rejoint directement le reseau `ec`.
+    network_mode: !reset null
+    networks:
+      - ec
+    depends_on: !reset []
+    environment:
+      GUI_PWD: smoke-ec-password
+
+  crawler:
+    # Le mode (observer/full) est choisi par le local.yaml monte : par defaut local.full.yaml
+    # (le test compose_integration peut re-monter local.observer.yaml a la place).
+    # !override REMPLACE entierement la liste de volumes de la base (sinon les listes fusionnent
+    # par concatenation : on heriterait le bind ./config:/app/config:ro, ramenant les vraies
+    # configs du depot et empilant des mounts fichier dans un dir RO). On monte donc UNIQUEMENT
+    # les 4 configs smoke (chemins attendus par le `command` de la base) + les volumes ephemeres.
+    volumes: !override
+      - ./deploy/smoke/local.full.yaml:/app/config/local.yaml:ro
+      - ./deploy/smoke/crawler.yaml:/app/config/crawler.yaml:ro
+      - ./deploy/smoke/targets.yaml:/app/config/targets.yaml:ro
+      - ./deploy/smoke/matcher.yaml:/app/config/matcher.yaml:ro
+      - quarantine:/data/quarantine
+      - catalog-db:/data/catalog
+      - local-db:/data/local
+    # depends_on uniquement sur amuled : le verifier n'existe QUE dans le profil `full`, donc
+    # le referencer ici casserait la validation du profil `observer` (service non defini). En
+    # full, l'ordre vis-a-vis du verifier est deja garanti par le crawler lui-meme : son
+    # health-check fail-fast du verifier au demarrage (app.py) + le restart: unless-stopped
+    # herite de la base le font reessayer jusqu'a ce que le verifier soit sain. Cette forme
+    # longue remplace (override de merge) la liste courte [amuled] heritee de la base.
+    depends_on:
+      amuled:
+        condition: service_started
+
+  verifier:
+    # En smoke le verifier reste sur verify-internal ; le crawler l'atteint via ce reseau.
+    volumes:
+      - quarantine:/quarantine:ro

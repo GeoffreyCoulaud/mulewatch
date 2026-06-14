@@ -1,0 +1,9 @@
+# targets.yaml SMOKE — une cible minimale (meme schema que config/targets.yaml / parse_targets).
+# Suffit a monter le MatchingEngine ; le smoke verifie le cablage, pas la pertinence du match.
+episodes:
+  - season: 2
+    number: 62
+    broadcast_date: 2008-09-21
+    status: partial
+    segments:
+      - { letter: A, title: "Les demoiselles cambrioleuses", aliases: [] }

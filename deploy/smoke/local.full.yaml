@@ -1,0 +1,20 @@
+# local.yaml SMOKE — mode FULL (verifier_url present => health-check fail-fast au demarrage).
+# EC host = amuled ; download_endpoint sur amuled ; staging+quarantine = meme FS (/data/quarantine).
+amules:
+  - name: amule-smoke
+    host: amuled
+    port: 4712
+    password: smoke-ec-password
+
+catalog_db_path: /data/catalog/catalog.db
+local_db_path: /data/local/local.db
+
+download_endpoint:
+  name: amule-smoke-dl
+  host: amuled
+  port: 4712
+  password: smoke-ec-password
+staging_dir: /data/quarantine
+quarantine_dir: /data/quarantine
+
+verifier_url: http://verifier:8000
