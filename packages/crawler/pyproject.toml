@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Crawler eMule — surveillance, catalogue, auto-download (Keroro VF lost media)"
 requires-python = ">=3.12"
 dependencies = [
+    "apprise>=1.9",
     "google-re2>=1.1.20251105",
     "pyyaml>=6.0.3",
     "rapidfuzz>=3.14.5",
