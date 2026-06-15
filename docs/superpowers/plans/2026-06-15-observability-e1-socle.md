@@ -103,7 +103,6 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class SearchCycleCompleted:
     cycle_index: int
-    n_observations: int
     duration_seconds: float
 
 
@@ -248,10 +247,10 @@ _BOTH = frozenset({Audience.COMMUNITY, Audience.OPERATIONS})
 
 CASES: list[tuple[ev.Event, Report]] = [
     (
-        ev.SearchCycleCompleted(cycle_index=3, n_observations=12, duration_seconds=4.5),
+        ev.SearchCycleCompleted(cycle_index=3, duration_seconds=4.5),
         Report(
             Severity.INFO,
-            "cycle 3 terminé : 12 observation(s)",
+            "cycle 3 terminé (4.5s)",
             (
                 MetricInstruction(MetricName.SEARCH_CYCLES, "inc"),
                 MetricInstruction(MetricName.SEARCH_CYCLE_DURATION, "observe", value=4.5),
@@ -586,7 +585,7 @@ def describe(event: Event) -> Report:
         case SearchCycleCompleted():
             return Report(
                 Severity.INFO,
-                f"cycle {event.cycle_index} terminé : {event.n_observations} observation(s)",
+                f"cycle {event.cycle_index} terminé ({event.duration_seconds:.1f}s)",
                 (
                     MetricInstruction(MetricName.SEARCH_CYCLES, "inc"),
                     MetricInstruction(
@@ -879,7 +878,7 @@ async def test_logs_and_applies_metrics_no_audience() -> None:
 async def test_two_metrics_one_event() -> None:
     sink, notifier = _RecordingSink(), _RecordingNotifier()
     await _dispatcher(sink, notifier).emit(
-        ev.SearchCycleCompleted(cycle_index=1, n_observations=0, duration_seconds=2.0)
+        ev.SearchCycleCompleted(cycle_index=1, duration_seconds=2.0)
     )
     assert [m.name.value for m in sink.applied] == [
         "emule_search_cycles",

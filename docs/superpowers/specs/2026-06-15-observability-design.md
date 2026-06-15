@@ -148,8 +148,9 @@ Modules :
 Notation : **Nom**(champs) — *Sévérité* ; `métrique` ; **audience** (— = aucune).
 
 **Recherche** (`run_search_cycle` / `search_worker`)
-- **SearchCycleCompleted**(cycle_index, n_observations, duration_seconds) — INFO ;
-  `emule_search_cycles_total` inc + `emule_search_cycle_duration_seconds` observe ; —.
+- **SearchCycleCompleted**(cycle_index, duration_seconds) — INFO ; `emule_search_cycles_total` inc +
+  `emule_search_cycle_duration_seconds` observe ; — . *(Le volume d'observations est porté par
+  `emule_observations_total{network}` — pas de `n_observations` à agréger cross-worker.)*
 - **SearchExecuted**(network, n_results) — DEBUG ; `emule_searches_total{network}` inc ; —.
 - **InstanceUnreachable**(instance) — WARNING ; `emule_mule_unreachable_total{instance}` inc ; —
   (la notif d'ensemble est portée par AllInstancesBlind).
