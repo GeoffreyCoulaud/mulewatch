@@ -73,9 +73,14 @@ vers trois sinks. Côté verifier (microservice), une instrumentation **minimale
    ce qui a un sens réseau (cf. §5) ; **pas** sur les cycles globaux, l'injoignabilité d'instance, ni
    download/vérification.
 7. **E-D7 — notifications par audience, pas par sévérité.** `Audience` = enum domaine
-   `COMMUNITY` (la communauté Discord du lost media) / `OPERATIONS` (l'admin homelab). Le dispatcher
-   route via les **tags apprise**. Exemple canonique : `malicious` (WARNING) → `OPERATIONS` ; `clean`
-   (INFO) → `COMMUNITY` — **le consommateur décide, pas la gravité**.
+   `COMMUNITY` (la communauté Discord du lost media) / `OPERATIONS` (l'admin homelab). Un événement
+   peut viser **plusieurs audiences** : `Report.audiences: frozenset[Audience]` (vide = aucune notif) ;
+   le dispatcher route chaque audience via les **tags apprise**. Exemple canonique : `malicious`
+   (WARNING) → `{OPERATIONS}` ; `clean` (INFO) → `{COMMUNITY}` ; `CrawlerStarted` →
+   `{COMMUNITY, OPERATIONS}` — **le consommateur décide, pas la gravité**. **Toute notification inclut
+   l'ID d'instance** (le `node_id` du nœud), ajouté par l'adapter (pas par la policy) : indispensable
+   côté COMMUNITY (réseau **distribué** de chercheurs — savoir *quel* nœud a trouvé quoi), utile aussi
+   en OPERATIONS.
 8. **E-D8 — alertes récurrentes edge-triggered, état porté par l'événement (raffinement).** Les faits
    de panne récurrents portent un champ **`first_occurrence: bool`** calculé **dans l'application**
    (qui détient l'historique d'état inter-itérations). La policy mappe l'**audience sur ce champ**
@@ -111,8 +116,9 @@ Modules :
 - **`domain/observability/policy.py`** — `class Severity(Enum)` (`DEBUG/INFO/WARNING/ERROR`),
   `class Audience(Enum)` (`COMMUNITY/OPERATIONS`), `class MetricName(StrEnum)`,
   `@dataclass(frozen=True) MetricInstruction(name: MetricName, labels, kind: Literal["inc","set","observe"], value: float)`,
-  `@dataclass(frozen=True) Report(severity, message, metric: MetricInstruction | None, audience: Audience | None)`,
-  et `def describe(event: Event) -> Report` — **match exhaustif** (`case _: assert_never(event)`).
+  `@dataclass(frozen=True) Report(severity, message, metric: MetricInstruction | None, audiences: frozenset[Audience])`
+  (`audiences` vide = aucune notif), et `def describe(event: Event) -> Report` — **match exhaustif**
+  (`case _: assert_never(event)`).
 - **`ports/telemetry.py`** — `class Telemetry(Protocol): async def emit(self, event: Event) -> None`.
   Ports des sinks : `MetricsSink.apply(MetricInstruction) -> None` (sync),
   `Notifier.notify(audience: Audience, body: str, severity: Severity) -> None` (async). Le **corps**
@@ -120,12 +126,13 @@ Modules :
   par l'adapter** (la policy ne rend qu'un seul texte, pas un title/body séparés).
 - **`adapters/observability/dispatcher.py`** — `ObservabilityDispatcher(Telemetry)` : `emit` appelle
   `describe`, **toujours** logge (`logger.log(_LEVELS[r.severity], r.message)`) et applique la métrique
-  si présente, **puis** `await notifier.notify(...)` si `r.audience` — échec de notif **absorbé +
-  loggé** (une notif qui rate ne casse pas le crawl).
+  si présente, **puis** `await notifier.notify(...)` **pour chaque audience de `r.audiences`** — échec
+  de notif **absorbé + loggé** (une notif qui rate ne casse pas le crawl).
 - **`adapters/observability/prometheus_sink.py`** — déclare le catalogue (Counter/Gauge/Histogram)
   sur le `CollectorRegistry` injecté, indexé par `MetricName` ; `apply` dispatche sur `kind`.
 - **`adapters/observability/apprise_notifier.py`** — `apprise.Apprise` chargé depuis la config
-  (URLs + tags par audience) ; `notify` appelle `await apobj.async_notify(body, title, tag=<audience>)`.
+  (URLs + tags par audience), **paramétré par le `node_id`** (ID d'instance) ; `notify` préfixe le
+  corps de l'ID d'instance puis appelle `await apobj.async_notify(body, title, tag=<audience>)`.
 
 ## 4. Taxonomie des événements (E-D5)
 
@@ -169,7 +176,9 @@ Notation : **Nom**(champs) — *Sévérité* ; `métrique` ; **audience** (— =
   dépendre).
 
 **Cycle de vie** (`CrawlerApp`)
-- **CrawlerStarted**(mode) — INFO ; `emule_crawler_up` set=1 ; **OPERATIONS** (« démarré en mode full »).
+- **CrawlerStarted**(mode) — INFO ; `emule_crawler_up` set=1 ; **{COMMUNITY, OPERATIONS}** — message du
+  type *« 🟢 Instance {node_id} en ligne (mode {mode}) »* (la communauté voit un chercheur de plus,
+  l'ops voit le mode). L'ID d'instance est de toute façon préfixé par l'adapter (E-D7).
 
 **Métriques process** (CPU/mémoire/GC) — fournies **automatiquement** par `prometheus_client`
 (collectors par défaut sur le registre), **pas** d'événement.
@@ -210,10 +219,15 @@ unité `_seconds`/`_bytes` en suffixe).
 
 - **Config** : une liste d'entrées `{url, tag}` (tag ∈ `community`/`operations`) chargée dans
   `apprise.Apprise.add(url, tag=tag)`. `notify` cible `tag=<audience.value>`.
-- **Routage par audience** (cf. §4). Le **corps** = `Report.message`, rendu par la policy depuis les
-  champs de l'événement (français lisible — ex. *« ✅ Épisode candidat vérifié SAIN : S2E062A »*,
-  *« ⚠️ Verifier injoignable »*). Le **titre** + le `NotifyType` apprise (info/success/warning) sont
-  **dérivés de la sévérité/audience par l'adapter** (cf. §3).
+- **Routage par audience** (cf. §4) : le dispatcher itère sur `Report.audiences` (0, 1 ou 2). Le
+  **corps** = `Report.message`, rendu par la policy depuis les champs de l'événement (français lisible
+  — ex. *« ✅ Épisode candidat vérifié SAIN : S2E062A »*, *« ⚠️ Verifier injoignable »*). Le **titre**
+  + le `NotifyType` apprise (info/success/warning) sont **dérivés de la sévérité/audience par
+  l'adapter** (cf. §3).
+- **Identité d'instance** : l'`AppriseNotifier` est paramétré par le `node_id` et **préfixe le corps de
+  toute notification** (ex. *« [titar-node-1] ✅ … »*) — requis côté COMMUNITY (réseau distribué),
+  appliqué aussi en OPERATIONS. Si `node_id` est absent de la config, repli sur un libellé court
+  (hostname) — détail au plan.
 - **Anti-spam edge-triggered** : porté par `first_occurrence` dans l'événement (E-D8). Le dispatcher
   ne tient aucun état d'alerte.
 - **Robustesse** : `notify` async avec **échec absorbé + loggé** ; le crawl n'est jamais bloqué par un
@@ -251,7 +265,8 @@ observability:
 Nouvelles dataclasses gelées : `ObservabilityConfig(log_level, metrics: MetricsConfig | None,
 notifications: tuple[NotificationTarget, ...])`, `MetricsConfig(enabled, port)`,
 `NotificationTarget(url, tag: Audience)`. Section absente → observabilité minimale (logs INFO, pas de
-serveur métriques, notifier no-op).
+serveur métriques, notifier no-op). L'**ID d'instance** des notifications réutilise le `node_id`
+**existant** de `local.yaml` (aucun nouveau champ) ; repli hostname si absent.
 
 **Verifier** — nouveau **mini-loader YAML** propre au paquet (n'importe pas `emule_indexer`), monté en
 volume comme les YAML du crawler ; expose `log_level` + `metrics: {enabled, port}` ; `AnalysisConfig`
@@ -270,10 +285,11 @@ existant (env) **inchangé**.
 
 ## 10. Câblage (composition)
 
-- **`CrawlerApp`** construit le `CollectorRegistry`, le `PrometheusSink`, l'`AppriseNotifier`, le
-  `ObservabilityDispatcher` (= `Telemetry`), démarre le serveur métriques si activé, **injecte
-  `telemetry`** dans les use-cases (`search_worker`, `run_search_cycle`, `record_observations`,
-  `run_download_cycle`, `run_verification_cycle`). Émet `CrawlerStarted(mode)` au boot.
+- **`CrawlerApp`** construit le `CollectorRegistry`, le `PrometheusSink`, l'`AppriseNotifier`
+  (**paramétré par le `node_id`** de `local_config`), le `ObservabilityDispatcher` (= `Telemetry`),
+  démarre le serveur métriques si activé, **injecte `telemetry`** dans les use-cases (`search_worker`,
+  `run_search_cycle`, `record_observations`, `run_download_cycle`, `run_verification_cycle`). Émet
+  `CrawlerStarted(mode)` au boot.
 - **Propagation du `network`** : `search_worker` connaît le `SearchChannel` de sa tâche → le passe à
   `record_observation` pour que `ObservationRecorded(network=…)` soit exact (sans toucher la
   persistance). `SearchExecuted` et `SearchFailed` portent aussi ce canal.
@@ -290,7 +306,9 @@ existant (env) **inchangé**.
 - **`describe` (policy)** : un test par variante d'événement + chaque branche `verdict` /
   `first_occurrence` (l'`assert_never` est `# pragma: no cover`). C'est le cœur testable, **pur**.
 - **Dispatcher** : fakes `RecordingMetricsSink` / `RecordingNotifier` + un logger capturé (`caplog`) →
-  asserte log + métrique + notif (présence/absence selon `audience`). Échec de notif absorbé : testé.
+  asserte log + métrique + notif **par audience** (0/1/2 canaux selon `audiences`). Échec de notif
+  absorbé : testé.
+- **AppriseNotifier** : asserte aussi que le **`node_id` est préfixé** au corps (et le repli hostname).
 - **PrometheusSink** : `CollectorRegistry()` jetable, `apply(...)`, relecture via
   `registry.get_sample_value(name, labels)` → 100 % sans socket. `start_http_server` (le bind) =
   `# pragma: no cover`.
