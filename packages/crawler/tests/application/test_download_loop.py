@@ -12,6 +12,7 @@ from emule_indexer.domain.matching.engine import DownloadCandidate
 from emule_indexer.ports.catalog_repository import ObservedFile
 
 # Réutilise les fakes de test_run_download_cycle (importés explicitement).
+from tests.application.fakes import RecordingTelemetry
 from tests.application.test_run_download_cycle import (
     _TARGETS,
     FakeCatalogReads,
@@ -55,6 +56,7 @@ def _loop_deps(
         disk_cap_bytes=1_000_000,
         staging_path_for=lambda entry: Path("/staging") / entry.ed2k_hash,
         clock=FakeClock(),
+        telemetry=RecordingTelemetry(),
         signal=signal,
         poll_interval_seconds=poll_interval,
         shutdown=shutdown,

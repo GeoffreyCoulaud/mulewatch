@@ -255,6 +255,7 @@ class CrawlerApp:
         local_repo: SqliteLocalStateRepository,
         local_conn: sqlite3.Connection,
         verifier: ContentVerifier,
+        telemetry: Telemetry,
     ) -> tuple[DownloadLoopDeps, VerifyLoopDeps]:
         """Assemble les deps des boucles download + vérification (mode full, spec §7).
 
@@ -300,6 +301,7 @@ class CrawlerApp:
             disk_cap_bytes=download_config.disk_cap_bytes,
             staging_path_for=lambda entry: resolve_staging_path(staging_base, catalog_repo, entry),
             clock=self._clock,
+            telemetry=telemetry,
             signal=self._signal,
             poll_interval_seconds=download_config.poll_interval_seconds,
             shutdown=self._shutdown,
@@ -486,6 +488,7 @@ class CrawlerApp:
                     local_repo=local_repo,
                     local_conn=local_conn,
                     verifier=verifier,
+                    telemetry=telemetry,
                 )
                 _logger.info("mode full : boucles download + vérification armées")
 

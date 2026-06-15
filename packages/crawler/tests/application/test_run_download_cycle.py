@@ -8,6 +8,7 @@ from emule_indexer.application.run_download_cycle import DownloadDeps, run_downl
 from emule_indexer.domain.download.states import DownloadState
 from emule_indexer.domain.matching.engine import DownloadCandidate
 from emule_indexer.domain.matching.models import TargetSegment
+from emule_indexer.domain.observability.events import DownloadCompleted
 from emule_indexer.ports.catalog_repository import ObservedFile
 from emule_indexer.ports.mule_client import (
     KadStatus,
@@ -17,6 +18,7 @@ from emule_indexer.ports.mule_client import (
 )
 from emule_indexer.ports.mule_download_client import DownloadEntry
 from emule_indexer.ports.repository_errors import RepositoryError
+from tests.application.fakes import RecordingTelemetry
 
 _A = "a" * 32
 _B = "b" * 32
@@ -87,6 +89,10 @@ class FakeDownloadRepo:
         self.states: dict[str, DownloadState] = {}
         self.sizes: dict[str, int] = {}
         self._fail_record = fail_record
+        self._target_ids: dict[str, str] = {}
+
+    def get_target_id(self, ed2k_hash: str) -> str | None:
+        return self._target_ids.get(ed2k_hash)
 
     def record_queued(self, ed2k_hash: str, target_id: str, size_bytes: int) -> bool:
         if self._fail_record:
@@ -171,6 +177,7 @@ def _deps(
     catalog: FakeCatalogReads,
     local: FakeLocalRepo,
     disk_cap: int = 1_000_000,
+    telemetry: RecordingTelemetry | None = None,
 ) -> DownloadDeps:
     return DownloadDeps(
         client=client,
@@ -182,6 +189,7 @@ def _deps(
         disk_cap_bytes=disk_cap,
         staging_path_for=lambda entry: Path("/staging") / entry.ed2k_hash,
         clock=FakeClock(),
+        telemetry=telemetry or RecordingTelemetry(),
     )
 
 
@@ -597,3 +605,64 @@ async def test_completion_and_new_candidate_in_the_same_cycle() -> None:
     assert local.enqueued == [_A]
     assert downloads.states[_B] is DownloadState.QUEUED  # nouveau → mis en file
     assert any(_B in link for link in client.added_links)  # + lien émis
+
+
+@pytest.mark.asyncio
+async def test_emits_download_queued() -> None:
+    telemetry = RecordingTelemetry()
+    client = FakeDownloadClient()
+    downloads = FakeDownloadRepo()
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_A, "S2E062A"),),
+        observations={_A: ObservedFile(filename="Keroro.avi", size_bytes=100)},
+    )
+    deps = _deps(
+        client=client,
+        quarantine=FakeQuarantine(),
+        downloads=downloads,
+        catalog=catalog,
+        local=FakeLocalRepo(),
+        telemetry=telemetry,
+    )
+    await run_download_cycle(deps)
+    assert any(type(e).__name__ == "DownloadQueued" for e in telemetry.events)
+
+
+@pytest.mark.asyncio
+async def test_emits_download_completed_on_promotion() -> None:
+    telemetry = RecordingTelemetry()
+    client = FakeDownloadClient(queue=[(DownloadEntry(ed2k_hash=_A, size_done=10, size_full=10),)])
+    downloads = FakeDownloadRepo()
+    downloads.states[_A] = DownloadState.QUEUED
+    downloads._target_ids[_A] = "S2E062A"
+    deps = _deps(
+        client=client,
+        quarantine=FakeQuarantine(),
+        downloads=downloads,
+        catalog=FakeCatalogReads(),
+        local=FakeLocalRepo(),
+        telemetry=telemetry,
+    )
+    await run_download_cycle(deps)
+    assert any(
+        isinstance(e, DownloadCompleted) and e.target_id == "S2E062A" for e in telemetry.events
+    )
+
+
+@pytest.mark.asyncio
+async def test_emits_promotion_failed() -> None:
+    telemetry = RecordingTelemetry()
+    client = FakeDownloadClient(queue=[(DownloadEntry(ed2k_hash=_A, size_done=10, size_full=10),)])
+    downloads = FakeDownloadRepo()
+    downloads.states[_A] = DownloadState.QUEUED
+    quarantine = FakeQuarantine(fail_for={_A})  # promote lève → PromotionFailed
+    deps = _deps(
+        client=client,
+        quarantine=quarantine,
+        downloads=downloads,
+        catalog=FakeCatalogReads(),
+        local=FakeLocalRepo(),
+        telemetry=telemetry,
+    )
+    await run_download_cycle(deps)
+    assert any(type(e).__name__ == "PromotionFailed" for e in telemetry.events)

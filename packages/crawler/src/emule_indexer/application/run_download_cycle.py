@@ -36,6 +36,11 @@ from emule_indexer.domain.download.policy import DownloadVerdict, download_polic
 from emule_indexer.domain.download.states import DownloadState
 from emule_indexer.domain.matching.engine import DownloadCandidate
 from emule_indexer.domain.matching.models import TargetSegment
+from emule_indexer.domain.observability.events import (
+    DownloadCompleted,
+    DownloadQueued,
+    PromotionFailed,
+)
 from emule_indexer.ports.catalog_repository import ObservedFile
 from emule_indexer.ports.clock import Clock
 from emule_indexer.ports.decision_signal import DecisionSignal
@@ -43,6 +48,7 @@ from emule_indexer.ports.mule_client import MuleSearchFailedError, MuleUnreachab
 from emule_indexer.ports.mule_download_client import DownloadEntry, MuleDownloadClient
 from emule_indexer.ports.quarantine import Quarantine
 from emule_indexer.ports.repository_errors import RepositoryError
+from emule_indexer.ports.telemetry import Telemetry
 
 _logger = logging.getLogger("emule_indexer.application.run_download_cycle")
 
@@ -71,6 +77,8 @@ class DownloadRepository(Protocol):
     def committed_bytes(self) -> int: ...
 
     def active_states(self) -> dict[str, DownloadState]: ...
+
+    def get_target_id(self, ed2k_hash: str) -> str | None: ...
 
 
 class CatalogReader(Protocol):
@@ -118,6 +126,7 @@ class DownloadDeps:
     disk_cap_bytes: int
     staging_path_for: StagingResolver
     clock: Clock
+    telemetry: Telemetry
 
 
 @dataclass
@@ -153,12 +162,8 @@ async def _monitor(deps: DownloadDeps, states: dict[str, DownloadState]) -> None
             states[entry.ed2k_hash] = target
 
 
-def _promote_completion(deps: DownloadDeps, ed2k_hash: str) -> None:
-    """Promeut un hash ``completed`` → quarantaine + enqueue + ``quarantined`` (étape 2, §5).
-
-    Idempotent : si ``promote`` échoue, on laisse ``completed`` et on N'ENFILE PAS (le fichier
-    doit être sûrement en quarantaine d'abord) ; retry au tour suivant.
-    """
+async def _promote_completion(deps: DownloadDeps, ed2k_hash: str) -> None:
+    """Promeut un hash ``completed`` → quarantaine + enqueue + ``quarantined`` (étape 2, §5)."""
     entry = DownloadEntry(ed2k_hash=ed2k_hash, size_done=0, size_full=0)
     staging_path = deps.staging_path_for(entry)
     try:
@@ -167,20 +172,23 @@ def _promote_completion(deps: DownloadDeps, ed2k_hash: str) -> None:
         _logger.warning(
             "quarantaine échouée pour hash=%s (%s) — reste completed, retry", ed2k_hash, error
         )
+        await deps.telemetry.emit(PromotionFailed(ed2k_hash=ed2k_hash))
         return
     deps.local.enqueue_verification(ed2k_hash)
     deps.downloads.set_state(ed2k_hash, DownloadState.QUARANTINED)
+    target_id = deps.downloads.get_target_id(ed2k_hash) or "inconnu"
+    await deps.telemetry.emit(DownloadCompleted(target_id=target_id, ed2k_hash=ed2k_hash))
     _logger.info("hash=%s mis en quarantaine + vérification enfilée", ed2k_hash)
 
 
-def _handle_completions(deps: DownloadDeps, states: dict[str, DownloadState]) -> None:
+async def _handle_completions(deps: DownloadDeps, states: dict[str, DownloadState]) -> None:
     """Promeut chaque hash ``completed`` pas encore ``quarantined`` (étape 2, spec §5)."""
     for ed2k_hash, state in list(states.items()):
         if state is DownloadState.COMPLETED:
-            _promote_completion(deps, ed2k_hash)
+            await _promote_completion(deps, ed2k_hash)
 
 
-def _queue_new_candidates(deps: DownloadDeps) -> None:
+async def _queue_new_candidates(deps: DownloadDeps) -> None:
     """Rejoue les décisions tier=download absentes de ``downloads`` (étape 3, spec §5)."""
     committed = deps.downloads.committed_bytes()
     for candidate in deps.catalog.download_decisions():
@@ -213,6 +221,7 @@ def _queue_new_candidates(deps: DownloadDeps) -> None:
         )
         committed += observation.size_bytes  # plafond recalculé en mémoire au fil du cycle
         _logger.info("candidat hash=%s mis en file de download", candidate.ed2k_hash)
+        await deps.telemetry.emit(DownloadQueued(target_id=candidate.target_id))
 
 
 async def _add_links(deps: DownloadDeps) -> None:
@@ -258,8 +267,8 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
     try:
         states = deps.downloads.active_states()
         await _monitor(deps, states)
-        _handle_completions(deps, states)
-        _queue_new_candidates(deps)
+        await _handle_completions(deps, states)
+        await _queue_new_candidates(deps)
         await _add_links(deps)
     except MuleUnreachableError as error:
         _logger.warning("daemon download injoignable (%s) — itération sautée, retry", error)
