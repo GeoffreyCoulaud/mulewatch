@@ -30,8 +30,14 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from emule_indexer.application.networks import network_label
 from emule_indexer.application.record_observations import record_observation
 from emule_indexer.domain.matching.engine import MatchingEngine
+from emule_indexer.domain.observability.events import (
+    InstanceUnreachable,
+    SearchExecuted,
+    SearchFailed,
+)
 from emule_indexer.domain.search.backoff import backoff_delay
 from emule_indexer.ports.catalog_repository import CatalogRepository
 from emule_indexer.ports.clock import Clock, Rng
@@ -43,6 +49,7 @@ from emule_indexer.ports.mule_client import (
     SearchChannel,
 )
 from emule_indexer.ports.scheduler_state_repository import ChannelBackoff
+from emule_indexer.ports.telemetry import Telemetry
 
 _logger = logging.getLogger("emule_indexer.application.search_worker")
 
@@ -157,6 +164,7 @@ class WorkerDeps:
     rng: Rng
     policy: WorkerPolicy
     backoff: "BackoffRegistry"
+    telemetry: Telemetry
 
 
 class SearchWorker:
@@ -182,20 +190,22 @@ class SearchWorker:
                 error,
                 delay,
             )
+            await self._deps.telemetry.emit(InstanceUnreachable(instance=self._instance))
             return False
         self._connected = True
         self._deps.backoff.reset(self._instance)
         _logger.info("instance %s connectée", self._instance)
         return True
 
-    async def _poll_then_fetch(self) -> int:
+    async def _poll_then_fetch(self, channel: SearchChannel) -> int:
         """Polling borné (budget config) puis ``fetch_results`` → pipeline par obs.
 
         Rend le nombre de verdicts CHANGÉS (logging). Le polling s'arrête dès 100 % ou au
         budget épuisé ; ``fetch_results`` rend le snapshot cumulatif (handoff EC). Une
         ``RepositoryError`` par obs est ABSORBÉE (loggée + comptée) DANS
         ``record_observation`` → le cycle continue (spec §7), une seule obs corrompue ne
-        fait pas tomber tout le balayage.
+        fait pas tomber tout le balayage. Émet ``SearchExecuted`` (label réseau + nombre de
+        résultats) puis ``ObservationRecorded``/``DecisionRecorded`` via ``record_observation``.
         """
         waited = 0.0
         while waited < self._deps.policy.poll_budget_seconds:
@@ -205,13 +215,17 @@ class SearchWorker:
             await self._deps.clock.sleep(self._deps.policy.poll_interval_seconds)
             waited += self._deps.policy.poll_interval_seconds
         results = await self._client.fetch_results()
+        network = network_label(channel)
+        await self._deps.telemetry.emit(SearchExecuted(network=network, n_results=len(results)))
         changed = 0
         for observation in results:
-            if record_observation(
+            if await record_observation(
                 observation,
                 catalog=self._deps.catalog,
                 engine=self._deps.engine,
                 signal=self._deps.signal,
+                telemetry=self._deps.telemetry,
+                network=network,
             ):
                 changed += 1
         return changed
@@ -237,7 +251,7 @@ class SearchWorker:
             return
         try:
             await self._client.start_search(task.keyword, task.channel)
-            changed = await self._poll_then_fetch()
+            changed = await self._poll_then_fetch(task.channel)
         except MuleSearchFailedError as error:
             delay = self._deps.backoff.record_failure(channel_key)
             _logger.warning(
@@ -246,6 +260,9 @@ class SearchWorker:
                 task.channel,
                 error,
                 delay,
+            )
+            await self._deps.telemetry.emit(
+                SearchFailed(instance=self._instance, network=network_label(task.channel))
             )
             return
         except MuleUnreachableError as error:
@@ -257,6 +274,7 @@ class SearchWorker:
                 error,
                 delay,
             )
+            await self._deps.telemetry.emit(InstanceUnreachable(instance=self._instance))
             return
         self._deps.backoff.reset(channel_key)
         _logger.info(

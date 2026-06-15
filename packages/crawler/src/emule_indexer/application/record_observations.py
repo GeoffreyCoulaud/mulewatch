@@ -21,36 +21,38 @@ import logging
 
 from emule_indexer.application.run_download_cycle import DOWNLOAD_NUDGE_SUBJECT
 from emule_indexer.domain.matching.engine import MatchingEngine, to_record
+from emule_indexer.domain.observability.events import DecisionRecorded, ObservationRecorded
 from emule_indexer.domain.observation import FileObservation
 from emule_indexer.ports.catalog_repository import CatalogRepository
 from emule_indexer.ports.decision_signal import DecisionSignal
 from emule_indexer.ports.repository_errors import RepositoryError
+from emule_indexer.ports.telemetry import Telemetry
 
 _logger = logging.getLogger("emule_indexer.application.record_observations")
 
 
-def record_observation(
+async def record_observation(
     observation: FileObservation,
     *,
     catalog: CatalogRepository,
     engine: MatchingEngine,
     signal: DecisionSignal,
+    telemetry: Telemetry,
+    network: str,
 ) -> bool:
     """Traite UNE observation (spec §4). Rend ``True`` ssi un NOUVEAU verdict a été persisté.
 
-    Le booléen sert au logging/aux compteurs de cycle (combien de verdicts ont changé).
-    ``record_observation`` est toujours appelé d'abord (ordre d'écriture catalogue : la
-    décision exige que l'observation existe, FK — handoff data-model §4). Une
-    ``RepositoryError`` est absorbée (log + ``False``), le cycle continue (spec §7).
-    """
+    Émet ``ObservationRecorded`` dès l'enregistrement (toujours), et ``DecisionRecorded`` au
+    changement de verdict. Une ``RepositoryError`` est absorbée (log + ``False``), le cycle
+    continue (spec §7)."""
     try:
         catalog.record_observation(observation)
+        await telemetry.emit(ObservationRecorded(network=network))
         decision = engine.evaluate(observation.to_candidate())
         if decision is None:
             return False
         fresh = to_record(decision)
         if catalog.last_decision(observation.ed2k_hash) == fresh:
-            # Verdict INCHANGÉ : ni ré-append (anti-redondance §3) ni nudge.
             return False
         catalog.record_decision(observation.ed2k_hash, decision)
     except RepositoryError as error:
@@ -67,10 +69,8 @@ def record_observation(
         decision.tier,
         decision.rule_name,
     )
+    await telemetry.emit(DecisionRecorded(target_id=decision.target_id, tier=decision.tier))
     signal.signal(observation.ed2k_hash)
     if decision.tier == "download":
-        # Nudge le sujet conventionnel "download" (DÉCISION DV9) : la boucle de download s'y
-        # abonne et rejoue le journal dès qu'un verdict download change. Best-effort (le poll
-        # de repli reste le filet) — un nudge perdu est inoffensif (même contrat que le hash).
         signal.signal(DOWNLOAD_NUDGE_SUBJECT)
     return True

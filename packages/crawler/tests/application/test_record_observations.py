@@ -7,8 +7,9 @@ from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteC
 from emule_indexer.application.record_observations import record_observation
 from emule_indexer.application.run_download_cycle import DOWNLOAD_NUDGE_SUBJECT
 from emule_indexer.domain.matching.engine import MatchingEngine
+from emule_indexer.domain.observability.events import ObservationRecorded
 from emule_indexer.domain.observation import FileObservation
-from tests.application.fakes import RecordingSignal
+from tests.application.fakes import RecordingSignal, RecordingTelemetry
 
 _HASH_DL = "31d6cfe0d16ae931b73c59d7e0c089c0"
 _HASH_CAT = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -27,14 +28,21 @@ def _obs(ed2k_hash: str, filename: str) -> FileObservation:
     )
 
 
-def test_observation_is_always_recorded_even_when_discarded(
+@pytest.mark.asyncio
+async def test_observation_is_always_recorded_even_when_discarded(
     catalog: SqliteCatalogRepository,
     catalog_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
+    telemetry = RecordingTelemetry()
     signal = RecordingSignal()
-    changed = record_observation(
-        _obs(_HASH_DISCARD, "random.txt"), catalog=catalog, engine=engine, signal=signal
+    changed = await record_observation(
+        _obs(_HASH_DISCARD, "random.txt"),
+        catalog=catalog,
+        engine=engine,
+        signal=signal,
+        telemetry=telemetry,
+        network="ed2k",
     )
     assert changed is False
     assert catalog_connection.execute("SELECT count(*) FROM file_observations").fetchone()[0] == 1
@@ -42,14 +50,21 @@ def test_observation_is_always_recorded_even_when_discarded(
     assert signal.signalled == []
 
 
-def test_new_verdict_is_persisted_and_nudged(
+@pytest.mark.asyncio
+async def test_new_verdict_is_persisted_and_nudged(
     catalog: SqliteCatalogRepository,
     catalog_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
+    telemetry = RecordingTelemetry()
     signal = RecordingSignal()
-    changed = record_observation(
-        _obs(_HASH_DL, _DL_NAME), catalog=catalog, engine=engine, signal=signal
+    changed = await record_observation(
+        _obs(_HASH_DL, _DL_NAME),
+        catalog=catalog,
+        engine=engine,
+        signal=signal,
+        telemetry=telemetry,
+        network="ed2k",
     )
     assert changed is True
     assert catalog_connection.execute("SELECT tier FROM match_decisions").fetchone() == (
@@ -58,34 +73,68 @@ def test_new_verdict_is_persisted_and_nudged(
     assert signal.signalled == [_HASH_DL, DOWNLOAD_NUDGE_SUBJECT]
 
 
-def test_unchanged_verdict_is_not_reappended_or_nudged(
+@pytest.mark.asyncio
+async def test_unchanged_verdict_is_not_reappended_or_nudged(
     catalog: SqliteCatalogRepository,
     catalog_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
+    telemetry = RecordingTelemetry()
     signal = RecordingSignal()
     observation = _obs(_HASH_CAT, "keroro something.avi")
-    assert record_observation(observation, catalog=catalog, engine=engine, signal=signal) is True
+    assert (
+        await record_observation(
+            observation,
+            catalog=catalog,
+            engine=engine,
+            signal=signal,
+            telemetry=telemetry,
+            network="ed2k",
+        )
+        is True
+    )
     # Deuxième observation du MÊME fichier : même verdict catalog → pas de ré-append.
-    assert record_observation(observation, catalog=catalog, engine=engine, signal=signal) is False
+    assert (
+        await record_observation(
+            observation,
+            catalog=catalog,
+            engine=engine,
+            signal=signal,
+            telemetry=telemetry,
+            network="ed2k",
+        )
+        is False
+    )
     assert catalog_connection.execute("SELECT count(*) FROM match_decisions").fetchone()[0] == 1
     # Mais l'observation, elle, est re-persistée (re-observation périodique = le but).
     assert catalog_connection.execute("SELECT count(*) FROM file_observations").fetchone()[0] == 2
     assert signal.signalled == [_HASH_CAT]  # une seule fois
 
 
-def test_changed_verdict_is_reappended_and_nudged_again(
+@pytest.mark.asyncio
+async def test_changed_verdict_is_reappended_and_nudged_again(
     catalog: SqliteCatalogRepository,
     catalog_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
+    telemetry = RecordingTelemetry()
     signal = RecordingSignal()
-    record_observation(
-        _obs(_HASH_DL, "keroro something.avi"), catalog=catalog, engine=engine, signal=signal
+    await record_observation(
+        _obs(_HASH_DL, "keroro something.avi"),
+        catalog=catalog,
+        engine=engine,
+        signal=signal,
+        telemetry=telemetry,
+        network="ed2k",
     )
     # 2e vue du MÊME hash, nom DOWNLOAD → verdict change → ré-append + nudge.
-    changed = record_observation(
-        _obs(_HASH_DL, _DL_NAME), catalog=catalog, engine=engine, signal=signal
+    changed = await record_observation(
+        _obs(_HASH_DL, _DL_NAME),
+        catalog=catalog,
+        engine=engine,
+        signal=signal,
+        telemetry=telemetry,
+        network="ed2k",
     )
     assert changed is True
     tiers = [
@@ -98,7 +147,8 @@ def test_changed_verdict_is_reappended_and_nudged_again(
     assert signal.signalled == [_HASH_DL, _HASH_DL, DOWNLOAD_NUDGE_SUBJECT]
 
 
-def test_persistence_error_is_absorbed_and_cycle_continues(
+@pytest.mark.asyncio
+async def test_persistence_error_is_absorbed_and_cycle_continues(
     catalog: SqliteCatalogRepository,
     catalog_connection: sqlite3.Connection,
     engine: MatchingEngine,
@@ -108,9 +158,15 @@ def test_persistence_error_is_absorbed_and_cycle_continues(
         "CREATE TRIGGER boom BEFORE INSERT ON file_observations"
         " BEGIN SELECT RAISE(ABORT, 'panne injectée'); END"
     )
+    telemetry = RecordingTelemetry()
     signal = RecordingSignal()
-    changed = record_observation(
-        _obs(_HASH_DL, _DL_NAME), catalog=catalog, engine=engine, signal=signal
+    changed = await record_observation(
+        _obs(_HASH_DL, _DL_NAME),
+        catalog=catalog,
+        engine=engine,
+        signal=signal,
+        telemetry=telemetry,
+        network="ed2k",
     )
     assert changed is False  # absorbée, le cycle continue
     assert signal.signalled == []
@@ -122,38 +178,92 @@ async def test_signal_consumer_awaits_the_nudge(
 ) -> None:
     # Le hub EST consommé par un await (pas du code mort, DÉCISION 9) : un consommateur dort
     # sur le sujet et est réveillé par le nudge post-commit.
+    telemetry = RecordingTelemetry()
     signal = RecordingSignal()
     waiter = asyncio.create_task(signal.wait(_HASH_DL))
     await asyncio.sleep(0)
     assert not waiter.done()
-    record_observation(_obs(_HASH_DL, _DL_NAME), catalog=catalog, engine=engine, signal=signal)
+    await record_observation(
+        _obs(_HASH_DL, _DL_NAME),
+        catalog=catalog,
+        engine=engine,
+        signal=signal,
+        telemetry=telemetry,
+        network="ed2k",
+    )
     await asyncio.wait_for(waiter, timeout=1.0)
     assert waiter.done()
 
 
-def test_download_tier_verdict_also_nudges_the_download_subject(
+@pytest.mark.asyncio
+async def test_download_tier_verdict_also_nudges_the_download_subject(
     catalog: SqliteCatalogRepository,
     engine: MatchingEngine,
 ) -> None:
     # un NOUVEAU verdict de tier "download" signale le sujet par hash PUIS le sujet "download"
     # (réveille la boucle de download, DÉCISION DV9) — dans cet ordre.
+    telemetry = RecordingTelemetry()
     signal = RecordingSignal()
-    changed = record_observation(
-        _obs(_HASH_DL, _DL_NAME), catalog=catalog, engine=engine, signal=signal
+    changed = await record_observation(
+        _obs(_HASH_DL, _DL_NAME),
+        catalog=catalog,
+        engine=engine,
+        signal=signal,
+        telemetry=telemetry,
+        network="ed2k",
     )
     assert changed is True
     assert signal.signalled == [_HASH_DL, DOWNLOAD_NUDGE_SUBJECT]
 
 
-def test_non_download_tier_verdict_does_not_nudge_the_download_subject(
+@pytest.mark.asyncio
+async def test_non_download_tier_verdict_does_not_nudge_the_download_subject(
     catalog: SqliteCatalogRepository,
     engine: MatchingEngine,
 ) -> None:
     # un verdict de tier "catalog" signale le sujet par hash mais JAMAIS le sujet "download".
+    telemetry = RecordingTelemetry()
     signal = RecordingSignal()
-    changed = record_observation(
-        _obs(_HASH_CAT, "keroro something.avi"), catalog=catalog, engine=engine, signal=signal
+    changed = await record_observation(
+        _obs(_HASH_CAT, "keroro something.avi"),
+        catalog=catalog,
+        engine=engine,
+        signal=signal,
+        telemetry=telemetry,
+        network="ed2k",
     )
     assert changed is True
     assert signal.signalled == [_HASH_CAT]
     assert DOWNLOAD_NUDGE_SUBJECT not in signal.signalled
+
+
+@pytest.mark.asyncio
+async def test_emits_observation_then_decision_on_change(
+    catalog: SqliteCatalogRepository, engine: MatchingEngine
+) -> None:
+    telemetry = RecordingTelemetry()
+    signal = RecordingSignal()
+    obs = _obs(_HASH_DL, _DL_NAME)  # matche en tier=download
+    await record_observation(
+        obs, catalog=catalog, engine=engine, signal=signal, telemetry=telemetry, network="ed2k"
+    )
+    kinds = [type(e).__name__ for e in telemetry.events]
+    assert kinds == ["ObservationRecorded", "DecisionRecorded"]
+    assert telemetry.events[0] == ObservationRecorded(network="ed2k")
+
+
+@pytest.mark.asyncio
+async def test_emits_only_observation_when_discarded(
+    catalog: SqliteCatalogRepository, engine: MatchingEngine
+) -> None:
+    telemetry = RecordingTelemetry()
+    obs = _obs(_HASH_DISCARD, "random.txt")  # écarté par le moteur
+    await record_observation(
+        obs,
+        catalog=catalog,
+        engine=engine,
+        signal=RecordingSignal(),
+        telemetry=telemetry,
+        network="kad",
+    )
+    assert [type(e).__name__ for e in telemetry.events] == ["ObservationRecorded"]

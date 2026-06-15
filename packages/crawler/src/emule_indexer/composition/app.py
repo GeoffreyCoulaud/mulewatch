@@ -25,10 +25,14 @@ from contextlib import AsyncExitStack, suppress
 from pathlib import Path
 
 import httpx
+from prometheus_client import CollectorRegistry
 
 from emule_indexer.adapters.config.crawler_config import ConfigError, CrawlerConfig
 from emule_indexer.adapters.config.local_config import AmuleEndpoint, LocalConfig
 from emule_indexer.adapters.mule_ec.client import AmuleEcClient
+from emule_indexer.adapters.observability.apprise_notifier import AppriseNotifier
+from emule_indexer.adapters.observability.dispatcher import ObservabilityDispatcher
+from emule_indexer.adapters.observability.prometheus_sink import PrometheusSink
 from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
 from emule_indexer.adapters.persistence_sqlite.connection import open_catalog, open_local
 from emule_indexer.adapters.persistence_sqlite.download_repository import SqliteDownloadRepository
@@ -390,6 +394,19 @@ class CrawlerApp:
 
             local_repo = SqliteLocalStateRepository(local_conn)
             node_id = self._local_config.node_id or local_repo.node_id()
+            obs = self._crawler_config.observability
+            registry = CollectorRegistry()
+            notifier = AppriseNotifier(
+                tuple((target.url, target.tag) for target in self._local_config.notifications),
+                node_id=node_id,
+            )
+            telemetry = ObservabilityDispatcher(
+                metrics=PrometheusSink(registry),
+                notifier=notifier,
+                notify_timeout_seconds=(
+                    obs.notification_timeout_seconds if obs is not None else 5.0
+                ),
+            )
             catalog_repo = SqliteCatalogRepository(catalog_conn, node_id)
             scheduler_state = SqliteSchedulerStateRepository(local_conn)
             engine = MatchingEngine(self._matcher_config, self._targets)
@@ -407,6 +424,7 @@ class CrawlerApp:
                 rng=self._rng,
                 policy=policy,
                 backoff=backoff,
+                telemetry=telemetry,
             )
 
             clients: list[MuleClient] = []

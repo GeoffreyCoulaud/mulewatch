@@ -11,6 +11,7 @@ from emule_indexer.adapters.config.crawler_config import (
     ConfigError,
     CrawlerConfig,
     DownloadConfig,
+    ObservabilityConfig,
     VerifyConfig,
 )
 from emule_indexer.adapters.config.local_config import AmuleEndpoint, LocalConfig
@@ -53,7 +54,11 @@ def matcher_config() -> MatcherConfig:
     return parse_matcher_config(load_yaml(_FIXTURES / "canonical_config.yaml"))
 
 
-def _crawler_config(shutdown_deadline: float = 30.0) -> CrawlerConfig:
+def _crawler_config(
+    shutdown_deadline: float = 30.0,
+    *,
+    observability: ObservabilityConfig | None = None,
+) -> CrawlerConfig:
     return CrawlerConfig(
         cycle_interval_seconds=300.0,
         search_poll_budget_seconds=10.0,
@@ -63,6 +68,7 @@ def _crawler_config(shutdown_deadline: float = 30.0) -> CrawlerConfig:
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=60.0, factor=2.0, jitter_ratio=0.0),
         decision_poll_interval_seconds=5.0,
         shutdown_deadline_seconds=shutdown_deadline,
+        observability=observability,
     )
 
 
@@ -86,9 +92,10 @@ def _make_app(
     clock: FakeClock | None = None,
     node_id: str | None = None,
     shutdown_deadline: float = 30.0,
+    observability: ObservabilityConfig | None = None,
 ) -> CrawlerApp:
     return CrawlerApp(
-        crawler_config=_crawler_config(shutdown_deadline),
+        crawler_config=_crawler_config(shutdown_deadline, observability=observability),
         local_config=_local_config(tmp_path, node_id=node_id),
         targets=_TARGETS,
         matcher_config=matcher_config,
@@ -130,7 +137,16 @@ async def test_app_runs_one_cycle_then_shuts_down_cleanly(
         created.append(client)
         return client
 
-    app = _make_app(tmp_path, matcher_config, factory=factory)
+    # observability NON-None → couvre la branche `obs is not None` du timeout de notification
+    # (le dispatcher est construit avec le timeout configuré, pas le défaut 5.0).
+    app = _make_app(
+        tmp_path,
+        matcher_config,
+        factory=factory,
+        observability=ObservabilityConfig(
+            log_level="INFO", metrics=None, notification_timeout_seconds=5.0
+        ),
+    )
     app_holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
     assert created and created[0].close_calls == 1  # client fermé APRÈS l'unwind

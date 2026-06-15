@@ -12,6 +12,11 @@ from emule_indexer.application.search_worker import (
     WorkerPolicy,
 )
 from emule_indexer.domain.matching.engine import MatchingEngine
+from emule_indexer.domain.observability.events import (
+    InstanceUnreachable,
+    SearchExecuted,
+    SearchFailed,
+)
 from emule_indexer.domain.observation import FileObservation
 from emule_indexer.ports.mule_client import SearchChannel
 from emule_indexer.ports.scheduler_state_repository import ChannelBackoff
@@ -20,6 +25,7 @@ from tests.application.fakes import (
     FakeMuleClient,
     FakeRng,
     RecordingSignal,
+    RecordingTelemetry,
     make_search_failed,
     make_unreachable,
 )
@@ -64,6 +70,7 @@ def _deps(
     *,
     rng: FakeRng | None = None,
     policy: WorkerPolicy = _POLICY,
+    telemetry: RecordingTelemetry | None = None,
 ) -> WorkerDeps:
     return WorkerDeps(
         catalog=catalog,
@@ -73,6 +80,7 @@ def _deps(
         rng=rng or FakeRng(),
         policy=policy,
         backoff=backoff,
+        telemetry=telemetry or RecordingTelemetry(),
     )
 
 
@@ -366,3 +374,65 @@ async def test_poll_stops_when_progress_is_none_but_budget_bounds_it(
     worker = SearchWorker("amule-1", client, _deps(catalog, engine, clock, _registry(clock)))
     await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.GLOBAL))
     assert clock.sleeps == [5.0, 5.0]
+
+
+# --- émission d'événements d'observabilité (Plan E.2) ---
+
+
+@pytest.mark.asyncio
+async def test_successful_search_emits_search_executed_with_network_and_count(
+    catalog: SqliteCatalogRepository, engine: MatchingEngine
+) -> None:
+    # Une recherche GLOBAL réussie émet SearchExecuted(network="ed2k", n_results=1) en TÊTE,
+    # avant les événements par observation (ObservationRecorded/DecisionRecorded).
+    clock = FakeClock()
+    telemetry = RecordingTelemetry()
+    client = FakeMuleClient(results=[(_obs(),)])
+    deps = _deps(catalog, engine, clock, _registry(clock), telemetry=telemetry)
+    worker = SearchWorker("amule-1", client, deps)
+    await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.GLOBAL))
+    assert telemetry.events[0] == SearchExecuted(network="ed2k", n_results=1)
+    kinds = [type(e).__name__ for e in telemetry.events]
+    assert kinds == ["SearchExecuted", "ObservationRecorded", "DecisionRecorded"]
+
+
+@pytest.mark.asyncio
+async def test_search_failure_emits_search_failed(
+    catalog: SqliteCatalogRepository, engine: MatchingEngine
+) -> None:
+    # Un échec applicatif de canal (MuleSearchFailedError) émet SearchFailed(instance, network).
+    clock = FakeClock()
+    telemetry = RecordingTelemetry()
+    client = FakeMuleClient(search_failures=[make_search_failed()])
+    deps = _deps(catalog, engine, clock, _registry(clock), telemetry=telemetry)
+    worker = SearchWorker("amule-1", client, deps)
+    await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.GLOBAL))
+    assert telemetry.events == [SearchFailed(instance="amule-1", network="ed2k")]
+
+
+@pytest.mark.asyncio
+async def test_connect_failure_emits_instance_unreachable(
+    catalog: SqliteCatalogRepository, engine: MatchingEngine
+) -> None:
+    # Un échec de connexion (instance injoignable) émet InstanceUnreachable(instance).
+    clock = FakeClock()
+    telemetry = RecordingTelemetry()
+    client = FakeMuleClient(connect_failures=[make_unreachable()])
+    deps = _deps(catalog, engine, clock, _registry(clock), telemetry=telemetry)
+    worker = SearchWorker("amule-1", client, deps)
+    await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.GLOBAL))
+    assert telemetry.events == [InstanceUnreachable(instance="amule-1")]
+
+
+@pytest.mark.asyncio
+async def test_transport_failure_during_search_emits_instance_unreachable(
+    catalog: SqliteCatalogRepository, engine: MatchingEngine
+) -> None:
+    # Une panne de transport pendant start_search (flux mort) émet InstanceUnreachable.
+    clock = FakeClock()
+    telemetry = RecordingTelemetry()
+    client = FakeMuleClient(search_failures=[make_unreachable()], results=[(_obs(),)])
+    deps = _deps(catalog, engine, clock, _registry(clock), telemetry=telemetry)
+    worker = SearchWorker("amule-1", client, deps)
+    await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.GLOBAL))
+    assert telemetry.events == [InstanceUnreachable(instance="amule-1")]

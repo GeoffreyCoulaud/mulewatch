@@ -26,6 +26,7 @@ from tests.application.fakes import (
     FakeMuleClient,
     FakeRng,
     RecordingSignal,
+    RecordingTelemetry,
     UnreachableStatusClient,
 )
 
@@ -94,6 +95,7 @@ def _deps(
         rng=_NoopRng(),
         policy=_POLICY,
         backoff=backoff,
+        telemetry=RecordingTelemetry(),
     )
 
 
