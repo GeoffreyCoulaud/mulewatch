@@ -98,6 +98,12 @@ vers trois sinks. Côté verifier (microservice), une instrumentation **minimale
     `pyyaml`. (Pas d'`apprise` côté verifier : pas d'événement métier + `internal: true` = pas d'egress.)
 12. **E-D12 — zéro régression métier.** Les boucles `application/` gagnent des appels `await
     telemetry.emit(...)` ; aucune décision de crawl/download/verify ne change. 100 % branch maintenu.
+13. **E-D13 — notifications à timeout borné, pas de queue.** `emit` reste async ; chaque notif est
+    `await asyncio.wait_for(..., timeout=T)` + absorption (`TimeoutError`/exception → warning, crawl
+    poursuit). `T` réglable (défaut ~5 s). **Pas** de worker/queue de notification : les événements
+    notifiables sont **rares par conception** (trouvailles + transitions edge-triggered), le chemin
+    chaud (`ObservationRecorded`) n'est jamais notifiable → l'attente bornée ne mord quasiment jamais.
+    La queue fire-and-forget est un **follow-up** si les notifs deviennent fréquentes (YAGNI).
 
 ## 3. Architecture — les trois couches (crawler)
 
@@ -124,10 +130,12 @@ Modules :
   `Notifier.notify(audience: Audience, body: str, severity: Severity) -> None` (async). Le **corps**
   = `Report.message` ; le **titre** + le `NotifyType` apprise sont **dérivés de la sévérité/audience
   par l'adapter** (la policy ne rend qu'un seul texte, pas un title/body séparés).
-- **`adapters/observability/dispatcher.py`** — `ObservabilityDispatcher(Telemetry)` : `emit` appelle
-  `describe`, **toujours** logge (`logger.log(_LEVELS[r.severity], r.message)`) et applique la métrique
-  si présente, **puis** `await notifier.notify(...)` **pour chaque audience de `r.audiences`** — échec
-  de notif **absorbé + loggé** (une notif qui rate ne casse pas le crawl).
+- **`adapters/observability/dispatcher.py`** — `ObservabilityDispatcher(Telemetry)` : `emit` (async)
+  appelle `describe`, **toujours** logge (`logger.log(_LEVELS[r.severity], r.message)`) et applique la
+  métrique si présente, **puis** pour chaque audience de `r.audiences` :
+  `await asyncio.wait_for(notifier.notify(...), timeout=T)` dans un `try/except` qui **absorbe
+  `TimeoutError` + toute exception** (warning loggé). Un canal mort/lent/qui hang coûte **au pire `T`**
+  et ne casse jamais le crawl (E-D13).
 - **`adapters/observability/prometheus_sink.py`** — déclare le catalogue (Counter/Gauge/Histogram)
   sur le `CollectorRegistry` injecté, indexé par `MetricName` ; `apply` dispatche sur `kind`.
 - **`adapters/observability/apprise_notifier.py`** — `apprise.Apprise` chargé depuis la config
@@ -230,8 +238,9 @@ unité `_seconds`/`_bytes` en suffixe).
   (hostname) — détail au plan.
 - **Anti-spam edge-triggered** : porté par `first_occurrence` dans l'événement (E-D8). Le dispatcher
   ne tient aucun état d'alerte.
-- **Robustesse** : `notify` async avec **échec absorbé + loggé** ; le crawl n'est jamais bloqué par un
-  canal de notification en panne. (Compromis latence : §13.)
+- **Robustesse (E-D13)** : chaque notif est `await asyncio.wait_for(..., timeout=T)` (défaut ~5 s,
+  réglable) avec **échec/timeout absorbé + loggé** ; un canal en panne, lent ou qui hang coûte au pire
+  `T` et ne bloque jamais le crawl. Pas de queue (notifs rares par conception — §13).
 - **Mode dégradé** : si aucune URL n'est configurée, l'`AppriseNotifier` est un **no-op** (les logs et
   métriques fonctionnent seuls). Pas d'erreur au boot.
 
@@ -263,8 +272,9 @@ observability:
     - { url: "discord://…", tag: operations }
 ```
 Nouvelles dataclasses gelées : `ObservabilityConfig(log_level, metrics: MetricsConfig | None,
-notifications: tuple[NotificationTarget, ...])`, `MetricsConfig(enabled, port)`,
-`NotificationTarget(url, tag: Audience)`. Section absente → observabilité minimale (logs INFO, pas de
+notifications: tuple[NotificationTarget, ...], notification_timeout_seconds: float = 5.0)`,
+`MetricsConfig(enabled, port)`, `NotificationTarget(url, tag: Audience)`. Le `timeout` (non secret)
+se règle dans `crawler.yaml` ; les URLs (secrètes) restent dans `local.yaml`. Section absente → observabilité minimale (logs INFO, pas de
 serveur métriques, notifier no-op). L'**ID d'instance** des notifications réutilise le `node_id`
 **existant** de `local.yaml` (aucun nouveau champ) ; repli hostname si absent.
 
@@ -306,8 +316,8 @@ existant (env) **inchangé**.
 - **`describe` (policy)** : un test par variante d'événement + chaque branche `verdict` /
   `first_occurrence` (l'`assert_never` est `# pragma: no cover`). C'est le cœur testable, **pur**.
 - **Dispatcher** : fakes `RecordingMetricsSink` / `RecordingNotifier` + un logger capturé (`caplog`) →
-  asserte log + métrique + notif **par audience** (0/1/2 canaux selon `audiences`). Échec de notif
-  absorbé : testé.
+  asserte log + métrique + notif **par audience** (0/1/2 canaux selon `audiences`). **Échec ET timeout**
+  de notif absorbés : les deux branches testées (un faux notifier qui lève / qui dépasse `T`).
 - **AppriseNotifier** : asserte aussi que le **`node_id` est préfixé** au corps (et le repli hostname).
 - **PrometheusSink** : `CollectorRegistry()` jetable, `apply(...)`, relecture via
   `registry.get_sample_value(name, labels)` → 100 % sans socket. `start_http_server` (le bind) =
@@ -338,9 +348,10 @@ existant (env) **inchangé**.
 
 ## 13. Risques & notes
 
-- **Latence des notifications** : `emit` await `async_notify`. Les événements notifiables sont **rares**
-  (jalons / transitions) et l'échec est absorbé avec timeout apprise → impact borné. Si une boucle
-  s'avère sensible, isoler les notifs dans une tâche du `TaskGroup` (follow-up, §12).
+- **Latence des notifications (E-D13)** : `emit` await `wait_for(notify, T)`. Les événements
+  notifiables sont **rares** (trouvailles + transitions edge-triggered) et le chemin chaud n'est jamais
+  notifiable → l'attente bornée (≤ `T`) ne mord quasiment jamais. Si les notifs devenaient fréquentes,
+  basculer en queue fire-and-forget (follow-up, §12).
 - **Thread du serveur métriques** : `start_http_server` ouvre un thread daemon hors asyncio ; le
   `CollectorRegistry`/les collectors sont thread-safe. Pas de teardown explicite (daemon).
 - **Exhaustivité `network`** : repose sur le fait que la recherche est lancée **par canal**
