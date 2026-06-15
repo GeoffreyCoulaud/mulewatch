@@ -44,6 +44,7 @@ from emule_indexer.adapters.persistence_sqlite.scheduler_state_repository import
 )
 from emule_indexer.adapters.quarantine_fs import FilesystemQuarantine
 from emule_indexer.adapters.verifier_http import HttpContentVerifier
+from emule_indexer.application.edge_state import EdgeState
 from emule_indexer.application.run_download_cycle import (
     CatalogReader,
     DownloadLoopDeps,
@@ -66,6 +67,7 @@ from emule_indexer.ports.decision_signal import DecisionSignal
 from emule_indexer.ports.mule_client import MuleClient, MuleUnreachableError
 from emule_indexer.ports.mule_download_client import DownloadEntry, MuleDownloadClient
 from emule_indexer.ports.scheduler_state_repository import SchedulerStateRepository
+from emule_indexer.ports.telemetry import Telemetry
 
 _logger = logging.getLogger("emule_indexer.composition.app")
 
@@ -194,6 +196,8 @@ class CrawlerApp:
         node_id: str,
         scheduler_state: SchedulerStateRepository,
         backoff: BackoffRegistry,
+        telemetry: Telemetry,
+        edge: EdgeState,
     ) -> None:
         """Boucle de cycles jusqu'à l'événement d'arrêt (annulée par le ``TaskGroup``)."""
         cycle_index = scheduler_state.read_cycle_index()
@@ -209,6 +213,8 @@ class CrawlerApp:
                 scheduler_state=scheduler_state,
                 backoff=backoff,
                 clock=self._clock,
+                telemetry=telemetry,
+                edge=edge,
             )
             cycle_index += 1
             elapsed = (self._clock.now() - started).total_seconds()
@@ -320,6 +326,8 @@ class CrawlerApp:
         backoff: BackoffRegistry,
         download_deps: DownloadLoopDeps | None,
         verify_deps: VerifyLoopDeps | None,
+        telemetry: Telemetry,
+        edge: EdgeState,
     ) -> None:
         """Lance les boucles, attend l'arrêt (NON borné), ARME la borne, annule TOUT et unwind.
 
@@ -353,6 +361,8 @@ class CrawlerApp:
                         node_id=node_id,
                         scheduler_state=scheduler_state,
                         backoff=backoff,
+                        telemetry=telemetry,
+                        edge=edge,
                     )
                 )
             ]
@@ -407,6 +417,7 @@ class CrawlerApp:
                     obs.notification_timeout_seconds if obs is not None else 5.0
                 ),
             )
+            edge = EdgeState()
             catalog_repo = SqliteCatalogRepository(catalog_conn, node_id)
             scheduler_state = SqliteSchedulerStateRepository(local_conn)
             engine = MatchingEngine(self._matcher_config, self._targets)
@@ -492,6 +503,8 @@ class CrawlerApp:
                     backoff=backoff,
                     download_deps=download_deps,
                     verify_deps=verify_deps,
+                    telemetry=telemetry,
+                    edge=edge,
                 )
                 _human(f"{len(clients)} connexion(s) EC en fermeture…")
                 await stack.aclose()

@@ -10,6 +10,7 @@ from emule_indexer.adapters.persistence_sqlite.connection import open_local
 from emule_indexer.adapters.persistence_sqlite.scheduler_state_repository import (
     SqliteSchedulerStateRepository,
 )
+from emule_indexer.application.edge_state import EdgeState
 from emule_indexer.application.run_search_cycle import run_search_cycle
 from emule_indexer.application.search_worker import (
     BackoffRegistry,
@@ -19,6 +20,7 @@ from emule_indexer.application.search_worker import (
 )
 from emule_indexer.domain.matching.engine import MatchingEngine
 from emule_indexer.domain.matching.models import TargetSegment
+from emule_indexer.domain.observability.events import AllInstancesBlind
 from emule_indexer.domain.observation import FileObservation
 from emule_indexer.ports.mule_client import KadStatus, NetworkStatus
 from tests.application.fakes import (
@@ -121,6 +123,8 @@ async def test_single_instance_cycle_records_and_advances(
         scheduler_state=scheduler_state,
         backoff=backoff,
         clock=clock,
+        telemetry=RecordingTelemetry(),
+        edge=EdgeState(),
     )
     assert catalog_connection.execute("SELECT count(*) FROM match_decisions").fetchone()[0] == 1
     assert scheduler_state.read_cycle_index() == 1  # index = N+1, persisté en fin de cycle
@@ -149,6 +153,8 @@ async def test_two_workers_drain_the_same_queue(
         scheduler_state=scheduler_state,
         backoff=backoff,
         clock=clock,
+        telemetry=RecordingTelemetry(),
+        edge=EdgeState(),
     )
     total_searches = len(client_a.searches) + len(client_b.searches)
     assert total_searches >= 2  # toutes les tâches distribuées entre les deux travailleurs
@@ -180,6 +186,8 @@ async def test_one_instance_blind_still_runs_others(
         scheduler_state=scheduler_state,
         backoff=backoff,
         clock=clock,
+        telemetry=RecordingTelemetry(),
+        edge=EdgeState(),
     )
     assert scheduler_state.read_cycle_index() == 1  # le cycle tourne (DEGRADED), aucune exception
 
@@ -208,6 +216,8 @@ async def test_cycle_logs_blind_coverage(
             scheduler_state=scheduler_state,
             backoff=backoff,
             clock=clock,
+            telemetry=RecordingTelemetry(),
+            edge=EdgeState(),
         )
     assert "blind" in caplog.text
 
@@ -239,6 +249,8 @@ async def test_unreachable_status_makes_instance_not_capable_and_logs_blind(
             scheduler_state=scheduler_state,
             backoff=backoff,
             clock=clock,
+            telemetry=RecordingTelemetry(),
+            edge=EdgeState(),
         )
     assert "injoignable" in caplog.text  # warning au relevé de statut de l'instance down
     assert "blind" in caplog.text  # effective_coverage=BLIND (aucune instance capable)
@@ -272,6 +284,8 @@ async def test_unreachable_instance_does_not_blind_a_healthy_peer(
             scheduler_state=scheduler_state,
             backoff=backoff,
             clock=clock,
+            telemetry=RecordingTelemetry(),
+            edge=EdgeState(),
         )
     assert "blind" not in caplog.text  # un pair reste capable → pas aveugle
     assert scheduler_state.read_cycle_index() == 1
@@ -309,6 +323,8 @@ async def test_channel_backoff_is_persisted_at_cycle_end(
         scheduler_state=scheduler_state,
         backoff=backoff,
         clock=clock,
+        telemetry=RecordingTelemetry(),
+        edge=EdgeState(),
     )
     persisted = SqliteSchedulerStateRepository(local_connection).load_channel_backoff()
     # Les deux canaux de amule-1 sont en backoff persisté (toutes les recherches échouent).
@@ -343,6 +359,8 @@ async def test_one_worker_pauses_between_items_not_after_the_last(
         scheduler_state=scheduler_state,
         backoff=backoff,
         clock=clock,
+        telemetry=RecordingTelemetry(),
+        edge=EdgeState(),
     )
     assert clock.sleeps == [1.0] * (n_items - 1)  # entre chaque item, pas après le dernier
 
@@ -377,8 +395,86 @@ async def test_drained_queue_skips_the_final_pause_with_two_workers(
         scheduler_state=scheduler_state,
         backoff=backoff,
         clock=clock,
+        telemetry=RecordingTelemetry(),
+        edge=EdgeState(),
     )
     # Toutes les pauses valent 1.0s ; il y en a STRICTEMENT moins que d'items (la dernière de
     # chaque travailleur est sautée car la file est vidée).
     assert all(s == 1.0 for s in clock.sleeps)
     assert 0 < len(clock.sleeps) < n_items
+
+
+@pytest.mark.asyncio
+async def test_emits_cycle_completed_and_connected_gauges(
+    catalog: SqliteCatalogRepository,
+    local_connection: sqlite3.Connection,
+    engine: MatchingEngine,
+) -> None:
+    telemetry, edge = RecordingTelemetry(), EdgeState()
+    clock = FakeClock()
+    backoff = BackoffRegistry(_POLICY, clock, FakeRng())
+    client = FakeMuleClient()  # status par défaut: ed2k_high=True, kad CONNECTED → capable
+    worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
+    scheduler_state = SqliteSchedulerStateRepository(local_connection)
+    await run_search_cycle(
+        workers=[worker],
+        clients=[client],
+        targets=_TARGETS,
+        rng=_NoopRng(),
+        node_id="node-A",
+        cycle_index=0,
+        scheduler_state=scheduler_state,
+        backoff=backoff,
+        clock=clock,
+        telemetry=telemetry,
+        edge=edge,
+    )
+    types = [type(e).__name__ for e in telemetry.events]
+    assert "ConnectedInstancesSampled" in types
+    assert types[-1] == "SearchCycleCompleted"
+
+
+@pytest.mark.asyncio
+async def test_blind_coverage_is_edge_triggered(
+    catalog: SqliteCatalogRepository,
+    local_connection: sqlite3.Connection,
+    engine: MatchingEngine,
+) -> None:
+    telemetry, edge = RecordingTelemetry(), EdgeState()
+    clock = FakeClock()
+    backoff = BackoffRegistry(_POLICY, clock, FakeRng())
+    client = UnreachableStatusClient()  # tous non search-capable → BLIND
+    worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
+    scheduler_state = SqliteSchedulerStateRepository(local_connection)
+    await run_search_cycle(
+        workers=[worker],
+        clients=[client],
+        targets=_TARGETS,
+        rng=_NoopRng(),
+        node_id="node-A",
+        cycle_index=0,
+        scheduler_state=scheduler_state,
+        backoff=backoff,
+        clock=clock,
+        telemetry=telemetry,
+        edge=edge,
+    )
+    blind = [e for e in telemetry.events if isinstance(e, AllInstancesBlind)]
+    assert blind and blind[0].first_occurrence is True
+    # 2e cycle aveugle consécutif → first_occurrence False (anti-spam)
+    telemetry.events.clear()
+    await run_search_cycle(
+        workers=[worker],
+        clients=[client],
+        targets=_TARGETS,
+        rng=_NoopRng(),
+        node_id="node-A",
+        cycle_index=1,
+        scheduler_state=scheduler_state,
+        backoff=backoff,
+        clock=clock,
+        telemetry=telemetry,
+        edge=edge,
+    )
+    blind = [e for e in telemetry.events if isinstance(e, AllInstancesBlind)]
+    assert blind and blind[0].first_occurrence is False

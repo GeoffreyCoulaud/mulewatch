@@ -23,8 +23,15 @@ import asyncio
 import logging
 from collections.abc import Sequence
 
+from emule_indexer.application.edge_state import EdgeState
+from emule_indexer.application.networks import ED2K, KAD
 from emule_indexer.application.search_worker import BackoffRegistry, SearchTask, SearchWorker
 from emule_indexer.domain.matching.models import TargetSegment
+from emule_indexer.domain.observability.events import (
+    AllInstancesBlind,
+    ConnectedInstancesSampled,
+    SearchCycleCompleted,
+)
 from emule_indexer.domain.search.coverage import Coverage, effective_coverage
 from emule_indexer.domain.search.cycle import Rng, shuffle_for_cycle
 from emule_indexer.domain.search.keywords import generate_keywords
@@ -36,6 +43,7 @@ from emule_indexer.ports.mule_client import (
     SearchChannel,
 )
 from emule_indexer.ports.scheduler_state_repository import SchedulerStateRepository
+from emule_indexer.ports.telemetry import Telemetry
 
 _logger = logging.getLogger("emule_indexer.application.run_search_cycle")
 
@@ -53,9 +61,13 @@ def _is_search_capable(*, ed2k_high: bool, kad_status: KadStatus) -> bool:
     return ed2k_high or kad_status == KadStatus.CONNECTED
 
 
-async def _aggregate_coverage(clients: Sequence[MuleClient]) -> None:
-    """Relève le statut de chaque client → ``effective_coverage`` agrégé (loggé, spec §7)."""
+async def _aggregate_coverage(
+    clients: Sequence[MuleClient], telemetry: Telemetry, edge: EdgeState
+) -> None:
+    """Relève le statut → gauges connected{network} + couverture agrégée (loggée, spec §7)."""
     capable: list[bool] = []
+    ed2k_count = 0
+    kad_count = 0
     for client in clients:
         # Une instance injoignable au relevé (flux EC mort / pas encore connectée) ne doit PAS
         # faire tomber tout le cycle : on la compte NON search-capable (l'agrégat reportera
@@ -68,14 +80,20 @@ async def _aggregate_coverage(clients: Sequence[MuleClient]) -> None:
             _logger.warning("instance injoignable au relevé de statut (%s) — non capable", error)
             capable.append(False)
             continue
+        if status.ed2k_high:
+            ed2k_count += 1
+        if status.kad_status == KadStatus.CONNECTED:
+            kad_count += 1
         capable.append(_is_search_capable(ed2k_high=status.ed2k_high, kad_status=status.kad_status))
+    await telemetry.emit(ConnectedInstancesSampled(network=ED2K, count=ed2k_count))
+    await telemetry.emit(ConnectedInstancesSampled(network=KAD, count=kad_count))
     coverage = effective_coverage(capable)
     if coverage == Coverage.BLIND:
-        _logger.warning(
-            "effective_coverage=%s (blind — aucune instance n'est search-capable)", coverage
-        )
+        _logger.warning("effective_coverage=%s (blind)", coverage)
+        await telemetry.emit(AllInstancesBlind(first_occurrence=edge.enter("coverage_blind")))
     else:
         _logger.info("effective_coverage=%s (%d instance(s))", coverage, len(capable))
+        edge.leave("coverage_blind")
 
 
 async def _worker_loop(worker: SearchWorker, queue: "asyncio.Queue[SearchTask | None]") -> None:
@@ -109,9 +127,12 @@ async def run_search_cycle(
     scheduler_state: SchedulerStateRepository,
     backoff: BackoffRegistry,
     clock: Clock,
+    telemetry: Telemetry,
+    edge: EdgeState,
 ) -> None:
     """Exécute UN cycle complet (spec §4) ; persiste l'avance + le backoff EN FIN (spec §7)."""
-    await _aggregate_coverage(clients)
+    started = clock.now()
+    await _aggregate_coverage(clients, telemetry, edge)
     keywords = generate_keywords(targets)
     texts = tuple(keyword.text for keyword in keywords)
     ordered = shuffle_for_cycle(texts, rng, node_id, cycle_index)
@@ -135,4 +156,6 @@ async def run_search_cycle(
     # FIN de cycle : index ET backoff persistés ENSEMBLE (spec §3/§7).
     scheduler_state.write_cycle_state(cycle_index + 1, clock.now())
     scheduler_state.save_channel_backoff(backoff.snapshot())
+    duration = (clock.now() - started).total_seconds()
+    await telemetry.emit(SearchCycleCompleted(cycle_index=cycle_index, duration_seconds=duration))
     _logger.info("cycle %d terminé", cycle_index)
