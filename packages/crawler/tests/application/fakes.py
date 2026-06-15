@@ -11,6 +11,7 @@ réelle (déterminisme). ``FakeRng`` : shuffle identité + jitter FIXE (détermi
 import asyncio
 from datetime import UTC, datetime, timedelta
 
+from emule_indexer.domain.observability.events import Event
 from emule_indexer.domain.observation import FileObservation
 from emule_indexer.ports.mule_client import (
     KadStatus,
@@ -61,6 +62,16 @@ class FakeRng:
         if span <= 0:
             return 0.0
         return self._jitter_value
+
+
+class RecordingTelemetry:
+    """Telemetry faux : capture les événements émis (le test asserte la séquence)."""
+
+    def __init__(self) -> None:
+        self.events: list[Event] = []
+
+    async def emit(self, event: Event) -> None:
+        self.events.append(event)
 
 
 class RecordingSignal:
