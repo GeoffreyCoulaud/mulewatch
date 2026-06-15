@@ -16,3 +16,4 @@ dist/
 config/local.yaml
 # Secrets de deploiement (ProtonVPN, EC password) — JAMAIS versionnes. Seul .env.example l'est.
 .env
+vendor/
