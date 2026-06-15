@@ -25,8 +25,10 @@ from emule_indexer.adapters.persistence_sqlite.local_state_repository import (
     SqliteLocalStateRepository,
 )
 from emule_indexer.adapters.verifier_http import HttpContentVerifier
+from emule_indexer.application.edge_state import EdgeState
 from emule_indexer.application.run_verification_cycle import VerifyDeps, run_verification_cycle
 from emule_indexer.domain.observation import FileObservation
+from tests.application.fakes import RecordingTelemetry
 
 pytestmark = pytest.mark.verify_integration
 
@@ -92,6 +94,8 @@ async def test_verify_loop_produces_suspicious_row(
         targets=downloads_repo,
         poll_interval_seconds=1.0,
         clock=_RealClock(),
+        telemetry=RecordingTelemetry(),
+        edge=EdgeState(),
     )
     try:
         await run_verification_cycle(deps)  # claim → verify (RPC réel) → record → complete

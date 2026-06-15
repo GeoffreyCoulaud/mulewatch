@@ -26,10 +26,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
+from emule_indexer.application.edge_state import EdgeState
+from emule_indexer.domain.observability.events import (
+    VerificationCompleted,
+    VerificationQueueDepthSampled,
+    VerifierUnavailable,
+)
 from emule_indexer.ports.clock import Clock
 from emule_indexer.ports.content_verifier import ContentVerifier
 from emule_indexer.ports.local_state_repository import ClaimedTask
 from emule_indexer.ports.repository_errors import RepositoryError
+from emule_indexer.ports.telemetry import Telemetry
 from emule_indexer.ports.verifier_errors import VerifierUnavailableError
 
 _logger = logging.getLogger("emule_indexer.application.run_verification_cycle")
@@ -49,6 +56,8 @@ class VerificationTaskQueue(Protocol):
     def complete_verification(self, task_id: int) -> None: ...
 
     def fail_verification(self, task_id: int) -> None: ...
+
+    def count_pending_verifications(self) -> int: ...
 
 
 class TargetIdLookup(Protocol):
@@ -84,6 +93,8 @@ class VerifyDeps:
     targets: TargetIdLookup
     poll_interval_seconds: float
     clock: Clock
+    telemetry: Telemetry
+    edge: EdgeState
 
 
 def _build_expected(deps: VerifyDeps, ed2k_hash: str) -> dict[str, object]:
@@ -117,6 +128,9 @@ async def run_verification_cycle(deps: VerifyDeps) -> None:
     """
     try:
         deps.queue.reclaim_expired()
+        await deps.telemetry.emit(
+            VerificationQueueDepthSampled(count=deps.queue.count_pending_verifications())
+        )
         task = deps.queue.claim_verification()
         if task is None:
             # file vide → backoff (pas de busy-spin)
@@ -129,6 +143,12 @@ async def run_verification_cycle(deps: VerifyDeps) -> None:
                 task.ed2k_hash, result.verdict, result.real_meta, result.checks
             )
             deps.queue.complete_verification(task.task_id)
+            deps.edge.leave("verifier_unavailable")
+            await deps.telemetry.emit(
+                VerificationCompleted(
+                    target_id=str(expected.get("target_id", "inconnu")), verdict=result.verdict
+                )
+            )
         except VerifierUnavailableError as error:
             _logger.warning(
                 "verifier injoignable pour task=%d hash=%s (%s) — fail + backoff (retry)",
@@ -137,6 +157,9 @@ async def run_verification_cycle(deps: VerifyDeps) -> None:
                 error,
             )
             deps.queue.fail_verification(task.task_id)
+            await deps.telemetry.emit(
+                VerifierUnavailable(first_occurrence=deps.edge.enter("verifier_unavailable"))
+            )
             # backoff : pas de spin sur panne (``fail`` remet ``pending`` immédiatement et
             # ``attempts`` est compté au claim → sans ce sleep, une panne transitoire du verifier
             # dead-letterait les tasks en rafale au lieu d'une tentative par ``poll_interval``).

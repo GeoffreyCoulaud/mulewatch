@@ -4,11 +4,18 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from emule_indexer.application.edge_state import EdgeState
 from emule_indexer.application.run_verification_cycle import VerifyDeps, run_verification_cycle
+from emule_indexer.domain.observability.events import (
+    VerificationCompleted,
+    VerificationQueueDepthSampled,
+    VerifierUnavailable,
+)
 from emule_indexer.ports.content_verifier import VerificationResult
 from emule_indexer.ports.local_state_repository import ClaimedTask
 from emule_indexer.ports.repository_errors import RepositoryError
 from emule_indexer.ports.verifier_errors import VerifierUnavailableError
+from tests.application.fakes import RecordingTelemetry
 
 _A = "a" * 32
 
@@ -54,6 +61,9 @@ class FakeQueue:
         if self._fail_raises:
             raise RepositoryError("fail impossible (SQLITE_BUSY)")
         self.failed.append(task_id)
+
+    def count_pending_verifications(self) -> int:
+        return len(self._claims)
 
 
 class FakeTargets:
@@ -131,6 +141,8 @@ def _deps(
     writer: FakeWriter,
     targets: FakeTargets,
     clock: FakeClock | None = None,
+    telemetry: RecordingTelemetry | None = None,
+    edge: EdgeState | None = None,
 ) -> VerifyDeps:
     return VerifyDeps(
         queue=queue,
@@ -139,6 +151,8 @@ def _deps(
         targets=targets,
         poll_interval_seconds=10.0,
         clock=clock or FakeClock(),
+        telemetry=telemetry or RecordingTelemetry(),
+        edge=edge or EdgeState(),
     )
 
 
@@ -304,3 +318,56 @@ async def test_repository_error_from_fail_verification_itself_is_absorbed() -> N
     assert queue.completed == []
     assert queue.failed == []  # fail a levé avant d'enregistrer
     assert clock.sleeps == [10.0]  # filet top-level → backoff
+
+
+@pytest.mark.asyncio
+async def test_emits_verification_completed_and_queue_depth() -> None:
+    telemetry, edge = RecordingTelemetry(), EdgeState()
+    queue = FakeQueue(claims=[ClaimedTask(task_id=9, ed2k_hash=_A, attempts=1)])
+    verifier = FakeVerifier(result=VerificationResult(verdict="clean", real_meta={}, checks=()))
+    deps = _deps(
+        queue=queue,
+        verifier=verifier,
+        writer=FakeWriter(),
+        targets=FakeTargets(mapping={_A: "S2E062A"}),
+        telemetry=telemetry,
+        edge=edge,
+    )
+    await run_verification_cycle(deps)
+    assert any(isinstance(e, VerificationQueueDepthSampled) for e in telemetry.events)
+    assert any(
+        isinstance(e, VerificationCompleted) and e.verdict == "clean" and e.target_id == "S2E062A"
+        for e in telemetry.events
+    )
+
+
+@pytest.mark.asyncio
+async def test_verifier_unavailable_is_edge_triggered() -> None:
+    telemetry, edge = RecordingTelemetry(), EdgeState()
+    queue = FakeQueue(claims=[ClaimedTask(task_id=10, ed2k_hash=_A, attempts=1)])
+    verifier = FakeVerifier(verify_error=VerifierUnavailableError("down"))
+    deps = _deps(
+        queue=queue,
+        verifier=verifier,
+        writer=FakeWriter(),
+        targets=FakeTargets(),
+        telemetry=telemetry,
+        edge=edge,
+    )
+    await run_verification_cycle(deps)
+    unav = [e for e in telemetry.events if isinstance(e, VerifierUnavailable)]
+    assert unav and unav[0].first_occurrence is True
+
+    telemetry.events.clear()
+    queue2 = FakeQueue(claims=[ClaimedTask(task_id=11, ed2k_hash=_A, attempts=1)])
+    deps2 = _deps(
+        queue=queue2,
+        verifier=FakeVerifier(verify_error=VerifierUnavailableError("down")),
+        writer=FakeWriter(),
+        targets=FakeTargets(),
+        telemetry=telemetry,
+        edge=edge,
+    )
+    await run_verification_cycle(deps2)
+    unav2 = [e for e in telemetry.events if isinstance(e, VerifierUnavailable)]
+    assert unav2 and unav2[0].first_occurrence is False
