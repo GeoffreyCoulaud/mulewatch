@@ -25,7 +25,7 @@ from contextlib import AsyncExitStack, suppress
 from pathlib import Path
 
 import httpx
-from prometheus_client import CollectorRegistry
+from prometheus_client import CollectorRegistry, start_http_server
 
 from emule_indexer.adapters.config.crawler_config import ConfigError, CrawlerConfig
 from emule_indexer.adapters.config.local_config import AmuleEndpoint, LocalConfig
@@ -61,6 +61,7 @@ from emule_indexer.application.search_worker import (
 from emule_indexer.domain.matching.config import MatcherConfig
 from emule_indexer.domain.matching.engine import MatchingEngine
 from emule_indexer.domain.matching.models import TargetSegment
+from emule_indexer.domain.observability.events import CrawlerStarted
 from emule_indexer.ports.clock import Clock, Rng
 from emule_indexer.ports.content_verifier import ContentVerifier
 from emule_indexer.ports.decision_signal import DecisionSignal
@@ -90,6 +91,14 @@ def default_verifier_factory(verifier_url: str) -> ContentVerifier:
     """Un ``HttpContentVerifier`` httpx sur l'URL du verifier (timeout dev raisonnable)."""
     client = httpx.AsyncClient(base_url=verifier_url, timeout=httpx.Timeout(10.0))
     return HttpContentVerifier(client)
+
+
+MetricsServer = Callable[[int, CollectorRegistry], None]
+
+
+def default_metrics_server(port: int, registry: CollectorRegistry) -> None:
+    """Démarre le serveur HTTP /metrics (thread daemon). Wrapper pour fixer l'ordre des args."""
+    start_http_server(port, registry=registry)  # pragma: no cover
 
 
 def resolve_staging_path(staging_base: Path, catalog: CatalogReader, entry: DownloadEntry) -> Path:
@@ -161,6 +170,7 @@ class CrawlerApp:
         client_factory: ClientFactory = default_client_factory,
         download_client_factory: DownloadClientFactory = default_download_client_factory,
         verifier_factory: VerifierFactory = default_verifier_factory,
+        metrics_server: MetricsServer = default_metrics_server,
     ) -> None:
         self._crawler_config = crawler_config
         self._local_config = local_config
@@ -172,6 +182,7 @@ class CrawlerApp:
         self._client_factory = client_factory
         self._download_client_factory = download_client_factory
         self._verifier_factory = verifier_factory
+        self._metrics_server = metrics_server
         self._shutdown = asyncio.Event()
         self._signal_count = 0
 
@@ -423,6 +434,8 @@ class CrawlerApp:
                 ),
             )
             edge = EdgeState()
+            if obs is not None and obs.metrics is not None and obs.metrics.enabled:
+                self._metrics_server(obs.metrics.port, registry)
             catalog_repo = SqliteCatalogRepository(catalog_conn, node_id)
             scheduler_state = SqliteSchedulerStateRepository(local_conn)
             engine = MatchingEngine(self._matcher_config, self._targets)
@@ -495,6 +508,9 @@ class CrawlerApp:
                     edge=edge,
                 )
                 _logger.info("mode full : boucles download + vérification armées")
+
+            mode = "full" if self._local_config.verifier_url is not None else "observer"
+            await telemetry.emit(CrawlerStarted(mode=mode))
 
             # Borne ENTRÉE DÉSARMÉE (None) : le régime permanent est non borné ; ``_supervise``
             # l'arme (reschedule) dès l'arrêt demandé → seule la phase d'arrêt + l'aclose ci-dessous

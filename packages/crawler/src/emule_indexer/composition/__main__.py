@@ -49,6 +49,8 @@ def build_app(args: argparse.Namespace) -> CrawlerApp:
     telle quelle : ``main`` l'attrape, logge clair, et refuse de démarrer (spec §14).
     """
     crawler_config = parse_crawler_config(load_yaml(args.crawler))
+    if crawler_config.observability is not None:
+        logging.getLogger().setLevel(crawler_config.observability.log_level)
     local_config = parse_local_config(load_yaml(args.local))
     targets = parse_targets(load_yaml(args.targets))
     matcher_config = parse_matcher_config(load_yaml(args.matcher))

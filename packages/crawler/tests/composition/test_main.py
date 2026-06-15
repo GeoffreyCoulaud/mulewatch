@@ -1,4 +1,5 @@
 import argparse
+import logging
 from pathlib import Path
 
 import pytest
@@ -21,8 +22,26 @@ def _args(**overrides: Path) -> argparse.Namespace:
 
 
 def test_build_app_assembles_a_crawler_app() -> None:
+    # crawler.yaml sans observability → branche obs is None de build_app
     app = entry.build_app(_args())
     assert isinstance(app, CrawlerApp)
+
+
+def test_build_app_applies_log_level_when_observability_configured(
+    tmp_path: Path,
+) -> None:
+    """La branche observability is not None de build_app appelle setLevel."""
+    # Crée un crawler.yaml minimal avec une section observability (log_level=DEBUG).
+    crawler_yaml = tmp_path / "crawler_obs.yaml"
+    crawler_yaml.write_text(
+        ((_CONFIG / "crawler.yaml").read_text(encoding="utf-8"))
+        + "\nobservability:\n  log_level: DEBUG\n  notification_timeout_seconds: 5.0\n",
+        encoding="utf-8",
+    )
+    app = entry.build_app(_args(crawler=crawler_yaml))
+    assert isinstance(app, CrawlerApp)
+    # Le niveau racine a été appliqué (DEBUG=10).
+    assert logging.getLogger().level == logging.DEBUG
 
 
 class _SpyApp:

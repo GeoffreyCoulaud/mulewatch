@@ -11,6 +11,7 @@ from emule_indexer.adapters.config.crawler_config import (
     ConfigError,
     CrawlerConfig,
     DownloadConfig,
+    MetricsConfig,
     ObservabilityConfig,
     VerifyConfig,
 )
@@ -93,7 +94,11 @@ def _make_app(
     node_id: str | None = None,
     shutdown_deadline: float = 30.0,
     observability: ObservabilityConfig | None = None,
+    metrics_server: object | None = None,
 ) -> CrawlerApp:
+    extra: dict[str, object] = {}
+    if metrics_server is not None:
+        extra["metrics_server"] = metrics_server
     return CrawlerApp(
         crawler_config=_crawler_config(shutdown_deadline, observability=observability),
         local_config=_local_config(tmp_path, node_id=node_id),
@@ -103,6 +108,7 @@ def _make_app(
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
         client_factory=factory,  # type: ignore[arg-type]
+        **extra,  # type: ignore[arg-type]
     )
 
 
@@ -835,3 +841,138 @@ async def test_full_mode_shutdown_cancels_download_and_verify_loops_promptly(
     # run revient en quelques ticks d'event loop (aucun temps réel n'est consommé).
     await asyncio.wait_for(app.run(), timeout=3.0)
     assert verifier.closed is True  # arrêt propre : le teardown a bien fermé le verifier
+
+
+# ---------------------------------------------------------------------------
+# Task 8 — métriques + CrawlerStarted + log_level bootstrap
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_metrics_server_started_when_enabled(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    """Serveur /metrics démarré lorsque metrics.enabled=True."""
+    started: list[int] = []
+    holder: dict[str, CrawlerApp] = {}
+
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(holder)
+
+    def metrics_server(port: int, registry: object) -> None:
+        started.append(port)
+
+    app = _make_app(
+        tmp_path,
+        matcher_config,
+        factory=factory,
+        observability=ObservabilityConfig(
+            log_level="INFO",
+            metrics=MetricsConfig(enabled=True, port=9123),
+            notification_timeout_seconds=5.0,
+        ),
+        metrics_server=metrics_server,
+    )
+    holder["app"] = app
+    await asyncio.wait_for(app.run(), timeout=5.0)
+    assert started == [9123]  # serveur démarré car metrics.enabled=True
+
+
+@pytest.mark.asyncio
+async def test_metrics_server_not_started_when_disabled(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    """Serveur /metrics NON démarré lorsque metrics.enabled=False."""
+    started: list[int] = []
+    holder: dict[str, CrawlerApp] = {}
+
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(holder)
+
+    def metrics_server(port: int, registry: object) -> None:
+        started.append(port)
+
+    app = _make_app(
+        tmp_path,
+        matcher_config,
+        factory=factory,
+        observability=ObservabilityConfig(
+            log_level="INFO",
+            metrics=MetricsConfig(enabled=False, port=9123),
+            notification_timeout_seconds=5.0,
+        ),
+        metrics_server=metrics_server,
+    )
+    holder["app"] = app
+    await asyncio.wait_for(app.run(), timeout=5.0)
+    assert started == []  # metrics.enabled=False → pas de serveur
+
+
+@pytest.mark.asyncio
+async def test_metrics_server_not_started_when_observability_absent(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    """Serveur /metrics NON démarré lorsque observability=None (obs is None)."""
+    started: list[int] = []
+    holder: dict[str, CrawlerApp] = {}
+
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(holder)
+
+    def metrics_server(port: int, registry: object) -> None:
+        started.append(port)
+
+    app = _make_app(
+        tmp_path,
+        matcher_config,
+        factory=factory,
+        observability=None,
+        metrics_server=metrics_server,
+    )
+    holder["app"] = app
+    await asyncio.wait_for(app.run(), timeout=5.0)
+    assert started == []  # obs=None → pas de serveur
+
+
+@pytest.mark.asyncio
+async def test_emits_crawler_started_observer_mode(
+    tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    """CrawlerStarted(mode='observer') émis au boot en mode observateur."""
+    holder: dict[str, CrawlerApp] = {}
+
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(holder)
+
+    app = _make_app(tmp_path, matcher_config, factory=factory)
+    holder["app"] = app
+    with caplog.at_level(logging.INFO, logger="emule_indexer.observability"):
+        await asyncio.wait_for(app.run(), timeout=5.0)
+    assert any("mode observer" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_emits_crawler_started_full_mode(
+    tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    """CrawlerStarted(mode='full') émis au boot en mode full."""
+    holder: dict[str, CrawlerApp] = {}
+    verifier = FakeContentVerifier(healthy=True)
+    download_client = _ShutdownOnQueueDownloadClient(holder)
+
+    app = CrawlerApp(
+        crawler_config=_full_crawler_config(),
+        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        client_factory=lambda e: FakeMuleClient(),
+        download_client_factory=lambda endpoint: download_client,
+        verifier_factory=lambda url: verifier,
+    )
+    holder["app"] = app
+    with caplog.at_level(logging.INFO, logger="emule_indexer.observability"):
+        await asyncio.wait_for(app.run(), timeout=5.0)
+    assert any("mode full" in r.getMessage() for r in caplog.records)
