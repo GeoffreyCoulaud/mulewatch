@@ -349,14 +349,18 @@ name = "download-verifier"
 version = "0.0.0"
 source = { editable = "packages/verifier" }
 dependencies = [
+    { name = "prometheus-client" },
     { name = "puremagic" },
+    { name = "pyyaml" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "prometheus-client", specifier = ">=0.21" },
     { name = "puremagic", specifier = ">=1.28" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "starlette", specifier = ">=1.3" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
