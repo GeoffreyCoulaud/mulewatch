@@ -299,7 +299,13 @@ documentés ici que pour référence si quelque chose cloche.
 
 ---
 
-## Smoke test local (sans VPN)
+## Tests de validation
+
+> Pour le **détail complet** de toutes les suites d'intégration (prérequis exacts, commandes,
+> ce qu'on attend, pistes CI), voir le **[guide des tests](testing-guide.md)**. Les deux sections
+> ci-dessous en sont les entrées les plus utiles à l'exploitant.
+
+### Smoke test local (sans VPN)
 
 Pour valider le câblage de la stack sur votre machine, **sans** monter de VPN :
 
@@ -325,13 +331,14 @@ par défaut.
 - **Sonde richesse EC** : `uv run python -m emule_indexer.tools.ec_probe --all-tags …` dumpe tous
   les tags bruts d'un résultat de recherche réel (mesure du taux de remplissage).
 
-## Tests e2e (Docker, optionnel)
+### Tests e2e (Docker, optionnel)
 
 Au-delà du smoke (câblage), une suite **e2e** exerce un **téléchargement→vérification RÉEL** : un
 serveur eD2k de test (ed2kd, buildé localement) + un amuled seeder partageant un fichier planté →
-le crawler télécharge les octets → quarantaine → le verifier rend `clean`. Un seul prérequis :
-Docker. `( cd packages/crawler && uv run pytest -m e2e_integration --no-cov )` (désélectionné du run
-par défaut). C'est ce qui dérisque la chaîne complète sans VPN ni secret.
+le crawler télécharge les octets → quarantaine → le verifier rend `clean`. `( cd packages/crawler &&
+uv run pytest -m e2e_integration --no-cov )` (désélectionné du run par défaut). C'est ce qui dérisque
+la chaîne complète sans VPN ni secret. **Prérequis détaillés** (dont la matérialisation de
+`vendor/ed2kd`) dans le [guide des tests](testing-guide.md).
 
 ## Limites connues / follow-ups
 

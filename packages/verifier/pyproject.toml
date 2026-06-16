@@ -23,7 +23,7 @@ packages = ["src/download_verifier"]
 addopts = '--cov=download_verifier --cov-report=term-missing --cov-fail-under=100 --strict-markers -m "not analysis_integration"'
 testpaths = ["tests"]
 markers = [
-    "analysis_integration: spawn réel de l'enfant + vrai ffprobe sur de vrais échantillons (ffmpeg/ffprobe requis) — déselectionnés par défaut ; run dédié : cd packages/verifier && uv run pytest -m analysis_integration --no-cov",
+    "analysis_integration: spawn réel de l'enfant confiné + vrai ffprobe (ffmpeg requis) ; clamav (clamscan + base, sinon skip) et ring seccomp (libseccomp, sinon skip) si dispo — déselectionnés par défaut ; cf. docs/testing-guide.md ; run : cd packages/verifier && uv run pytest -m analysis_integration --no-cov",
 ]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
