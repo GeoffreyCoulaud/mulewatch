@@ -130,6 +130,16 @@ class AmuleEcClient:
         self.skipped_entries_total += skipped
         return observations
 
+    async def fetch_results_raw(self) -> EcPacket:
+        """Snapshot CUMULATIF BRUT (le ``EcPacket`` décodé, AVANT mapping) — outil de MESURE.
+
+        Même requête EC que ``fetch_results`` mais SANS le mapper : expose TOUS les tags du
+        résultat (mappés, écartés ou inconnus) pour mesurer le taux de remplissage empirique
+        de chaque tag (``tools/ec_probe.py --all-tags``). N'altère ni ``skipped_entries_total``
+        ni l'état du client ; ne lit jamais les octets d'un fichier.
+        """
+        return await self._request(EcPacket(codes.EC_OP_SEARCH_RESULTS), codes.EC_OP_SEARCH_RESULTS)
+
     async def stop_search(self) -> None:
         await self._request(EcPacket(codes.EC_OP_SEARCH_STOP), codes.EC_OP_MISC_DATA)
 

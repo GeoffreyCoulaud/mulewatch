@@ -31,14 +31,28 @@ from emule_indexer.domain.matching.validation import (
 )
 
 
-def _parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        prog="emule_indexer", description="Crawler eMule (observateur)"
-    )
+def _add_config_options(parser: argparse.ArgumentParser) -> None:
+    """Les 4 chemins de config (mêmes options, mêmes défauts) pour le run ET validate-config."""
     parser.add_argument("--crawler", type=Path, default=Path("config/crawler.yaml"))
     parser.add_argument("--local", type=Path, default=Path("config/local.yaml"))
     parser.add_argument("--targets", type=Path, default=Path("config/targets.yaml"))
     parser.add_argument("--matcher", type=Path, default=Path("config/matcher.yaml"))
+
+
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="emule_indexer", description="Crawler eMule (observateur)"
+    )
+    _add_config_options(parser)
+    return parser.parse_args(argv)
+
+
+def _parse_validate_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="emule_indexer validate-config",
+        description="Charge + valide la config (matcher/targets/crawler/local), sans rien démarrer",
+    )
+    _add_config_options(parser)
     return parser.parse_args(argv)
 
 
@@ -65,6 +79,26 @@ def build_app(args: argparse.Namespace) -> CrawlerApp:
     )
 
 
+def validate_config(argv: list[str]) -> int:
+    """Charge + valide les 4 configs via les parseurs EXISTANTS — un check PUR, ne démarre RIEN.
+
+    Réutilise strictement ``load_yaml`` + ``parse_{crawler,local,targets,matcher}_config`` (aucune
+    logique de validation nouvelle). Toute erreur (``YamlLoadError``/``ConfigError``/
+    ``MatcherConfigError``) → message clair sur stderr + code 1, comme le refus de démarrer du run.
+    """
+    args = _parse_validate_args(argv)
+    try:
+        parse_crawler_config(load_yaml(args.crawler))
+        parse_local_config(load_yaml(args.local))
+        parse_targets(load_yaml(args.targets))
+        parse_matcher_config(load_yaml(args.matcher))
+    except (YamlLoadError, ConfigError, MatcherConfigError) as error:
+        print(f"Config invalide : {error}", file=sys.stderr, flush=True)
+        return 1
+    print("Config valide", flush=True)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entrée CLI. Rend un code de sortie (0 = arrêt propre, 1 = config invalide).
 
@@ -75,7 +109,13 @@ def main(argv: list[str] | None = None) -> int:
     nu). Les ressources sont déjà fermées proprement par le ``run`` (stack LIFO) avant la levée.
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    args = _parse_args(sys.argv[1:] if argv is None else argv)
+    tokens = sys.argv[1:] if argv is None else argv
+    # Dispatch en tête : la sous-commande ``validate-config`` route vers le check pur. L'invocation
+    # NUE (sans sous-commande) retombe EXACTEMENT sur le chemin run — contrainte de rétro-compat
+    # (compose.yaml lance ``python -m emule_indexer --crawler … --local …`` sans sous-commande).
+    if tokens and tokens[0] == "validate-config":
+        return validate_config(list(tokens[1:]))
+    args = _parse_args(tokens)
     try:
         app = build_app(args)
         asyncio.run(app.run())

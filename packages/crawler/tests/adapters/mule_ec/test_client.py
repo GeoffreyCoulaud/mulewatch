@@ -323,6 +323,23 @@ async def test_fetch_results_maps_keyword_provenance_and_accumulates_skips() -> 
 
 
 @pytest.mark.asyncio
+async def test_fetch_results_raw_returns_the_unmapped_packet() -> None:
+    # fetch_results_raw rend l'EcPacket BRUT (tous les tags, AVANT mapping) sans toucher au
+    # compteur skipped : c'est l'entrée de l'outil de mesure --all-tags (C2).
+    entries = (_result_entry("a.avi", True), _result_entry("sans-hash.avi", False))
+    replies = _auth_replies(1) + [_search_ok_reply(), _results_reply(entries)]
+    async with FakeEcServer(replies) as server:
+        client = await _connected(server)
+        await client.start_search("keroro", SearchChannel.GLOBAL)
+        packet = await client.fetch_results_raw()
+        assert packet.opcode == codes.EC_OP_SEARCH_RESULTS
+        searchfiles = [tag for tag in packet.tags if tag.name == codes.EC_TAG_SEARCHFILE]
+        assert len(searchfiles) == 2  # les DEUX entrées, y compris celle sans hash
+        assert client.skipped_entries_total == 0  # le brut ne mappe pas → ne compte pas
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_stop_search_expects_misc_data_reply() -> None:
     stop_ok = encode_packet(EcPacket(codes.EC_OP_MISC_DATA))
     async with FakeEcServer(_auth_replies(1) + [stop_ok]) as server:

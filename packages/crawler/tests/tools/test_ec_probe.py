@@ -1,6 +1,14 @@
 import pytest
 
+from emule_indexer.adapters.mule_ec import codes
 from emule_indexer.adapters.mule_ec.client import AmuleEcClient
+from emule_indexer.adapters.mule_ec.codec import (
+    EcPacket,
+    EcTag,
+    hash16_tag,
+    string_tag,
+    uint_tag,
+)
 from emule_indexer.adapters.mule_ec.errors import (
     EcAuthError,
     EcConnectError,
@@ -13,6 +21,8 @@ from emule_indexer.ports.mule_client import KadStatus, NetworkStatus, SearchChan
 from emule_indexer.tools.ec_probe import (
     _default_client,
     build_parser,
+    collect_raw_results,
+    format_raw_tags,
     main,
     search_and_wait,
 )
@@ -49,6 +59,7 @@ class FakeMuleClient:
         connect_error: EcError | None = None,
         fetch_error: BaseException | None = None,
         stop_error: BaseException | None = None,
+        raw_packet: EcPacket | None = None,
     ) -> None:
         self.calls: list[str] = []
         self._status = status
@@ -57,6 +68,7 @@ class FakeMuleClient:
         self._connect_error = connect_error
         self._fetch_error = fetch_error
         self._stop_error = stop_error
+        self._raw_packet = raw_packet
 
     async def connect(self) -> None:
         self.calls.append("connect")
@@ -74,6 +86,13 @@ class FakeMuleClient:
         if self._fetch_error is not None:
             raise self._fetch_error
         return self._batches.pop(0) if len(self._batches) > 1 else self._batches[0]
+
+    async def fetch_results_raw(self) -> EcPacket:
+        self.calls.append("fetch_raw")
+        if self._fetch_error is not None:
+            raise self._fetch_error
+        assert self._raw_packet is not None  # fourni quand le mode --all-tags est testé
+        return self._raw_packet
 
     async def stop_search(self) -> None:
         self.calls.append("stop")
@@ -151,7 +170,84 @@ def test_main_errors_when_password_absent_everywhere(
     assert fake.calls == []  # le client n'est jamais construit ni connecté
 
 
+# ---------------------------------------------------------------- format_raw_tags (dump TOUS)
+
+
+def _searchfile(*children: EcTag) -> EcTag:
+    return EcTag(codes.EC_TAG_SEARCHFILE, codes.EC_TAGTYPE_UINT8, b"\x00", children)
+
+
+def test_parser_has_all_tags_flag_off_by_default() -> None:
+    args = build_parser().parse_args(["--password", "p", "--keyword", "k"])
+    assert args.all_tags is False
+
+
+def test_parser_accepts_all_tags_flag() -> None:
+    args = build_parser().parse_args(["--password", "p", "--keyword", "k", "--all-tags"])
+    assert args.all_tags is True
+
+
+def test_format_raw_tags_dumps_every_tag_including_mapped_and_unknown() -> None:
+    # Le mapper EXCLUT les tags mappés de raw_meta ; format_raw_tags les montre TOUS — c'est
+    # le but de C2 (mesurer le taux de remplissage empirique de CHAQUE tag).
+    entry = _searchfile(
+        string_tag(codes.EC_TAG_PARTFILE_NAME, "Keroro.avi"),  # MAPPÉ → absent de raw_meta
+        hash16_tag(codes.EC_TAG_PARTFILE_HASH, bytes(range(16))),  # MAPPÉ
+        uint_tag(0x0999, 42),  # inconnu
+    )
+    out = format_raw_tags(EcPacket(codes.EC_OP_SEARCH_RESULTS, (entry,)))
+    assert "résultat #1" in out
+    assert "0x0301" in out  # EC_TAG_PARTFILE_NAME (mappé) : présent dans le dump complet
+    assert "Keroro.avi" in out
+    assert "0x031E" in out  # EC_TAG_PARTFILE_HASH (mappé)
+    assert "0x0999 type=0x02 = 42" in out  # inconnu, type + valeur entière
+
+
+def test_format_raw_tags_recurses_into_subtags() -> None:
+    grandchild = string_tag(0x0AAA, "deep")
+    child = uint_tag(0x0BBB, 7, (grandchild,))
+    out = format_raw_tags(EcPacket(codes.EC_OP_SEARCH_RESULTS, (_searchfile(child),)))
+    assert "0x0BBB" in out
+    assert "0x0AAA" in out  # petit-fils atteint (récursion)
+    assert "deep" in out
+
+
+def test_format_raw_tags_skips_non_searchfile_top_level() -> None:
+    stray = uint_tag(0x0001, 1)  # tag de premier niveau qui n'est PAS une entrée
+    out = format_raw_tags(EcPacket(codes.EC_OP_SEARCH_RESULTS, (stray,)))
+    assert "0 résultat(s)" in out  # aucune entrée dumpée
+
+
+def test_format_raw_tags_renders_string_hash_and_opaque_values() -> None:
+    entry = _searchfile(
+        hash16_tag(0x031E, bytes(range(16))),  # HASH16 → hex
+        EcTag(0x0444, codes.EC_TAGTYPE_CUSTOM, b"\x01\x02\xff"),  # opaque → hex brut
+    )
+    out = format_raw_tags(EcPacket(codes.EC_OP_SEARCH_RESULTS, (entry,)))
+    assert "000102030405060708090a0b0c0d0e0f" in out  # hash en hex
+    assert "0102ff" in out  # octets opaques en hex
+
+
 # ---------------------------------------------------------------- cycle complet via main()
+
+
+def test_main_all_tags_dumps_raw_tag_stream(capsys: pytest.CaptureFixture[str]) -> None:
+    raw = EcPacket(
+        codes.EC_OP_SEARCH_RESULTS,
+        (_searchfile(string_tag(codes.EC_TAG_PARTFILE_NAME, "Keroro.avi"), uint_tag(0x0999, 42)),),
+    )
+    fake = FakeMuleClient(
+        status=_STATUS_FULL, batches=[(_OBSERVATION,)], progresses=[100], raw_packet=raw
+    )
+    code = main(
+        ["--password", "pwd", "--keyword", "keroro", "--all-tags"],
+        client_factory=lambda args: fake,
+    )
+    assert code == 0
+    assert "fetch_raw" in fake.calls  # le mode raw passe par fetch_results_raw
+    assert "fetch" not in fake.calls  # ... et NON par le chemin mappé
+    out = capsys.readouterr().out
+    assert "0x0999 type=0x02 = 42" in out  # tag inconnu dumpé
 
 
 def test_main_success_dumps_status_results_and_raw_meta(capsys: pytest.CaptureFixture[str]) -> None:
@@ -295,6 +391,47 @@ async def test_search_and_wait_propagates_original_error_when_stop_search_also_f
             client, "keroro", SearchChannel.GLOBAL, timeout=10.0, interval=5.0, sleep=_instant_sleep
         )
     assert "stop" in client.calls  # stop_search() toujours tenté
+
+
+# ---------------------------------------------------------------- collect_raw_results
+
+
+@pytest.mark.asyncio
+async def test_collect_raw_polls_until_budget_exhausted(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sleeps: list[float] = []
+
+    async def _instant_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    packet = EcPacket(codes.EC_OP_SEARCH_RESULTS, (_searchfile(uint_tag(0x0999, 1)),))
+    client = FakeMuleClient(status=_STATUS_OFF, batches=[()], progresses=[None], raw_packet=packet)
+    result = await collect_raw_results(
+        client, "keroro", SearchChannel.GLOBAL, timeout=10.0, interval=5.0, sleep=_instant_sleep
+    )
+    assert result is packet
+    assert sleeps == [5.0]  # 2 relevés (ceil(10/5)), 1 seul sleep (pas après le dernier)
+    assert client.calls.count("fetch_raw") == 2
+    assert "fetch" not in client.calls  # chemin BRUT : jamais le mapper
+    assert client.calls[-1] == "stop"
+    assert "relevé brut 1/2 : 1 résultat(s), progression ?" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_collect_raw_breaks_early_when_progress_reaches_100() -> None:
+    sleeps: list[float] = []
+
+    async def _instant_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    packet = EcPacket(codes.EC_OP_SEARCH_RESULTS)
+    client = FakeMuleClient(status=_STATUS_OFF, batches=[()], progresses=[100], raw_packet=packet)
+    await collect_raw_results(
+        client, "keroro", SearchChannel.GLOBAL, timeout=60.0, interval=5.0, sleep=_instant_sleep
+    )
+    assert sleeps == []  # arrêt anticipé : aucun sleep
+    assert client.calls.count("fetch_raw") == 1
 
 
 # ---------------------------------------------------------------- fabrique réelle
