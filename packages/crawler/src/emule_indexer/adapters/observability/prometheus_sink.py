@@ -23,6 +23,9 @@ _COUNTERS: tuple[tuple[MetricName, str, tuple[str, ...]], ...] = (
     (MetricName.PROMOTION_FAILURES, "Mises en quarantaine échouées", ()),
     (MetricName.VERIFICATIONS, "Vérifications terminées", ("verdict",)),
     (MetricName.VERIFIER_UNAVAILABLE, "Verifier injoignable (occurrences)", ()),
+    (MetricName.PORT_SYNC_TRIGGERED, "Synchronisations de port déclenchées", ()),
+    (MetricName.HIGH_ID_RECOVERED, "High-ID retrouvés", ()),
+    (MetricName.PORT_MISMATCH, "High-ID non rétabli (occurrences)", ()),
 )
 _GAUGES: tuple[tuple[MetricName, str, tuple[str, ...]], ...] = (
     (MetricName.CONNECTED_INSTANCES, "Instances search-capable", ("network",)),

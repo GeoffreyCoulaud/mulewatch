@@ -3,7 +3,8 @@
 from prometheus_client import CollectorRegistry
 
 from emule_indexer.adapters.observability.prometheus_sink import PrometheusSink
-from emule_indexer.domain.observability.policy import MetricInstruction, MetricName
+from emule_indexer.domain.observability.policy import MetricInstruction, MetricName, describe
+from tests.domain.observability.test_policy import CASES
 
 
 def test_counter_inc_with_label() -> None:
@@ -42,3 +43,15 @@ def test_histogram_observe() -> None:
     )
     assert registry.get_sample_value("emule_search_cycle_duration_seconds_count") == 1.0
     assert registry.get_sample_value("emule_search_cycle_duration_seconds_sum") == 2.5
+
+
+def test_every_emitted_metric_is_declared_in_the_sink() -> None:
+    """Garde-fou STRUCTUREL : toute métrique que ``describe`` émet pour CHAQUE variante de
+    l'union ``Event`` doit être déclarée dans le sink (sinon ``apply`` lève ``KeyError``). Ferme
+    la boucle policy→sink, qu'aucun test pur ne couvrait : un futur event ajoutant une métrique
+    non déclarée fait échouer ce test."""
+    registry = CollectorRegistry()
+    sink = PrometheusSink(registry)
+    for event, _ in CASES:
+        for instruction in describe(event).metrics:
+            sink.apply(instruction)  # ne doit JAMAIS lever (métrique déclarée)
