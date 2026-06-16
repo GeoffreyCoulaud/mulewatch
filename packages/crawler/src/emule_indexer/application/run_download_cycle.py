@@ -260,20 +260,49 @@ async def _add_links(deps: DownloadDeps) -> None:
 async def run_download_cycle(deps: DownloadDeps) -> None:
     """UNE itération de la boucle de download (spec §5). Ne lève jamais : tolère/absorbe.
 
-    Tout flux EC mort (``MuleUnreachableError``) ou échec de repo (``RepositoryError``) est
-    toléré (log + skip de l'itération) — la prochaine itération réessaie (amuled persiste les
-    downloads). Les repos sont sync → l'annulation (arrêt) atterrit aux ``await`` réseau.
+    Deux DOCTRINES d'erreur, distinctes (item I2 — anti-famine) :
+
+    - ``MuleUnreachableError`` (flux EC mort, depuis ``_monitor`` ou ``_add_links``) = daemon
+      mort → ABORT de l'itération (« un daemon mort fait tout échouer », cf. ``_add_links``).
+      On saute le reste ; la prochaine itération réessaie (amuled persiste les downloads).
+    - ``RepositoryError`` (échec de persistance, AUCUN I/O client) → ISOLÉ PAR ÉTAPE : un échec
+      repo dans une étape ne doit PAS affamer les autres. Chaque étape pouvant lever
+      ``RepositoryError`` (monitor/complétions/candidats) est enveloppée séparément (log +
+      ``continue`` à l'étape suivante). ``_add_links`` relit ``active_states`` FRAÎCHEMENT, donc
+      tourne même si une étape amont a partiellement échoué. « JAMAIS d'abandon d'un download
+      stallé » : l'ordre 1→2→3→4 est préservé, chaque étape est best-effort.
+
+    Les repos sont sync → l'annulation (arrêt) atterrit aux ``await`` réseau, jamais en écriture.
     """
+    # Étape 1 — MONITOR : I/O client → MuleUnreachableError = daemon mort = ABORT de l'itération.
+    # (Un RepositoryError de ``set_state`` est isolé ICI aussi : il n'affame pas les étapes 2-4.)
     try:
         states = deps.downloads.active_states()
         await _monitor(deps, states)
+    except MuleUnreachableError as error:
+        _logger.warning("daemon download injoignable (%s) — itération sautée, retry", error)
+        return
+    except RepositoryError as error:
+        _logger.error("monitor download en échec repo (%s) — étape sautée, continue", error)
+        states = {}
+    # Étapes 2 & 3 — AUCUN I/O client → seul RepositoryError possible, ISOLÉ par étape (I2) :
+    # un échec repo de l'une ne doit PAS empêcher l'autre de tourner.
+    try:
         await _handle_completions(deps, states)
+    except RepositoryError as error:
+        _logger.error("complétions download en échec repo (%s) — étape sautée, continue", error)
+    try:
         await _queue_new_candidates(deps)
+    except RepositoryError as error:
+        _logger.error("candidats download en échec repo (%s) — étape sautée, continue", error)
+    # Étape 4 — ADD_LINKS : I/O client → MuleUnreachableError = daemon mort = ABORT. Relit
+    # ``active_states`` FRAÎCHEMENT, donc tourne même si l'étape 3 a partiellement échoué.
+    try:
         await _add_links(deps)
     except MuleUnreachableError as error:
         _logger.warning("daemon download injoignable (%s) — itération sautée, retry", error)
     except RepositoryError as error:
-        _logger.error("persistance download en échec (%s) — itération sautée, retry", error)
+        _logger.error("add_link download en échec repo (%s) — étape sautée, retry", error)
 
 
 async def _sleep_or_nudge(deps: DownloadLoopDeps) -> None:

@@ -843,6 +843,45 @@ async def test_full_mode_shutdown_cancels_download_and_verify_loops_promptly(
     assert verifier.closed is True  # arrêt propre : le teardown a bien fermé le verifier
 
 
+@pytest.mark.asyncio
+async def test_full_mode_shutdown_leaves_no_task_leaked(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # T12 — INVARIANT d'arrêt « aucune fuite de tâche ». Le ``TaskGroup`` garantit PAR
+    # CONSTRUCTION qu'à la sortie de ``run()`` aucune des 3 boucles (search/download/verify)
+    # ne survit : son ``__aexit__`` attend la fin de TOUTES ses tâches, et ``_supervise`` les
+    # annule TOUTES explicitement à l'arrêt. Ce test VERROUILLE l'invariant : il échouerait si
+    # une régression future détachait une boucle du ``TaskGroup`` (``asyncio.create_task`` hors
+    # groupe) ou oubliait d'annuler une tâche sœur — une tâche ``pending`` survivrait alors à
+    # ``run()``. On le prouve par DIFFÉRENCE : les tâches nées PENDANT ``run()`` (full = 3
+    # boucles bloquées dans leur sleep, arrêt armé une fois bloquées) doivent TOUTES être
+    # terminées une fois ``run()`` retourné. Le ``_BlockingPollClock`` force le pire cas : les
+    # boucles ne peuvent sortir QUE par l'annulation explicite de ``_supervise``.
+    holder: dict[str, CrawlerApp] = {}
+    verifier = FakeContentVerifier(healthy=True)
+    clock = _BlockingPollClock(holder)
+    app = CrawlerApp(
+        crawler_config=_full_crawler_config(),
+        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=clock,
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        client_factory=lambda endpoint: FakeMuleClient(),
+        download_client_factory=lambda endpoint: FakeDownloadClient(),
+        verifier_factory=lambda url: verifier,
+    )
+    holder["app"] = app
+    before = asyncio.all_tasks()  # snapshot AVANT (la tâche de test + infra pytest-asyncio)
+    await asyncio.wait_for(app.run(), timeout=3.0)
+    # Tâches nées PENDANT le run (les 3 boucles du TaskGroup) : toutes doivent être terminées.
+    # Aucune tâche ``pending`` ne doit subsister — sinon une boucle a fui le cycle de vie.
+    leaked = [task for task in asyncio.all_tasks() - before if not task.done()]
+    assert leaked == [], f"tâches en fuite après shutdown : {leaked!r}"
+    assert verifier.closed is True  # arrêt propre confirmé (teardown complet)
+
+
 # ---------------------------------------------------------------------------
 # Task 8 — métriques + CrawlerStarted + log_level bootstrap
 # ---------------------------------------------------------------------------

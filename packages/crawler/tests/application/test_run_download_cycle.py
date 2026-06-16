@@ -140,12 +140,15 @@ class FakeCatalogReads:
 
 
 class FakeLocalRepo:
-    """enqueue_verification (idempotent) capturé."""
+    """enqueue_verification (idempotent) capturé ; ``fail_enqueue`` lève ``RepositoryError``."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, fail_enqueue: bool = False) -> None:
         self.enqueued: list[str] = []
+        self._fail_enqueue = fail_enqueue
 
     def enqueue_verification(self, ed2k_hash: str) -> bool:
+        if self._fail_enqueue:
+            raise RepositoryError("enqueue_verification échouée")
         first = ed2k_hash not in self.enqueued
         self.enqueued.append(ed2k_hash)
         return first
@@ -666,3 +669,154 @@ async def test_emits_promotion_failed() -> None:
     )
     await run_download_cycle(deps)
     assert any(type(e).__name__ == "PromotionFailed" for e in telemetry.events)
+
+
+# ---------------------------------------------------------------------------
+# I2 — granularité d'erreur PAR ÉTAPE (anti-famine) : un RepositoryError dans une
+# étape (complétions / nouveaux candidats) ne doit PAS empêcher l'AUTRE de tourner.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_completion_repo_failure_does_not_starve_new_candidates() -> None:
+    # _handle_completions lève RepositoryError (enqueue_verification échoue sur le hash
+    # completed _A) → _queue_new_candidates ET _add_links tournent QUAND MÊME pour _B :
+    # un échec repo de l'étape 2 n'affame pas l'étape 3 (anti-famine, I2).
+    client = FakeDownloadClient(queue=[(DownloadEntry(ed2k_hash=_A, size_done=10, size_full=10),)])
+    downloads = FakeDownloadRepo()
+    downloads.states[_A] = DownloadState.COMPLETED  # à promouvoir étape 2 (enqueue lèvera)
+    downloads.sizes[_A] = 10
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_B, "S2E062A"),),  # nouveau candidat étape 3
+        observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
+    )
+    local = FakeLocalRepo(fail_enqueue=True)  # étape 2 lève RepositoryError
+    deps = _deps(
+        client=client,
+        quarantine=FakeQuarantine(),
+        downloads=downloads,
+        catalog=catalog,
+        local=local,
+    )
+    await run_download_cycle(deps)  # ne lève pas
+    # Effet observable de l'étape 3 : _B mis en file ET son lien émis malgré l'échec étape 2.
+    assert downloads.states[_B] is DownloadState.QUEUED
+    assert any(_B in link for link in client.added_links)
+    # _A reste COMPLETED (l'échec d'enqueue a laissé l'étape 2 incomplète → retry au tour suivant).
+    assert downloads.states[_A] is DownloadState.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_candidate_repo_failure_does_not_starve_completions() -> None:
+    # Symétrique : _queue_new_candidates lève RepositoryError (record_queued échoue) → les
+    # complétions de l'étape 2 ont QUAND MÊME été promues (effet observable). L'échec de
+    # l'étape 3 n'affame pas l'étape 2.
+    client = FakeDownloadClient(queue=[(DownloadEntry(ed2k_hash=_A, size_done=10, size_full=10),)])
+    downloads = FakeDownloadRepo(fail_record=True)  # étape 3 lève RepositoryError
+    downloads.states[_A] = DownloadState.QUEUED  # _A complet en file → promu étape 2
+    downloads.sizes[_A] = 10
+    quarantine = FakeQuarantine()
+    local = FakeLocalRepo()
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_B, "S2E062A"),),  # nouveau candidat → record_queued lèvera
+        observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
+    )
+    deps = _deps(
+        client=client,
+        quarantine=quarantine,
+        downloads=downloads,
+        catalog=catalog,
+        local=local,
+    )
+    await run_download_cycle(deps)  # ne lève pas
+    # Effet observable de l'étape 2 : _A promu + enfilé malgré l'échec de l'étape 3.
+    assert downloads.states[_A] is DownloadState.QUARANTINED
+    assert local.enqueued == [_A]
+    # _B n'a PAS été mis en file (record_queued a levé) → aucun lien émis pour lui.
+    assert _B not in downloads.states
+    assert client.added_links == []
+
+
+@pytest.mark.asyncio
+async def test_monitor_unreachable_aborts_subsequent_steps() -> None:
+    # MuleUnreachableError dans _monitor (download_queue) = daemon mort → ABORT de l'itération :
+    # ni les complétions (étape 2) ni les nouveaux candidats (étape 3) ne doivent tourner.
+    # (Doctrine « un daemon mort fait tout échouer » — distincte de l'isolement RepositoryError.)
+    client = FakeDownloadClient(queue_failures=[MuleUnreachableError("daemon down")])
+    downloads = FakeDownloadRepo()
+    downloads.states[_A] = DownloadState.COMPLETED  # une complétion en attente (étape 2)
+    downloads.sizes[_A] = 10
+    quarantine = FakeQuarantine()
+    local = FakeLocalRepo()
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_B, "S2E062A"),),  # un candidat (étape 3)
+        observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
+    )
+    deps = _deps(
+        client=client,
+        quarantine=quarantine,
+        downloads=downloads,
+        catalog=catalog,
+        local=local,
+    )
+    await run_download_cycle(deps)  # ne lève pas (toléré) mais TOUT est sauté
+    assert quarantine.promoted == []  # étape 2 NON exécutée (abort avant)
+    assert local.enqueued == []
+    assert downloads.states[_A] is DownloadState.COMPLETED  # inchangé
+    assert _B not in downloads.states  # étape 3 NON exécutée
+    assert client.added_links == []
+
+
+@pytest.mark.asyncio
+async def test_monitor_repo_failure_is_isolated_and_does_not_starve_candidates() -> None:
+    # _monitor lève RepositoryError (set_state échoue lors de la réconciliation) → l'étape 1 est
+    # ISOLÉE (log + continue), elle n'affame PAS l'étape 3 : _B est mis en file quand même.
+    class _MonitorFailRepo(FakeDownloadRepo):
+        def set_state(self, ed2k_hash: str, state: DownloadState) -> None:
+            raise RepositoryError("set_state monitor échouée")
+
+    client = FakeDownloadClient(queue=[(DownloadEntry(ed2k_hash=_A, size_done=10, size_full=10),)])
+    downloads = _MonitorFailRepo()
+    downloads.states[_A] = DownloadState.QUEUED  # réconcilié → set_state(COMPLETED) lèvera
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_B, "S2E062A"),),
+        observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
+    )
+    deps = _deps(
+        client=client,
+        quarantine=FakeQuarantine(),
+        downloads=downloads,
+        catalog=catalog,
+        local=FakeLocalRepo(),
+    )
+    await run_download_cycle(deps)  # ne lève pas
+    # L'étape 3 a tourné malgré l'échec de l'étape 1 : _B mis en file + lien émis.
+    assert downloads.states[_B] is DownloadState.QUEUED
+    assert any(_B in link for link in client.added_links)
+
+
+@pytest.mark.asyncio
+async def test_add_links_repo_failure_is_tolerated_and_does_not_raise() -> None:
+    # _add_links lève RepositoryError (set_state échoue en marquant FAILED un lien rejeté) →
+    # toléré (log), run_download_cycle ne lève pas. Contrat « ne lève JAMAIS ».
+    class _AddLinkSetStateFailRepo(FakeDownloadRepo):
+        def set_state(self, ed2k_hash: str, state: DownloadState) -> None:
+            if state is DownloadState.FAILED:
+                raise RepositoryError("set_state(FAILED) échouée")
+            super().set_state(ed2k_hash, state)
+
+    # add_link rejeté (EC_OP_FAILED) → _add_links tente set_state(FAILED), qui lève RepositoryError.
+    client = FakeDownloadClient(add_failures=[MuleSearchFailedError("rejected")])
+    downloads = _AddLinkSetStateFailRepo()
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_A, "S2E062A"),),
+        observations={_A: ObservedFile(filename="x", size_bytes=1)},
+    )
+    deps = _deps(
+        client=client,
+        quarantine=FakeQuarantine(),
+        downloads=downloads,
+        catalog=catalog,
+        local=FakeLocalRepo(),
+    )
+    await run_download_cycle(deps)  # ne lève PAS (RepositoryError de l'étape 4 toléré)
