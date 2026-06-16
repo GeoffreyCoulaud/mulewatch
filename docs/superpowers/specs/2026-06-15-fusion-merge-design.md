@@ -173,7 +173,7 @@ INSERT INTO file_observations (
     media_length_sec, bitrate_kbps, codec, file_type, raw_meta,
     keyword, observed_at, node_id
 )
-SELECT
+SELECT DISTINCT
     ed2k_hash, filename, size_bytes, source_count, complete_source_count,
     media_length_sec, bitrate_kbps, codec, file_type, raw_meta,
     keyword, observed_at, node_id
@@ -212,6 +212,20 @@ Points clés :
   fois **idempotent** (re-merge = no-op) **et** non-destructeur (aucune observation réelle perdue).
 - **Re-merge = no-op** : au 2ᵉ merge, chaque ligne source a déjà son jumeau exact en sortie →
   `WHERE NOT EXISTS` est faux partout → 0 insertion. Idempotent par construction.
+- **`SELECT DISTINCT` — dédup INTRA-source (corrige une incohérence du design initial).** Le
+  `WHERE NOT EXISTS` ne dédupe que contre la **destination** (`main.*`). Deux lignes **bit-pour-bit
+  identiques au sein d'UNE même source** ne sont *pas* dédupées par lui en un seul passage : au moment
+  du `SELECT`, aucune n'est encore dans `main` → les deux passent le `NOT EXISTS` → les deux sont
+  copiées (et un re-merge ne les retire jamais, elles y sont alors toutes deux). On ajoute donc
+  **`SELECT DISTINCT`** sur la clé naturelle des journaux : il collapse ces doublons intra-source. C'est
+  la **même politique de dédup** que celle déjà énoncée ci-dessus (« seules les lignes bit-pour-bit
+  identiques sur la clé naturelle sont des doublons »), simplement appliquée *aussi* à l'intérieur d'une
+  source. `DISTINCT` traite `NULL` comme égal à `NULL` (cohérent avec l'`IS`) et ne collapse jamais deux
+  observations *légitimement distinctes* (elles diffèrent sur ≥1 colonne → restent deux lignes). **C'est
+  ce qui rend la promesse §1 (dédup des doublons at-least-once de `file_verifications` d'un seul
+  catalogue, via N=1) effectivement vraie** — sans `DISTINCT` elle ne tenait pas. *(Inutile sur
+  `files`/`sources` : un doublon de PK intra-source est impossible, `ed2k_hash`/`user_hash` étant PK dans
+  la source aussi ; `INSERT OR IGNORE` suffit.)*
 
 Les **clés naturelles par table** (colonnes hors `id`, tirées de `0001_initial.sql`) :
 
