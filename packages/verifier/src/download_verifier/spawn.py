@@ -101,6 +101,8 @@ def _minimal_env(cfg: AnalysisConfig) -> dict[str, str]:
         "QUARANTINE_DIR": cfg.quarantine_dir,
         "ENABLED_CHECKS": ",".join(cfg.enabled_checks),
         "FFPROBE_PATH": cfg.ffprobe_path,
+        "CLAMSCAN_PATH": cfg.clamscan_path,
+        "CLAMAV_DB_DIR": cfg.clamav_db_dir,
         "HEADER_BYTES": str(cfg.header_bytes),
         "ANALYSIS_TIMEOUT_S": str(cfg.timeout_s),
         "PATH": _MINIMAL_PATH,

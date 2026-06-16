@@ -21,6 +21,8 @@ class AnalysisConfig:
 
     enabled_checks: tuple[str, ...]
     ffprobe_path: str
+    clamscan_path: str
+    clamav_db_dir: str
     timeout_s: float
     rlimit_cpu_s: int
     rlimit_as_bytes: int
@@ -34,12 +36,25 @@ class AnalysisConfig:
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "AnalysisConfig":
         """Construit la config depuis ``env``. Valeur non parsable / liste vide → ``ValueError``."""
+        enabled = _parse_checks(env.get("ENABLED_CHECKS"))
+        # clamav charge toute la base de signatures (centaines de Mo) : quand il est activé, on
+        # relâche conditionnellement les plafonds mémoire/CPU du child (§6.2). Un override explicite
+        # (RLIMIT_AS_BYTES / RLIMIT_CPU_S, non suffixé) prime TOUJOURS sur ce défaut conditionnel.
+        clamav_on = "clamav" in enabled
+        as_default = (
+            _parse_int(env.get("RLIMIT_AS_BYTES_CLAMAV"), 1536 * 1024 * 1024)
+            if clamav_on
+            else 512 * 1024 * 1024
+        )
+        cpu_default = _parse_int(env.get("RLIMIT_CPU_S_CLAMAV"), 120) if clamav_on else 20
         return cls(
-            enabled_checks=_parse_checks(env.get("ENABLED_CHECKS")),
+            enabled_checks=enabled,
             ffprobe_path=env.get("FFPROBE_PATH", "ffprobe"),
+            clamscan_path=env.get("CLAMSCAN_PATH", "clamscan"),
+            clamav_db_dir=env.get("CLAMAV_DB_DIR", "/clamav-db"),
             timeout_s=_parse_float(env.get("ANALYSIS_TIMEOUT_S"), 30.0),
-            rlimit_cpu_s=_parse_int(env.get("RLIMIT_CPU_S"), 20),
-            rlimit_as_bytes=_parse_int(env.get("RLIMIT_AS_BYTES"), 512 * 1024 * 1024),
+            rlimit_cpu_s=_parse_int(env.get("RLIMIT_CPU_S"), cpu_default),
+            rlimit_as_bytes=_parse_int(env.get("RLIMIT_AS_BYTES"), as_default),
             # RLIMIT_NPROC est PAR-UID GLOBAL (pas par sous-arbre) : 64 est sain UNIQUEMENT parce
             # que le verifier tourne sur un UID dédié peu peuplé (image Docker, Plan F). En dev/CI
             # bare-metal où l'UID a déjà >64 process, overrider RLIMIT_NPROC (sinon fork refusé).

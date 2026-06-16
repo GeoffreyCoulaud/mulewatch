@@ -93,8 +93,17 @@ services:
       VERIFIER_HOST: 0.0.0.0
       VERIFIER_PORT: "8000"
       VERIFIER_CONFIG: /config/verifier.yaml
+      # clamav (3e source de verdict par signatures, opt-in deploiement full) : la base est lue RO
+      # depuis le volume clamav-db (peuple par le sidecar freshclam) ; le verifier ne fetch JAMAIS
+      # (internal: true preserve). Les rlimits du child d'analyse sont relaches car clamscan charge
+      # toute la base (~centaines de Mo) ; mem_limit releve en consequence (sinon OOM avant rlimit).
+      ENABLED_CHECKS: type_sniff,ffprobe,clamav
+      CLAMAV_DB_DIR: /clamav-db
+      RLIMIT_AS_BYTES_CLAMAV: "1610612736"        # 1.5 Gio (ordre de grandeur, a valider §6.1)
+      RLIMIT_CPU_S_CLAMAV: "120"
     volumes:
       - quarantine:/quarantine:ro               # lit la quarantaine en RO (jamais d'ecriture)
+      - clamav-db:/clamav-db:ro                 # base de signatures clamav en RO (ecrite par freshclam)
       - ./config/verifier.yaml:/config/verifier.yaml:ro
     networks:
       - verify-internal                         # SEUL sur le reseau interne (pas d'Internet)
@@ -117,7 +126,28 @@ services:
     security_opt:
       - "no-new-privileges:true"
     pids_limit: 256
-    mem_limit: 768m
+    mem_limit: 2g                                # > rlimit AS clamav (1.5 Gio) sinon OOM-cgroup avant rlimit
+    restart: unless-stopped
+
+  freshclam:
+    # Sidecar de provisioning de la base de signatures clamav : freshclam met a jour la base dans
+    # le volume clamav-db (RW) ; le verifier la lit en RO (il ne fetch JAMAIS => internal: true
+    # preserve). Image officielle clamav (freshclam + clamscan inclus ; on n'utilise ici que
+    # freshclam, le verifier a son propre clamscan apt). Sur `egress` car a besoin d'Internet.
+    image: clamav/clamav:1.4
+    profiles: [full]
+    command: ["freshclam", "--daemon", "--foreground", "--checks=2"]
+    environment:
+      FRESHCLAM_CHECKS: "2"
+    volumes:
+      - clamav-db:/var/lib/clamav               # ECRIT la base de signatures ici (RW)
+    networks:
+      - egress
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    # PAS de read_only : freshclam DOIT ecrire la base dans le volume (contrairement au verifier).
     restart: unless-stopped
 
 networks:
@@ -131,3 +161,4 @@ volumes:
   catalog-db: {}
   local-db: {}
   amule-state: {}
+  clamav-db: {}                                 # base de signatures clamav : freshclam ecrit, verifier lit RO

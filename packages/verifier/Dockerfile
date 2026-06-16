@@ -22,13 +22,16 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-editable --package download-verifier
 
-# --- Runtime : python slim + ffmpeg (ffprobe), non-root, venv copie ---
+# --- Runtime : python slim + ffmpeg (ffprobe) + clamav (clamscan), non-root, venv copie ---
 FROM python:3.12-slim-bookworm
 
-# ffmpeg fournit ffprobe (D-analysis). --no-install-recommends + purge des listes apt.
+# ffmpeg fournit ffprobe (D-analysis) ; clamav fournit clamscan (check par signatures, opt-in).
+# freshclam N'EST PAS installé (--no-install-recommends l'évite) : la base de signatures vient d'un
+# volume RO peuplé par le sidecar freshclam → l'image verifier reste sans accès réseau (internal).
+# On purge /var/lib/clamav (base vide déposée par apt) : la base réelle est montée sur /clamav-db.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends ffmpeg clamav \
+    && rm -rf /var/lib/clamav/* /var/lib/apt/lists/*
 
 # User non-root (999:999) — composera avec le durcissement compose (user:, read_only).
 RUN groupadd --system --gid 999 nonroot \

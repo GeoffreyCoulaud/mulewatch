@@ -51,3 +51,13 @@ services:
     # En smoke le verifier reste sur verify-internal ; le crawler l'atteint via ce reseau.
     volumes:
       - quarantine:/quarantine:ro
+    # clamav OFF en smoke (pas de sidecar freshclam, pas de base) : on remet le defaut sans clamav.
+    # Les maps d'environnement fusionnent par cle => cette valeur gagne sur celle de la base full.
+    # (Le verifier herite quand meme clamav-db:ro de la base, mais un volume vide jamais lu est inoffensif.)
+    environment:
+      ENABLED_CHECKS: type_sniff,ffprobe
+
+  freshclam:
+    # Sidecar clamav retire du smoke (besoin d'Internet + base ~300 Mo, inutile clamav OFF) :
+    # meme mecanique que gluetun => `[disabled]` (profil jamais active) ne le lance JAMAIS.
+    profiles: !override [disabled]

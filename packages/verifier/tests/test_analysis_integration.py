@@ -7,6 +7,7 @@ timeout-kill du groupe, env minimal, close_fds) + ProdFfprobeRunner (vrai ffprob
 sous # pragma: no cover. Désélectionné par défaut, exclu de la coverage.
 """
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -28,6 +29,43 @@ _NEEDS_FFMPEG = pytest.mark.skipif(
     _FFMPEG is None or _FFPROBE is None,
     reason="ffmpeg/ffprobe requis pour l'intégration D-analysis",
 )
+
+_CLAMSCAN = shutil.which("clamscan")
+# Dossier de la base de signatures réelle : pointable vers le volume du sidecar freshclam via
+# CLAMAV_DB_DIR ; défaut = /var/lib/clamav (freshclam local). On exige clamscan ET une base
+# présente (au moins un *.cvd/*.cld — sinon clamscan rend rc≥2, le scan EICAR ne prouverait rien).
+_CLAMAV_DB_DIR = os.environ.get("CLAMAV_DB_DIR", "/var/lib/clamav")
+
+
+def _has_signature_base(db_dir: str) -> bool:
+    base = Path(db_dir)
+    return base.is_dir() and (any(base.glob("*.cvd")) or any(base.glob("*.cld")))
+
+
+_NEEDS_CLAMAV = pytest.mark.skipif(
+    _CLAMSCAN is None or not _has_signature_base(_CLAMAV_DB_DIR),
+    reason=(
+        "clamscan + une base de signatures requis pour l'intégration clamav "
+        f"(CLAMAV_DB_DIR={_CLAMAV_DB_DIR})"
+    ),
+)
+
+# Le fichier de test antivirus standard EICAR (inerte, reconnu par tous les moteurs).
+_EICAR = rb"X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+
+
+def _clamav_cfg(quarantine: Path, **overrides: object) -> AnalysisConfig:
+    env: dict[str, str] = {
+        "QUARANTINE_DIR": str(quarantine),
+        "FFPROBE_PATH": _FFPROBE or "ffprobe",
+        "CLAMSCAN_PATH": _CLAMSCAN or "clamscan",
+        "CLAMAV_DB_DIR": _CLAMAV_DB_DIR,
+        # RLIMIT_NPROC élevé pour le dev bare-metal (cf. _cfg) ; les rlimits AS/CPU sont relâchés
+        # AUTOMATIQUEMENT par from_env dès que clamav est dans ENABLED_CHECKS (§6.2).
+        "RLIMIT_NPROC": "4096",
+    }
+    env.update({key: str(value) for key, value in overrides.items()})
+    return AnalysisConfig.from_env(env)
 
 
 def _cfg(quarantine: Path, **overrides: object) -> AnalysisConfig:
@@ -134,3 +172,64 @@ def test_real_missing_file_is_error(tmp_path: Path) -> None:
     quarantine = tmp_path / "quarantine"
     quarantine.mkdir()  # pas de fichier _HASH
     assert _verify(quarantine, _cfg(quarantine))[0] == "error"
+
+
+# --- clamav (3ᵉ source de verdict) : vrai clamscan + vraie base (Geoffrey). -------------------
+
+
+@_NEEDS_CLAMAV
+def test_real_eicar_is_malicious(tmp_path: Path) -> None:
+    # LE test de bout en bout : re-exec child confiné (rlimits relâchés §6.2) + vrai clamscan +
+    # vraie base → l'EICAR matche → verdict malicious.
+    quarantine = tmp_path / "quarantine"
+    quarantine.mkdir()
+    (quarantine / _HASH).write_bytes(_EICAR)
+    cfg = _clamav_cfg(quarantine, ENABLED_CHECKS="clamav")
+    assert _verify(quarantine, cfg)[0] == "malicious"
+
+
+@_NEEDS_CLAMAV
+@_NEEDS_FFMPEG
+def test_real_clean_media_passes_clamav(tmp_path: Path) -> None:
+    # un vrai petit média sain, les 3 checks actifs → clean. PROUVE l'ordre de grandeur des rlimits
+    # relâchés §6.1 : si clamscan OOM/CPU-kill sur le rlimit AS/CPU, le verdict tomberait suspicious
+    # et CE test échouerait → signal pour relever RLIMIT_AS_BYTES_CLAMAV / RLIMIT_CPU_S_CLAMAV.
+    quarantine = tmp_path / "quarantine"
+    quarantine.mkdir()
+    target = quarantine / _HASH
+    assert _FFMPEG is not None
+    subprocess.run(
+        [
+            _FFMPEG,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x64:d=1",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=1",
+            "-shortest",
+            "-f",
+            "matroska",
+            str(target),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    cfg = _clamav_cfg(quarantine, ENABLED_CHECKS="type_sniff,ffprobe,clamav")
+    assert _verify(quarantine, cfg)[0] == "clean"
+
+
+@_NEEDS_CLAMAV
+def test_real_missing_base_is_suspicious(tmp_path: Path) -> None:
+    # base absente (CLAMAV_DB_DIR vide) → clamscan rend rc≥2 → suspicious (défensif).
+    quarantine = tmp_path / "quarantine"
+    quarantine.mkdir()
+    (quarantine / _HASH).write_bytes(b"plain harmless text\n")
+    empty_db = tmp_path / "empty-db"
+    empty_db.mkdir()
+    cfg = _clamav_cfg(quarantine, ENABLED_CHECKS="clamav", CLAMAV_DB_DIR=str(empty_db))
+    assert _verify(quarantine, cfg)[0] == "suspicious"

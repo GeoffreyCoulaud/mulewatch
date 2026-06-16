@@ -97,12 +97,16 @@ def test_minimal_env_contains_only_whitelisted_vars() -> None:
     assert runner.env["QUARANTINE_DIR"] == "/quar"
     assert runner.env["ENABLED_CHECKS"] == "type_sniff,ffprobe"
     assert runner.env["FFPROBE_PATH"] == _CFG.ffprobe_path
+    assert runner.env["CLAMSCAN_PATH"] == _CFG.clamscan_path
+    assert runner.env["CLAMAV_DB_DIR"] == _CFG.clamav_db_dir
     assert runner.env["HEADER_BYTES"] == str(_CFG.header_bytes)
     assert runner.env["ANALYSIS_TIMEOUT_S"] == str(_CFG.timeout_s)
     assert set(runner.env) == {
         "QUARANTINE_DIR",
         "ENABLED_CHECKS",
         "FFPROBE_PATH",
+        "CLAMSCAN_PATH",
+        "CLAMAV_DB_DIR",
         "HEADER_BYTES",
         "ANALYSIS_TIMEOUT_S",
         "PATH",

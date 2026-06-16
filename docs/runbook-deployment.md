@@ -185,6 +185,36 @@ Ne traitez donc pas un statut « Low-ID » dans les logs comme une erreur à cor
 
 ---
 
+## Analyse antivirus (clamav) — provisioning de la base de signatures
+
+En **mode full**, le verifier ajoute une 3ᵉ source de verdict : un scan **par signatures**
+(`clamscan`) qui rend un fichier `malicious` sur match d'une base virale. C'est **activé par défaut
+dans le profil full** (`ENABLED_CHECKS: type_sniff,ffprobe,clamav` dans `compose.yaml`).
+
+**Comment la base arrive (sans casser l'isolement réseau du verifier).** Le verifier n'a **aucune
+sortie Internet** (réseau `internal: true`) — il ne peut donc pas mettre à jour la base lui-même. Un
+**sidecar `freshclam`** (service séparé sur le réseau `egress`) télécharge et tient à jour la base
+dans un **volume partagé `clamav-db`** ; le verifier le **lit en lecture seule**. L'isolement du
+verifier est préservé.
+
+- Au démarrage en full, `freshclam` fait sa **première synchronisation** (~300–500 Mo) — cela prend
+  quelques minutes. **Tant que la base n'est pas là, clamav rend `suspicious`** (défensif, jamais
+  `clean` sans base), ce qui peut mettre des fichiers en attente d'un re-scan. C'est transitoire.
+- L'image du verifier grossit de **~50–80 Mo** (le moteur `libclamav` + `clamscan` ; **pas** la base,
+  qui vit dans le volume — c'est tout l'intérêt du sidecar).
+- `clamscan` charge **toute la base en mémoire** : les rlimits du sous-processus d'analyse sont
+  **relâchés** quand clamav est actif (≈1,5 Gio d'adressage, 120 s CPU — réglables via
+  `RLIMIT_AS_BYTES_CLAMAV` / `RLIMIT_CPU_S_CLAMAV`), et le `mem_limit` du conteneur verifier est
+  relevé à **2 Gio** en conséquence (sinon l'OOM-killer du cgroup tuerait le scan avant le rlimit).
+  Si un fichier **sain** ressort systématiquement `suspicious`, le scan se fait probablement tuer :
+  augmentez ces deux valeurs.
+
+> **Désactiver clamav** : retirez `clamav` de `ENABLED_CHECKS` (le verifier retombe sur
+> `type_sniff,ffprobe`) et, si vous voulez, ne lancez pas le sidecar. Le **smoke test** et le profil
+> **observer** tournent déjà sans clamav.
+
+---
+
 ## Durcissement optionnel (gVisor)
 
 ```bash
@@ -268,8 +298,10 @@ par défaut.
 
 - **Synchronisation de port / High-ID** : remplacera l'ancien glueforward (abandonné). Tant qu'il
   n'est pas là, la stack tourne en **Low-ID** (état normal — voir plus haut).
-- **clamav** : seconde source de détection `malicious` (signatures), à venir après le packaging ;
-  `freshclam` exige une sortie Internet, en tension avec l'isolement réseau du verifier.
+- **clamav** : 3ᵉ source de détection `malicious` (signatures) — **construite** (opt-in profil full,
+  voir « Analyse antivirus (clamav) » plus haut). La tension `freshclam`/egress est résolue par le
+  sidecar + volume RO. *(Reste à venir : un second `malicious` par signatures ne couvre pas tout — le
+  durcissement noyau par-enfant ci-dessous.)*
 - **Ring noyau par enfant d'analyse** : isolation renforcée (namespace `net=none`, seccomp, montages
   RO) du sous-processus de vérification — changement de code, à venir.
 - **Sous-commandes CLI** : ergonomie d'exploitation, à venir.

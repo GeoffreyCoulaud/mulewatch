@@ -7,7 +7,10 @@ def test_from_env_uses_defaults_when_empty() -> None:
     cfg = AnalysisConfig.from_env({})
     assert cfg.enabled_checks == ("type_sniff", "ffprobe")
     assert cfg.ffprobe_path == "ffprobe"
+    assert cfg.clamscan_path == "clamscan"
+    assert cfg.clamav_db_dir == "/clamav-db"
     assert cfg.timeout_s == 30.0
+    # clamav OFF par défaut → rlimits de base INCHANGÉS.
     assert cfg.rlimit_cpu_s == 20
     assert cfg.rlimit_as_bytes == 512 * 1024 * 1024
     assert cfg.rlimit_nproc == 64
@@ -23,6 +26,8 @@ def test_from_env_overrides_each_field() -> None:
         {
             "ENABLED_CHECKS": "type_sniff",
             "FFPROBE_PATH": "/usr/bin/ffprobe",
+            "CLAMSCAN_PATH": "/usr/bin/clamscan",
+            "CLAMAV_DB_DIR": "/var/lib/clamav",
             "ANALYSIS_TIMEOUT_S": "12.5",
             "RLIMIT_CPU_S": "9",
             "RLIMIT_AS_BYTES": "1048576",
@@ -36,6 +41,8 @@ def test_from_env_overrides_each_field() -> None:
     )
     assert cfg.enabled_checks == ("type_sniff",)
     assert cfg.ffprobe_path == "/usr/bin/ffprobe"
+    assert cfg.clamscan_path == "/usr/bin/clamscan"
+    assert cfg.clamav_db_dir == "/var/lib/clamav"
     assert cfg.timeout_s == 12.5
     assert cfg.rlimit_cpu_s == 9
     assert cfg.rlimit_as_bytes == 1048576
@@ -71,3 +78,43 @@ def test_config_is_frozen() -> None:
     cfg = AnalysisConfig.from_env({})
     with pytest.raises(AttributeError):
         cfg.timeout_s = 1.0  # type: ignore[misc]
+
+
+def test_clamav_enabled_raises_rlimits_to_defaults() -> None:
+    # clamav dans enabled_checks, AUCUN override explicite → défauts conditionnels relevés (§6.2).
+    cfg = AnalysisConfig.from_env({"ENABLED_CHECKS": "type_sniff,ffprobe,clamav"})
+    assert cfg.rlimit_as_bytes == 1536 * 1024 * 1024
+    assert cfg.rlimit_cpu_s == 120
+
+
+def test_clamav_enabled_respects_clamav_override() -> None:
+    # clamav ON + overrides _CLAMAV explicites → ces valeurs custom gagnent.
+    cfg = AnalysisConfig.from_env(
+        {
+            "ENABLED_CHECKS": "clamav",
+            "RLIMIT_AS_BYTES_CLAMAV": "2000000000",
+            "RLIMIT_CPU_S_CLAMAV": "240",
+        }
+    )
+    assert cfg.rlimit_as_bytes == 2000000000
+    assert cfg.rlimit_cpu_s == 240
+
+
+def test_explicit_rlimit_wins_over_clamav_default() -> None:
+    # clamav ON MAIS override explicite (non suffixé) → prioritaire sur le défaut conditionnel.
+    cfg = AnalysisConfig.from_env(
+        {
+            "ENABLED_CHECKS": "clamav",
+            "RLIMIT_AS_BYTES": "1234",
+            "RLIMIT_CPU_S": "5",
+        }
+    )
+    assert cfg.rlimit_as_bytes == 1234
+    assert cfg.rlimit_cpu_s == 5
+
+
+def test_clamav_off_keeps_baseline_rlimits() -> None:
+    # clamav absent + aucun override → baseline 512 Mio / 20 s (INCHANGÉ).
+    cfg = AnalysisConfig.from_env({"ENABLED_CHECKS": "type_sniff,ffprobe"})
+    assert cfg.rlimit_as_bytes == 512 * 1024 * 1024
+    assert cfg.rlimit_cpu_s == 20

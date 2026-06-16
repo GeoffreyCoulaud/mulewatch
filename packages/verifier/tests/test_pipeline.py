@@ -17,6 +17,17 @@ class _StubFfprobe:
         return self._rc, self._out
 
 
+class _StubClamav:
+    def __init__(self, returncode: int, stdout: bytes) -> None:
+        self._rc = returncode
+        self._out = stdout
+
+    def __call__(self, argv: Sequence[str]) -> tuple[int, bytes]:
+        return self._rc, self._out
+
+
+_CLEAN_CLAMAV = _StubClamav(0, b"")
+
 _VALID_MEDIA = json.dumps(
     {
         "streams": [{"codec_type": "video", "codec_name": "h264", "width": 1, "height": 1}],
@@ -31,7 +42,11 @@ def _cfg(checks: tuple[str, ...]) -> AnalysisConfig:
 
 def test_clean_media_aggregates_to_clean() -> None:
     verdict, real_meta, checks = pipeline.run(
-        b"\x1a\x45\xdf\xa3" + b"\x00" * 64, Path("/q/f"), _StubFfprobe(0, _VALID_MEDIA), _BASE
+        b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
+        Path("/q/f"),
+        _StubFfprobe(0, _VALID_MEDIA),
+        _CLEAN_CLAMAV,
+        _BASE,
     )
     assert verdict == "clean"
     assert real_meta["container"] == "mp4"
@@ -42,7 +57,11 @@ def test_clean_media_aggregates_to_clean() -> None:
 
 def test_executable_header_makes_verdict_malicious() -> None:
     verdict, _real_meta, checks = pipeline.run(
-        b"\x7fELF" + b"\x00" * 64, Path("/q/f"), _StubFfprobe(0, _VALID_MEDIA), _BASE
+        b"\x7fELF" + b"\x00" * 64,
+        Path("/q/f"),
+        _StubFfprobe(0, _VALID_MEDIA),
+        _CLEAN_CLAMAV,
+        _BASE,
     )
     assert verdict == "malicious"  # type_sniff malicious écrase ffprobe clean
     statuses = {c["name"]: c["status"] for c in checks}
@@ -52,7 +71,11 @@ def test_executable_header_makes_verdict_malicious() -> None:
 def test_non_media_makes_verdict_suspicious() -> None:
     # en-tête texte (type_sniff clean) + ffprobe échoue (suspicious) → worst = suspicious.
     verdict, _real_meta, _checks = pipeline.run(
-        b"plain text not a media\n", Path("/q/f"), _StubFfprobe(1, b""), _BASE
+        b"plain text not a media\n",
+        Path("/q/f"),
+        _StubFfprobe(1, b""),
+        _CLEAN_CLAMAV,
+        _BASE,
     )
     assert verdict == "suspicious"
 
@@ -62,6 +85,7 @@ def test_enabled_checks_selects_only_type_sniff() -> None:
         b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
         Path("/q/f"),
         _StubFfprobe(1, b""),  # ffprobe échouerait, mais il est DÉSACTIVÉ
+        _CLEAN_CLAMAV,
         _cfg(("type_sniff",)),
     )
     assert verdict == "clean"
@@ -74,6 +98,7 @@ def test_enabled_checks_selects_only_ffprobe() -> None:
         b"\x7fELF" + b"\x00" * 64,  # serait malicious, mais type_sniff est DÉSACTIVÉ
         Path("/q/f"),
         _StubFfprobe(0, _VALID_MEDIA),
+        _CLEAN_CLAMAV,
         _cfg(("ffprobe",)),
     )
     assert verdict == "clean"
@@ -82,11 +107,64 @@ def test_enabled_checks_selects_only_ffprobe() -> None:
 
 
 def test_unknown_check_name_is_ignored() -> None:
+    # « clamavv » (faute de frappe) reste un nom INCONNU même après le câblage de « clamav » → DA4.
     verdict, _real_meta, checks = pipeline.run(
         b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
         Path("/q/f"),
         _StubFfprobe(0, _VALID_MEDIA),
-        _cfg(("type_sniff", "clamav", "ffprobe")),  # clamav non implémenté → ignoré
+        _CLEAN_CLAMAV,
+        _cfg(("type_sniff", "clamavv", "ffprobe")),  # « clamavv » non reconnu → ignoré
     )
     assert verdict == "clean"
     assert [c["name"] for c in checks] == ["type_sniff", "ffprobe"]
+
+
+def test_clamav_malicious_overrides_clean_media() -> None:
+    # média clean (type_sniff clean + ffprobe clean) MAIS clamav matche une signature → malicious.
+    verdict, _real_meta, checks = pipeline.run(
+        b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
+        Path("/q/f"),
+        _StubFfprobe(0, _VALID_MEDIA),
+        _StubClamav(1, b"/q/f: Eicar-Test-Signature FOUND\n"),
+        _cfg(("type_sniff", "ffprobe", "clamav")),
+    )
+    assert verdict == "malicious"
+    assert [c["name"] for c in checks] == ["type_sniff", "ffprobe", "clamav"]
+    statuses = {c["name"]: c["status"] for c in checks}
+    assert statuses["clamav"] == "malicious"
+
+
+def test_clamav_clean_keeps_clean() -> None:
+    verdict, _real_meta, checks = pipeline.run(
+        b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
+        Path("/q/f"),
+        _StubFfprobe(0, _VALID_MEDIA),
+        _CLEAN_CLAMAV,
+        _cfg(("type_sniff", "ffprobe", "clamav")),
+    )
+    assert verdict == "clean"
+    assert [c["name"] for c in checks] == ["type_sniff", "ffprobe", "clamav"]
+
+
+def test_clamav_suspicious_aggregates() -> None:
+    # ffprobe clean + clamav erreur (rc 2 → suspicious) → worst = suspicious.
+    verdict, _real_meta, _checks = pipeline.run(
+        b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
+        Path("/q/f"),
+        _StubFfprobe(0, _VALID_MEDIA),
+        _StubClamav(2, b"ERROR: cannot open database"),
+        _cfg(("ffprobe", "clamav")),
+    )
+    assert verdict == "suspicious"
+
+
+def test_enabled_checks_selects_only_clamav() -> None:
+    verdict, _real_meta, checks = pipeline.run(
+        b"\x7fELF" + b"\x00" * 64,  # serait malicious, mais type_sniff est DÉSACTIVÉ
+        Path("/q/f"),
+        _StubFfprobe(1, b""),  # échouerait, mais ffprobe est DÉSACTIVÉ
+        _CLEAN_CLAMAV,
+        _cfg(("clamav",)),
+    )
+    assert verdict == "clean"
+    assert [c["name"] for c in checks] == ["clamav"]

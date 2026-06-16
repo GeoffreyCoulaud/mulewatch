@@ -9,15 +9,21 @@ worst-status en un verdict (``clean < suspicious < malicious``), fusionne leurs 
 
 from pathlib import Path
 
+from download_verifier.checks import clamav as clamav_check
 from download_verifier.checks import ffprobe as ffprobe_check
 from download_verifier.checks import type_sniff as type_sniff_check
 from download_verifier.checks.base import CheckOutcome, worst_status
+from download_verifier.checks.clamav import ClamavRunner
 from download_verifier.checks.ffprobe import FfprobeRunner
 from download_verifier.config import AnalysisConfig
 
 
 def run(
-    header: bytes, path: Path, ffprobe_runner: FfprobeRunner, cfg: AnalysisConfig
+    header: bytes,
+    path: Path,
+    ffprobe_runner: FfprobeRunner,
+    clamav_runner: ClamavRunner,
+    cfg: AnalysisConfig,
 ) -> tuple[str, dict[str, object], list[dict[str, object]]]:
     """Exécute les checks activés ; rend ``(verdict, real_meta, checks)``."""
     outcomes: list[CheckOutcome] = []
@@ -26,7 +32,9 @@ def run(
             outcomes.append(type_sniff_check.sniff(header))
         elif name == "ffprobe":
             outcomes.append(ffprobe_check.probe(path, ffprobe_runner, cfg))
-        # tout autre nom (clamav non implémenté, faute de frappe) est ignoré (DA4).
+        elif name == "clamav":
+            outcomes.append(clamav_check.scan(path, clamav_runner, cfg))
+        # tout AUTRE nom (faute de frappe) est ignoré (DA4).
     verdict = worst_status([outcome.status for outcome in outcomes])
     real_meta: dict[str, object] = {}
     for outcome in outcomes:
