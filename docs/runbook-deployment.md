@@ -43,8 +43,8 @@ Deux profils de déploiement :
 > sources), il faut le **port forwarding**, que gluetun n'implémente que pour **4 fournisseurs** :
 > **ProtonVPN, PIA, PrivateVPN, PerfectPrivacy**.
 >
-> - Avec l'un de ces 4 → port forwarding possible (le High-ID arrivera avec le port-sync, cf.
->   « Limites connues »).
+> - Avec l'un de ces 4 → port forwarding possible (le High-ID s'obtient en activant le port-sync,
+>   cf. « Activer le High-ID »).
 > - Avec tout autre fournisseur → la stack tourne en **Low-ID** (état normal, pas une erreur), à
 >   moins d'ouvrir/rediriger un port vous-même.
 >
@@ -174,14 +174,33 @@ de nœuds Kad (`nodes.dat`) pour pouvoir se connecter. **Bonne nouvelle : c'est 
 
 ## High-ID, Low-ID : à quoi s'attendre
 
-Tant que la **synchronisation de port** (port-sync) n'est pas en place, la stack tourne en
-**Low-ID**. C'est **l'état normal attendu aujourd'hui, pas une panne** :
+Par défaut la stack tourne en **Low-ID**. C'est **un état normal, pas une panne** :
 
 - En Low-ID, la recherche, le catalogage et le téléchargement **fonctionnent**.
-- La joignabilité reste sous-optimale (moins de sources directes). Le High-ID arrivera avec le
-  follow-up port-sync (cf. « Limites connues »).
+- La joignabilité reste sous-optimale (moins de sources directes).
 
 Ne traitez donc pas un statut « Low-ID » dans les logs comme une erreur à corriger.
+
+### Activer le High-ID (port-sync, optionnel)
+
+Une **boucle port-sync** sait obtenir un High-ID automatiquement : elle lit le port forwardé
+vivant de gluetun, l'applique à amuled par EC (`SetPort`) puis **redémarre amuled** pour qu'il
+écoute dessus (le port eD2k n'est pas re-bindable à chaud). Elle est **opt-in** et exige **trois
+réglages solidaires** :
+
+1. un **provider VPN à port forwarding** (Proton/PIA/PrivateVPN/PerfectPrivacy — cf. encadré plus
+   haut), `VPN_PORT_FORWARDING: "on"` dans `compose.yaml` (déjà le cas) ;
+2. le service **`docker-proxy`** (profil full) : un proxy à **surface minimale** qui n'autorise
+   QUE `POST .../containers/amuled/restart` (le crawler ne voit jamais le socket Docker). Il monte
+   le socket Docker hôte en lecture seule → renseignez `DOCKER_GID` dans `.env` (GID du groupe
+   `docker` de l'hôte) ;
+3. dans `config/local.yaml` : `gluetun_control_url: "http://gluetun:8000"` +
+   `restarter_url: "http://docker-proxy:2375"`, et dans `config/crawler.yaml` la section
+   `port_sync` (cadences de poll/rate-limit des restarts).
+
+Les **trois** doivent être présents : si un seul manque, le crawler **refuse de démarrer**
+(fail-fast). Absents → la boucle reste OFF et Low-ID est l'état normal. Une fois actif, surveillez
+les events `port-sync` / `High-ID retrouvé` dans les logs et les métriques `emule_port_*`.
 
 ---
 
@@ -294,14 +313,33 @@ par défaut.
 
 ---
 
+## Outils annexes
+
+- **Fusion de catalogues** : `uv run python -m emule_indexer.merge --output catalog-merged.db
+  source-a.db source-b.db …` consolide N `catalog.db` (un par chercheur/campagne) en un seul,
+  **idempotent** (re-merger est un no-op) et safe-by-default (pas d'écrasement sans `--force` ;
+  `--into <source>` pour fusionner dans une source existante). Outil opérateur ponctuel.
+- **Validation de config** : `uv run python -m emule_indexer validate-config` charge+valide les 4
+  configs et sort en erreur (code ≠ 0) si l'une est invalide, **sans rien démarrer**. À lancer avant
+  un déploiement.
+- **Sonde richesse EC** : `uv run python -m emule_indexer.tools.ec_probe --all-tags …` dumpe tous
+  les tags bruts d'un résultat de recherche réel (mesure du taux de remplissage).
+
+## Tests e2e (Docker, optionnel)
+
+Au-delà du smoke (câblage), une suite **e2e** exerce un **téléchargement→vérification RÉEL** : un
+serveur eD2k de test (ed2kd, buildé localement) + un amuled seeder partageant un fichier planté →
+le crawler télécharge les octets → quarantaine → le verifier rend `clean`. Un seul prérequis :
+Docker. `( cd packages/crawler && uv run pytest -m e2e_integration --no-cov )` (désélectionné du run
+par défaut). C'est ce qui dérisque la chaîne complète sans VPN ni secret.
+
 ## Limites connues / follow-ups
 
-- **Synchronisation de port / High-ID** : remplacera l'ancien glueforward (abandonné). Tant qu'il
-  n'est pas là, la stack tourne en **Low-ID** (état normal — voir plus haut).
-- **clamav** : 3ᵉ source de détection `malicious` (signatures) — **construite** (opt-in profil full,
-  voir « Analyse antivirus (clamav) » plus haut). La tension `freshclam`/egress est résolue par le
-  sidecar + volume RO. *(Reste à venir : un second `malicious` par signatures ne couvre pas tout — le
-  durcissement noyau par-enfant ci-dessous.)*
-- **Ring noyau par enfant d'analyse** : isolation renforcée (namespace `net=none`, seccomp, montages
-  RO) du sous-processus de vérification — changement de code, à venir.
-- **Sous-commandes CLI** : ergonomie d'exploitation, à venir.
+- **clamav vs durcissement noyau** : clamav (signatures) et le filtre seccomp par-enfant sont
+  **construits** (voir plus haut). Restent à venir, pour le ring noyau du sous-processus d'analyse :
+  `net=none` (namespace réseau), bwrap/montages RO réels, tmpfs dédié — tous exigent `CAP_SYS_ADMIN`
+  ou un user namespace, donc un changement de stratégie de confinement (le ring **container** —
+  non-root, `cap_drop`, `read_only`, `internal: true`, gVisor opt-in — est déjà là).
+- **port-sync — validation réelle** : la boucle est construite ; sa validation **bout-en-bout**
+  (port-check High-ID réel derrière le VPN) se fait via la suite e2e et un déploiement réel.
+- **WebUI / hub central / rétention** : non planifiés à ce stade.
