@@ -1,0 +1,17 @@
+# matcher.yaml E2E — câblé sur « Keroro n°62 A.mp4 » → règle id_segment_exact (tier download),
+# cible S2E062A (spec e2e §4.3). Validé : engine.evaluate("Keroro n°62 A.mp4") == S2E062A/download.
+# Même schéma que config/matcher.yaml (parse_matcher_config + validate_config).
+tokens:
+  keroro:       { keyword: keroro }
+  titar:        { keyword: titar }
+  keroro_titar: { any: [keroro, titar] }
+  teletoon:     { regex: "t[eé]l[eé]toon" }
+  segment_id:   { regex: "n[°o]?\\s*0*{number}\\s*{segment}" }
+  air_date:     { regex: "{date_alt}" }
+  title_hit:    { coverage: title, min: 0.6 }
+  is_video:     { regex: "\\.(avi|mkv|mp4|mpg|ogm)$" }
+rules:
+  - { name: id_segment_exact,    tier: download, all: [is_video, segment_id, keroro] }
+  - { name: date_teletoon_titre, tier: download, all: [air_date, teletoon, { token: title_hit, min: 0.4 }] }
+  - { name: numero_titre,        tier: notify,   all: [segment_id, { token: title_hit, min: 0.5 }] }
+  - { name: keroro_large,        tier: catalog,  any: [keroro_titar] }

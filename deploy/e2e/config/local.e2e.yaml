@@ -1,0 +1,22 @@
+# local.yaml E2E — mode FULL (verifier_url présent → download + vérification LIVE, health-check
+# fail-fast au démarrage). EC host = amuled (le leecher du crawler, sur le réseau e2e ; pas de
+# gluetun). staging+quarantine = même FS (/data/quarantine, partagé avec amuled) pour que le
+# os.replace de DV10 reste intra-FS (spec e2e §5.4). Même schéma que config/local.yaml.
+amules:
+  - name: amule-e2e
+    host: amuled
+    port: 4712
+    password: e2e-ec-password
+
+catalog_db_path: /data/catalog/catalog.db
+local_db_path: /data/local/local.db
+
+download_endpoint:
+  name: amule-e2e-dl
+  host: amuled
+  port: 4712
+  password: e2e-ec-password
+staging_dir: /data/quarantine
+quarantine_dir: /data/quarantine
+
+verifier_url: http://verifier:8000

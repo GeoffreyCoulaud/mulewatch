@@ -1,0 +1,123 @@
+# Override E2E (spec e2e §6.2) : stack assemblée SANS gluetun pour un download → verify RÉEL.
+# Fichier NEUF, dédié (les compose.*.yaml existants sont intégration-owned ; celui-ci est créé
+# par la tâche e2e). S'utilise EN MERGE par-dessus la base, comme le smoke :
+#   docker compose -f compose.yaml -f compose.e2e.yaml --profile e2e up -d --build
+#
+# Topologie (spec e2e §5.2, CRITIQUE pour le HighID) : ed2kd + amuled-seeder + amuled (leecher) sont
+# sur le MÊME réseau bridge `e2e`, routage direct, PAS de network_mode: service:gluetun (qui
+# masquerait l'IP et casserait le port-check entrant ed2kd → amuled). ed2kd voit l'IP réelle du
+# seeder et port-checke son port eD2k 4662 → HighID → source contactable → download possible.
+#
+# Le test e2e_integration (tests/integration/test_e2e.py) pilote cette stack par subprocess et
+# asserte le download → quarantaine (DV10, resolve_staging_path) → verdict clean.
+
+services:
+  # --- services de la base neutralisés (même mécanique que compose.smoke.yaml) ---------------
+  gluetun:
+    profiles: !override [disabled]
+  freshclam:
+    profiles: !override [disabled]
+  docker-proxy:
+    profiles: !override [disabled]
+
+  # --- ed2kd : serveur eD2k vendoré (index + port-check entrant → HighID) ---------------------
+  ed2kd:
+    build:
+      context: .
+      dockerfile: deploy/e2e/ed2kd/Dockerfile
+    image: emule-indexer-ed2kd:e2e
+    profiles: [e2e]
+    networks:
+      - e2e
+    expose:
+      - "4661"
+    restart: unless-stopped
+
+  # --- amuled seeder : partage planted.mp4, HighID via port-check ed2kd → amuled --------------
+  amuled-seeder:
+    image: ngosang/amule:3.0.0-1
+    profiles: [e2e]
+    # PAS de network_mode service:gluetun : routage direct sur `e2e` (HighID, spec e2e §5.2).
+    networks:
+      - e2e
+    environment:
+      GUI_PWD: e2e-ec-password
+    volumes:
+      - amule-seeder-state:/home/amule/.aMule
+      # Le binaire planté monté en RO : un entrypoint/EC-helper le partage au boot (détail runtime
+      # validé par Geoffrey — pointer amuled sur ed2kd:4661 + partager le fichier ; spec e2e §5.3).
+      - ./deploy/e2e/fixtures/planted.mp4:/incoming/Keroro n°62 A.mp4:ro
+    # Le port eD2k 4662 doit être JOIGNABLE conteneur-à-conteneur (le port-check ed2kd s'y connecte).
+    # Sur le réseau `e2e`, conteneur ↔ conteneur est routable : pas besoin de mapper vers l'hôte.
+    expose:
+      - "4662"
+    restart: unless-stopped
+
+  # --- amuled leecher (= celui de la base) : rejoint `e2e`, EC password e2e -------------------
+  amuled:
+    # !override REMPLACE la liste de profils héritée [observer, full] par [e2e] : sans ça, sous
+    # --profile e2e le service amuled (base) n'est PAS activé, et crawler (depends_on: amuled)
+    # référence un service indéfini → `compose config` échoue (« depends on undefined service »).
+    profiles: !override [e2e]
+    # Retire network_mode service:gluetun (mutuellement exclusif avec networks au merge) → `e2e`.
+    network_mode: !reset null
+    networks:
+      - e2e
+    depends_on: !reset []
+    environment:
+      GUI_PWD: e2e-ec-password
+    expose:
+      - "4662"
+
+  # --- crawler (= celui de la base) : configs e2e + réseau e2e pour atteindre amuled ----------
+  crawler:
+    profiles: [e2e]
+    # !override REMPLACE la liste de volumes héritée (sinon ./config:/app/config:ro ramène les
+    # vraies configs). On monte UNIQUEMENT les 4 configs e2e + les VRAIS volumes nommés (chemin
+    # de persistance non-root 999 réel, comme le smoke). staging+quarantine = même volume.
+    volumes: !override
+      - ./deploy/e2e/config/local.e2e.yaml:/app/config/local.yaml:ro
+      - ./deploy/e2e/config/crawler.yaml:/app/config/crawler.yaml:ro
+      - ./deploy/e2e/config/targets.yaml:/app/config/targets.yaml:ro
+      - ./deploy/e2e/config/matcher.yaml:/app/config/matcher.yaml:ro
+      - quarantine:/data/quarantine
+      - catalog-db:/data/catalog
+      - local-db:/data/local
+    networks: !override
+      - e2e               # atteindre amuled + (via le verifier RPC) le verifier
+      - verify-internal   # le verifier reste sur ce réseau interne
+    depends_on:
+      amuled:
+        condition: service_started
+      verifier:
+        condition: service_healthy
+
+  # --- verifier (= celui de la base) : exposé dans le profil e2e, clamav OFF ------------------
+  verifier:
+    profiles: [e2e]
+    networks:
+      - verify-internal
+    environment:
+      ENABLED_CHECKS: type_sniff,ffprobe
+
+  # --- portforward-stub : GET /v1/portforward → {"port": N} (sous-test port-sync §5.5) --------
+  portforward-stub:
+    image: python:3.12-slim
+    profiles: [e2e]
+    networks:
+      - e2e
+    environment:
+      LISTEN_PORT: "8000"
+      FORWARDED_PORT: "16500"
+    volumes:
+      - ./deploy/e2e/portforward_stub.py:/app/portforward_stub.py:ro
+    command: ["python", "/app/portforward_stub.py"]
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+networks:
+  e2e: {}
+
+volumes:
+  amule-seeder-state: {}

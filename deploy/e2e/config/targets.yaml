@@ -1,0 +1,9 @@
+# targets.yaml E2E — la cible plantée S2E062A (saison 2, épisode 62, segment A — spec e2e §4.3).
+# Même schéma que config/targets.yaml / parse_targets.
+episodes:
+  - season: 2
+    number: 62
+    broadcast_date: 2008-09-21
+    status: partial
+    segments:
+      - { letter: A, title: "Les demoiselles cambrioleuses", aliases: [] }

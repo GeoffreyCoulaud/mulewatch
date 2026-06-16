@@ -1,0 +1,22 @@
+# crawler.yaml E2E — cadences courtes (l'e2e exerce un download RÉEL ; il faut des cycles rapides
+# pour que la file de download/vérif progresse vite). Même schéma que config/crawler.yaml.
+cycle_interval_seconds: 5.0
+search_poll_budget_seconds: 5.0
+search_poll_interval_seconds: 1.0
+keyword_pause_min_seconds: 0.1
+keyword_pause_max_seconds: 0.5
+decision_poll_interval_seconds: 2.0
+shutdown_deadline_seconds: 5.0
+
+backoff:
+  base_seconds: 1.0
+  cap_seconds: 10.0
+  factor: 2.0
+  jitter_ratio: 0.3
+
+download:
+  poll_interval_seconds: 3.0
+  disk_cap_bytes: 53687091200
+
+verify:
+  poll_interval_seconds: 3.0

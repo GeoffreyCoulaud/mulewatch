@@ -20,7 +20,7 @@ build-backend = "hatchling.build"
 packages = ["src/emule_indexer"]
 
 [tool.pytest.ini_options]
-addopts = '--cov=emule_indexer --cov-report=term-missing --cov-fail-under=100 --strict-markers -m "not ec_integration and not orchestration_integration and not download_integration and not verify_integration and not compose_integration"'
+addopts = '--cov=emule_indexer --cov-report=term-missing --cov-fail-under=100 --strict-markers -m "not ec_integration and not orchestration_integration and not download_integration and not verify_integration and not compose_integration and not e2e_integration"'
 testpaths = ["tests"]
 markers = [
     "ec_integration: tests d'intégration contre un amuled réel (Docker requis) — déselectionnés par défaut ; run dédié : cd packages/crawler && uv run pytest -m ec_integration --no-cov",
@@ -28,6 +28,7 @@ markers = [
     "download_integration: add_link + lecture de la file de download contre un amuled réel (Docker requis) — déselectionnés par défaut ; run dédié : cd packages/crawler && uv run pytest -m download_integration --no-cov",
     "verify_integration: boucle de vérification contre le vrai service verifier (ASGITransport, sans Docker) — déselectionnés par défaut ; run dédié : cd packages/crawler && uv run pytest -m verify_integration --no-cov",
     "compose_integration: smoke e2e de la stack docker compose assemblée (sans VPN) — Docker+compose requis ; déselectionné par défaut ; run dédié : cd packages/crawler && uv run pytest -m compose_integration --no-cov",
+    "e2e_integration: suite e2e download→verify RÉEL (ed2kd vendoré + seeder/leecher amuled, sans VPN) — Docker+compose requis ; déselectionné par défaut ; run dédié : cd packages/crawler && uv run pytest -m e2e_integration --no-cov",
 ]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
