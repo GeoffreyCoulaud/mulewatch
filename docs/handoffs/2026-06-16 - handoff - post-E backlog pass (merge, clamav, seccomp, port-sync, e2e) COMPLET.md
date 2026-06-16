@@ -21,32 +21,56 @@
 
 Méthodo par tâche : implémenteur frais (TDD) → revue spec + revue code (sous-agents) → corrections → commit. Revue holistique finale sur l'ensemble (a trouvé le bug métriques).
 
-## 2. État du gate (vert)
+**Affinements post-passe (cette session, commits suivants) :** un **guide des tests** d'intégration
+(`docs/testing-guide.md`, `c6278d0`) ; une **restructuration des docs PAR AUDIENCE** (`docs/README.md`
+neuf qui aiguille opérateur → runbook / dev-CI → testing-guide + specs / historique → handoffs ; le
+**runbook redevenu opérateur pur** — les suites de tests + `ec_probe` partis côté guide ; `c055a28`) ;
+le **renommage `deploy/` → `tests/`** (`deploy/` ne contenait QUE des fixtures de test, pas du
+déploiement réel — git mv, historique préservé) ; et un **submodule `ed2kd` posé puis retiré** avec
+l'abandon e2e (`c214acb`).
 
-- `( cd packages/crawler && uv run pytest -q )` → **901 passed, 100 % branch**.
-- `( cd packages/verifier && uv run pytest -q )` → **142 passed, 100 % branch**.
-- `ruff check` / `ruff format --check` / `mypy` (strict, 241 fichiers) / `sqlfluff` → tous verts.
-- Intégration runnable en sandbox lancée : `verify_integration` (1 passed), `analysis_integration`
-  (8 passed, **3 skipped** = clamav/seccomp, faute de `clamscan`/`no_new_privs` dans le sandbox).
-- `docker compose config` validé pour `--profile full` et `compose.smoke.yaml`.
+## 2. Validation RÉELLE (cette session, sur la machine de Geoffrey — pas le sandbox)
 
-## 3. Ce qui reste à Geoffrey (vrai shell / matériel — le sandbox ne peut pas)
+Au-delà du gate unitaire, **6 des 7 suites d'intégration ont tourné VERTES en vrai** (Docker + réseau) :
 
-1. **clamav réel** : `( cd packages/verifier && uv run pytest -m analysis_integration --no-cov )`
-   avec `clamscan` + une base. **Valider/ajuster `RLIMIT_AS_BYTES_CLAMAV`/`mem_limit`** (si un média
-   sain ressort `suspicious`, le scan se fait OOM/CPU-kill → relever).
-2. **seccomp réel** : idem `analysis_integration` avec `pyseccomp`/`libseccomp` ; confirmer
-   qu'un média sain reste `clean` sous filtre, et le comportement `no_new_privs` hors conteneur.
-3. **port-sync** : EC réel (R3 — confirmer que la réponse `GET_PREFERENCES` porte l'opcode `0x40` ;
-   R4 — detail level) contre un vrai `amuled` (`ec_integration`, `tests/integration/test_amuled_preferences.py`) ;
-   restart réel → High-ID via un déploiement réel derrière le VPN.
-4. **R1/R2 port-sync** (déjà confirmés via context7, à re-valider en réel) : syntaxe allowlist
-   `wollomatic` + var `HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE` sur la version gluetun épinglée.
-5. **DV10 — hypothèse de déploiement (ex-R6)** : confirmer **au premier vrai téléchargement** qu'amuled
+| Suite | Résultat |
+|---|---|
+| `verify_integration` (boucle vérif ↔ vrai verifier in-process) | ✅ 1 passed |
+| `analysis_integration` (spawn confiné + ffprobe + **seccomp RÉEL**) | ✅ 8 passed (clamav skippé, pas de base) |
+| `ec_integration` (adaptateur EC ↔ vrai amuled) | ✅ 6 passed — **confirme R3** (réponse `GET_PREFERENCES` porte l'opcode `0x40`) **et R4** (detail CMD suffit) |
+| `download_integration` | ✅ 1 passed |
+| `orchestration_integration` (cycle complet ↔ vrai amuled) | ✅ 1 passed |
+| `compose_integration` (smoke : build des 2 images + assemblage) | ✅ 4 passed |
+| `e2e_integration` (transfert réel) | ⛔ **abandonné** (§4) |
+
+**Preuve forte** : pendant l'`orchestration`, le crawler a tourné contre le **vrai réseau eMule** et
+matché **444 fichiers « keroro » réels** (observe→match→décide→persiste prouvé en conditions réelles).
+Le **ring seccomp s'installe pour de vrai** (le test `analysis` seccomp passe, n'est pas skippé). Le
+verifier (confinement + ffprobe) tourne. **R3/R4 port-sync confirmés** contre un vrai daemon.
+
+Gate unitaire (toujours vert) : crawler **851 passed / 100 % branch** (delta vs 901 = scaffolding e2e
+retiré), verifier **142 / 100 %** ; ruff/format/mypy/sqlfluff OK. `docker compose config` validé pour
+`--profile full` + smoke.
+
+## 3. Ce qui RESTE à valider (optionnel / au déploiement réel)
+
+Verify / analysis (ffprobe + seccomp) / EC / download / orchestration / smoke sont **validés en vrai**
+(§2), R3/R4 **confirmés**. Restent :
+
+1. **clamav réel (optionnel — non lancé cette session)** : il faut installer `clamscan` + une base
+   (`freshclam`), puis `( cd packages/verifier && uv run pytest -m analysis_integration --no-cov )`.
+   Coche la 3ᵉ source de verdict (EICAR → `malicious`, média sain → `clean`) et **cale
+   `RLIMIT_AS_BYTES_CLAMAV`/`mem_limit`** : si un média sain ressort `suspicious`, le scan se fait
+   OOM/CPU-kill → relever ces deux valeurs.
+2. **DV10 — hypothèse de déploiement (ex-R6)** : confirmer **au premier vrai téléchargement** qu'amuled
    écrit un fichier fini dans son *Incoming* = le dossier monté comme `staging_dir` (pour que
-   `resolve_staging_path`/`os.replace` promeuve vers la quarantaine intra-FS). Ce n'est **pas** un test
-   à écrire : c'est un fait de configuration de déploiement (l'e2e « transfert réel » qui l'aurait
-   synthétisé a été abandonné — voir §4).
+   `resolve_staging_path`/`os.replace` promeuve intra-FS vers la quarantaine). C'est un **fait de
+   configuration de déploiement**, pas un test à écrire (l'e2e « transfert réel » qui l'aurait
+   synthétisé est abandonné — §4).
+3. **port-sync High-ID en vrai** : sur un déploiement réel derrière un VPN à port forwarding
+   (Proton/PIA/PrivateVPN/PerfectPrivacy), observer le restart amuled → High-ID. R1/R2 (syntaxe
+   allowlist `wollomatic` + var `HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE`) confirmés via context7, à
+   re-confirmer en vrai.
 
 ## 4. Décisions actées / ouvertes (à trancher avec Geoffrey)
 
@@ -93,11 +117,10 @@ Méthodo par tâche : implémenteur frais (TDD) → revue spec + revue code (sou
 
 ## 6. Étape suivante recommandée
 
-La passe est complète. Options pour la suite (par priorité décroissante de « est-ce que ça marche ») :
-1. **Geoffrey lance les validations réseau/réel §3** (clamav rlimits, port-sync EC réel, et l'hypothèse
-   de déploiement DV10 au premier vrai téléchargement) et remonte les inconnus restants → on fige les
-   réponses dans les design docs / ce handoff.
-2. **Trancher la décision ouverte §4** (absorption métriques ; l'abandon e2e est déjà acté).
+La passe est complète et **largement validée en vrai** (§2). Options pour la suite :
+1. **Validations réelles restantes (§3)** : clamav (optionnel, + caler les rlimits) ; au premier
+   déploiement réel, confirmer l'hypothèse DV10 (staging = Incoming) et le High-ID port-sync.
+2. **Trancher la décision ouverte §4** (absorption métriques E-D13 ; l'abandon e2e est déjà acté).
 3. Backlog basse-prio non planifié : WebUI, hub central (Postgres/push), rétention/compaction, le
    reste du **ring noyau** (`net=none`/bwrap/RO-mounts/tmpfs — exige un changement de stratégie de
    confinement, `CAP_SYS_ADMIN`/userns).
