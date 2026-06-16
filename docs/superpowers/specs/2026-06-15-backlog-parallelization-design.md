@@ -1,36 +1,50 @@
-# Plan d'orchestration — réduction parallèle du backlog (post-Plan E)
+# Plan d'orchestration — réduction du backlog (post-Plan E)
 
-> **Nature** : ce doc est le **plan maître** qui orchestre l'exécution parallèle du backlog catalogué
-> dans `docs/handoffs/2026-06-15 - handoff - post-E checkpoint (backlog).md`. Il définit les vagues,
-> la partition anti-conflit des worktrees, le protocole de dispatch des agents, et la frontière
-> d'intégration. Les **décisions de design** des tâches structurantes vivent dans des design docs
-> dédiés (référencés en §5). À lire AVANT de dispatcher quoi que ce soit.
+> **Nature** : ce doc est le **plan maître** qui orchestre l'exécution du backlog catalogué dans
+> `docs/handoffs/2026-06-15 - handoff - post-E checkpoint (backlog).md`. Il définit l'ordre
+> d'exécution, le protocole de dispatch des sous-agents, et la frontière de validation. Les
+> **décisions de design** des tâches structurantes vivent dans des design docs dédiés (référencés en
+> §5). À lire AVANT de lancer l'exécution.
+>
+> **⚠️ MÉTHODO (révisée après le co-design) — SÉQUENTIEL subagent-driven, PAS de worktrees
+> parallèles.** Les tâches de cette passe partagent des fichiers (`composition/app.py`, `compose.yaml`,
+> `uv.lock`, module CLI) → le parallélisme imposait une partition + une vague d'intégration coûteuses
+> pour un gain de temps-mur sans intérêt (Geoffrey n'est pas bloqué). On exécute donc **une tâche à la
+> fois, dans l'ordre des dépendances** (§5), chacune par un **sous-agent implémenteur frais** → revue
+> spec + revue code (chaîne `CLAUDE.md`) → **commit sur `main`** → tâche suivante. C'est la méthodo
+> PROUVÉE des Plans A→F. **Conséquence sur ce doc** : §4 (partition anti-conflit) et la « Vague 2 »
+> d'intégration de §7 sont **CADUQUES** — en séquentiel, chaque tâche édite directement les fichiers
+> partagés (compose, lock, `app.py`…) dans son tour ; plus de « delta proposé → orchestrateur merge ».
+> Ce qui survit de §7 = la **checklist « réseau vivant » de Geoffrey** + les marqueurs d'intégration.
 
 ## 1. Objectif & principe
 
-Réduire le backlog vite en **parallélisant l'exécution** dans des worktrees git séparés, sans
+Réduire le backlog en exécutant les tâches planifiées **séquentiellement** (subagent-driven), sans
 désalignement. Principe directeur retenu avec Geoffrey :
 
 - **La réflexion est sérialisée sur un seul fil** (le co-design, déjà fait cette session) pour éviter
-  le multitasking mental. **L'exécution est parallèle.**
-- Les tâches n'ont pas le même besoin de planification : **spikes** (exploration), **simple/additif**
-  (brief court, TDD direct), **structurant** (design approuvé avant code — fait).
-- Un agent par worktree va **jusqu'au gate de code vert** (pytest 100 % branch + mypy + ruff +
-  sqlfluff), **branche non mergée**. **Geoffrey + l'orchestrateur** intègrent ensuite (merge ordonné,
-  tests Docker/réseau, docs transverses).
+  le multitasking mental. **L'exécution est séquentielle** : une tâche à la fois, commit sur `main`,
+  puis la suivante — aucun coût de réconciliation, aucune collision (les tâches partagent des
+  fichiers, cf. §4 caduc).
+- Les tâches n'ont pas le même besoin de planification : **spikes** (exploration — FAIT),
+  **simple/additif** (brief court, TDD direct), **structurant** (design approuvé avant code — FAIT).
+- Chaque tâche va **jusqu'au gate de code vert** (pytest 100 % branch + mypy + ruff + sqlfluff) via un
+  **sous-agent implémenteur frais**, relue (spec + code) puis **commitée sur `main`**. La validation
+  **réseau/Docker réel** reste à Geoffrey (§7).
 
-## 2. Le modèle en vagues
+## 2. Le modèle d'exécution
 
 - **Vague 0 — spikes (FAIT)** : 5 investigations en lecture de source (aMule/gluetun/ngosang/ed2k)
   ont levé les inconnues. Résultats figés en §3. La source amont est clonée dans `vendor/` (gitignoré)
   pour que tout agent la lise en local via `Read`.
 - **Co-design — structurantes (FAIT)** : clamav, ring noyau, fusion, port-sync, e2e — décisions
   figées dans les design docs (§5).
-- **Vague 1 — exécution (À LANCER)** : worktrees parallèles (§5), chacun autonome jusqu'au gate de
-  code. Voir le protocole de dispatch (§6).
-- **Vague 2 — intégration (orchestrateur + Geoffrey)** : merge ordonné, résolution des fichiers
-  transverses, marqueurs d'intégration Docker/réseau, checklist « réseau vivant » de Geoffrey. Voir
-  §7.
+- **Exécution — SÉQUENTIELLE (À LANCER)** : les tâches dans l'ordre de §5, une à la fois, chacune par
+  un sous-agent frais jusqu'au gate vert + revues, puis **commit sur `main`**. Voir le protocole (§6).
+  *(Remplace l'ancienne « Vague 1 » worktrees-parallèles.)*
+- **Validation réseau/réel (continue + fin)** : marqueurs d'intégration Docker/réseau lançables + la
+  checklist « réseau vivant » de Geoffrey (§7). *(Plus de « Vague 2 » de merge : l'intégration est
+  continue, chaque tâche atterrit sur `main`.)*
 
 ## 3. Acquis des spikes (NE PAS re-investiguer — c'est tranché)
 
@@ -63,86 +77,95 @@ désalignement. Principe directeur retenu avec Geoffrey :
    eserver/Lugdunum (propriétaire, 2006) écartés. Pièges ed2kd : **HighID requis** pour source contactable
    (port-check réel), **DB en mémoire volatile** (le seeder amuled doit partager le fichier planté).
 
-## 4. Partition anti-conflit & fichiers « intégration-owned »
+## 4. ~~Partition anti-conflit & fichiers « intégration-owned »~~ — CADUC (séquentiel)
 
-Pour que des worktrees parallèles ne se télescopent pas, **certains fichiers transverses ne sont JAMAIS
-édités par un agent de Vague 1** — les agents **proposent un delta dans leur rapport**, l'orchestrateur
-l'applique en Vague 2 :
+> **CADUC depuis le passage au séquentiel.** La partition (réserver les fichiers transverses,
+> « proposer un delta → l'orchestrateur merge ») n'existait que pour empêcher des worktrees parallèles
+> de se télescoper. En séquentiel, **chaque tâche édite directement** ce dont elle a besoin (compose,
+> `uv.lock`/`pyproject`, `composition/app.py`, module CLI) dans son tour, puis commit ; la tâche
+> suivante part d'un `main` déjà à jour. Aucune réservation, aucun delta différé.
 
-- `uv.lock`, `pyproject.toml` (racine + paquets) — toute dépendance ajoutée est **déclarée**, jamais
-  lockée par l'agent.
-- `compose.yaml`, `compose.*.yaml`, `.env.example` (structure compose) — clamav (sidecar+volume),
-  port-sync (proxy+env gluetun), e2e (compose e2e) y touchent tous → **deltas proposés, mergés par
-  l'orchestrateur** (sauf un fichier compose NOUVEAU et dédié, ex. `compose.e2e.yaml`, que l'agent e2e
-  peut créer seul).
-- `CLAUDE.md`, `docs/handoffs/` — mis à jour à l'intégration seulement.
-- **Points d'entrée partagés du paquet crawler** : le module CLI principal et `composition/app.py` —
-  plusieurs tâches y touchent → l'agent crée ses **nouveaux modules** et signale le câblage à faire ;
-  l'orchestrateur tisse le câblage à l'intégration (ou l'agent l'ajoute si sa tâche en est seule
-  propriétaire — précisé dans le brief).
+**Ce qui survit (pour mémoire)** — les fichiers que **plusieurs** tâches touchent, donc à éditer avec
+soin en s'appuyant sur l'**ordre de §5** :
+- `compose.yaml` (clamav : sidecar freshclam + mem_limit ; port-sync : proxy + env gluetun) ;
+- `uv.lock`/`pyproject.toml` (pyseccomp, pycryptodome-test) — locké par l'orchestrateur juste après la
+  tâche qui l'ajoute ;
+- `composition/app.py` (T12 pose le guard d'arrêt **avant** que port-sync n'y câble sa boucle) ;
+- module CLI (`validate-config`) ;
+- `CLAUDE.md` + `docs/handoffs/` : mis à jour en **fin de passe** (pas par tâche).
 
-Règle générale : **un worktree possède ses fichiers NEUFS + ses tests** ; les fichiers partagés sont
-intégration-owned.
+## 5. Table des tâches (ORDRE d'exécution séquentiel)
 
-## 5. Table des worktrees (Vague 1)
+Légende — **Auto** : le sous-agent prouve le vert tout seul (gate de code sandbox). **Geoffrey** :
+validation finale nécessite son shell réel (Docker/ffmpeg/réseau). Structurantes → design doc
+`2026-06-15-<tâche>-design.md` ; simple/additif → `2026-06-15-simple-tasks-briefs.md`. **On exécute
+dans cet ordre** (dépendances + empilement propre des fichiers partagés) ; chaque tâche se termine par
+un **commit sur `main`** avant la suivante.
 
-Légende — **Auto** : l'agent prouve le vert tout seul (gate de code sandbox). **Geoffrey** : validation
-finale nécessite son shell réel (Docker/ffmpeg/réseau). Chaque structurante a son **design doc**
-(`docs/superpowers/specs/2026-06-15-<tâche>-design.md`).
-
-| Worktree | Tâches | Tier | Design doc | Vérif | Fichiers réservés notables |
+| # | Tâche | Tier | Design doc / brief | Vérif | Fichiers partagés touchés (édités directement) |
 |---|---|---|---|---|---|
-| **WT-docs** | déspéc ProtonVPN ; réécriture runbook (public moyennement technique) + note pin `3.0.0-1` + egress-boot ; enrichissements doc richesse EC | simple | brief : `2026-06-15-simple-tasks-briefs.md` | Auto (texte) | n/a (docs) ; ne touche pas la structure compose |
-| **WT-verifier** | **clamav** puis **ring noyau (seccomp)** (séquentiel, même worktree — overlap `config.py`/`pipeline.py`/`spawn.py`) | structurant | `clamav-design.md`, `ring-noyau-design.md` | Auto (runners injectés) ; clamav+seccomp réels = Geoffrey (`analysis_integration`) | `pyproject` (dép clamscan/seccomp → déclarée), `compose.yaml` (sidecar freshclam → delta) |
-| **WT-fusion** | **merge** (script standalone, N bases → 1 fichier neuf, idempotent) | structurant | `fusion-merge-design.md` | **Auto** (SQLite temp, pas de Docker) | son propre point d'entrée (pas un sous-commande de l'app crawler) |
-| **WT-portsync** | **port-sync** (EC `SetPreferences` dans `mule_ec` + lecteur port gluetun + boucle `application` + proxy restart) | structurant | `port-sync-design.md` | Auto (unit) ; réel = e2e/Geoffrey | `compose.yaml` (proxy `wollomatic` + env gluetun → delta), `composition/app.py` (câblage) |
-| **WT-e2e** | **suite e2e A+B** : stub Python (couche A) + Dockerfile `ed2kd` vendoré (couche B) + `compose.e2e.yaml` + test `e2e_integration` + fichier planté ; valide port-sync via stub `/v1/portforward` | structurant | `e2e-suite-design.md` | stub = Auto (pur Python) ; suite = Geoffrey (Docker) | crée `compose.e2e.yaml` (neuf, OK) ; vendore le tarball ed2kd |
-| **WT-crawler-cli** | sous-commande **`validate-config`** ; prép. probe **richesse EC** (dump tags `raw` dans `ec_probe.py`) | simple | — (brief : `2026-06-15-simple-tasks-briefs.md`) | Auto ; run probe = Geoffrey | module CLI (propriétaire ici), `tools/ec_probe.py` |
-| **WT-crawler-app** | **I2** (granularité d'erreur par-étape `run_download_cycle`) ; **T12** (couverture d'arrêt : guard `if not task.done()` + test de mutation) | simple | brief : `2026-06-15-simple-tasks-briefs.md` | Auto (unit/mutation) ; `orchestration_integration` = Geoffrey | `application/run_download_cycle.py`, `composition` (guard arrêt) |
+| 1 | **fusion** — `merge` standalone, N→1 idempotent | structurant | `fusion-merge-design.md` | **Auto** (SQLite temp) | aucun (point d'entrée propre) — idéal pour valider la boucle subagent-driven |
+| 2 | **docs** — déspéc ProtonVPN ; runbook (public moyen) + pin `3.0.0-1` + egress-boot ; enrichissements richesse EC | simple | briefs | Auto (texte) | docs / `.env.example` (texte), pas la structure compose |
+| 3 | **crawler-cli** — `validate-config` ; prép. probe richesse EC | simple | briefs | Auto ; run probe = Geoffrey | module CLI, `tools/ec_probe.py` |
+| 4 | **crawler-app** — I2 (granularité `run_download_cycle`) ; T12 (guard d'arrêt + mutation) | simple | briefs | Auto (unit/mutation) ; `orchestration_integration` = Geoffrey | `application/run_download_cycle.py`, `composition/app.py` (guard) |
+| 5 | **verifier** — clamav **puis** ring noyau (seccomp) | structurant | `clamav-design.md`, `ring-noyau-design.md` | Auto (runners injectés) ; réels = Geoffrey (`analysis_integration`) | `pyproject`/`uv.lock` (clamav apt, pyseccomp), `compose.yaml` (sidecar freshclam, mem_limit), `packages/verifier/*` |
+| 6 | **port-sync** — EC `SetPreferences` (`mule_ec`) + lecteur gluetun + boucle `application` + proxy restart | structurant | `port-sync-design.md` | Auto (unit) ; réel = e2e/Geoffrey | `compose.yaml` (proxy + env gluetun), `composition/app.py` (câblage), config |
+| 7 | **e2e** — stub Python (A) + Dockerfile `ed2kd` (B) + `compose.e2e.yaml` + test `e2e_integration` + fichier planté ; valide port-sync via stub `/v1/portforward` | structurant | `e2e-suite-design.md` | stub = Auto (pur Python) ; suite = Geoffrey (Docker) | `compose.e2e.yaml` (neuf), `deploy/e2e/*`, `uv.lock` (pycryptodome, test) |
 
-**Note dépendances inter-worktrees** : port-sync (boucle) et l'e2e (qui la valide) sont conçus
-indépendamment ; l'e2e consomme l'API de la boucle port-sync via le stub `/v1/portforward`, pas son code
-→ pas de dépendance de build. Fusion résout **aussi** l'item différé `file_verifications` dedup (la
-dédup idempotente par clé naturelle). 
+**Dépendances/ordre** : **fusion** d'abord (zéro collision, valide la boucle subagent-driven). **T12**
+(tâche 4) pose le guard d'arrêt dans `app.py` **avant** que **port-sync** (6) n'y câble sa boucle.
+**e2e** (7) en dernier : il assemble tout et **consomme l'API** de la boucle port-sync via le stub
+`/v1/portforward` (pas son code — mais l'avoir intégrée avant simplifie le sous-test). **Fusion** résout
+**aussi** l'item différé `file_verifications` dedup (dédup idempotente par clé naturelle).
 
-## 6. Protocole de dispatch (anti-désalignement)
+## 6. Protocole d'exécution (anti-désalignement)
 
-Chaque agent de Vague 1 reçoit un **brief** contenant exactement :
+Chaque tâche est confiée à un **sous-agent implémenteur frais** (garde le contexte de l'orchestrateur
+propre), qui reçoit un **brief** contenant exactement :
 
 1. **Sa tâche** + son **design doc** (structurantes) ou son **brief court** (simple/additif — critères
-   d'acceptation + exemples, pas de design : déspéc = sweep texte ; CLI = sous-commande + tests ; I2/T12 =
-   refactor/test ciblés).
+   d'acceptation + exemples : déspéc = sweep texte ; CLI = sous-commande + tests ; I2/T12 = refactor/test
+   ciblés).
 2. **Les règles dures** (`CLAUDE.md`) : TDD strict (test qui échoue d'abord), **100 % branch**,
    hexagonal (`domain/` pur), `mypy --strict` sur src+tests, ruff `E,F,I,UP,B,SIM` ligne 100, sqlfluff
    pour le SQL embarqué. Le gate PAR PAQUET : `( cd packages/<pkg> && uv run pytest -q )`.
-3. **Son worktree** + la **liste explicite des fichiers à NE PAS toucher** (les intégration-owned du §4).
+3. **L'état courant de `main`** : il part du commit de la tâche précédente. **Pas de worktree, pas de
+   réservation** — il édite directement ce dont il a besoin (y compris compose/`composition/app.py`/
+   config), en s'appuyant sur l'ordre §5.
 4. **Les commandes exactes du gate** à auto-lancer avant de se déclarer fini.
-5. **Le format de rapport de complétion** : ce qui a changé (fichiers neufs/modifiés), **sortie du gate**
-   (les 4 commandes vertes), tests d'intégration **écrits-mais-non-lancés** (marqueur + comment Geoffrey
-   les lance), **dépendance ajoutée** (pour le lock), **delta compose/CLI/composition** à appliquer à
-   l'intégration, et tout **écart au design + pourquoi**.
+5. **Le format de rapport de complétion** : ce qui a changé, **sortie du gate** (les commandes vertes),
+   tests d'intégration **écrits-mais-non-lancés** (marqueur + comment Geoffrey les lance),
+   **dépendance ajoutée** (à locker), et tout **écart au design + pourquoi**.
 
-**Condition d'arrêt de l'agent** : code + tests unitaires/contract **verts sur le gate de code**, dans sa
-branche de worktree, **NON mergée**. Il ne touche pas `main`, ni les fichiers intégration-owned, ni le
-lock.
+**Après l'implémenteur**, l'orchestrateur (moi) applique la chaîne de revue `CLAUDE.md` : **revue
+spec-compliance** → **revue code-quality** (sous-agents reviewers) → corrections → `uv lock` si dép
+ajoutée → **commit sur `main`** (préfixe conventionnel `feat(...)`/`test:`/`docs:`). La **revue
+holistique finale** + le **tag de jalon** se font en fin de passe (après la tâche 7).
 
-## 7. Frontière de vérification & d'intégration (Vague 2)
+**Condition de fin d'une tâche** : code + tests **verts sur le gate**, deps lockées, **commitée sur
+`main`** ; la tâche suivante part de là.
 
-**Orchestrateur** (séquentiel, après que les agents ont fini) :
-1. Merge les branches dans l'**ordre de dépendance** (fusion/CLI/app d'abord, puis verifier, puis
-   port-sync, puis e2e — l'e2e en dernier car il assemble le tout).
-2. Résout les **fichiers intégration-owned** : applique les deltas `compose`/CLI/`composition`, lock les
-   dépendances déclarées (`uv lock`), tisse le câblage `composition/app.py`.
-3. Relance le **gate complet sur `main` intégré** (les deux paquets 100 % branch + mypy + ruff + sqlfluff).
-4. Lance les **marqueurs d'intégration** runnables : `verify_integration`, `analysis_integration` (ffmpeg),
-   et — quand Docker dispo — `ec_/orchestration_/download_/compose_integration`.
-5. Met à jour `CLAUDE.md` + écrit le **handoff** de la passe.
+## 7. Validation réseau/réel (ce que le sandbox ne peut pas)
 
-**Geoffrey** (checklist « réseau vivant » — ce que le sandbox ne peut pas) :
-- `e2e_integration` complet (Docker+compose : stub/ed2kd + amuled + verifier ; download→verify réel).
+Il n'y a **plus de « Vague 2 » de merge** : l'intégration est **continue** (chaque tâche commit sur
+`main` après ses revues). Restent les validations **hors-sandbox**.
+
+**Orchestrateur** (au fil de l'eau + fin de passe) :
+1. À chaque tâche : **gate complet vert sur `main`** (les deux paquets 100 % branch + mypy + ruff +
+   sqlfluff) — c'est la condition de commit.
+2. En fin de passe : lancer les **marqueurs d'intégration** runnables en sandbox-normal :
+   `verify_integration`, `analysis_integration` (ffmpeg requis).
+3. **Revue holistique finale** (sous-agent) sur l'ensemble de la passe → mise à jour `CLAUDE.md` +
+   **handoff** + **tag de jalon**.
+
+**Geoffrey** (checklist « réseau vivant ») :
+- `e2e_integration` complet (Docker+compose : stub/ed2kd + amuled + verifier ; **download→verify réel** ;
+  `resolve_staging_path`/DV10 exercé).
+- `ec_/orchestration_/download_/compose_integration` (Docker requis).
 - Probe **richesse EC** : lance le dump `ec_probe`, colle la sortie → l'orchestrateur met à jour le doc.
-- Validation **egress-au-boot** derrière VPN (le 1er-run amuled fetch `server.met`/`nodes.dat`).
-- Validation **port-sync HighID** réelle (la suite e2e couche B la couvre via le port-check ed2kd).
+- Validation **egress-au-boot** derrière VPN (1er-run amuled fetch `server.met`/`nodes.dat`).
+- Validation **port-sync HighID** réelle (couverte par e2e couche B via le port-check ed2kd) + **R3**
+  (opcode réponse EC `GET_PREFERENCES`=0x40) + **R1/R2** (syntaxe wollomatic / auth gluetun via doc upstream).
 - clamav/seccomp réels (`analysis_integration`) si non couverts par le runner CI.
 
 ## 8. Hors-scope de cette passe (conscient, pas un oubli)
@@ -162,10 +185,12 @@ lock.
 
 ## 9. Watch-list d'intégration (cross-cutting — relevé pendant la relecture des 5 design docs)
 
-Points qui **traversent** les worktrees et que l'**orchestrateur** traite en Vague 2 (les agents les
-*signalent*, ne les *résolvent* pas).
+Points qui **traversent** les tâches. **En séquentiel, chaque tâche les traite DIRECTEMENT dans son
+tour** (plus de « signale → l'orchestrateur merge en Vague 2 ») : la tâche qui touche un fichier
+partagé l'édite, l'orchestrateur lock/revoit, on commit, la suivante en hérite. La liste reste le
+**rappel de ce que chaque tâche doit faire**.
 
-**a. Deltas compose à merger** (intégration-owned) :
+**a. Deltas compose** (édités par la tâche concernée, dans son tour) :
 - clamav : sidecar `freshclam` + volume `clamav-db` RO **+ relever le `mem_limit` du conteneur
   verifier** (768 Mo < rlimit AS clamscan ~1.5 Gio → sinon l'OOM-killer tue le child avant le rlimit).
 - port-sync : sidecar `docker-proxy` (wollomatic ou maison, **surface = restart-amuled-only**) + env
@@ -178,14 +203,13 @@ Points qui **traversent** les worktrees et que l'**orchestrateur** traite en Vag
   OpenSSL 3).
 - clamav/clamscan = binaires système (pas de dép Python).
 
-**c. Tissage de fichiers partagés** (intégration-owned) :
-- `composition/app.py` : câblage de la boucle **port-sync** + guard d'arrêt **T12** (deux worktrees y
-  touchent → l'orchestrateur tisse).
-- module CLI : sous-commande **`validate-config`** (WT-crawler-cli en est seul propriétaire ici → peut
-  l'ajouter, mais coordonner si un autre worktree touche le même module).
+**c. Fichiers partagés** (édités dans l'ordre §5, l'empilement règle la coordination) :
+- `composition/app.py` : **T12** (tâche 4) pose le guard d'arrêt, **port-sync** (tâche 6) y câble sa
+  boucle ensuite — l'ordre garantit que la 6 part d'un `app.py` déjà guardé.
+- module CLI : sous-commande **`validate-config`** (tâche 3, éditée directement).
 
 **d. Test à corriger** : `test_unknown_check_name_is_ignored` utilise aujourd'hui `"clamav"` comme nom
-inconnu → l'activation de clamav le casse ; le worktree verifier doit le réécrire.
+inconnu → l'activation de clamav le casse ; la tâche verifier (5) doit le réécrire.
 
 **e. Vérifications « ne pas inventer » à faire à l'implémentation** (doc upstream via context7/web,
 PAS de `vendor/` pour ces deux-là) :
@@ -200,5 +224,5 @@ PAS de `vendor/` pour ces deux-là) :
 - **clamav mem** : mesurer l'empreinte réelle de `clamscan` pour caler rlimit AS + `mem_limit`.
 
 **g. Cohérence émergente notable** (pas une action — un renfort) : le `deny socket` du **ring** IMPOSE
-le `clamscan` standalone du **clamav** ; les deux décisions se verrouillent. C'est pourquoi WT-verifier
-fait clamav **puis** ring **dans le même worktree**.
+le `clamscan` standalone du **clamav** ; les deux décisions se verrouillent. C'est pourquoi la tâche
+verifier (5) fait clamav **puis** ring **séquencés**, dans cet ordre.
