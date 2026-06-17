@@ -321,10 +321,19 @@ Pour valider/tester en profondeur (suites d'intégration, smoke, CI), voir le
   non-root, `cap_drop`, `read_only`, `internal: true`, gVisor opt-in — est déjà là).
 - **port-sync — validation réelle** : la boucle est construite ; sa validation **bout-en-bout**
   (port-check High-ID réel derrière le VPN) se fait via un déploiement réel.
-- **DV10 (download → quarantaine) — validation réelle** : le déplacement atomique vers la quarantaine
-  (`resolve_staging_path`/`os.replace`) est couvert par les unit-tests. La seule inconnue réelle —
-  amuled écrit-il un fichier fini là où on monte `staging_dir` ? — est une **hypothèse de
-  déploiement** (amuled écrit dans son *Incoming* ; montez `staging_dir` = ce dossier), à confirmer
-  au premier vrai téléchargement. *(La suite e2e « transfert réel » qui aurait synthétisé ce
-  transfert a été abandonnée — voir le guide des tests.)*
+- **DV10 (download → quarantaine) — CONFIRMÉ par lecture de la source amont d'amuled**
+  (cf. [`docs/reference/2026-06-17-amuled-completion-behavior.md`](reference/2026-06-17-amuled-completion-behavior.md)).
+  À la complétion, amuled déplace le fichier vers son **IncomingDir** ; le statut ne passe complet
+  qu'**après** le déplacement (pas de race). **Contraintes de déploiement à respecter :**
+  1. `staging_dir` = `quarantine_dir` = l'**IncomingDir** d'amuled (le même volume `/data/quarantine`)
+     — configurez l'`IncomingDir` d'amuled = ce dossier, **pas** son TempDir.
+  2. Ce volume sur un **FS Linux normal** (ext4/overlay…), pas vfat/NTFS/HFS (sinon amuled assainit
+     les caractères spéciaux du nom → divergence).
+  3. **Pas de catégories** amuled (une catégorie avec son propre chemin redirigerait le fichier).
+  4. Incoming **dédié** au crawler et vidé à chaque cycle → évite les collisions de nom.
+
+  *Limite connue (acceptée)* : si l'Incoming contient déjà un fichier du même nom, amuled écrit
+  `nom(0).ext` et notre promotion échoue en boucle (signalée par la métrique `PromotionFailed`, donc
+  non silencieuse). *(La suite e2e « transfert réel » qui aurait synthétisé ce transfert a été
+  abandonnée — voir le guide des tests.)*
 - **WebUI / hub central / rétention** : non planifiés à ce stade.
