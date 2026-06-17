@@ -310,6 +310,23 @@ documentés ici que pour référence si quelque chose cloche.
   source-a.db source-b.db …` consolide N `catalog.db` (un par chercheur/campagne) en un seul,
   **idempotent** (re-merger est un no-op) et safe-by-default (pas d'écrasement sans `--force` ;
   `--into <source>` pour fusionner dans une source existante). Outil opérateur ponctuel.
+- **Compaction du catalogue** : `uv run python -m emule_indexer.compact catalog.db -o
+  catalog-compact.db [--keep-recent-days 90]` réduit la **seule** table qui croît sans borne,
+  `file_observations` (une ligne par fichier observé à chaque cycle). Le brut des `--keep-recent-days`
+  derniers jours (90 par défaut) est conservé tel quel ; au-delà, les observations sont **résumées en
+  un rollup journalier** node-agnostique dans `file_observation_ranges` (une ligne par fichier et par
+  **jour UTC** : ensemble des noms vus, ensemble des nœuds, min/max/somme de la disponibilité, plage
+  temporelle ; la moyenne se dérive de somme/compte). Outil **opérateur, NON automatique** (pas de
+  boucle, pas de déclenchement par le crawler), à lancer **crawler arrêté** ; il **reconstruit vers
+  une sortie neuve** (jamais de mutation en place — la sortie ne doit pas exister), puis l'opérateur
+  permute. Coupure **alignée sur le jour UTC** : un jour ne serait-ce que partiellement dans la fenêtre
+  reste intégralement brut (granularité au jour, pas 24 h glissantes). Ordre recommandé :
+  **fusionner d'abord, compacter ensuite** (la compaction voit alors tous les nœuds et produit une
+  seule ligne par fichier/jour). Conséquence assumée : un fichier **non vu depuis plus de
+  `--keep-recent-days`** n'a plus d'observation brute, donc `last_observation` (chemin « nom frais »
+  du download) le rend introuvable — sans incidence en pratique (un tel fichier a quasi sûrement
+  quitté le réseau ; les fichiers vivants sont ré-observés en continu). Volume au jour : ~1–6 Go/an
+  pour une cardinalité réaliste, très en deçà d'un budget de 50 Go/an.
 - **Validation de config** : `uv run python -m emule_indexer validate-config` charge+valide les 4
   configs et sort en erreur (code ≠ 0) si l'une est invalide, **sans rien démarrer**. À lancer avant
   un déploiement.
