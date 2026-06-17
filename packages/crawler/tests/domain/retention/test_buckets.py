@@ -72,6 +72,20 @@ def test_node_agnostic_two_nodes_one_bucket() -> None:
     assert bucket.observation_count == 2
 
 
+def test_multiple_hashes_and_days_give_distinct_buckets() -> None:
+    rows = [
+        _row(h="a" * 32, at="2026-03-01T01:00:00.000000+00:00"),
+        _row(h="a" * 32, at="2026-03-02T01:00:00.000000+00:00"),
+        _row(h="b" * 32, at="2026-03-01T01:00:00.000000+00:00"),
+    ]
+    buckets = bucketize(rows)
+    assert [(b.ed2k_hash, b.bucket) for b in buckets] == [
+        ("a" * 32, "2026-03-01"),
+        ("a" * 32, "2026-03-02"),
+        ("b" * 32, "2026-03-01"),
+    ]
+
+
 def test_single_observation_min_eq_max_eq_sum() -> None:
     (bucket,) = bucketize([_row(sc=7, csc=3, at="2026-03-01T01:00:00.000000+00:00")])
     assert (bucket.source_count_min, bucket.source_count_max, bucket.source_count_sum) == (7, 7, 7)

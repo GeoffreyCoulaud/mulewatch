@@ -26,6 +26,25 @@ _SRC = "src"
 _COPY_VERBATIM: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("files", ("ed2k_hash", "size_bytes", "aich_hash")),
     ("sources", ("user_hash", "client_name", "client_version")),
+    (
+        "source_observations",
+        (
+            "user_hash",
+            "ed2k_hash",
+            "ip",
+            "port",
+            "nickname",
+            "client_name",
+            "client_version",
+            "country",
+            "id_type",
+            "has_complete_file",
+            "origin",
+            "raw_meta",
+            "observed_at",
+            "node_id",
+        ),
+    ),
     ("match_decisions", ("ed2k_hash", "target_id", "rule_name", "tier", "decided_at", "node_id")),
     (
         "file_verifications",

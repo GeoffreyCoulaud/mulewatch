@@ -102,6 +102,29 @@ def test_verbatim_tables_copied(tmp_path: Path) -> None:
     assert count(out, "match_decisions") == 1
 
 
+def test_source_observations_copied_verbatim(tmp_path: Path) -> None:
+    src = make_catalog(
+        tmp_path / "src.db",
+        {
+            "files": [{"ed2k_hash": _H, "size_bytes": 1}],
+            "sources": [{"user_hash": "u1"}],
+            "source_observations": [
+                {
+                    "user_hash": "u1",
+                    "ed2k_hash": _H,
+                    "raw_meta": "[]",
+                    "observed_at": "2026-01-01T00:00:00.000000+00:00",
+                    "node_id": "n",
+                }
+            ],
+        },
+    )
+    out = tmp_path / "out.db"
+    compact_catalog(src, out, keep_recent_days=90, clock=_clock("2026-06-01T00:00:00+00:00"))
+    assert count(out, "sources") == 1
+    assert count(out, "source_observations") == 1
+
+
 def test_idempotent_on_already_compacted_source(tmp_path: Path) -> None:
     src = _source(tmp_path / "src.db", [_obs("f.avi", 1, 0, "2026-01-10T01:00:00.000000+00:00")])
     out1 = tmp_path / "out1.db"
