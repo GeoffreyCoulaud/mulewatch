@@ -330,10 +330,15 @@ Pour valider/tester en profondeur (suites d'intégration, smoke, CI), voir le
   2. Ce volume sur un **FS Linux normal** (ext4/overlay…), pas vfat/NTFS/HFS (sinon amuled assainit
      les caractères spéciaux du nom → divergence).
   3. **Pas de catégories** amuled (une catégorie avec son propre chemin redirigerait le fichier).
-  4. Incoming **dédié** au crawler et vidé à chaque cycle → évite les collisions de nom.
+  4. amuled **dédié** au crawler, **jeu partagé restreint** : la complétion est détectée via la liste
+     des fichiers partagés EC (`shared_files()`, interrogée à chaque cycle) ; ne pointez pas une grosse
+     bibliothèque partagée pré-existante (la liste reste petite, on sort les fichiers de l'Incoming à
+     chaque cycle).
 
-  *Limite connue (acceptée)* : si l'Incoming contient déjà un fichier du même nom, amuled écrit
-  `nom(0).ext` et notre promotion échoue en boucle (signalée par la métrique `PromotionFailed`, donc
-  non silencieuse). *(La suite e2e « transfert réel » qui aurait synthétisé ce transfert a été
-  abandonnée — voir le guide des tests.)*
+  Le crawler détecte la complétion par la **présence du fichier dans les partagés EC** (signal positif,
+  auto-partagé par amuled à la complétion) et promeut au **vrai nom on-disk** rapporté par amuled — la
+  collision de nom (`nom(0).ext`) est donc gérée par construction, et la contrainte « TempDir/Incoming
+  sur le même FS » n'est pas requise. *(La suite e2e « transfert réel » qui aurait validé la chaîne
+  complète a été abandonnée — voir le guide des tests ; le décodage `shared_files()` contre un vrai
+  amuled est, lui, couvert par `download_integration`.)*
 - **WebUI / hub central / rétention** : non planifiés à ce stade.
