@@ -15,7 +15,7 @@ from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 from emule_indexer.adapters.mule_ec.client import AmuleEcClient
 from emule_indexer.adapters.mule_ec.errors import EcFailureError
 from emule_indexer.domain.download.ed2k_link import build_ed2k_link
-from emule_indexer.ports.mule_download_client import DownloadEntry
+from emule_indexer.ports.mule_download_client import DownloadEntry, SharedFileEntry
 
 pytestmark = pytest.mark.download_integration
 
@@ -68,5 +68,24 @@ async def test_add_link_then_appears_in_download_queue(amuled: tuple[str, int]) 
         # valeur propre (UINT8) au lieu de l'enfant 0x031E, la file serait vide ici → échec.
         hashes = {entry.ed2k_hash for entry in queue}
         assert _HASH in hashes
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_shared_files_round_trips(amuled: tuple[str, int]) -> None:
+    # Confirme EMPIRIQUEMENT le cycle requête/réponse GET_SHARED_FILES → SHARED_FILES et que le
+    # décodage ne lève pas (opcodes 0x10/0x22). Sur un amuled neuf la liste peut être vide ; le
+    # mapping (conteneur EC_TAG_KNOWNFILE 0x0400, nom/hash) est couvert par les tests unit + la
+    # source amont. Si des entrées remontent, ce sont des SharedFileEntry valides (hash hex 32,
+    # nom).
+    host, port = amuled
+    client = AmuleEcClient(host, port, _EC_PASSWORD, timeout=30.0)
+    await client.connect()
+    try:
+        shared = await client.shared_files()
+        assert isinstance(shared, tuple)
+        assert all(isinstance(e, SharedFileEntry) for e in shared)
+        assert all(len(e.ed2k_hash) == 32 and e.name for e in shared)
     finally:
         await client.close()
