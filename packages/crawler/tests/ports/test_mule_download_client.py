@@ -1,9 +1,14 @@
 import dataclasses
+from dataclasses import FrozenInstanceError
 
 import pytest
 
 from emule_indexer.ports.mule_client import KadStatus, NetworkStatus
-from emule_indexer.ports.mule_download_client import DownloadEntry, MuleDownloadClient
+from emule_indexer.ports.mule_download_client import (
+    DownloadEntry,
+    MuleDownloadClient,
+    SharedFileEntry,
+)
 
 
 class _StubDownloadClient:
@@ -27,6 +32,18 @@ class _StubDownloadClient:
 
     async def network_status(self) -> NetworkStatus:
         return NetworkStatus(ed2k_id=1, ed2k_high=True, kad_status=KadStatus.CONNECTED)
+
+
+def test_shared_file_entry_carries_hash_and_real_name() -> None:
+    entry = SharedFileEntry(ed2k_hash="a" * 32, name="Keroro 62a.avi")
+    assert entry.ed2k_hash == "a" * 32
+    assert entry.name == "Keroro 62a.avi"
+
+
+def test_shared_file_entry_is_frozen() -> None:
+    entry = SharedFileEntry(ed2k_hash="a" * 32, name="x.avi")
+    with pytest.raises(FrozenInstanceError):
+        entry.name = "y.avi"  # type: ignore[misc]
 
 
 def test_download_entry_is_frozen() -> None:

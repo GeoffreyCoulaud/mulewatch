@@ -40,6 +40,20 @@ class DownloadEntry:
         return self.size_full > 0 and self.size_done >= self.size_full
 
 
+@dataclass(frozen=True)
+class SharedFileEntry:
+    """Une entrée de la liste des fichiers PARTAGÉS d'amuled (réponse ``EC_OP_SHARED_FILES``).
+
+    Un fichier téléchargé est auto-partagé par amuled à la complétion (signal POSITIF de
+    complétion, cf. design 2026-06-17). ``name`` est le VRAI nom on-disk (``GetFileName`` côté
+    amuled, post-cleanup ET post-dédup ``nom(0).ext``) ; ``ed2k_hash`` (hex minuscule 32) sert à
+    matcher un download suivi. AUCUN octet n'est lu (métadonnée EC seule, spec §4).
+    """
+
+    ed2k_hash: str
+    name: str
+
+
 class MuleDownloadClient(Protocol):
     """Contrat async des opérations de download (spec §4). Actions UNITAIRES : aucun sleep/retry.
 
