@@ -74,7 +74,10 @@ plus de contrainte « même volume ». Revue holistique finale : **0 Critical / 
 - **`container_name: amuled` est requis** : restarter + allowlist codent `amuled` en dur.
 - **Docker Desktop (`Context: desktop-linux`) refuse l'accès au socket aux conteneurs non-root** →
   le `docker-proxy` du port-sync (`65534:${DOCKER_GID}`) **crashe** localement ; ça n'est validable
-  que sur un **serveur Linux Docker rootful natif**. Noté en mémoire + runbook.
+  que sur un **serveur Linux Docker rootful natif**. Noté en mémoire + runbook. **Validé en ligne
+  (2026-06-17)** : mécanisme (socket ré-exposé `root:root` sous Docker Desktop ; rootless = socket
+  sous `$XDG_RUNTIME_DIR`, accès par UID) + sources dans
+  [`docs/reference/2026-06-17-docker-desktop-rootless-socket.md`](../reference/2026-06-17-docker-desktop-rootless-socket.md).
 - **Sous-agents** : les agents NOMMÉS heurtent un plafond de roster (« teammates cannot spawn
   teammates ») ; les sous-agents **ANONYMES** (omettre `name`) rendent leur résultat **de façon
   synchrone** et proprement → les utiliser pour l'implé subagent-driven.

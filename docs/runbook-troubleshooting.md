@@ -78,10 +78,13 @@ Trois causes possibles, de la plus probable à la moins :
 
 Plusieurs causes, à vérifier dans cet ordre :
 
-- **Hôte Docker incompatible.** Le `docker-proxy` qui redémarre amuled tourne non-root et lit le
-  socket Docker par accès **groupe** : il exige un **Docker rootful natif**. **Docker Desktop**
-  (proxifie le socket, refuse l'accès non-root) et le **mode rootless** ne fonctionnent pas tels
-  quels.
+- **Hôte Docker incompatible.** Le `docker-proxy` qui redémarre amuled tourne non-root et lit
+  `/var/run/docker.sock` par accès **groupe** (`660 root:docker`) : il exige donc un **Docker rootful
+  natif**. **Docker Desktop** ré-expose le socket en **`root:root`** dans le conteneur → le GID
+  `docker` de l'hôte n'y donne aucun accès (`permission denied`). En **rootless**, le socket n'est pas
+  à `/var/run/docker.sock` (mais sous `$XDG_RUNTIME_DIR`) et l'accès passe par l'UID, pas un groupe.
+  Les deux → port-sync inopérant (détails + sources :
+  [`docs/reference/2026-06-17-docker-desktop-rootless-socket.md`](reference/2026-06-17-docker-desktop-rootless-socket.md)).
 - **`DOCKER_GID` absent ou faux** dans `.env` : ce doit être le GID du groupe `docker` de l'hôte
   (`getent group docker`).
 - **Conteneur amuled mal nommé.** Le proxy n'autorise QUE `POST .../containers/amuled/restart` : le
