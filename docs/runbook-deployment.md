@@ -193,7 +193,8 @@ réglages solidaires** :
 2. le service **`docker-proxy`** (profil full) : un proxy à **surface minimale** qui n'autorise
    QUE `POST .../containers/amuled/restart` (le crawler ne voit jamais le socket Docker). Il monte
    le socket Docker hôte en lecture seule → renseignez `DOCKER_GID` dans `.env` (GID du groupe
-   `docker` de l'hôte) ;
+   `docker` de l'hôte). L'allowlist cible le conteneur nommé **exactement `amuled`** : `compose.yaml`
+   l'épingle via `container_name: amuled` (sans quoi le restart ferait 404 → port-sync inopérant) ;
 3. dans `config/local.yaml` : `gluetun_control_url: "http://gluetun:8000"` +
    `restarter_url: "http://docker-proxy:2375"`, et dans `config/crawler.yaml` la section
    `port_sync` (cadences de poll/rate-limit des restarts).

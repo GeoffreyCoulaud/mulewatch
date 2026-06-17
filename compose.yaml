@@ -33,6 +33,12 @@ services:
 
   amuled:
     image: ngosang/amule:3.0.0-1
+    # Nom de conteneur FIXE (ignore le préfixe de projet) : la boucle port-sync redémarre amuled via
+    # `POST /v1.x/containers/amuled/restart` — l'allowlist du `docker-proxy` ET le path du
+    # `HttpMuleRestarter` codent en dur `amuled`. Sans ce nom fixe, le conteneur serait
+    # `<projet>-amuled-1` et le restart ferait 404 → port-sync cassé (jamais de High-ID). Singleton
+    # par hôte (un seul amuled par déploiement), donc le nom global est acceptable.
+    container_name: amuled
     profiles: [observer, full]
     # Partage la netns de gluetun (killswitch : tout le P2P sort par le VPN). Pas de `networks:`
     # quand network_mode est `service:` — amuled est joignable via gluetun sur le port EC 4712.
