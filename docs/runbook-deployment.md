@@ -336,11 +336,19 @@ Pour valider/tester en profondeur (suites d'intégration, smoke, CI), voir le
 
 ## Limites connues / follow-ups
 
-- **clamav vs durcissement noyau** : clamav (signatures) et le filtre seccomp par-enfant sont
-  **construits** (voir plus haut). Restent à venir, pour le ring noyau du sous-processus d'analyse :
-  `net=none` (namespace réseau), bwrap/montages RO réels, tmpfs dédié — tous exigent `CAP_SYS_ADMIN`
-  ou un user namespace, donc un changement de stratégie de confinement (le ring **container** —
-  non-root, `cap_drop`, `read_only`, `internal: true`, gVisor opt-in — est déjà là).
+- **Ring noyau — posture ACTÉE (2026-06-17)** : le ring noyau par-enfant « étendu » (`net=none`,
+  bwrap/montages RO réels, tmpfs dédié) est un **non-objectif assumé**, pas un manque. Chacun exige
+  `CAP_SYS_ADMIN` (régression du `cap_drop: ALL`) ou des user namespaces non privilégiés (non
+  portables : dépendants d'un sysctl hôte, en conflit avec le seccomp par défaut de Docker, et
+  `bwrap` sous gVisor est fragile), pour un gain **marginal** face aux anneaux déjà en place (le
+  seccomp par-enfant EPERM-deny déjà les sockets ; le réseau du verifier n'a **aucun egress** via
+  `internal: true` ; le rootfs est `read_only`). **gVisor (`runsc`) EST l'anneau noyau** — noyau en
+  espace utilisateur qui virtualise réseau + FS au niveau syscall — fourni en **opt-in**
+  (`compose.hardening.yml`, voir « Durcissement optionnel »). Plancher portable universel = conteneur
+  durci (`cap_drop: ALL`, `no-new-privileges`, `read_only`, `internal`) + seccomp par-enfant +
+  rlimits, sur **n'importe quel** hôte Docker ; gVisor en bolt-on pour les hôtes qui supportent
+  `runsc`. (Passer le seccomp par-enfant de blocklist à allowlist a été **écarté** : trop fragile,
+  risque de faux positifs sur un média sain.)
 - **port-sync — validation réelle** : la boucle est construite ; sa validation **bout-en-bout**
   (port-check High-ID réel derrière le VPN) se fait via un déploiement réel.
 - **DV10 (download → quarantaine) — CONFIRMÉ par lecture de la source amont d'amuled**
