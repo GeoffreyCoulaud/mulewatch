@@ -94,14 +94,19 @@ de fil DTO↔réponse + l'écriture durable, sans vrai download.
 
 ---
 
-### 3.2 `analysis_integration` (verifier, **sans Docker**, mais ffmpeg/clamav/seccomp)
+### 3.2 `analysis_integration` (verifier, **sans Docker**, mais ffmpeg/seccomp)
 
 **Ce que ça prouve.** Le côté verifier exécute **pour de vrai** le confinement (re-exec de l'enfant
 jetable, rlimits, `setsid`, kill du groupe au timeout, env minimal) et le **vrai ffprobe** sur de
-vrais échantillons, plus — si l'environnement le permet — le **vrai clamscan** (3ᵉ source de verdict)
-et le **filtre seccomp réel**.
+vrais échantillons, plus — si l'environnement le permet — le **filtre seccomp réel**.
 
-**Trois sous-cas, gérés par des `skipif` :**
+> **Pas de test d'intégration clamav.** Le check `clamav` reste du code de prod (opt-in via
+> `ENABLED_CHECKS`), couvert à 100 % par des tests unitaires à runner stubbé (`test_clamav.py`,
+> `test_pipeline.py`, `test_analysis_child.py`). Les anciens tests `analysis_integration` clamav ont
+> été **délibérément retirés** : ils ne prouvaient que le comportement d'une **brique tierce de
+> confiance** (`clamscan` reconnaît EICAR / la sémantique de ses codes retour), pas notre code.
+
+**Deux sous-cas, gérés par des `skipif` :**
 
 1. **ffprobe (obligatoire pour l'essentiel des tests).** `skipif` actif si `ffmpeg` **ou** `ffprobe`
    est absent du PATH (`shutil.which`). Ces tests génèrent un petit média réel avec ffmpeg
@@ -109,16 +114,7 @@ et le **filtre seccomp réel**.
    vide ; ELF/shebang → `malicious` ; texte → `suspicious` ; egress sur-dimensionné → `suspicious` ;
    timeout (`ANALYSIS_TIMEOUT_S=0.001`) → `suspicious` ; fichier absent → `error`.
 
-2. **clamav (optionnel — skip si non provisionné).** `skipif` actif si `clamscan` est absent **ou**
-   s'il n'y a **aucune base de signatures** (au moins un `*.cvd`/`*.cld`) dans `CLAMAV_DB_DIR`
-   (défaut `/var/lib/clamav`, surchargeable par la variable d'environnement). Sous-cas :
-   - EICAR → `malicious` ;
-   - média sain avec les 3 checks actifs → `clean` ;
-   - base absente (`CLAMAV_DB_DIR` pointant un dossier vide) → `suspicious` (défensif).
-
-   Pour provisionner la base en local : `freshclam` (paquet clamav) écrit dans `/var/lib/clamav`.
-
-3. **seccomp (tourne dès que faisable — souvent par défaut).** `skipif` actif **seulement** si poser
+2. **seccomp (tourne dès que faisable — souvent par défaut).** `skipif` actif **seulement** si poser
    un filtre seccomp minimal n'est pas faisable. Le test le détecte en posant un filtre `ALLOW` dans
    un enfant `os.fork()` jetable : il faut **`pyseccomp`** (déjà dans le lock) + **`libseccomp`**
    (présent sur la plupart des Linux) + un **`no_new_privs` posable** (possible pour tout process sur
@@ -135,23 +131,23 @@ conditionnels clamav `RLIMIT_AS_BYTES_CLAMAV` (défaut 1,5 Gio) / `RLIMIT_CPU_S_
 > le défaut (64) est sain dans l'image Docker (UID dédié peu peuplé) mais bloque `fork()` sur une
 > machine de dev où l'UID a déjà beaucoup de processus. Les tests forcent donc `RLIMIT_NPROC=4096`.
 
-> **Validation des rlimits clamav.** Le test `test_real_clean_media_passes_clamav` est un **garde-fou
-> de réglage** : si `clamscan` se fait tuer par le rlimit d'adressage/CPU (ou par l'OOM-killer du
-> cgroup), un média **sain** ressort `suspicious` et ce test **échoue**. Le signal est alors de
-> **relever `RLIMIT_AS_BYTES_CLAMAV` / `RLIMIT_CPU_S_CLAMAV`** (et, en conteneur, le `mem_limit` du
-> service verifier — réglé à 2 Gio dans `compose.yaml`, > 1,5 Gio du rlimit AS).
+> **Dimensionnement des rlimits clamav (hypothèse, non testé).** Quand `clamav` est activé,
+> `clamscan` mmap toute la base de signatures : on relâche `RLIMIT_AS_BYTES_CLAMAV` à **1,5 Gio** et
+> on cale le `mem_limit` du service verifier à **2 Gio** dans `compose.yaml`. C'est un **choix
+> optimiste assumé**, pas validé par un test (la calibration n'aurait de sens que contre l'image de
+> prod, pas un `clamscan` bare-metal — d'où le retrait des tests d'intégration clamav). Si, en prod,
+> un média **sain** ressort `suspicious`, le signal est de **relever `RLIMIT_AS_BYTES_CLAMAV` et le
+> `mem_limit`**.
 
 **Commande.**
 ```bash
 ( cd packages/verifier && uv run pytest -m analysis_integration --no-cov )
 ```
 
-**Attendu.** 11 tests au total ; le nombre de passés/skippés dépend de ce qui est provisionné :
-- **ffmpeg + `libseccomp` présents (cas Linux courant), sans clamav** → **8 passés** (ffprobe +
-  seccomp), **3 skippés** (les 3 cas clamav). *C'est le résultat de référence.*
-- **+ `clamscan` et une base de signatures** → **11 passés**, zéro skip.
-- **ffmpeg seul, sans `libseccomp` ni clamav** → seuls les tests ffprobe passent ; seccomp **et**
-  clamav skippent.
+**Attendu.** 8 tests au total ; le nombre de passés/skippés dépend de ce qui est provisionné :
+- **ffmpeg + `libseccomp` présents (cas Linux courant)** → **8 passés** (7 ffprobe + 1 seccomp),
+  zéro skip. *C'est le résultat de référence.*
+- **ffmpeg seul, sans `libseccomp`** → **7 passés** (ffprobe) ; le test seccomp **skippe**.
 
 ---
 
