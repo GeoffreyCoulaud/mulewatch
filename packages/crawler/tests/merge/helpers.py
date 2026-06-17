@@ -64,6 +64,21 @@ FILE_VERIFICATION_COLUMNS = (
     "verified_at",
     "node_id",
 )
+FILE_OBSERVATION_RANGE_COLUMNS = (
+    "ed2k_hash",
+    "bucket",
+    "filenames",
+    "node_ids",
+    "observation_count",
+    "first_observed_at",
+    "last_observed_at",
+    "source_count_min",
+    "source_count_max",
+    "source_count_sum",
+    "complete_source_count_min",
+    "complete_source_count_max",
+    "complete_source_count_sum",
+)
 
 _COLUMNS_BY_TABLE: Mapping[str, Sequence[str]] = {
     "files": FILE_COLUMNS,
@@ -72,6 +87,7 @@ _COLUMNS_BY_TABLE: Mapping[str, Sequence[str]] = {
     "source_observations": SOURCE_OBSERVATION_COLUMNS,
     "match_decisions": MATCH_DECISION_COLUMNS,
     "file_verifications": FILE_VERIFICATION_COLUMNS,
+    "file_observation_ranges": FILE_OBSERVATION_RANGE_COLUMNS,
 }
 
 # Un hash eD2k canonique (32 hex minuscules) par lettre — satisfait le CHECK sur files.
@@ -115,6 +131,7 @@ def make_catalog(
                 "source_observations",
                 "match_decisions",
                 "file_verifications",
+                "file_observation_ranges",
             ):
                 rows = content.get(table)
                 if rows:

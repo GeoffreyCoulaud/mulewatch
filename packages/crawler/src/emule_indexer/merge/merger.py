@@ -4,13 +4,13 @@ Mécanisme (spec fusion §3/§4) : la sortie est créée/ouverte via ``open_cata
 + triggers append-only, migration ``0001`` — AUCUN DDL dupliqué). Pour chaque source : on
 l'``ATTACH`` (hors transaction — SQLite refuse d'attacher dans une transaction ouverte),
 puis DANS UNE transaction explicite (``BEGIN``…``COMMIT``, ``ROLLBACK`` best-effort sur
-erreur) on copie les 6 tables dans l'**ordre FK** (identités d'abord), puis ``COMMIT`` et
+erreur) on copie les 7 tables dans l'**ordre FK** (identités d'abord), puis ``COMMIT`` et
 ``DETACH`` (hors transaction). Une source à moitié copiée n'est jamais commitée.
 
 Idempotence (spec §4) :
 - ``files``/``sources`` (PK de contenu globale) → ``INSERT OR IGNORE`` (première vue
   gagne) ; JAMAIS ``OR REPLACE`` (= DELETE + INSERT → heurte le trigger append-only).
-- les 4 journaux (``id`` LOCAL, sans sens global) → colonnes explicites SANS ``id`` (la
+- les 5 journaux (``id`` LOCAL, sans sens global) → colonnes explicites SANS ``id`` (la
   base réattribue l'``id``) + dédup par **clé naturelle complète** via ``WHERE NOT EXISTS``,
   comparaisons à l'opérateur ``IS`` (et non ``=``) car des colonnes sont nullable
   (``NULL = NULL`` est faux en SQL → ré-insertion → non idempotent ; ``NULL IS NULL`` est
@@ -122,8 +122,27 @@ _COPY_FILE_VERIFICATIONS = _copy_journal(
     ("ed2k_hash", "verdict", "real_meta", "checks", "verified_at", "node_id"),
 )
 
+_COPY_FILE_OBSERVATION_RANGES = _copy_journal(
+    "file_observation_ranges",
+    (
+        "ed2k_hash",
+        "bucket",
+        "filenames",
+        "node_ids",
+        "observation_count",
+        "first_observed_at",
+        "last_observed_at",
+        "source_count_min",
+        "source_count_max",
+        "source_count_sum",
+        "complete_source_count_min",
+        "complete_source_count_max",
+        "complete_source_count_sum",
+    ),
+)
+
 # Ordre FK IMPÉRATIF (spec §4.3) : identités (files, sources) AVANT les journaux qui les
-# référencent. On exécute ces 6 copies pour UNE source dans UNE transaction.
+# référencent. On exécute ces 7 copies pour UNE source dans UNE transaction.
 _COPY_STATEMENTS = (
     _COPY_FILES,
     _COPY_SOURCES,
@@ -131,6 +150,7 @@ _COPY_STATEMENTS = (
     _COPY_SOURCE_OBSERVATIONS,
     _COPY_MATCH_DECISIONS,
     _COPY_FILE_VERIFICATIONS,
+    _COPY_FILE_OBSERVATION_RANGES,
 )
 
 
@@ -160,7 +180,7 @@ def merge_catalogs(output: Path, sources: Sequence[Path], *, dest_is_source: boo
 
 
 def _merge_one(connection: sqlite3.Connection, source: Path) -> None:
-    """Attache ``source``, copie ses 6 tables dans UNE transaction, détache.
+    """Attache ``source``, copie ses 7 tables dans UNE transaction, détache.
 
     ``ATTACH``/``DETACH`` sont HORS transaction (SQLite refuse d'attacher dans une
     transaction ouverte). La copie est enveloppée par ``BEGIN``/``COMMIT`` ; une erreur

@@ -360,3 +360,41 @@ def test_t18_dedups_identical_rows_internal_to_one_source(tmp_path: Path) -> Non
     # Re-merge = no-op (idempotent même après normalisation).
     merge_catalogs(out, [src])
     assert count(out, "file_observations") == 2
+
+
+def test_merge_unions_observation_ranges_and_is_idempotent(tmp_path: Path) -> None:
+    row_a = {
+        "ed2k_hash": HASH_A,
+        "bucket": "2026-01-01",
+        "filenames": '["x"]',
+        "node_ids": '["n1"]',
+        "observation_count": 2,
+        "first_observed_at": "2026-01-01",
+        "last_observed_at": "2026-01-01",
+        "source_count_min": 1,
+        "source_count_max": 3,
+        "source_count_sum": 4,
+        "complete_source_count_min": 0,
+        "complete_source_count_max": 1,
+        "complete_source_count_sum": 1,
+    }
+    row_b = {**row_a, "node_ids": '["n2"]', "source_count_sum": 6}  # autre nœud → ligne distincte
+    src1 = make_catalog(
+        tmp_path / "s1.db",
+        {
+            "files": [{"ed2k_hash": HASH_A, "size_bytes": 1}],
+            "file_observation_ranges": [row_a],
+        },
+    )
+    src2 = make_catalog(
+        tmp_path / "s2.db",
+        {
+            "files": [{"ed2k_hash": HASH_A, "size_bytes": 1}],
+            "file_observation_ranges": [row_b],
+        },
+    )
+    out = tmp_path / "out.db"
+    merge_catalogs(out, [src1, src2])
+    assert count(out, "file_observation_ranges") == 2  # union (deux node_ids distincts)
+    merge_catalogs(out, [src1, src2], dest_is_source=False)  # re-merge → no-op
+    assert count(out, "file_observation_ranges") == 2
