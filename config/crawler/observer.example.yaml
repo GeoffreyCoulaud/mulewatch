@@ -1,0 +1,14 @@
+# Config LOCALE crawler — MODÈLE (mode observer : cataloguer seulement).
+# Copier en config/crawler/observer.yaml (gitignoré) et renseigner le mot de passe EC.
+amules:
+  - name: amule-1
+    host: amuled                       # service amuled (sans-vpn) OU alias `amuled` sur gluetun
+    port: 4712
+    password: change-me                # = AMULE_EC_PASSWORD du .env
+catalog_db_path: /data/catalog/catalog.db
+local_db_path: /data/local/local.db
+# Pas de verifier_url => mode observer (aucun download / vérif).
+# Notifications apprise (optionnel) :
+# observability:
+#   notifications:
+#     - { url: "discord://WEBHOOK_ID/TOKEN", tag: community }

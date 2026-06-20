@@ -11,9 +11,9 @@ dist/
 *.db
 *.db-wal
 *.db-shm
-# Config locale (machine + secret) — JAMAIS versionnée (spec orchestration §5).
-# Seul config/local.example.yaml (modèle) est suivi.
-config/local.yaml
+# Config locale crawler (machine + secret EC) — JAMAIS versionnée. Seuls les *.example.yaml le sont.
+config/crawler/observer.yaml
+config/crawler/download.yaml
 # Secrets de deploiement (ProtonVPN, EC password) — JAMAIS versionnes. Seul .env.example l'est.
 .env
 vendor/

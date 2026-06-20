@@ -1,0 +1,9 @@
+# Fins de ligne forcées LF pour les fichiers édités à la main au déploiement (Windows compris).
+.env.example   text eol=lf
+*.env          text eol=lf
+config/**/*.yaml text eol=lf
+config/**/*.yml  text eol=lf
+config/**/*.json text eol=lf
+bricks/*.yaml  text eol=lf
+examples/*.yaml text eol=lf
+compose*.yaml  text eol=lf

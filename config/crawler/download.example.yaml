@@ -1,0 +1,25 @@
+# Config LOCALE crawler — MODÈLE (mode download : télécharger + vérifier).
+# Copier en config/crawler/download.yaml (gitignoré) et renseigner le mot de passe EC.
+amules:
+  - name: amule-1
+    host: amuled
+    port: 4712
+    password: change-me                # = AMULE_EC_PASSWORD du .env
+catalog_db_path: /data/catalog/catalog.db
+local_db_path: /data/local/local.db
+download_endpoint:
+  name: amule-dl
+  host: amuled
+  port: 4712
+  password: change-me
+staging_dir: /data/quarantine
+quarantine_dir: /data/quarantine
+verifier_url: http://verifier:8000     # présence => mode download (download + vérif)
+# Port-sync (High-ID via gluetun, stack B) — décommenter ET passer VPN_PORT_FORWARDING=on ;
+# nécessite aussi la section crawler.port_sync dans config/crawler/crawler.yaml :
+# gluetun_control_url: http://gluetun:8000
+# restarter_url: http://docker-proxy:2375
+# Notifications apprise (optionnel) :
+# observability:
+#   notifications:
+#     - { url: "discord://WEBHOOK_ID/TOKEN", tag: operations }
