@@ -11,7 +11,7 @@ catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jama
 ## Cycle de vie & données
 
 - **Persistance.** Le catalogue et l'état vivent dans des **volumes Docker nommés** (`catalog-db`,
-  `local-db`, `quarantine`, `amule-state`, et `clamav-db` en full). Ils **persistent** à la
+  `local-db`, `quarantine`, `amule-state`, et `clamav-db` en mode download). Ils **persistent** à la
   recréation des conteneurs — ne lancez `docker compose down` **avec `-v`** que si vous voulez
   réellement **effacer** le catalogue.
 - **Arrêter le nœud** : `docker compose -f examples/<fichier> --profile <observer|download> down`.
@@ -88,7 +88,7 @@ sortie Internet** (réseau `internal: true`) — il ne peut donc pas mettre à j
 dans un **volume partagé `clamav-db`** ; le verifier le **lit en lecture seule**. L'isolement du
 verifier est préservé.
 
-- Au démarrage en full, `freshclam` fait sa **première synchronisation** (~300–500 Mo) — cela prend
+- Au démarrage en mode download, `freshclam` fait sa **première synchronisation** (~300–500 Mo) — cela prend
   quelques minutes. **Tant que la base n'est pas là, clamav rend `suspicious`** (défensif, jamais
   `clean` sans base), ce qui peut mettre des fichiers en attente d'un re-scan. C'est transitoire.
 - L'image du verifier grossit de **~50–80 Mo** (le moteur `libclamav` + `clamscan` ; **pas** la base,
