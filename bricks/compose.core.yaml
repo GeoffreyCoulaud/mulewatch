@@ -1,0 +1,172 @@
+# Brique COMMUNE (spec 2026-06-20 §4) — incluse par chaque examples/*.yaml.
+# Définit TOUT sauf amuled & le VPN. Cohérente seule :
+#   GRAFANA_PWD=x docker compose -f bricks/compose.core.yaml config
+x-crawler-common: &crawler-common
+  image: ghcr.io/geoffreycoulaud/emule-indexer-crawler:${IMAGE_TAG:-latest}
+  build:
+    context: .
+    dockerfile: packages/crawler/Dockerfile
+  user: "999:999"
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - "no-new-privileges:true"
+  pids_limit: 256
+  mem_limit: 512m
+  runtime: ${CONTAINER_RUNTIME:-runc}
+  command:
+    - "--local"
+    - "/app/config/local.yaml"
+    - "--crawler"
+    - "/app/config/crawler.yaml"
+    - "--targets"
+    - "/app/config/targets.yaml"
+    - "--matcher"
+    - "/app/config/matcher.yaml"
+  restart: unless-stopped
+
+services:
+  crawler-observer:
+    <<: *crawler-common
+    profiles: [observer]
+    networks:
+      ec:
+        aliases: [crawler]
+      egress: {}
+    volumes:
+      - ./config/crawler/observer.yaml:/app/config/local.yaml:ro
+      - ./config/crawler/crawler.yaml:/app/config/crawler.yaml:ro
+      - ./config/crawler/targets.yaml:/app/config/targets.yaml:ro
+      - ./config/crawler/matcher.yaml:/app/config/matcher.yaml:ro
+      - catalog-db:/data/catalog
+      - local-db:/data/local
+      - quarantine:/data/quarantine
+
+  crawler-download:
+    <<: *crawler-common
+    profiles: [download]
+    networks:
+      ec:
+        aliases: [crawler]
+      verify-internal: {}
+      egress: {}
+    depends_on:
+      - verifier
+    volumes:
+      - ./config/crawler/download.yaml:/app/config/local.yaml:ro
+      - ./config/crawler/crawler.yaml:/app/config/crawler.yaml:ro
+      - ./config/crawler/targets.yaml:/app/config/targets.yaml:ro
+      - ./config/crawler/matcher.yaml:/app/config/matcher.yaml:ro
+      - catalog-db:/data/catalog
+      - local-db:/data/local
+      - quarantine:/data/quarantine
+
+  verifier:
+    image: ghcr.io/geoffreycoulaud/emule-indexer-verifier:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: packages/verifier/Dockerfile
+    profiles: [download]
+    runtime: ${CONTAINER_RUNTIME:-runc}
+    environment:
+      QUARANTINE_DIR: /quarantine
+      VERIFIER_HOST: 0.0.0.0
+      VERIFIER_PORT: "8000"
+      VERIFIER_CONFIG: /config/verifier.yaml
+      ENABLED_CHECKS: type_sniff,ffprobe,clamav
+      CLAMAV_DB_DIR: /clamav-db
+      RLIMIT_AS_BYTES_CLAMAV: "1610612736"
+      RLIMIT_CPU_S_CLAMAV: "120"
+    volumes:
+      - quarantine:/quarantine:ro
+      - clamav-db:/clamav-db:ro
+      - ./config/verifier.yaml:/config/verifier.yaml:ro
+    networks:
+      - verify-internal
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    user: "999:999"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    pids_limit: 256
+    mem_limit: 2g
+    restart: unless-stopped
+
+  freshclam:
+    image: clamav/clamav:1.4
+    profiles: [download]
+    command: ["freshclam", "--daemon", "--foreground", "--checks=2"]
+    environment:
+      FRESHCLAM_CHECKS: "2"
+    volumes:
+      - clamav-db:/var/lib/clamav
+    networks:
+      - egress
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: [monitoring]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - ec
+      - verify-internal
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: [monitoring]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PWD:?}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - ec
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+networks:
+  ec: {}
+  verify-internal:
+    internal: true
+  egress: {}
+
+volumes:
+  quarantine: {}
+  catalog-db: {}
+  local-db: {}
+  amule-state: {}
+  clamav-db: {}
+  prometheus-data: {}
+  grafana-data: {}
