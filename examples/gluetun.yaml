@@ -1,0 +1,64 @@
+# Stacks A/B — VPN intégré gluetun (spec 2026-06-20 §5, §10). Le P2P sort par le VPN (IP masquée).
+# A (Low-ID) : par défaut. B (High-ID) : hôte Linux rootful + VPN avec port forwarding ;
+# passer VPN_PORT_FORWARDING=on (.env) ET décommenter le bloc port_sync dans config/crawler/download.yaml.
+# Lancer : docker compose -f examples/gluetun.yaml --profile <observer|download> [--profile monitoring] up -d
+# Détails : docs/runbook-deployment.md
+name: emule-indexer
+include:
+  - path: ../bricks/compose.core.yaml
+    project_directory: ..
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    profiles: [observer, download]
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:-protonvpn}
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY:?}
+      SERVER_COUNTRIES: ${SERVER_COUNTRIES:-}
+      VPN_PORT_FORWARDING: ${VPN_PORT_FORWARDING:-off}
+      HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE: '{"auth":"none"}'
+    networks:
+      ec:
+        aliases: [amuled]          # le host EC `amuled` résout vers gluetun (amuled partage sa netns)
+    restart: unless-stopped
+
+  amuled:
+    image: ngosang/amule:3.0.0-1
+    container_name: amuled         # FIXE : le restart port-sync cible /containers/amuled/restart
+    profiles: [observer, download]
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      GUI_PWD: ${AMULE_EC_PASSWORD:?}
+    volumes:
+      - amule-state:/home/amule/.aMule
+      - quarantine:/data/quarantine
+    restart: unless-stopped
+
+  docker-proxy:
+    image: wollomatic/socket-proxy:1.12.2
+    profiles: [download]
+    command:
+      - "-loglevel=info"
+      - "-allowfrom=0.0.0.0/0"
+      - "-listenip=0.0.0.0"
+      - "-proxyport=2375"
+      - "-socketpath=/var/run/docker.sock"
+      - "-allowPOST=/v1\\..{1,2}/containers/amuled/restart"
+    user: "65534:${DOCKER_GID:-0}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - ec
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    read_only: true
+    restart: unless-stopped
