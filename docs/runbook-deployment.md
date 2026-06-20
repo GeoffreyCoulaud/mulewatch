@@ -124,8 +124,10 @@ Copy-Item config/crawler/observer.example.yaml config/crawler/observer.yaml
 De même pour le mode download :
 
 ```bash
+# Linux / macOS / WSL2 :
 cp config/crawler/download.example.yaml config/crawler/download.yaml
-# (PowerShell : Copy-Item …)
+# PowerShell :
+Copy-Item config/crawler/download.example.yaml config/crawler/download.yaml
 ```
 
 Dans le fichier copié, renseignez `amules[].password` avec la valeur de `AMULE_EC_PASSWORD`.

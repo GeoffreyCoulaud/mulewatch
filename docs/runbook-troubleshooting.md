@@ -53,7 +53,7 @@ format : **symptôme → cause → solution**. Pour *monter* un nœud, voir le
 
 Trois causes possibles, de la plus probable à la moins :
 
-1. **La base clamav n'est pas encore synchronisée.** Au premier démarrage en full, le sidecar
+1. **La base clamav n'est pas encore synchronisée.** Au premier démarrage en mode download, le sidecar
    `freshclam` télécharge ~300–500 Mo (quelques minutes) ; tant qu'elle manque, clamav rend
    `suspicious` par défaut (jamais `clean` sans base). **C'est transitoire** — attendez la fin de la
    première synchro, le fichier sera re-scanné.
