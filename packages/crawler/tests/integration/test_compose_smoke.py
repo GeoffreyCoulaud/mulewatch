@@ -5,9 +5,9 @@ Docker + docker compose v2 requis. Monte verifier + crawler + amuled (gluetun re
 compose.smoke.yaml) et asserte le CÂBLAGE — AUCUN téléchargement réel (amuled n'a ni serveur
 eD2k ni VPN ; seul son serveur EC est sollicité) :
   1. `docker compose build` réussit (les 2 images se construisent).
-  2. full : verifier devient healthy (/health 200) ET le crawler reste Up.
+  2. download : verifier devient healthy (/health 200) ET le crawler reste Up.
   3. observer : crawler démarre SANS verifier et reste Up.
-  4. full fail-fast : crawler full avec verifier_url mais verifier ABSENT => exit != 0.
+  4. download fail-fast : crawler download avec verifier_url mais verifier ABSENT => exit != 0.
 Volumes éphémères : chaque scénario fait `docker compose down -v` dans un finally.
 
 Mécaniques arrêtées EMPIRIQUEMENT (compose v5, Docker 29) :
@@ -19,12 +19,13 @@ Mécaniques arrêtées EMPIRIQUEMENT (compose v5, Docker 29) :
     propriété 999:999 au premier mount, donc le crawler non-root peut y créer ses fichiers SQLite.
     Le smoke exerce DÉLIBÉRÉMENT ce chemin de persistance réel pour attraper toute régression de
     perms (volume nommé root-owned => ``unable to open database file``).
-  * Full : un override ré-ajoute ``depends_on: { verifier: service_healthy }`` (absent de la base
-    smoke pour que le profil ``observer`` valide) => démarrage DÉTERMINISTE après le verifier sain.
+  * Download : un override ré-ajoute ``depends_on: { verifier: service_healthy }`` (absent de la
+    base smoke pour que le profil ``observer`` valide) => démarrage DÉTERMINISTE après le verifier
+    sain.
   * Observer : un override re-monte ``local.observer.yaml`` (pas de ``verifier_url``) et on lève
     le profil ``observer`` (le service verifier n'y existe pas).
   * Fail-fast : un override force ``restart: "no"`` (sinon ``unless-stopped`` boucle à l'infini) ;
-    on lève amuled+crawler SANS profil (=> verifier ABSENT) ; le crawler full health-check le
+    on lève amuled+crawler SANS profil (=> verifier ABSENT) ; le crawler download health-check le
     verifier au démarrage, échoue, et SE FIGE en ``exited`` avec un code != 0.
 """
 
@@ -41,8 +42,23 @@ import pytest
 pytestmark = pytest.mark.compose_integration
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_COMPOSE = _REPO_ROOT / "compose.yaml"
 _SMOKE = _REPO_ROOT / "compose.smoke.yaml"
+
+_ENTRY_POINTS = ("gluetun", "sans-vpn-lowid", "sans-vpn-highid")
+_CONFIG_CASES: tuple[tuple[str, tuple[str, ...]], ...] = tuple(
+    (entry, profiles)
+    for entry in _ENTRY_POINTS
+    for profiles in (("observer",), ("download",), ("download", "monitoring"))
+)
+_CONFIG_ENV = {
+    "WIREGUARD_PRIVATE_KEY": "x",
+    "AMULE_EC_PASSWORD": "x",
+    "GRAFANA_PWD": "x",
+    "SERVER_COUNTRIES": "",
+    "DOCKER_GID": "0",
+    "LISTEN_PORT": "4662",
+    "LISTEN_PORT_UDP": "4672",
+}
 
 # Projet isolé (préfixe unique par run) pour ne JAMAIS toucher une stack réelle de l'hôte.
 _PROJECT = f"emule_smoke_{uuid.uuid4().hex[:8]}"
@@ -59,8 +75,8 @@ _ENV_STUB = {
 # (catalog-db/local-db/quarantine). Le crawler non-root (uid 999) y crée ses bases SQLite —
 # le Dockerfile possède les points de montage en nonroot pour que les volumes vides héritent
 # de 999:999. Les chemins de bind restent relatifs au working_dir du projet.
-_FULL_LOCAL_VOLUMES = [
-    "./tests/smoke/local.full.yaml:/app/config/local.yaml:ro",
+_DOWNLOAD_LOCAL_VOLUMES = [
+    "./tests/smoke/local.download.yaml:/app/config/local.yaml:ro",
     "./tests/smoke/crawler.yaml:/app/config/crawler.yaml:ro",
     "./tests/smoke/targets.yaml:/app/config/targets.yaml:ro",
     "./tests/smoke/matcher.yaml:/app/config/matcher.yaml:ro",
@@ -105,12 +121,13 @@ def _run(*args: str, files: tuple[Path, ...], timeout: float) -> subprocess.Comp
 def _down(files: tuple[Path, ...]) -> None:
     """Tear-down idempotent : retire conteneurs + volumes + orphelins du projet.
 
-    ``--profile full`` est OBLIGATOIRE : sans profil actif, ``down`` ignore les services
+    ``--profile download`` est OBLIGATOIRE : sans profil actif, ``down`` ignore les services
     profile-gated (compose v5) et laisserait tourner un verifier d'un scénario précédent
-    (le service verifier n'est défini que dans le profil ``full``). Le profil ``full`` est un
-    sur-ensemble (amuled+crawler+verifier), donc il nettoie aussi les scénarios observer/fail-fast.
+    (le service verifier n'est défini que dans le profil ``download``). Le profil ``download`` est
+    un sur-ensemble (amuled+crawler+verifier), donc il nettoie aussi les scénarios
+    observer/fail-fast.
     """
-    _run("--profile", "full", "down", "-v", "--remove-orphans", files=files, timeout=180)
+    _run("--profile", "download", "down", "-v", "--remove-orphans", files=files, timeout=180)
 
 
 def _service_state(service: str, files: tuple[Path, ...]) -> tuple[str, int]:
@@ -141,12 +158,8 @@ def _wait_state(
 
 @pytest.fixture
 def project_files() -> Iterator[tuple[Path, ...]]:
-    """Fichiers compose de base (compose.yaml + compose.smoke.yaml) + tear-down encadrant.
-
-    Les overrides de scénario s'ajoutent par-dessus dans chaque test ; le `down -v` ici garantit
-    qu'aucun résidu d'un run précédent ne traîne (avant) et que tout est nettoyé (après).
-    """
-    base = (_COMPOSE, _SMOKE)
+    """Fichier compose smoke autonome + tear-down encadrant."""
+    base = (_SMOKE,)
     _down(base)
     try:
         yield base
@@ -155,16 +168,16 @@ def project_files() -> Iterator[tuple[Path, ...]]:
 
 
 def test_build_succeeds(project_files: tuple[Path, ...]) -> None:
-    result = _run("--profile", "full", "build", files=project_files, timeout=900)
+    result = _run("--profile", "download", "build", files=project_files, timeout=900)
     assert result.returncode == 0, result.stderr
 
 
-def test_full_verifier_healthy_and_crawler_up(
+def test_download_verifier_healthy_and_crawler_up(
     project_files: tuple[Path, ...], tmp_path: Path
 ) -> None:
     override = _write_override(
         tmp_path,
-        "full.override.yaml",
+        "download.override.yaml",
         _yaml_crawler(
             depends_on=(
                 "    depends_on:\n"
@@ -173,11 +186,11 @@ def test_full_verifier_healthy_and_crawler_up(
                 "      verifier:\n"
                 "        condition: service_healthy\n"
             ),
-            volumes=_FULL_LOCAL_VOLUMES,
+            volumes=_DOWNLOAD_LOCAL_VOLUMES,
         ),
     )
     files = (*project_files, override)
-    result = _run("--profile", "full", "up", "-d", "--build", files=files, timeout=900)
+    result = _run("--profile", "download", "up", "-d", "--build", files=files, timeout=900)
     assert result.returncode == 0, result.stderr
 
     # depends_on: service_healthy => le verifier est déjà sain quand le crawler démarre.
@@ -216,19 +229,21 @@ def test_observer_starts_without_verifier(project_files: tuple[Path, ...], tmp_p
     assert _wait_state("crawler", "running", files)[0] == "running"
 
 
-def test_full_without_verifier_fails_fast(project_files: tuple[Path, ...], tmp_path: Path) -> None:
+def test_download_without_verifier_fails_fast(
+    project_files: tuple[Path, ...], tmp_path: Path
+) -> None:
     override = _write_override(
         tmp_path,
         "failfast.override.yaml",
         _yaml_crawler(
             depends_on=None,
-            volumes=_FULL_LOCAL_VOLUMES,
+            volumes=_DOWNLOAD_LOCAL_VOLUMES,
             restart_no=True,
         ),
     )
     files = (*project_files, override)
-    # On lève UNIQUEMENT amuled + crawler (sans `--profile full`) => le verifier est ABSENT.
-    # Config full (verifier_url présent) => le crawler health-check le verifier au démarrage,
+    # On lève UNIQUEMENT amuled + crawler (sans `--profile download`) => le verifier est ABSENT.
+    # Config download (verifier_url présent) => le crawler health-check le verifier au démarrage,
     # échoue, et avec restart: "no" SE FIGE en exited (pas de boucle de redémarrage).
     result = _run("up", "-d", "--build", "amuled", "crawler", files=files, timeout=900)
     assert result.returncode == 0, result.stderr
@@ -236,6 +251,35 @@ def test_full_without_verifier_fails_fast(project_files: tuple[Path, ...], tmp_p
     state, exit_code = _wait_state("crawler", "exited", files)
     assert state == "exited"
     assert exit_code != 0
+
+
+@pytest.mark.parametrize("entry,profiles", _CONFIG_CASES)
+def test_entrypoint_config_renders(entry: str, profiles: tuple[str, ...]) -> None:
+    """`docker compose -f examples/<entry>.yaml --profile … config` rend sans erreur.
+
+    Verrouille include + forward-refs + ancres/merge + interpolation (pas de daemon requis ;
+    les sources de bind-mount n'ont pas besoin d'exister pour `config`).
+    """
+    profile_flags: list[str] = []
+    for profile in profiles:
+        profile_flags += ["--profile", profile]
+    command = [
+        "docker",
+        "compose",
+        "-f",
+        f"examples/{entry}.yaml",
+        *profile_flags,
+        "config",
+    ]
+    result = subprocess.run(
+        command,
+        cwd=_REPO_ROOT,
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), **_CONFIG_ENV},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _yaml_crawler(
