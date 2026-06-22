@@ -12,4 +12,5 @@ echo "[pre-push] pytest matching…";     ( cd packages/matching && uv run pytes
 echo "[pre-push] pytest crawler…";      ( cd packages/crawler  && uv run pytest )
 echo "[pre-push] pytest verifier…";     ( cd packages/verifier && uv run pytest )
 echo "[pre-push] pytest webui…";        ( cd packages/webui    && uv run pytest )
+echo "[pre-push] garde templates…";    uv run python -m catalog_webui._dev.check_templates packages/webui/src/catalog_webui/adapters/templates
 echo "[pre-push] OK"

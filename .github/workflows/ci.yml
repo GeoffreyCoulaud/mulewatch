@@ -21,3 +21,4 @@ jobs:
       - run: ( cd packages/crawler  && uv run pytest )
       - run: ( cd packages/verifier && uv run pytest )
       - run: ( cd packages/webui    && uv run pytest )
+      - run: uv run python -m catalog_webui._dev.check_templates packages/webui/src/catalog_webui/adapters/templates
