@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Tableau de bord — emule-indexer{% endblock %}
+{% block content %}
+<h1>Tableau de bord</h1>
+
+<section>
+  <h2>État du nœud</h2>
+  <dl>
+    <dt>Identifiant</dt>
+    <dd>{{ node_state.node_id }}</dd>
+    <dt>Créé le</dt>
+    <dd>{{ node_state.created_at }}</dd>
+  </dl>
+</section>
+
+<section>
+  <h2>Couverture des cibles</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Identifiant</th>
+        <th>Titre</th>
+        <th>Statut</th>
+        <th>Meilleur tier</th>
+        <th>Fichiers</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td><a href="/targets/{{ row.target_id }}">{{ row.target_id }}</a></td>
+        <td>{{ row.title }}</td>
+        <td>{{ row.status }}</td>
+        <td>{{ row.best_tier_display }}</td>
+        <td>{{ row.file_count }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">Aucune cible configurée.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Nœud — emule-indexer{% endblock %}
+{% block content %}
+<h1>État du nœud</h1>
+
+<section>
+  <h2>Identité</h2>
+  <dl>
+    <dt>Identifiant</dt>
+    <dd>{{ node_state.node_id }}</dd>
+    <dt>Créé le</dt>
+    <dd>{{ node_state.created_at }}</dd>
+  </dl>
+</section>
+
+<section>
+  <h2>Téléchargements</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Hash</th>
+        <th>Cible</th>
+        <th>État</th>
+        <th>Mis en file le</th>
+        <th>Terminé le</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for dl in node_state.downloads %}
+      <tr>
+        <td>{{ dl.ed2k_hash }}</td>
+        <td>{{ dl.target_id }}</td>
+        <td>{{ dl.state }}</td>
+        <td>{{ dl.queued_at }}</td>
+        <td>{{ dl.completed_at }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">Aucun téléchargement.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Tâches de vérification</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Hash</th>
+        <th>Statut</th>
+        <th>Tentatives</th>
+        <th>Mis en file le</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for vt in node_state.verification_tasks %}
+      <tr>
+        <td>{{ vt.ed2k_hash }}</td>
+        <td>{{ vt.status }}</td>
+        <td>{{ vt.attempts }}</td>
+        <td>{{ vt.enqueued_at }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">Aucune tâche de vérification.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

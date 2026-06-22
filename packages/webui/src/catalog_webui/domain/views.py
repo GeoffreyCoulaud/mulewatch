@@ -13,6 +13,22 @@ class CoverageStatus:
 
 
 # ---------------------------------------------------------------------------
+# Dashboard — couverture par cible
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TargetCoverageRow:
+    """Ligne du tableau de bord : couverture d'une cible."""
+
+    target_id: str
+    title: str
+    status: str  # "found" | "partial" | "none"
+    best_tier_display: str  # best_tier ou "—"
+    file_count: int
+
+
+# ---------------------------------------------------------------------------
 # Explorateur de fichiers
 # ---------------------------------------------------------------------------
 
@@ -120,3 +136,55 @@ class NodeState:
     scheduler: Mapping[str, str]  # toutes les paires de scheduler_state
     node_id: str | None  # None si absent de node_runtime
     created_at: str | None  # None si absent de node_runtime
+
+
+# ---------------------------------------------------------------------------
+# Explorateur de fichiers — ligne d'affichage (précalculée)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FileRowDisplay:
+    """Ligne de la liste paginée des fichiers : tous les champs précalculés."""
+
+    ed2k_hash: str
+    short_hash: str
+    filename: str
+    size_bytes: int
+    source_count: int
+    last_seen: str
+    target_id_display: str  # target_id ou "—"
+    tier_display: str  # tier ou "—"
+    verdict_display: str  # last_verdict ou "—"
+    ed2k_link: str
+
+
+# ---------------------------------------------------------------------------
+# Détail fichier — vue d'affichage (précalculée)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FileDetailDisplay:
+    """Vue complète d'un fichier : tous les champs précalculés pour le template.
+
+    ``decisions`` est un tuple de 0 ou 1 élément pour permettre l'itération
+    ``{% for d in file.decisions %}`` dans le template (le garde interdit {% if %}).
+    ``explanation_notes`` est vide si aucune explication, contenant un seul élément
+    sinon — permet l'itération conditionnelle sans {% if %}.
+    """
+
+    ed2k_hash: str
+    size_bytes: int
+    aich_hash_display: str  # aich_hash ou "—"
+    observations: tuple[ObservationRow, ...]
+    decision: DecisionView | None
+    decisions: tuple[DecisionView, ...]  # 0 ou 1 élément — pour l'itération template
+    verifications: tuple[VerificationRow, ...]
+    ed2k_link: str  # précalculé depuis la dernière observation
+    # Champs d'explication (None si aucune explication disponible)
+    explanation_target_id: str | None
+    explanation_rules_fired: tuple[str, ...]
+    explanation_tokens_matched: tuple[str, ...]
+    explanation_config_note: str  # "Évalué contre la configuration actuelle" ou ""
+    explanation_notes: tuple[str, ...]  # 0 ou 1 élément — pour l'itération template
