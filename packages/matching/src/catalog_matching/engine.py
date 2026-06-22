@@ -168,6 +168,20 @@ class MatchingEngine:
         self._resolved: tuple[ResolvedTarget, ...] = tuple(
             resolver.resolve_all(target) for target in targets
         )
+        self._resolved_by_target: dict[str, ResolvedTarget] = {
+            r.target.target_id: r for r in self._resolved
+        }
+
+    def explain(self, candidate: FileCandidate, target_id: str) -> Explanation | None:
+        """Explique le match de ``candidate`` contre la cible ``target_id`` (config courante).
+
+        ``None`` si ``target_id`` est inconnu de la config. Sinon une ``Explanation`` (vide si
+        aucune règle ne se déclenche). Réutilise l'arbre de matchers résolu par cible.
+        """
+        resolved = self._resolved_by_target.get(target_id)
+        if resolved is None:
+            return None
+        return _explain(self._config, resolved, candidate)
 
     def evaluate(self, candidate: FileCandidate) -> MatchDecision | None:
         """Décision fichier déterministe (cf. spec §8.5) ou ``None`` (fichier écarté).
