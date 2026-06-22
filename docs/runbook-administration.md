@@ -179,6 +179,70 @@ Pour valider/tester en profondeur (suites d'intégration, smoke, CI), voir le
 
 ---
 
+## WebUI (consultation du catalogue)
+
+La WebUI est une interface de **lecture seule** qui expose le catalogue SQLite via un serveur HTTP
+Starlette/Jinja2. Elle n'a **aucune authentification** — l'auth/TLS sont délégués au reverse proxy
+amont (nginx, Caddy, Traefik, etc.) que vous mettez devant. Elle ne modifie aucune donnée et n'a
+accès à aucun réseau applicatif (elle monte uniquement les volumes de bases de données en lecture).
+
+### Lancer la WebUI
+
+```bash
+# Mode observer (catalogue seul) :
+docker compose -f examples/<fichier> --profile observer up -d webui
+
+# Mode download (catalogue + téléchargements) :
+docker compose -f examples/<fichier> --profile download up -d webui
+```
+
+### Routes disponibles
+
+| Route | Description |
+|---|---|
+| `/` | Tableau de bord — couverture par cible (épisodes trouvés/manquants) |
+| `/files` | Liste paginée des fichiers ; filtres `?target=`, `?tier=`, `?verdict=`, `?q=` |
+| `/files/{ed2k_hash}` | Détail d'un fichier (observations, décisions, vérifications, explication du matching) |
+| `/targets/{target_id}` | Fichiers d'une cible (alias de `/files?target=`) |
+| `/node` | État du nœud amuled (connexions, état réseau) |
+| `/health` | Healthcheck JSON — répond `{"status": "ok"}` si le service est opérationnel |
+
+### Variables d'environnement
+
+| Variable | Valeur par défaut | Rôle |
+|---|---|---|
+| `CATALOG_DB` | `/data/catalog/catalog.db` | Chemin vers la base catalogue |
+| `LOCAL_DB` | `/data/local/local.db` | Chemin vers la base état local |
+| `TARGETS_CONFIG` | `/app/config/targets.yaml` | Config cibles (montée depuis `./config/crawler/targets.yaml`) |
+| `MATCHER_CONFIG` | `/app/config/matcher.yaml` | Config matcher (montée depuis `./config/crawler/matcher.yaml`) |
+| `WEBUI_HOST` | `0.0.0.0` | Adresse d'écoute |
+| `WEBUI_PORT` | `8080` | Port d'écoute (exposé via `${WEBUI_PORT:-8080}:8080`) |
+
+### Exposition derrière un reverse proxy
+
+La WebUI n'a ni TLS ni authentification — mettez un reverse proxy devant si elle est accessible
+sur le réseau. Exemple minimal avec Caddy :
+
+```caddyfile
+webui.example.com {
+    basicauth /* {
+        alice $2a$14$...  # bcrypt généré par caddy hash-password
+    }
+    reverse_proxy webui:8080
+}
+```
+
+> **Point empirique #1 (à valider au premier déploiement)** : le montage `:ro` des bases SQLite en
+> mode WAL vivant (le crawler écrit simultanément) peut échouer — SQLite en mode WAL crée des
+> fichiers `-shm` et `-wal` dont les accès `mmap` peuvent être refusés par le noyau quand le FS est
+> monté `mode=ro`. Si la WebUI ne démarre pas ou retourne des erreurs SQLite, retirez le `:ro` du
+> montage des volumes `catalog-db` et `local-db` dans votre fichier `examples/*.yaml` (le montage
+> devient RW, mais `open_ro` applicatif (`PRAGMA query_only=ON`) maintient la garantie lecture seule
+> côté application). Documentez le verdict dans
+> [`docs/reference/`](reference/2026-06-22-webui-wal-readonly.md) après validation homelab.
+
+---
+
 ## Limites connues / follow-ups
 
 - **Ring noyau — posture ACTÉE (2026-06-17)** : le ring noyau par-enfant « étendu » (`net=none`,
@@ -207,4 +271,7 @@ Pour valider/tester en profondeur (suites d'intégration, smoke, CI), voir le
   [runbook de déploiement](runbook-deployment.md) (mode download). *(La suite e2e « transfert réel » qui
   aurait validé la chaîne complète a été abandonnée — voir le guide des tests ; le décodage
   `shared_files()` contre un vrai amuled est, lui, couvert par `download_integration`.)*
-- **WebUI / hub central / rétention** : non planifiés à ce stade.
+- **WebUI — montage WAL `:ro` inter-conteneurs** : point empirique ouvert, à valider au premier
+  déploiement réel (voir section « WebUI » plus haut et
+  [`docs/reference/2026-06-22-webui-wal-readonly.md`](reference/2026-06-22-webui-wal-readonly.md)).
+- **Hub central / rétention** : non planifiés à ce stade.

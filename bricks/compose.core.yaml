@@ -156,6 +156,49 @@ services:
       - prometheus
     restart: unless-stopped
 
+  webui:
+    image: ghcr.io/geoffreycoulaud/emule-indexer-webui:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: packages/webui/Dockerfile
+    profiles: [observer, download]
+    runtime: ${CONTAINER_RUNTIME:-runc}
+    environment:
+      WEBUI_HOST: 0.0.0.0
+      WEBUI_PORT: "8080"
+      CATALOG_DB: /data/catalog/catalog.db
+      LOCAL_DB: /data/local/local.db
+      TARGETS_CONFIG: /app/config/targets.yaml
+      MATCHER_CONFIG: /app/config/matcher.yaml
+    volumes:
+      - catalog-db:/data/catalog:ro
+      - local-db:/data/local:ro
+      - ./config/crawler/targets.yaml:/app/config/targets.yaml:ro
+      - ./config/crawler/matcher.yaml:/app/config/matcher.yaml:ro
+    ports:
+      - "${WEBUI_PORT:-8080}:8080"
+    user: "999:999"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    pids_limit: 128
+    mem_limit: 256m
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8080/health').status==200 else sys.exit(1)"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
 networks:
   ec: {}
   verify-internal:
