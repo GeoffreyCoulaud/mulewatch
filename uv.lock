@@ -9,6 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "catalog-matching",
+    "catalog-webui",
     "download-verifier",
     "emule-indexer",
 ]
@@ -16,6 +17,7 @@ members = [
 [manifest.dependency-groups]
 dev = [
     { name = "catalog-matching", editable = "packages/matching" },
+    { name = "catalog-webui", editable = "packages/webui" },
     { name = "download-verifier", editable = "packages/verifier" },
     { name = "emule-indexer", editable = "packages/crawler" },
     { name = "mypy", specifier = ">=1.10" },
@@ -112,6 +114,27 @@ dependencies = [
 requires-dist = [
     { name = "google-re2", specifier = ">=1.1.20251105" },
     { name = "rapidfuzz", specifier = ">=3.14.5" },
+]
+
+[[package]]
+name = "catalog-webui"
+version = "0.0.0"
+source = { editable = "packages/webui" }
+dependencies = [
+    { name = "catalog-matching" },
+    { name = "jinja2" },
+    { name = "pyyaml" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "catalog-matching", editable = "packages/matching" },
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "starlette", specifier = ">=1.3" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 
 [[package]]
