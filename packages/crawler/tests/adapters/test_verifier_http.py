@@ -14,6 +14,7 @@ import pytest
 
 import download_verifier.check as check_module
 from download_verifier.app import build_app
+from download_verifier.config import AnalysisConfig
 from emule_indexer.adapters.verifier_http import HttpContentVerifier
 from emule_indexer.ports.content_verifier import VerificationResult
 from emule_indexer.ports.verifier_errors import VerifierUnavailableError
@@ -52,7 +53,8 @@ async def test_contract_verify_against_real_app(
     quarantine = tmp_path / "quarantine"
     quarantine.mkdir()
     (quarantine / _HASH).write_bytes(b"\x00")
-    verifier = _verifier_against(build_app(quarantine))
+    config = AnalysisConfig.from_env({"QUARANTINE_DIR": str(quarantine)})
+    verifier = _verifier_against(build_app(config))
     try:
         result = await verifier.verify(_HASH, {"target_id": "S2E062A"})
     finally:
@@ -62,7 +64,8 @@ async def test_contract_verify_against_real_app(
 
 @pytest.mark.asyncio
 async def test_contract_health_against_real_app(tmp_path: Path) -> None:
-    verifier = _verifier_against(build_app(tmp_path))
+    config = AnalysisConfig.from_env({"QUARANTINE_DIR": str(tmp_path)})
+    verifier = _verifier_against(build_app(config))
     try:
         assert await verifier.health() is True
     finally:
@@ -73,7 +76,8 @@ async def test_contract_health_against_real_app(tmp_path: Path) -> None:
 async def test_contract_missing_file_is_error_verdict(tmp_path: Path) -> None:
     quarantine = tmp_path / "quarantine"
     quarantine.mkdir()
-    verifier = _verifier_against(build_app(quarantine))
+    config = AnalysisConfig.from_env({"QUARANTINE_DIR": str(quarantine)})
+    verifier = _verifier_against(build_app(config))
     try:
         result = await verifier.verify("b" * 32, {})
     finally:

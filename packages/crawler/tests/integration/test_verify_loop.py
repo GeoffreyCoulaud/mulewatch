@@ -18,6 +18,7 @@ import httpx
 import pytest
 
 from download_verifier.app import build_app
+from download_verifier.config import AnalysisConfig
 from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
 from emule_indexer.adapters.persistence_sqlite.connection import open_catalog, open_local
 from emule_indexer.adapters.persistence_sqlite.download_repository import SqliteDownloadRepository
@@ -84,7 +85,8 @@ async def test_verify_loop_produces_suspicious_row(
     local_repo = SqliteLocalStateRepository(local)
     assert local_repo.enqueue_verification(_A) is True  # tâche enfilée (le download le ferait)
 
-    transport = httpx.ASGITransport(app=build_app(quarantine))
+    verifier_config = AnalysisConfig.from_env({"QUARANTINE_DIR": str(quarantine)})
+    transport = httpx.ASGITransport(app=build_app(verifier_config))
     client = httpx.AsyncClient(transport=transport, base_url="http://testserver")
     verifier = HttpContentVerifier(client)
     deps = VerifyDeps(

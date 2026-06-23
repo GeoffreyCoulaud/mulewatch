@@ -7,12 +7,12 @@ checks et imprime un égress parsé défensivement (``egress.parse``). Mapping (
 fichier absent / non-régulier → ``("error", {}, [])`` ; sinon le verdict réel de l'enfant
 (``clean``/``suspicious``/``malicious``, ou ``suspicious`` si l'enfant timeout/crashe/égresse mal).
 
-``cfg``/``runner`` sont injectables (tests) ; les défauts sont la config d'env + le
-``ProdChildRunner`` réel. ``expected`` reste minimal et non décisif (DA2 ; le pipeline ne
-l'exploite pas en D-analysis).
+``cfg`` est REQUIS (résolu une fois au boot par ``app.build_app`` et injecté — plus de
+résolution paresseuse par requête, cf. error-boundary#0) ; ``runner`` est injectable (tests),
+son défaut est le ``ProdChildRunner`` réel. ``expected`` reste minimal et non décisif (DA2 ;
+le pipeline ne l'exploite pas en D-analysis).
 """
 
-import os
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -27,12 +27,11 @@ def verify_file(
     quarantine_path: Path,
     expected: Mapping[str, object],
     *,
-    cfg: AnalysisConfig | None = None,
+    cfg: AnalysisConfig,
     runner: ChildRunner | None = None,
 ) -> tuple[str, dict[str, object], list[object]]:
     """Vérifie un fichier en quarantaine. Rend ``(verdict, real_meta, checks)`` (DA6)."""
-    config = cfg if cfg is not None else AnalysisConfig.from_env(os.environ)
-    child_runner = runner if runner is not None else ProdChildRunner(config)
+    child_runner = runner if runner is not None else ProdChildRunner(cfg)
     if not quarantine_path.is_file():
         return _VERDICT_ERROR, {}, []
-    return spawn.run_analysis(quarantine_path.name, config, child_runner)
+    return spawn.run_analysis(quarantine_path.name, cfg, child_runner)

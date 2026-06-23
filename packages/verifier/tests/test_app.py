@@ -7,6 +7,7 @@ import pytest
 
 import download_verifier.check as check_module
 from download_verifier.app import build_app
+from download_verifier.config import AnalysisConfig
 
 
 class _FakeProdChildRunner:
@@ -30,7 +31,8 @@ def quarantine(tmp_path: Path) -> Path:
 
 
 def _client(quarantine: Path) -> httpx.AsyncClient:
-    transport = httpx.ASGITransport(app=build_app(quarantine))
+    config = AnalysisConfig.from_env({"QUARANTINE_DIR": str(quarantine)})
+    transport = httpx.ASGITransport(app=build_app(config))
     return httpx.AsyncClient(transport=transport, base_url="http://testserver")
 
 
@@ -160,12 +162,42 @@ async def test_metrics_endpoint_responds(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_verify_injects_boot_resolved_config(
+    quarantine: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # error-boundary#0 : la config est résolue UNE fois au boot (app.state.config) et INJECTÉE à
+    # verify_file — fini le AnalysisConfig.from_env(os.environ) par requête, qui transformait une
+    # config invalide en 500 « transitoire » → dead-letter, au lieu d'un fail-fast au démarrage.
+    import download_verifier.app as app_module
+
+    captured: dict[str, object] = {}
+
+    def _capture(
+        path: Path, expected: Mapping[str, object], *, cfg: object
+    ) -> tuple[str, dict[str, object], list[object]]:
+        captured["cfg"] = cfg
+        return "clean", {}, []
+
+    monkeypatch.setattr(app_module, "verify_file", _capture)
+    config = AnalysisConfig.from_env(
+        {"QUARANTINE_DIR": str(quarantine), "ENABLED_CHECKS": "type_sniff"}
+    )
+    app = build_app(config)
+    (quarantine / ("a" * 32)).write_bytes(b"x")
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post("/verify", json={"hash": "a" * 32, "expected": {}})
+    assert response.status_code == 200
+    assert captured["cfg"] is config  # la MÊME instance résolue au boot, pas une re-résolution
+
+
+@pytest.mark.asyncio
 async def test_verify_increments_request_counter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import download_verifier.app as app_module
 
-    monkeypatch.setattr(app_module, "verify_file", lambda path, expected: ("clean", {}, ()))
+    monkeypatch.setattr(app_module, "verify_file", lambda path, expected, *, cfg: ("clean", {}, ()))
     (tmp_path / ("a" * 32)).write_bytes(b"x")
     async with _client(tmp_path) as client:
         verify = await client.post("/verify", json={"hash": "a" * 32, "expected": {}})

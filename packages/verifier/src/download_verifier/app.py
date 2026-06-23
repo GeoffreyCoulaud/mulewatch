@@ -25,6 +25,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from download_verifier.check import verify_file
+from download_verifier.config import AnalysisConfig
 from download_verifier.metrics import VerifierMetrics
 
 _logger = logging.getLogger("download_verifier.app")
@@ -65,8 +66,11 @@ async def verify_endpoint(request: Request) -> JSONResponse:
     if not isinstance(expected, dict):
         return _bad_request("expected doit être un objet")
     metrics: VerifierMetrics = request.app.state.metrics
+    config: AnalysisConfig = request.app.state.config
     start = time.monotonic()
-    verdict, real_meta, checks = verify_file(_quarantine_dir(request) / ed2k_hash, expected)
+    verdict, real_meta, checks = verify_file(
+        _quarantine_dir(request) / ed2k_hash, expected, cfg=config
+    )
     metrics.observe(verdict, time.monotonic() - start)
     _logger.info("verify hash=%s → verdict=%s", ed2k_hash, verdict)
     return JSONResponse({"verdict": verdict, "real_meta": real_meta, "checks": checks})
@@ -89,8 +93,13 @@ def _quarantine_dir(request: Request) -> Path:
     return directory
 
 
-def build_app(quarantine_dir: Path) -> Starlette:
-    """Fabrique l'app Starlette liée à un dossier de quarantaine (testable in-process)."""
+def build_app(config: AnalysisConfig) -> Starlette:
+    """Fabrique l'app Starlette à partir d'une config DÉJÀ résolue/validée (testable in-process).
+
+    La config (rlimits, timeout, checks, quarantine_dir) est résolue UNE fois en amont et stockée
+    dans ``state`` : ``verify_endpoint`` l'injecte à ``verify_file`` sans re-lire l'environnement
+    par requête (cf. error-boundary#0). Le dossier de quarantaine en découle (``quarantine_dir``).
+    """
     application = Starlette(
         routes=[
             Route("/verify", verify_endpoint, methods=["POST"]),
@@ -98,13 +107,13 @@ def build_app(quarantine_dir: Path) -> Starlette:
             Route("/metrics", metrics_endpoint, methods=["GET"]),
         ]
     )
-    application.state.quarantine_dir = quarantine_dir
+    application.state.config = config
+    application.state.quarantine_dir = Path(config.quarantine_dir)
     application.state.metrics = VerifierMetrics()
     return application
 
 
-def _quarantine_from_env() -> Path:
-    return Path(os.environ.get("QUARANTINE_DIR", "/quarantine"))
-
-
-app = build_app(_quarantine_from_env())
+# Résolution/validation de la config AU BOOT : une env invalide (RLIMIT négatif, check inconnu,
+# planchers violés) lève ici, à l'import du module → uvicorn ne démarre pas (fail-fast §8/E-D13),
+# au lieu d'un 500 « transitoire » par requête menant au dead-letter.
+app = build_app(AnalysisConfig.from_env(os.environ))

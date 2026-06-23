@@ -61,6 +61,7 @@ def test_child_failure_maps_to_suspicious(tmp_path: Path) -> None:
     assert verify_file(target, {}, cfg=_cfg(tmp_path), runner=runner)[0] == "suspicious"
 
 
-def test_default_cfg_and_runner_are_prod(tmp_path: Path) -> None:
-    # appel SANS cfg/runner pour couvrir les défauts PROD : fichier absent → error (pas de spawn).
-    assert verify_file(tmp_path / "absent", {})[0] == "error"
+def test_default_runner_is_prod(tmp_path: Path) -> None:
+    # cfg est REQUIS (résolu au boot, error-boundary#0) ; appel SANS runner pour couvrir le défaut
+    # PROD ProdChildRunner : fichier absent → error (pas de spawn, donc aucun sous-process réel).
+    assert verify_file(tmp_path / "absent", {}, cfg=_cfg(tmp_path))[0] == "error"
