@@ -82,6 +82,31 @@ def test_from_env_rejects_unparsable_float() -> None:
         AnalysisConfig.from_env({"ANALYSIS_TIMEOUT_S": "soon"})
 
 
+def test_from_env_rejects_non_positive_timeout() -> None:
+    # config-validation#3 : timeout_s <= 0 → communicate(timeout=) expire immédiatement → tout
+    # fichier 'suspicious'. Plancher fail-fast nommant la variable.
+    with pytest.raises(ValueError, match="ANALYSIS_TIMEOUT_S"):
+        AnalysisConfig.from_env({"ANALYSIS_TIMEOUT_S": "0"})
+
+
+def test_from_env_rejects_infinite_cpu_rlimit() -> None:
+    # RLIMIT_CPU_S=-1 == RLIM_INFINITY : le garde CPU serait DÉSARMÉ silencieusement (pire qu'un
+    # crash). Tout rlimit doit être > 0.
+    with pytest.raises(ValueError, match="RLIMIT_CPU_S"):
+        AnalysisConfig.from_env({"RLIMIT_CPU_S": "-1"})
+
+
+def test_from_env_rejects_zero_address_space_rlimit() -> None:
+    # RLIMIT_AS_BYTES=0 → le child ne peut pas exec (OSError au Popen, traité en transitoire).
+    with pytest.raises(ValueError, match="RLIMIT_AS_BYTES"):
+        AnalysisConfig.from_env({"RLIMIT_AS_BYTES": "0"})
+
+
+def test_from_env_rejects_non_positive_egress_cap() -> None:
+    with pytest.raises(ValueError, match="EGRESS_CAP_BYTES"):
+        AnalysisConfig.from_env({"EGRESS_CAP_BYTES": "-1"})
+
+
 def test_config_is_frozen() -> None:
     cfg = AnalysisConfig.from_env({})
     with pytest.raises(AttributeError):

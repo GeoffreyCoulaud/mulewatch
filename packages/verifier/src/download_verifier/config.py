@@ -53,7 +53,7 @@ class AnalysisConfig:
             else 512 * 1024 * 1024
         )
         cpu_default = _parse_int(env.get("RLIMIT_CPU_S_CLAMAV"), 120) if clamav_on else 20
-        return cls(
+        config = cls(
             enabled_checks=enabled,
             ffprobe_path=env.get("FFPROBE_PATH", "ffprobe"),
             clamscan_path=env.get("CLAMSCAN_PATH", "clamscan"),
@@ -73,6 +73,30 @@ class AnalysisConfig:
             # ring noyau (seccomp) ON par défaut : en prod le conteneur pose no_new_privs (§3).
             seccomp_enabled=_parse_bool(env.get("SECCOMP_ENABLED"), True),
         )
+        _validate_positive(config)
+        return config
+
+
+def _validate_positive(config: AnalysisConfig) -> None:
+    """Plancher fail-fast : aucune limite sécurité-critique ne doit être <= 0 (config-validation#3).
+
+    Un ``rlimit_*`` <= 0 désarme la garde (``-1`` == ``RLIM_INFINITY``, ``0`` empêche l'exec) ;
+    ``timeout_s``/``egress_cap_bytes``/``header_bytes`` <= 0 cassent l'analyse ou la forcent en
+    ``suspicious``. On rejette au chargement en nommant la variable d'environnement fautive.
+    """
+    bounds: tuple[tuple[str, float], ...] = (
+        ("ANALYSIS_TIMEOUT_S", config.timeout_s),
+        ("RLIMIT_CPU_S", config.rlimit_cpu_s),
+        ("RLIMIT_AS_BYTES", config.rlimit_as_bytes),
+        ("RLIMIT_NPROC", config.rlimit_nproc),
+        ("RLIMIT_NOFILE", config.rlimit_nofile),
+        ("RLIMIT_FSIZE_BYTES", config.rlimit_fsize_bytes),
+        ("EGRESS_CAP_BYTES", config.egress_cap_bytes),
+        ("HEADER_BYTES", config.header_bytes),
+    )
+    for name, value in bounds:
+        if value <= 0:
+            raise ValueError(f"{name} doit être > 0, reçu {value}")
 
 
 def _parse_checks(raw: str | None) -> tuple[str, ...]:
