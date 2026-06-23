@@ -1,4 +1,5 @@
 import json
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -159,6 +160,32 @@ async def test_metrics_endpoint_responds(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "text/plain" in response.headers["content-type"]
     assert "emule_verifier_requests" in response.text
+
+
+@pytest.mark.asyncio
+async def test_verify_runs_off_the_event_loop_thread(
+    quarantine: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # sandbox-confinement#0 / concurrency-async#0 : verify_file est synchrone et bloquant (spawn +
+    # communicate). Il DOIT tourner via run_in_threadpool, pas sur le thread de l'event loop —
+    # sinon /health (healthcheck Docker) et /metrics sont gelés pendant toute l'analyse. Proxy
+    # déterministe du non-blocage : verify_file s'exécute sur un thread DIFFÉRENT de l'event loop.
+    import download_verifier.app as app_module
+
+    captured: dict[str, int] = {}
+
+    def _capture_thread(
+        path: Path, expected: Mapping[str, object], *, cfg: object
+    ) -> tuple[str, dict[str, object], list[object]]:
+        captured["thread"] = threading.get_ident()
+        return "clean", {}, []
+
+    monkeypatch.setattr(app_module, "verify_file", _capture_thread)
+    (quarantine / ("a" * 32)).write_bytes(b"x")
+    async with _client(quarantine) as client:
+        response = await client.post("/verify", json={"hash": "a" * 32, "expected": {}})
+    assert response.status_code == 200
+    assert captured["thread"] != threading.get_ident()  # exécuté HORS du thread de l'event loop
 
 
 @pytest.mark.asyncio

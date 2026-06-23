@@ -20,6 +20,7 @@ from pathlib import Path
 
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
@@ -68,8 +69,11 @@ async def verify_endpoint(request: Request) -> JSONResponse:
     metrics: VerifierMetrics = request.app.state.metrics
     config: AnalysisConfig = request.app.state.config
     start = time.monotonic()
-    verdict, real_meta, checks = verify_file(
-        _quarantine_dir(request) / ed2k_hash, expected, cfg=config
+    # verify_file est SYNCHRONE et bloquant (spawn d'un enfant + communicate jusqu'au timeout) :
+    # l'exécuter dans un thread libère l'event loop, qui continue de servir /health et /metrics
+    # pendant l'analyse (sinon le conteneur flappe en unhealthy — sandbox-confinement#0).
+    verdict, real_meta, checks = await run_in_threadpool(
+        verify_file, _quarantine_dir(request) / ed2k_hash, expected, cfg=config
     )
     metrics.observe(verdict, time.monotonic() - start)
     _logger.info("verify hash=%s → verdict=%s", ed2k_hash, verdict)
