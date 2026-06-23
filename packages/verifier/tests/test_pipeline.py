@@ -1,5 +1,6 @@
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from download_verifier import pipeline
@@ -107,13 +108,16 @@ def test_enabled_checks_selects_only_ffprobe() -> None:
 
 
 def test_unknown_check_name_is_ignored() -> None:
-    # « clamavv » (faute de frappe) reste un nom INCONNU même après le câblage de « clamav » → DA4.
+    # Défense en profondeur (DA4) : from_env REJETTE désormais un nom inconnu au chargement
+    # (config-validation#4) — donc on contourne from_env via dataclasses.replace pour vérifier
+    # que MÊME si un « clamavv » atteignait le pipeline, il serait ignoré (pas de crash, pas de
+    # check fantôme).
     verdict, _real_meta, checks = pipeline.run(
         b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
         Path("/q/f"),
         _StubFfprobe(0, _VALID_MEDIA),
         _CLEAN_CLAMAV,
-        _cfg(("type_sniff", "clamavv", "ffprobe")),  # « clamavv » non reconnu → ignoré
+        replace(_BASE, enabled_checks=("type_sniff", "clamavv", "ffprobe")),
     )
     assert verdict == "clean"
     assert [c["name"] for c in checks] == ["type_sniff", "ffprobe"]

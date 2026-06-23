@@ -64,6 +64,14 @@ def test_from_env_rejects_empty_enabled_checks() -> None:
         AnalysisConfig.from_env({"ENABLED_CHECKS": "  ,  "})
 
 
+def test_from_env_rejects_unknown_check_name() -> None:
+    # config-validation#4 : une typo ('clamv', 'type-sniff') ne doit PAS être silencieusement
+    # ignorée — sinon fail-open : zéro check exécuté → verdict 'clean' pour TOUT fichier (même
+    # malveillant). Fail-fast au chargement contre l'enum fermé KNOWN_CHECKS.
+    with pytest.raises(ValueError, match="clamv"):
+        AnalysisConfig.from_env({"ENABLED_CHECKS": "type_sniff,clamv"})
+
+
 def test_from_env_rejects_unparsable_int() -> None:
     with pytest.raises(ValueError):
         AnalysisConfig.from_env({"RLIMIT_CPU_S": "not-an-int"})

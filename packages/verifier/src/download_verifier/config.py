@@ -14,6 +14,11 @@ from dataclasses import dataclass
 _DEFAULT_ENABLED = ("type_sniff", "ffprobe")
 _DEFAULT_QUARANTINE = "/quarantine"
 
+# Enum fermé des checks implémentés (doit rester aligné sur le dispatch de pipeline.run).
+# Un nom hors de cet ensemble est une faute de frappe : la rejeter au chargement empêche un
+# fail-open silencieux (zéro check exécuté → verdict 'clean' pour tout fichier).
+KNOWN_CHECKS = frozenset({"type_sniff", "ffprobe", "clamav"})
+
 
 @dataclass(frozen=True, slots=True)
 class AnalysisConfig:
@@ -76,6 +81,12 @@ def _parse_checks(raw: str | None) -> tuple[str, ...]:
     checks = tuple(item.strip() for item in raw.split(",") if item.strip())
     if not checks:
         raise ValueError("ENABLED_CHECKS ne doit pas être vide")
+    unknown = [name for name in checks if name not in KNOWN_CHECKS]
+    if unknown:
+        raise ValueError(
+            f"ENABLED_CHECKS contient des checks inconnus {unknown} "
+            f"(connus : {sorted(KNOWN_CHECKS)})"
+        )
     return checks
 
 
