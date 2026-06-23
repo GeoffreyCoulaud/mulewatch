@@ -192,6 +192,16 @@ def test_coverage_override_min_out_of_unit_range_is_rejected() -> None:
         )
 
 
+def test_attr_between_min_greater_than_max_is_rejected() -> None:
+    # config-validation#1 : {attr_between: size_mb, min: 600, max: 30} = plage VIDE → la règle est
+    # muette pour toujours (erreur de saisie). Les bornes OUVERTES (min seul / max seul) restent
+    # valides — c'est délibéré et testé ; seul min > max est rejeté.
+    with pytest.raises(ConfigError, match="min.*>.*max"):
+        parse_matcher_config(
+            {"tokens": {"sz": {"attr_between": "size_mb", "min": 600, "max": 30}}, "rules": []}
+        )
+
+
 def test_token_ref_missing_name_raises() -> None:
     with pytest.raises(ConfigError, match="token"):
         parse_matcher_config(

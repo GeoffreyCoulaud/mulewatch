@@ -173,11 +173,15 @@ def _parse_token_def(raw: Any) -> TokenDef:
             raise ConfigError(
                 f"attr_between inconnu : {attr!r} (attendu l'un de {sorted(ATTR_NAMES)})"
             )
-        return AttrBetweenDef(
-            attr=attr,
-            min=_require_float(mapping, "min"),
-            max=_require_float(mapping, "max"),
-        )
+        min_bound = _require_float(mapping, "min")
+        max_bound = _require_float(mapping, "max")
+        # Bornes ouvertes (min seul / max seul / aucune) légitimes ; seule une plage explicite
+        # inversée min > max est une plage VIDE (règle muette pour toujours) → fail-fast §8.4.
+        if min_bound is not None and max_bound is not None and min_bound > max_bound:
+            raise ConfigError(
+                f"attr_between {attr!r} : min ({min_bound}) > max ({max_bound}) — plage vide"
+            )
+        return AttrBetweenDef(attr=attr, min=min_bound, max=max_bound)
     raise ConfigError(f"forme de token inconnue : clés {sorted(mapping)}")
 
 
