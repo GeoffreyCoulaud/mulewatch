@@ -63,6 +63,15 @@ class InterpolationError(Exception):
     """Erreur d'interpolation : placeholder inconnu ou ``{date_alt}`` sans date."""
 
 
+class MissingDateError(InterpolationError):
+    """``{date_alt}`` interpolé sur une cible sans ``broadcast_date`` (cf. test-gaps#2).
+
+    Sous-classe DÉDIÉE (≠ placeholder inconnu) : le resolver l'attrape pour neutraliser la
+    règle datée sur cette cible, sans masquer un vrai placeholder inconnu (qui, lui, est rejeté
+    au chargement par ``validate_config`` et resterait une ``InterpolationError`` non attrapée).
+    """
+
+
 def interpolate(pattern: str, target: TargetSegment) -> str:
     """Substitue la whitelist ``{number} {segment} {title} {date_alt}`` (cf. spec §8.2).
 
@@ -82,9 +91,7 @@ def interpolate(pattern: str, target: TargetSegment) -> str:
             return str(re2.escape(target.title))
         if name == "date_alt":
             if target.broadcast_date is None:
-                raise InterpolationError(
-                    "placeholder {date_alt} requiert un broadcast_date non nul"
-                )
+                raise MissingDateError("placeholder {date_alt} requiert un broadcast_date non nul")
             return date_alternation_pattern(target.broadcast_date)
         raise InterpolationError(f"placeholder inconnu : {{{name}}}")
 

@@ -40,6 +40,33 @@ def test_resolve_regex_token_interpolates_per_target() -> None:
     )
 
 
+def test_resolve_regex_with_date_alt_on_dateless_target_never_matches() -> None:
+    # test-gaps#2 (décision design) : une cible lost-media SANS broadcast_date + un token regex
+    # {date_alt} → la règle datée est IGNORÉE pour cette cible (matcher qui ne matche JAMAIS),
+    # au lieu de faire crasher la construction du moteur (InterpolationError au boot).
+    resolver = _resolver_from({"tokens": {"air": {"regex": "{date_alt}"}}, "rules": []})
+    dateless = TargetSegment(season=2, number=62, segment="a", title="x")  # broadcast_date=None
+    matcher = resolver.resolve_token("air", dateless)
+    assert matcher.matches(FileCandidate(filename="Keroro 21 septembre 2008.avi")) is False
+    assert matcher.matches(FileCandidate(filename="n'importe quoi")) is False
+
+
+def test_resolve_all_skips_dated_rule_for_dateless_target_without_raising() -> None:
+    # Bout en bout : `all: [seg, air]` (air = {date_alt}) ne matche PAS une cible sans date
+    # (composante datée neutralisée → all() inclut un False), et resolve_all NE LÈVE PAS.
+    resolver = _resolver_from(
+        {
+            "tokens": {"seg": {"regex": "0*{number}{segment}"}, "air": {"regex": "{date_alt}"}},
+            "rules": [{"name": "dated", "tier": "download", "all": ["seg", "air"]}],
+        }
+    )
+    dateless = TargetSegment(season=2, number=62, segment="a", title="x")
+    resolved = resolver.resolve_all(dateless)
+    candidate = FileCandidate(filename="Keroro 062A 21 septembre 2008.avi")
+    # le segment seul matcherait, mais la composante datée neutralisée fait échouer le all().
+    assert resolved.rules["dated"].matches(candidate) is False
+
+
 def test_resolve_coverage_binds_title() -> None:
     resolver = _resolver_from(
         {"tokens": {"title_hit": {"coverage": "title", "min": 0.6}}, "rules": []}
