@@ -14,6 +14,7 @@ import pytest
 from emule_indexer.adapters.mule_ec.errors import EcConnectError, EcFailureError
 from emule_indexer.application.edge_state import EdgeState
 from emule_indexer.application.port_sync_loop import (
+    _MISMATCH,
     PortSyncDeps,
     _PortSyncState,
     run_port_sync_cycle,
@@ -71,6 +72,9 @@ class FakePortPreferences:
         if self._set_error is not None:
             raise self._set_error
         self.set_ports.append(port)
+        # set→get FIDÈLE : écrire la préférence change ce que get_listen_port renverra (comme le
+        # vrai amuled), MÊME sans rebind. Sans ça, le fake masquerait test-gaps#0.
+        self._current_port = port
 
     async def network_status(self) -> NetworkStatus:
         self.status_calls += 1
@@ -387,3 +391,43 @@ async def test_second_unresolved_in_a_row_is_not_first_occurrence() -> None:
     await run_port_sync_cycle(deps2, state)
     second = [e for e in telemetry.events if isinstance(e, PortMismatchUnresolved)]
     assert second and second[0].first_occurrence is False
+
+
+# ---------------------------------------------------------------- test-gaps#0 : préférence ≠ bound
+
+
+@pytest.mark.asyncio
+async def test_failed_restart_is_not_masked_by_written_preference_next_cycle() -> None:
+    # test-gaps#0 : cycle 1, le restart ÉCHOUE APRÈS set_listen_port (préférence écrite = live) ;
+    # cycle 2, get_listen_port renvoie cette préférence (== live) MAIS amuled n'a jamais rebindé
+    # (toujours Low-ID). L'alerte posée au cycle 1 ne doit PAS être effacée par l'égalité de
+    # préférence — seul le High-ID l'efface. Sinon une panne transitoire masque le mismatch POUR
+    # TOUJOURS et éteint le signal OPERATIONS.
+    edge = EdgeState()
+    state = _PortSyncState()
+    ports = FakePortPreferences(current_port=4662, ed2k_high=False)  # set→get modélisé, Low-ID
+    # Cycle 1 : 51820 != 4662 → set(51820) écrit la préférence, restart() ÉCHOUE → alerte posée.
+    await run_port_sync_cycle(
+        _deps(
+            reader=FakePortForwardingReader(port=51820),
+            ports=ports,
+            restarter=FakeMuleRestarter(fails=True),
+            edge=edge,
+        ),
+        state,
+    )
+    assert ports.set_ports == [51820]
+    assert edge.enter(_MISMATCH) is False  # alerte bien active après le restart raté (reste active)
+
+    # Cycle 2 : live=51820, get_listen_port()==51820 (la préférence du cycle 1), mais Low-ID.
+    await run_port_sync_cycle(
+        _deps(
+            reader=FakePortForwardingReader(port=51820),
+            ports=ports,  # MÊME fake → current_port == 51820 (set→get)
+            restarter=FakeMuleRestarter(),
+            edge=edge,
+        ),
+        state,
+    )
+    # l'alerte est MAINTENUE (port toujours faux, pas de High-ID) : re-enter rend encore False.
+    assert edge.enter(_MISMATCH) is False

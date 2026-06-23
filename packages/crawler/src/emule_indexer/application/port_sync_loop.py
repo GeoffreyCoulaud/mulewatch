@@ -101,8 +101,16 @@ async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None
             return
         current = await deps.ports.get_listen_port()
         if live == current:
-            # déjà aligné → si on était en alerte mismatch, on réarme.
-            deps.edge.leave(_MISMATCH)
+            # La préférence est alignée sur le port forwardé — mais ce n'est PAS une preuve
+            # qu'amuled ÉCOUTE ce port : ``set_listen_port`` écrit la préférence sans rebind (le
+            # rebind exige un restart). L'EC n'expose pas le port réellement bound ; le seul signal
+            # fiable que le bon port est bindé ET joignable est le High-ID. On n'efface donc
+            # l'alerte QUE si High-ID ; sinon on backoff sans y toucher — un restart raté garde son
+            # alerte allumée au lieu d'être masqué par la préférence écrite (test-gaps#0). Low-ID
+            # toléré : pas de re-restart (le rate-limit/alerte gèrent la reprise).
+            status = await deps.ports.network_status()
+            if status.ed2k_high:
+                deps.edge.leave(_MISMATCH)
             await deps.clock.sleep(deps.poll_interval_seconds)
             return
         # --- divergence : live != current, et live > 0 garanti ---
