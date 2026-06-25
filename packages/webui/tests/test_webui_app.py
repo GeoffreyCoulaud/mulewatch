@@ -520,3 +520,78 @@ async def test_file_detail_unknown_hash_returns_styled_404(
         resp = await client.get(f"/files/{unknown}")
     assert resp.status_code == 404
     assert "introuvable" in resp.text.lower()
+
+
+@pytest.fixture
+def app_with_hostile_filename(
+    catalog_db: Path, local_db: Path, tmp_path: Path
+) -> tuple[Starlette, str]:
+    """Fichier dont le nom contient un ``|`` (séparateur du lien eD2k) — régression
+    webui-security#0 : sans percent-encoding, le ``|`` du nom décale taille/hash et le lien
+    pointe ailleurs."""
+    hostile = "weird|name.avi"
+    with sqlite3.connect(catalog_db) as conn:
+        conn.execute("INSERT INTO files VALUES (?, ?, ?)", (TEST_HASH, 100_000_000, None))
+        conn.execute(
+            "INSERT INTO file_observations VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                TEST_HASH,
+                hostile,
+                100_000_000,
+                5,
+                3,
+                None,
+                None,
+                None,
+                None,
+                "{}",
+                "keroro",
+                "2024-01-01T00:00:00",
+                "node1",
+            ),
+        )
+        conn.commit()
+    with sqlite3.connect(local_db) as conn:
+        conn.execute("INSERT INTO node_runtime VALUES (?, ?)", ("node_id", "node-hostile"))
+        conn.execute(
+            "INSERT INTO node_runtime VALUES (?, ?)", ("created_at", "2024-01-01T00:00:00")
+        )
+        conn.commit()
+    targets_path = _write_targets_yaml(tmp_path)
+    matcher_path = _write_matcher_yaml(tmp_path)
+    import catalog_webui
+
+    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    app = build_app(
+        catalog_db=catalog_db,
+        local_db=local_db,
+        targets=targets_path,
+        matcher=matcher_path,
+        templates_dir=templates_dir,
+        static_dir=static_dir,
+    )
+    return app, TEST_HASH
+
+
+@pytest.mark.asyncio
+async def test_hostile_filename_is_escaped_in_ed2k_link(
+    app_with_hostile_filename: tuple[Starlette, str],
+) -> None:
+    # Régression webui-security#0 : un ``|`` hostile dans le nom doit être percent-encodé
+    # (%7C). Sans cet échappement, le lien aurait 6 ``|`` (au lieu de 5 séparateurs structurels)
+    # et la taille/hash seraient décalés → fichier inutilisable / pointant ailleurs.
+    app, hash_ = app_with_hostile_filename
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(f"/files/{hash_}")
+    assert resp.status_code == 200
+    # Le lien dans la réponse doit contenir %7C (et NON un ``|`` brut au milieu du nom).
+    assert "%7C" in resp.text
+    # On extrait la première occurrence d'``ed2k://`` jusqu'au prochain whitespace/`"` pour
+    # vérifier qu'elle a EXACTEMENT 5 ``|`` (les 5 séparateurs structurels du lien canonique).
+    start = resp.text.index("ed2k://")
+    end = start
+    while end < len(resp.text) and resp.text[end] not in ('"', "<", " ", "\n"):
+        end += 1
+    link = resp.text[start:end]
+    assert link.count("|") == 5

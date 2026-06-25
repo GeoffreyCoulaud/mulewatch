@@ -1,9 +1,9 @@
-"""Formatage pur pour l'affichage (spec webui §4/§7). Aucun I/O."""
+"""Formatage pur pour l'affichage (spec webui §4/§7). Aucun I/O.
 
-
-def ed2k_link(ed2k_hash: str, filename: str, size_bytes: int) -> str:
-    """Reconstruit le lien eD2k canonique d'un fichier observé."""
-    return f"ed2k://|file|{filename}|{size_bytes}|{ed2k_hash}|/"
+NB : la construction du lien eD2k (avec percent-encoding du nom) vit dans
+``catalog_matching.ed2k_link`` — paquet partagé crawler+webui — pour empêcher la
+divergence webui/crawler sur le format canonique (régression webui-security#0 : le
+webui interpolait le filename brut, un ``|`` hostile cassait le cadrage du lien)."""
 
 
 def short_hash(ed2k_hash: str) -> str:

@@ -12,9 +12,9 @@ import pytest
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
+from catalog_matching.ed2k_link import build_ed2k_link
 from emule_indexer.adapters.mule_ec.client import AmuleEcClient
 from emule_indexer.adapters.mule_ec.errors import EcFailureError
-from emule_indexer.domain.download.ed2k_link import build_ed2k_link
 from emule_indexer.ports.mule_download_client import DownloadEntry, SharedFileEntry
 
 pytestmark = pytest.mark.download_integration

@@ -15,13 +15,14 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
+from catalog_matching.ed2k_link import build_ed2k_link
 from catalog_webui.adapters.catalog_read import CatalogReader
 from catalog_webui.adapters.db import open_ro
 from catalog_webui.adapters.local_read import LocalReader
 from catalog_webui.adapters.matching_read import MatchingExplainer
 from catalog_webui.adapters.targets_read import load_targets
 from catalog_webui.domain.coverage import coverage_for
-from catalog_webui.domain.format import ed2k_link, short_hash
+from catalog_webui.domain.format import short_hash
 from catalog_webui.domain.views import (
     FileDetailDisplay,
     FileRowDisplay,
@@ -115,7 +116,7 @@ def build_app(
                 target_id_display=row.target_id if row.target_id is not None else "—",
                 tier_display=row.tier if row.tier is not None else "—",
                 verdict_display=row.last_verdict if row.last_verdict is not None else "—",
-                ed2k_link=ed2k_link(row.ed2k_hash, row.filename, row.size_bytes),
+                ed2k_link=build_ed2k_link(row.filename, row.size_bytes, row.ed2k_hash),
             )
             for row in file_rows
         ]
@@ -139,7 +140,7 @@ def build_app(
         # Précalcul du lien eD2k depuis la dernière observation
         last_obs = detail.observations[-1] if detail.observations else None
         if last_obs is not None:
-            link = ed2k_link(detail.ed2k_hash, last_obs.filename, last_obs.size_bytes)
+            link = build_ed2k_link(last_obs.filename, last_obs.size_bytes, detail.ed2k_hash)
         else:
             link = ""
 
@@ -208,7 +209,7 @@ def build_app(
                 target_id_display=row.target_id if row.target_id is not None else "—",
                 tier_display=row.tier if row.tier is not None else "—",
                 verdict_display=row.last_verdict if row.last_verdict is not None else "—",
-                ed2k_link=ed2k_link(row.ed2k_hash, row.filename, row.size_bytes),
+                ed2k_link=build_ed2k_link(row.filename, row.size_bytes, row.ed2k_hash),
             )
             for row in file_rows
         ]
