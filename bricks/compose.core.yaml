@@ -176,8 +176,12 @@ services:
       TARGETS_CONFIG: /app/config/targets.yaml
       MATCHER_CONFIG: /app/config/matcher.yaml
     volumes:
-      - catalog-db:/data/catalog:ro
-      - local-db:/data/local:ro
+      # catalog-db et local-db montés RW : la garantie lecture seule est
+      # appliquée côté app via `PRAGMA query_only=ON` (aussi sûr au niveau
+      # SQL, plus robuste avec WAL que `:ro` côté Docker).
+      # Voir docs/reference/2026-06-22-webui-wal-readonly.md (point clos).
+      - catalog-db:/data/catalog
+      - local-db:/data/local
       - ./config/crawler/targets.yaml:/app/config/targets.yaml:ro
       - ./config/crawler/matcher.yaml:/app/config/matcher.yaml:ro
     ports:
