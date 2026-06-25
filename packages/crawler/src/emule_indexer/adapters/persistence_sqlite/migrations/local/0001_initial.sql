@@ -27,6 +27,12 @@ CREATE INDEX idx_verification_tasks_pending
 ON verification_tasks (enqueued_at)
 WHERE status = 'pending';
 
+-- DÉCISION (audit 2026-06-23 / test-gaps#3) : ``state`` n'a PAS de CHECK contraignant l'enum
+-- DownloadState. Le seul writer atteignable est ``record_queued`` (insert avec 'queued' en
+-- littéral) et ``set_state(state.value)`` typé ``DownloadState`` (enum fermé). Une valeur hors
+-- enum est donc non atteignable en fonctionnement normal. Une CHECK CONSTRAINT serait du
+-- durcissement defense-en-profondeur (mutation hors-bande / corruption / migration future) ;
+-- la décision présente est de NE PAS l'ajouter (équilibre rigidité migration vs gain).
 CREATE TABLE downloads (
     ed2k_hash TEXT PRIMARY KEY,
     target_id TEXT NOT NULL,

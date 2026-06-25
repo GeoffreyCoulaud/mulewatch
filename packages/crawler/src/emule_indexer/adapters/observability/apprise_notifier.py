@@ -6,6 +6,12 @@ réseau distribué) et appelle ``async_notify(body, notify_type, tag)``. Aucune 
 (apprise sans service rend ``None``). ``apprise_obj`` injectable pour le test (défaut : vrai
 ``apprise.Apprise``). Le timeout/l'absorption d'erreur sont dans le dispatcher (E-D13).
 
+DÉCISION (audit 2026-06-23 / security-network#2) : l'egress apprise (webhooks Slack, Discord,
+SMTP, etc.) traverse le réseau HÔTE du crawler — pas le VPN. La spec packaging assume ce
+tradeoff : le kill-switch P2P reste effectif (eD2k bloqué hors VPN, anonymat préservé) ; seule
+la CORRÉLATION IP↔webhook de notification subsiste (un opérateur qui notifie sur Slack expose
+l'IP de son host à Slack, pas son trafic P2P). C'est un choix DÉLIBÉRÉ, pas un défaut.
+
 Pas de stubs apprise → ``# type: ignore`` ciblés (override mypy, Task 9)."""
 
 from collections.abc import Sequence

@@ -102,6 +102,14 @@ def _build_expected(deps: VerifyDeps, ed2k_hash: str) -> dict[str, object]:
 
     Le verifier NO-OP l'ignore ; D-analysis l'enrichira (taille/durée/codec attendus). Un
     ``target_id`` absent (tâche pour un hash dont la ligne download a été promue/purgée) → ``{}``.
+
+    Une ``RepositoryError`` propagée d'ici (lecture ``targets`` en échec) remonte au filet
+    top-level → la task RESTE claimée, libérée par ``reclaim_expired`` après le lease (15 min).
+    Choix DÉLIBÉRÉ documenté (logic-download#3 dans l'audit 2026-06-23) : pas de fail-fast
+    immédiat → un échec transitoire (SQLITE_BUSY) sur la même `local_conn` que la queue ne
+    déclencherait pas non plus le ``fail_verification`` (mêmes points de défaillance), et la
+    sémantique du lease est conçue pour rejouer proprement. La latence 15 min est la VALEUR du
+    lease ; à raccourcir si jugée trop pénible, pas à contourner ici.
     """
     target_id = deps.targets.get_target_id(ed2k_hash)
     if target_id is None:

@@ -11,6 +11,12 @@ verdict métier : ``ok`` (le child a sorti un égress valide), ``timeout`` (wall
 ``nonzero_exit`` (le child a crashé / dépassé un rlimit / sorti != 0), ``egress_overflow`` (le
 stdout dépasse le cap), ``malformed`` (égress illisible / hors-schéma). En incident de masse, on
 voit ``suspicious`` monter en valeur métier ET la CAUSE technique (timeout, crash, etc.).
+
+DÉCISION (audit 2026-06-23 / error-boundary#3) : un crash interne d'un runner (ffprobe, clamav)
+fait CRASHER le child (returncode ≠ 0) au lieu d'écrire un égress JSON ``suspicious`` propre.
+C'est VOULU : le mapping ``returncode != 0 → suspicious`` côté parent est le contrat de
+défense (DA6 — un child compromis ne peut PAS mentir s'il ne contrôle pas le returncode). Le
+test ``test_nonzero_returncode_is_suspicious`` fige cette frontière.
 """
 
 import json

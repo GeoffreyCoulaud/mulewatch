@@ -335,6 +335,13 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
       stallé » : l'ordre 1→2→3→4 est préservé, chaque étape est best-effort.
 
     Les repos sont sync → l'annulation (arrêt) atterrit aux ``await`` réseau, jamais en écriture.
+
+    DÉCISION (audit 2026-06-23 / observability#5) : un ``MuleUnreachableError`` ici ne fait PAS
+    émettre ``InstanceUnreachable`` (contrairement à ``run_search_cycle``). La taxonomie E-D5
+    range cet événement sous RECHERCHE uniquement ; la boucle download est mono-instance et le
+    label ``instance=...`` n'aurait pas de sens (compteur partagé avec les workers de recherche).
+    L'indisponibilité est gérée par le retry du cycle suivant + le log warning. Asymétrie
+    voulue.
     """
     # Étape 1 — MONITOR : I/O client → MuleUnreachableError = daemon mort = ABORT de l'itération.
     # (Un RepositoryError de ``set_state`` est isolé ICI aussi : il n'affame pas les étapes 2-4.)
