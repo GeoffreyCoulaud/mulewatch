@@ -277,11 +277,21 @@ Tous ces outils sont **opérateurs et ponctuels** (pas de boucle, jamais déclen
   sur le jour UTC** : un jour ne serait-ce que partiellement dans la fenêtre reste intégralement brut
   (granularité au jour, pas 24 h glissantes). Ordre recommandé : **fusionner d'abord, compacter
   ensuite** (la compaction voit alors tous les nœuds et produit une seule ligne par fichier/jour).
-  Conséquence assumée : un fichier **non vu depuis plus de `--keep-recent-days`** n'a plus
-  d'observation brute, donc `last_observation` (chemin « nom frais » du download) le rend introuvable
-  — sans incidence en pratique (un tel fichier a quasi sûrement quitté le réseau ; les fichiers
-  vivants sont ré-observés en continu). Volume au jour : ~1–6 Go/an pour une cardinalité réaliste,
-  très en deçà d'un budget de 50 Go/an.
+
+  **Quand la lancer ?** Pas avant que le volume `catalog-db` devienne gênant — repère pratique :
+  **catalog.db ≥ ~5 Go** ou **après ≥ 6 mois d'exploitation continue**, selon ce qui arrive en
+  premier. Cadence ensuite : tous les 3 à 6 mois. Inutile en dessous de ces seuils (le coût en
+  arrêt de service n'en vaut pas la peine).
+
+  **Conséquence assumée** : un fichier **non vu depuis plus de `--keep-recent-days`** n'a plus
+  d'observation brute. Effet visible : `last_observation` (chemin « nom frais » utilisé par le
+  download) le rend introuvable — sans incidence en pratique (un tel fichier a quasi sûrement
+  quitté le réseau ; les fichiers vivants sont ré-observés en continu). **Si vous voulez garder
+  l'historique brut sur 1 an**, passez `--keep-recent-days 365` (au prix d'une compaction moins
+  efficace).
+
+  Volume au jour : **~1–6 Go/an pour une cardinalité réaliste en 2026** (chiffre à ré-évaluer
+  selon votre trafic et le nombre de cibles), très en deçà d'un budget de 50 Go/an.
 
 Pour valider/tester en profondeur (suites d'intégration, smoke, CI), voir le
 [guide des tests](testing-guide.md).
