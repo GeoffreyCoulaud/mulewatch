@@ -15,9 +15,11 @@ depuis l'env minimal et utilise les ``ProdFfprobeRunner``/``ProdClamavRunner`` r
 ``pipeline.run`` (le ``Confiner`` est injectable ; défaut = ``ProdConfiner`` si seccomp activé).
 """
 
+import errno
 import json
 import os
 import re
+import stat
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -34,6 +36,28 @@ _CANONICAL_HASH_RE = re.compile(r"[0-9a-f]{32}\Z")
 def _default_confiner(config: AnalysisConfig) -> Confiner:
     """Sélectionne le ``Confiner`` selon la config — RETOURNE l'instance (sans l'appeler)."""
     return ProdConfiner() if config.seccomp_enabled else NoopConfiner()
+
+
+def _read_header_no_follow(path: Path, header_bytes: int) -> bytes:
+    """Lit ``header_bytes`` octets du fichier en REFUSANT symlink et types non réguliers.
+
+    Sandbox-confinement#4 : ``O_NOFOLLOW`` rejette un symlink (lève ``ELOOP``) ; ``fstat +
+    S_ISREG`` rejette tout autre type (dir, FIFO, socket, périphérique) — la vérification se
+    fait sur le ``fd`` (pas via le chemin) donc immunisée TOCTOU. Defense-en-profondeur : un
+    amuled compromis partageant la quarantaine en RW pourrait y déposer un symlink ENTRE le
+    ``S_ISREG`` parent (``check.py``) et l'open ici. Lève ``OSError`` sur tout refus ; appelée
+    sous un ``try/except OSError`` qui map à un égress ``suspicious``.
+    """
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "fichier de quarantaine non régulier")
+        with os.fdopen(fd, "rb", closefd=True) as handle:
+            fd = -1  # ownership transférée à fdopen (le ``with`` ferme via __exit__)
+            return handle.read(header_bytes)
+    finally:
+        if fd != -1:
+            os.close(fd)
 
 
 def main(
@@ -53,8 +77,7 @@ def main(
         return 2
     path = Path(config.quarantine_dir) / argv[0]
     try:
-        with path.open("rb") as handle:
-            header = handle.read(config.header_bytes)
+        header = _read_header_no_follow(path, config.header_bytes)
     except OSError:
         _emit("suspicious", {}, [])
         return 0

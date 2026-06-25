@@ -65,3 +65,19 @@ def test_default_runner_is_prod(tmp_path: Path) -> None:
     # cfg est REQUIS (résolu au boot, error-boundary#0) ; appel SANS runner pour couvrir le défaut
     # PROD ProdChildRunner : fichier absent → error (pas de spawn, donc aucun sous-process réel).
     assert verify_file(tmp_path / "absent", {}, cfg=_cfg(tmp_path))[0] == "error"
+
+
+def test_symlink_at_quarantine_path_is_error_without_spawn(tmp_path: Path) -> None:
+    # Régression sandbox-confinement#4 : un symlink (même vers un fichier régulier) doit être
+    # REFUSÉ — verify_file rend "error", aucun spawn. ``is_file()`` suivait le symlink et
+    # passait la garde ; on bascule sur ``os.lstat + S_ISREG`` pour refuser tout type ≠ régulier.
+    # Defense-en-profondeur : si amuled (RW sur la quarantaine) était compromis, il pourrait
+    # y déposer un symlink vers un fichier arbitraire du fs verifier.
+    target = tmp_path / "real.bin"
+    target.write_bytes(b"x")
+    link = tmp_path / _HASH
+    link.symlink_to(target)
+    runner = _StubChildRunner(0, _CLEAN_EGRESS, False)
+    verdict, real_meta, checks = verify_file(link, {}, cfg=_cfg(tmp_path), runner=runner)
+    assert (verdict, real_meta, checks) == ("error", {}, [])
+    assert runner.seen_hash is None

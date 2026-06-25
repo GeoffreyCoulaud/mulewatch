@@ -13,6 +13,8 @@ son défaut est le ``ProdChildRunner`` réel. ``expected`` reste minimal et non 
 le pipeline ne l'exploite pas en D-analysis).
 """
 
+import os
+import stat
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -21,6 +23,22 @@ from download_verifier.config import AnalysisConfig
 from download_verifier.spawn import ChildRunner, ProdChildRunner
 
 _VERDICT_ERROR = "error"
+
+
+def _is_regular_file_no_follow(path: Path) -> bool:
+    """``True`` si ``path`` est un fichier RÉGULIER (PAS un symlink, ni un répertoire, ni un FIFO).
+
+    Sandbox-confinement#4 : ``Path.is_file()`` suit les symlinks. Un amuled compromis partageant
+    la quarantaine en RW pourrait y déposer un symlink nommé comme un hash hex valide → ``is_file``
+    rendrait True et le verifier ouvrirait le symlink en suivant la cible. On bascule sur
+    ``os.lstat + S_ISREG`` : un symlink est explicitement REJETÉ (lstat ne suit pas), et tout
+    type non régulier (FIFO, socket, périphérique, répertoire) aussi.
+    """
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISREG(st.st_mode)
 
 
 def verify_file(
@@ -32,6 +50,6 @@ def verify_file(
 ) -> tuple[str, dict[str, object], list[object]]:
     """Vérifie un fichier en quarantaine. Rend ``(verdict, real_meta, checks)`` (DA6)."""
     child_runner = runner if runner is not None else ProdChildRunner(cfg)
-    if not quarantine_path.is_file():
+    if not _is_regular_file_no_follow(quarantine_path):
         return _VERDICT_ERROR, {}, []
     return spawn.run_analysis(quarantine_path.name, cfg, child_runner)

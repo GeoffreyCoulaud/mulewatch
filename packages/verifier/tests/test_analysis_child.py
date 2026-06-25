@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from download_verifier.analysis_child import _default_confiner, main
+from download_verifier.analysis_child import (
+    _default_confiner,
+    _read_header_no_follow,
+    main,
+)
 from download_verifier.config import AnalysisConfig
 from download_verifier.confine import NoopConfiner, ProdConfiner
 
@@ -134,6 +138,79 @@ def test_vanished_file_prints_suspicious_egress(
         ffprobe_runner=_StubFfprobe(0, _VALID_MEDIA),
         clamav_runner=_CLEAN_CLAMAV,
         cfg=_cfg(tmp_path),
+    )
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["verdict"] == "suspicious"
+
+
+def test_read_header_rejects_non_regular_file(tmp_path: Path) -> None:
+    # Régression sandbox-confinement#4 (branche S_ISREG False isolée) : un fd ouvert sur un
+    # type ≠ régulier (ici un répertoire — l'``os.open`` réussit sur macOS + Linux) doit lever
+    # OSError. La branche est testée DIRECTEMENT sur le helper pour éviter la dépendance au
+    # comportement de ``os.fdopen`` (qui pré-rejette « Is a directory » sur certains OS avant
+    # même que notre check ne tourne).
+    directory = tmp_path / "as-a-dir"
+    directory.mkdir()
+    with pytest.raises(OSError):
+        _read_header_no_follow(directory, 64)
+
+
+def test_read_header_rejects_symlink(tmp_path: Path) -> None:
+    # Branche ``O_NOFOLLOW`` → ELOOP. Defense-en-profondeur exposée isolément.
+    target = tmp_path / "real"
+    target.write_bytes(b"x")
+    link = tmp_path / "link"
+    link.symlink_to(target)
+    with pytest.raises(OSError):
+        _read_header_no_follow(link, 64)
+
+
+def test_read_header_reads_a_regular_file(tmp_path: Path) -> None:
+    # Branche heureuse : fichier régulier → octets retournés. Couvre la sortie normale.
+    path = tmp_path / "file.bin"
+    path.write_bytes(b"\x00\x01\x02\x03\x04")
+    assert _read_header_no_follow(path, 3) == b"\x00\x01\x02"
+
+
+def test_directory_in_quarantine_is_refused_with_suspicious_egress(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Régression sandbox-confinement#4 (branche S_ISREG False) : O_NOFOLLOW ne rejette PAS un
+    # répertoire (qui n'est pas un symlink). Le ``fstat + S_ISREG`` après open le détecte et
+    # rend ``suspicious`` (defense-en-profondeur contre les types non-réguliers : dir, FIFO, etc.).
+    quarantine = tmp_path / "quarantine"
+    quarantine.mkdir()
+    (quarantine / _HASH).mkdir()  # un répertoire au lieu d'un fichier régulier
+    cfg = AnalysisConfig.from_env({"QUARANTINE_DIR": str(quarantine), "HEADER_BYTES": "4096"})
+    code = main(
+        [_HASH],
+        ffprobe_runner=_StubFfprobe(0, _VALID_MEDIA),
+        clamav_runner=_CLEAN_CLAMAV,
+        cfg=cfg,
+        confiner=NoopConfiner(),
+    )
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["verdict"] == "suspicious"
+
+
+def test_symlink_in_quarantine_is_refused_with_suspicious_egress(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Régression sandbox-confinement#4 : un symlink à la place du fichier de quarantaine doit
+    # être REFUSÉ par O_NOFOLLOW (open lève ELOOP → l'except OSError → suspicious). Defense-en-
+    # profondeur cohérente avec verify_file côté parent.
+    target = tmp_path / "outside"
+    target.write_bytes(b"\x1a\x45\xdf\xa3" + b"\x00" * 64)  # un vrai header média
+    quarantine = tmp_path / "quarantine"
+    quarantine.mkdir()
+    (quarantine / _HASH).symlink_to(target)
+    cfg = AnalysisConfig.from_env({"QUARANTINE_DIR": str(quarantine), "HEADER_BYTES": "4096"})
+    code = main(
+        [_HASH],
+        ffprobe_runner=_StubFfprobe(0, _VALID_MEDIA),
+        clamav_runner=_CLEAN_CLAMAV,
+        cfg=cfg,
+        confiner=NoopConfiner(),
     )
     assert code == 0
     assert json.loads(capsys.readouterr().out)["verdict"] == "suspicious"
