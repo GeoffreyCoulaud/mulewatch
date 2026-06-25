@@ -1,5 +1,10 @@
 # Docker Desktop / rootless et le socket : pourquoi le port-sync exige un Docker rootful natif (2026-06-17)
 
+> ⚠️ **Observation datée — 2026-06-17.** L'écosystème Docker Desktop évolue rapidement. Cette note
+> reflète le comportement observé en mi-2026 ; vérifiez sur votre version courante avant de partir
+> du principe que le comportement décrit est encore d'actualité. Le **résumé opérateur** (« Docker
+> Desktop / rootless = pas de port-sync, Low-ID forcé ») reste vrai au moment de la rédaction.
+
 > Le `docker-proxy` du port-sync (High-ID) tourne **non-root** et lit le socket Docker par **accès
 > groupe**. Ce modèle n'existe que sur un **Docker rootful natif (Linux)**. Cette note valide, par des
 > sources fiables, pourquoi il ne marche **ni** sous Docker Desktop **ni** en rootless — claim faite
