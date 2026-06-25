@@ -20,6 +20,41 @@ catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jama
   docker compose -f examples/<fichier> --profile download pull
   docker compose -f examples/<fichier> --profile download up -d
   ```
+- **Redémarrage de la machine hôte.** Les conteneurs ont `restart: unless-stopped` — ils reviennent
+  seuls au boot de l'hôte (Docker doit démarrer en service système). **Aucune commande à relancer.**
+  Vérifiez après reboot : `docker compose -f examples/<fichier> ps`. Si un service est en `Exited`
+  alors que les autres sont `Up`, voir « Diagnostic après panne » ci-dessous.
+
+### Diagnostic après panne
+
+Si le nœud tourne mais ne semble plus catalogue / télécharge plus rien :
+
+| Symptôme | Premier check | Action |
+|---|---|---|
+| Le crawler tourne mais aucune nouvelle observation depuis > 1 h | `docker compose logs crawler --tail 100` | Cherchez « EC unavailable », « no servers » ou « cycle » récent. Si pas de cycle, amuled est probablement déconnecté du réseau (voir [runbook-troubleshooting](runbook-troubleshooting.md)). |
+| Téléchargements bloqués en QUEUED | `docker compose logs crawler \| grep -i download` | Vérifier que amuled est en High-ID **ou** qu'il a des sources (sources directes nécessaires en Low-ID). |
+| Tous les fichiers ressortent `suspicious` | `docker compose logs verifier --tail 100` | Voir clamav rlimits ci-dessous — probable manque de RAM pour le scan. |
+| Le verifier crash périodiquement (logs `Killed`) | `docker stats verifier` | RAM insuffisante. Augmentez `mem_limit` ou désactivez clamav. |
+| Un volume Docker se remplit | `docker system df -v` | Catalogue trop gros (voir Compaction) ou quarantaine accumulée. |
+
+Pour les symptômes inconnus, voir le [runbook de dépannage](runbook-troubleshooting.md).
+
+### Planification disque
+
+Ordres de grandeur **indicatifs** (à ajuster selon votre trafic eMule réel et la cardinalité de
+vos cibles) :
+
+- **`catalog-db`** : croissance lente, **~1 à 6 Go/an** sans compaction (chiffre estimé sur le trafic
+  eMule 2026 ; ré-évaluer si vous activez un grand nombre de cibles). La compaction (cf. Outils de
+  catalogue) ramène l'historique au-delà de 90 jours à un rollup journalier — taux de compression
+  élevé.
+- **`quarantine`** : taille des fichiers en cours de vérification (transitoire) + ceux remis à
+  l'opérateur (variable, dépend de votre politique de purge).
+- **`clamav-db`** : ~300-500 Mo (base de signatures, mise à jour quotidienne).
+- **`amule-state`** : qq Mo (server.met, nodes.dat, prefs).
+
+Si votre VPS / NAS approche de saturation, lancez `docker system df -v` pour identifier le volume
+fautif, puis `python -m emule_indexer.compact` (cf. Outils de catalogue) ou purgez la quarantaine.
 
 ---
 
