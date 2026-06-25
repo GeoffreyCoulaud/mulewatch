@@ -231,16 +231,26 @@ scrape_configs:
 
 ## Durcissement noyau (gVisor)
 
+**gVisor est une sandbox optionnelle** qui ajoute une couche d'isolation supplémentaire entre les
+conteneurs et le noyau Linux de l'hôte (utile pour isoler un processus C hostile, par ex. `ffprobe`
+sur un fichier malveillant). Sans gVisor, votre stack reste durcie par défaut (non-root,
+capabilities retirées, rootfs en lecture seule, verifier sans aucune sortie Internet) — gVisor est
+une couche **en plus**, pas un remplacement.
+
 ```bash
-CONTAINER_RUNTIME=runsc docker compose -f examples/<fichier> --profile <observer|download> up -d
+CONTAINER_RUNTIME=runsc docker compose -f examples/<fichier> --profile <observer|download> up -d   # Linux + runsc uniquement
 ```
 
-Nécessite le runtime gVisor `runsc` enregistré sur l'hôte (**Linux uniquement**). Sans gVisor,
-omettez simplement le préfixe `CONTAINER_RUNTIME=runsc` : la base est déjà durcie (non-root,
-capabilities retirées, rootfs en lecture seule, et le verifier sans aucune sortie Internet). gVisor
-**est** l'anneau noyau du projet — un noyau en espace utilisateur qui virtualise réseau + FS au
-niveau syscall ; il reste **opt-in** car disponible seulement sur les hôtes qui l'ont enregistré.
-La posture complète est en « Limites connues » plus bas.
+> ⚠️ **Linux uniquement** — gVisor exige le runtime `runsc` enregistré sur l'hôte. Sur macOS ou
+> Windows (Docker Desktop), la commande échoue (« unknown runtime: runsc »). Dans ce cas, omettez
+> simplement le préfixe `CONTAINER_RUNTIME=runsc` : la stack tourne en `runc` (le runtime standard)
+> sans changer le comportement fonctionnel — vous perdez juste la couche gVisor.
+
+Pour savoir si votre hôte peut activer gVisor : `docker info | grep -i runtime` doit lister `runsc`.
+Sinon, voir la [doc d'installation gVisor](https://gvisor.dev/docs/user_guide/install/).
+
+La posture de sécurité complète (pourquoi gVisor vs. seccomp allowlist, etc.) est en
+« Limites connues » plus bas.
 
 ---
 
