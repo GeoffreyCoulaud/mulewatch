@@ -335,8 +335,20 @@ docker compose -f examples/<fichier> ps       # état des conteneurs
 docker compose -f examples/<fichier> logs -f crawler   # logs du crawler
 ```
 
+Voir aussi la sous-section [« Premier boot : ce qui est normal »](#premier-boot--ce-qui-est-normal-et-ce-qui-ne-lest-pas)
+ci-dessus pour les signes de succès attendus et les durées typiques.
+
+#### Grafana (si monitoring activé)
+
 Si vous avez activé le monitoring : Grafana sur `http://<hôte>:${GRAFANA_PORT}` (défaut `3000`),
 identifiants `admin` / valeur de `GRAFANA_PWD`.
+
+> ⚠️ **Ne pas exposer Grafana directement sur Internet.** Le dashboard donne accès au catalogue
+> (noms de fichiers, sources, traces réseau) — données sensibles pour un opérateur. Par défaut
+> Grafana publie sur **toutes les interfaces** de l'hôte. En usage homelab (réseau local), restez
+> sur `http://<hôte-LAN>:3000`. Pour un accès distant : passer par un **reverse-proxy** (nginx,
+> Traefik, Caddy) avec **TLS** et authentification supplémentaire, ou par un **VPN d'accès** type
+> WireGuard/Tailscale. Ne publiez jamais le port 3000 nu sur Internet.
 
 ---
 
