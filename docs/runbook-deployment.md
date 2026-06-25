@@ -3,9 +3,10 @@
 Ce guide explique comment **choisir son scénario de déploiement et lancer la stack** en quelques
 étapes. Le sujet du catalogue reste **le fichier, jamais la personne**.
 
-> **À qui ça s'adresse, franchement.** Ce guide suppose que vous êtes **à l'aise avec un terminal et
-> avec Docker**. L'état par défaut (**Low-ID**) suffit largement à contribuer — aucun réglage réseau
-> avancé n'est nécessaire.
+> **À qui ça s'adresse.** Ce guide suppose que vous pouvez **ouvrir un terminal et lancer des
+> commandes Docker** (`docker compose version` doit afficher une version). Si Docker est nouveau pour
+> vous, le tutoriel officiel [Docker get-started](https://docs.docker.com/get-started/) suffit (≈ 1 h)
+> avant de revenir ici. L'état par défaut (**Low-ID**) ne demande aucun réglage réseau avancé.
 
 > Une fois le nœud monté : pour l'**exploiter et le régler** (cycle de vie, High-ID, analyse
 > antivirus, métriques, durcissement gVisor, outils de catalogue), voir le
@@ -25,6 +26,24 @@ Ce guide explique comment **choisir son scénario de déploiement et lancer la s
 | **Low-ID / High-ID** | Statut de joignabilité sur eD2k. **High-ID** = la machine est joignable depuis l'extérieur (meilleures sources). **Low-ID** = elle ne l'est pas (fonctionne quand même, mais sous-optimal). |
 | **quarantine** | Dossier isolé où atterrissent les fichiers téléchargés, **avant** vérification. |
 | **GHCR** | GitHub Container Registry — l'endroit où sont publiées les images Docker du projet. |
+
+---
+
+## Prérequis matériels minima
+
+Ordres de grandeur **indicatifs** (non validés en prod — à confirmer au premier déploiement homelab) :
+
+- **RAM** : ≥ 2 Go sans antivirus, ≥ 4 Go avec **clamav activé** (l'antivirus charge en mémoire sa
+  base de signatures, ~1,5 Gio). En dessous, le système peut s'arrêter brutalement par manque de
+  mémoire pendant l'analyse d'un fichier.
+- **Disque** : ≥ 10 Go pour le système + le catalogue (qui grossit lentement, ~Mo/jour). En **mode
+  download**, prévoir aussi la place des fichiers téléchargés (variable selon votre cible).
+- **CPU** : x86_64 ou ARM64 (les images sont publiées multi-arch).
+- **Réseau** : connexion permanente. Trafic typique : Mo/h en mode observer, plus en mode download.
+
+Sur Raspberry Pi, NAS bas de gamme ou VPS micro : vérifiez la RAM avant de lancer. Un déploiement en
+manque de mémoire échoue **sans message clair** : le service de vérification s'arrête tout seul, et
+les fichiers ressortent étiquetés `suspicious` même quand ils sont sains.
 
 ---
 
