@@ -121,16 +121,18 @@ directement. C'est une option **parfaitement viable** ; le choix relève surtout
 au risque**.
 
 > #### À savoir
-> - **Légalité.** Partager une œuvre sous droit d'auteur est illégal — c'est vrai dès qu'on fait
->   tourner un nœud, route B ou non. Ce qui distingue cet usage, ce sont les **circonstances** : eMule
->   est, en 2026, un réseau de niche largement désuet, et la cible — des **médias perdus**,
->   introuvables ailleurs et aux ayants droit inactifs ou introuvables — ne mobilise, en pratique,
->   personne. Le risque concret reste donc **très faible**.
-> - **Surface d'attaque.** Un port entrant ouvert, c'est un point d'entrée de plus sur votre réseau
->   domestique : redirigez **précisément** ce port (pas une plage) et gardez la machine à jour.
+> - **Légalité.** Partager une œuvre sous droit d'auteur est illégal **dans la plupart des
+>   juridictions** — c'est vrai dès qu'on fait tourner un nœud, route B ou non. Le risque pratique
+>   pour ce projet est **statistiquement faible** (eMule est un réseau de niche en 2026, et la cible
+>   — des médias perdus aux ayants droit inactifs — mobilise peu) mais **n'est pas nul** ; il dépend
+>   surtout de votre juridiction. Voir [`docs/legal-and-privacy.md`](legal-and-privacy.md) pour la
+>   discussion détaillée (ce que le catalogue stocke et ne stocke pas, ce qu'un VPN protège vraiment,
+>   responsabilités de l'opérateur).
+> - **Surface d'attaque réseau.** Un port entrant ouvert, c'est un point d'entrée de plus sur votre
+>   réseau domestique : redirigez **précisément** ce port (pas une plage) et gardez la machine à jour.
 >
 > La **route A** garde tout derrière le VPN sans ouvrir de port chez vous ; le **Low-ID**, lui,
-> convient déjà très bien.
+> convient déjà très bien si vous voulez juste contribuer au catalogage sans optimiser les sources.
 
 ---
 
