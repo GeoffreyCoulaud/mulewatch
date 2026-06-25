@@ -78,7 +78,7 @@ Integration suites (Docker / ffmpeg, deselected by default, excluded from covera
 
 ## Hard rules (enforced, non-negotiable — do not relax)
 
-- **100% branch coverage**, gated in CI and the pre-push hook (`--cov-fail-under=100`, `branch=true`). Never lower the threshold; add the missing test (exercise *both* sides of every conditional).
+- **100% branch coverage on unit tests, per package**, gated in CI and the pre-push hook (`--cov-fail-under=100`, `branch=true`). Integration suites (`ec_integration`, `download_integration`, `verify_integration`, `analysis_integration`, `orchestration_integration`, `compose_integration`) are deselected by the per-package `addopts` and excluded from coverage measurement — they run **on demand**, not in the gate (see `docs/testing-guide.md`). Never lower the unit-test threshold; add the missing test (exercise *both* sides of every conditional).
 - **Strict TDD**: tests are the spec; write the failing test first, watch it fail, then the minimal implementation. Code review judges the tests first. Every test function is annotated `-> None` with typed params.
 - **`mypy --strict`** over **both `src` and `tests`**. **`ruff`** selects `E,F,I,UP,B,SIM`, line-length **100**.
 - **Clean / Hexagonal**: `domain/` is **pure** — no I/O, no `yaml`/DB/network/clock/logging imports. All I/O lives in `adapters/`. The dependency graph is a DAG.

@@ -5,9 +5,9 @@ par défaut), leurs **prérequis exacts** et **ce qu'on doit attendre** en sorti
 [runbook de déploiement](runbook-deployment.md) : le runbook explique comment faire tourner la
 stack, ce guide-ci explique comment la **valider**.
 
-Public visé : opérateur / dev / CI. Tout ce qui suit est **extrait du code réel** (fichiers de test,
-`pyproject.toml`, fichiers compose). Quand un prérequis n'est pas vérifiable dans le code, c'est noté
-« à confirmer ».
+Public visé : **dev local + CI**. Pas pour les opérateurs (qui n'ont pas à lancer les suites de
+tests). Tout ce qui suit est **extrait du code réel** (fichiers de test, `pyproject.toml`, fichiers
+compose). Quand un prérequis n'est pas vérifiable dans le code, c'est noté « à confirmer ».
 
 > **La suite e2e « transfert réel » a été abandonnée** (et son scaffolding supprimé du dépôt) — voir
 > la note dans le handoff / `CLAUDE.md`. Raison : pour qu'un vrai `amuled` signale un download terminé
@@ -85,7 +85,9 @@ de fil DTO↔réponse + l'écriture durable, sans vrai download.
 - **Aucun outil externe.** Le service `download_verifier` tourne in-process via
   `httpx.ASGITransport`. Le test importe `download_verifier.app.build_app` et `emule_indexer.*` — les
   deux paquets doivent être installés (`uv sync --dev`, déjà fait pour le gate).
-- Aucun `skipif`, aucune variable d'environnement.
+- Aucun `skipif` ni variable d'environnement requis pour **cette** suite — elle tourne sur tout
+  système où le gate tourne. (Les variables d'environnement listées en §4 concernent d'autres
+  suites comme `compose_integration`.)
 
 **Commande.**
 ```bash
@@ -129,9 +131,12 @@ vrais échantillons, plus — si l'environnement le permet — le **filtre secco
 `EGRESS_CAP_BYTES`, `HEADER_BYTES`, `QUARANTINE_DIR`, `SECCOMP_ENABLED`, plus les overrides
 conditionnels clamav `RLIMIT_AS_BYTES_CLAMAV` (défaut 1,5 Gio) / `RLIMIT_CPU_S_CLAMAV` (défaut 120 s).
 
-> **`RLIMIT_NPROC` en dev bare-metal.** `RLIMIT_NPROC` est **global par UID** (pas par sous-arbre) :
-> le défaut (64) est sain dans l'image Docker (UID dédié peu peuplé) mais bloque `fork()` sur une
-> machine de dev où l'UID a déjà beaucoup de processus. Les tests forcent donc `RLIMIT_NPROC=4096`.
+> **`RLIMIT_NPROC` en dev bare-metal.** Symptôme : un test d'analyse crashe avec `BlockingIOError`
+> ou `Resource temporarily unavailable` au moment du `fork()`. Cause : `RLIMIT_NPROC` est **global
+> par UID** (pas par sous-arbre) ; le défaut (64) est sain dans l'image Docker (UID dédié peu
+> peuplé) mais bloque `fork()` sur une machine de dev où l'UID a déjà beaucoup de processus. Les
+> tests posent automatiquement `RLIMIT_NPROC=4096` pour contourner — c'est un workaround côté
+> tests, pas un bug du code.
 
 > **Dimensionnement des rlimits clamav (hypothèse, non testé).** Quand `clamav` est activé,
 > `clamscan` mmap toute la base de signatures : on relâche `RLIMIT_AS_BYTES_CLAMAV` à **1,5 Gio** et
@@ -265,7 +270,10 @@ Pour pouvoir lancer **toutes** les suites :
 - **Docker** + **docker compose v2** (`ec/download/orchestration/compose_integration`). Les
   suites EC utilisent `testcontainers` (tire l'image `ngosang/amule:3.0.0-1`) ; la suite compose
   pilote `docker compose` directement.
-- **ffmpeg / ffprobe** (`analysis_integration` — obligatoire pour les tests ffprobe).
+- **ffmpeg / ffprobe** (`analysis_integration` — obligatoire pour les tests ffprobe). Sans cet
+  outil, les tests ffprobe sont skip silencieusement (vous verrez 7 passés au lieu de 8). Installer
+  depuis [ffmpeg.org/download](https://ffmpeg.org/download.html) (ou votre gestionnaire de paquets
+  préféré). Vérifier : `ffprobe -version`.
 - **clamav** : `clamscan` + une base de signatures (`freshclam` peuple `/var/lib/clamav`, ou pointez
   `CLAMAV_DB_DIR` ailleurs) — **optionnel** ; sans base, les tests clamav sont skippés.
 - **libseccomp + `pyseccomp`** (déjà dans le lock du paquet verifier) + un `no_new_privs` posable —
