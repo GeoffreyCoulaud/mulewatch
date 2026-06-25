@@ -201,6 +201,12 @@ redémarrez le verifier, retestez. Si le symptôme persiste, doublez encore.
 
 ## Métriques Prometheus
 
+> **Optionnel.** Cette section ne concerne que les opérateurs qui veulent **scraper** les métriques
+> du nœud depuis un système de monitoring **externe** (Prometheus + Grafana qu'ils gèrent par
+> ailleurs). Si vous voulez juste voir les métriques sur un dashboard sans rien configurer, lancez
+> le profil `monitoring` du compose (cf. [runbook de déploiement § Options orthogonales](runbook-deployment.md#options-orthogonales-toutes-stacks))
+> et ouvrez Grafana — le scrape est déjà configuré et le dashboard est livré clé en main.
+
 Le crawler et le verifier exposent des métriques Prometheus.
 
 - **crawler** — sur un port HTTP dédié (`observability.metrics.port` dans `config/crawler/crawler.yaml`),
@@ -209,7 +215,7 @@ Le crawler et le verifier exposent des métriques Prometheus.
   sur un réseau **sans sortie Internet**, un Prometheus externe doit **rejoindre ce réseau** (ou vous
   exposez le port sur l'hôte).
 
-Exemple de `scrape_config` :
+Exemple de `scrape_config` (à coller dans votre `prometheus.yml` externe) :
 
 ```yaml
 scrape_configs:
