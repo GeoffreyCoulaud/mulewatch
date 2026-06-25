@@ -17,6 +17,12 @@ annulation (arrêt, spec §6) atterrit au prochain ``await`` réseau, jamais en 
 le cycle) n'est PERSISTÉ qu'en FIN de cycle, exactement comme ``cycle_index`` : un kill au
 milieu rejoue le cycle ET re-arme le backoff depuis l'état du cycle précédent (cohérent —
 l'index n'avance pas non plus à mi-cycle, spec §7).
+
+NE LÈVE JAMAIS (aligné sur ``run_download_cycle``/``run_verification_cycle``) : une
+``RepositoryError`` sur les écritures de fin (``write_cycle_state``/``save_channel_backoff``)
+est ABSORBÉE → log + return sans avancer l'index ; le cycle sera rejoué. Sans ce filet,
+l'exception propage hors du ``TaskGroup`` superviseur qui annule TOUTES les boucles sœurs
+(download/verify/port-sync) → crash de l'app sur une panne de persistance transitoire.
 """
 
 import asyncio
@@ -42,6 +48,7 @@ from emule_indexer.ports.mule_client import (
     MuleUnreachableError,
     SearchChannel,
 )
+from emule_indexer.ports.repository_errors import RepositoryError
 from emule_indexer.ports.scheduler_state_repository import SchedulerStateRepository
 from emule_indexer.ports.telemetry import Telemetry
 
@@ -184,9 +191,18 @@ async def run_search_cycle(
         await queue.join()
         for _ in workers:
             queue.put_nowait(None)
-    # FIN de cycle : index ET backoff persistés ENSEMBLE (spec §3/§7).
-    scheduler_state.write_cycle_state(cycle_index + 1, clock.now())
-    scheduler_state.save_channel_backoff(backoff.snapshot())
+    # FIN de cycle : index ET backoff persistés ENSEMBLE (spec §3/§7). Une RepositoryError
+    # ici est ABSORBÉE (error-boundary#1) → l'index n'avance pas, le cycle sera rejoué au
+    # prochain tour (état append-only, pas de corruption). Sans ce filet, l'exception
+    # propage hors du TaskGroup superviseur qui annule TOUTES les boucles sœurs → crash
+    # de l'app sur une panne de persistance transitoire. Aligné sur run_download/verify
+    # (« NE LÈVE JAMAIS »).
+    try:
+        scheduler_state.write_cycle_state(cycle_index + 1, clock.now())
+        scheduler_state.save_channel_backoff(backoff.snapshot())
+    except RepositoryError as error:
+        _logger.error("fin de cycle %d en échec repo (%s) — cycle rejouable", cycle_index, error)
+        return
     duration = (clock.now() - started).total_seconds()
     await telemetry.emit(SearchCycleCompleted(cycle_index=cycle_index, duration_seconds=duration))
     _logger.info("cycle %d terminé", cycle_index)

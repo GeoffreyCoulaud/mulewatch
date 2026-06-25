@@ -494,6 +494,105 @@ async def test_all_workers_in_backoff_drop_tasks_with_telemetry(
 
 
 @pytest.mark.asyncio
+async def test_repository_error_on_write_cycle_state_is_absorbed(
+    catalog: SqliteCatalogRepository,
+    local_connection: sqlite3.Connection,
+    engine: MatchingEngine,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Régression error-boundary#1 : une RepositoryError sur write_cycle_state ne doit PAS
+    # propager hors de run_search_cycle (le TaskGroup superviseur annulerait les 3 autres
+    # boucles → crash de l'app). Alignée sur run_download/verify (« NE LÈVE JAMAIS »).
+    from emule_indexer.ports.repository_errors import RepositoryError
+    from emule_indexer.ports.scheduler_state_repository import ChannelBackoff
+
+    clock = FakeClock()
+    backoff = BackoffRegistry(_POLICY, clock, FakeRng())
+    client = FakeMuleClient()
+    worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
+    inner = SqliteSchedulerStateRepository(local_connection)
+
+    class _SchedulerWriteRaises:
+        def read_cycle_index(self) -> int:
+            return inner.read_cycle_index()
+
+        def load_channel_backoff(self) -> dict[str, ChannelBackoff]:
+            return inner.load_channel_backoff()
+
+        def write_cycle_state(self, cycle_index: int, last_full_cycle_at: object) -> None:
+            raise RepositoryError("disque plein")
+
+        def save_channel_backoff(self, snapshot: dict[str, ChannelBackoff]) -> None:
+            inner.save_channel_backoff(snapshot)
+
+    with caplog.at_level(logging.ERROR, logger="emule_indexer.application.run_search_cycle"):
+        await run_search_cycle(
+            workers=[worker],
+            clients=[client],
+            targets=_TARGETS,
+            rng=_NoopRng(),
+            node_id="node-A",
+            cycle_index=0,
+            scheduler_state=_SchedulerWriteRaises(),
+            backoff=backoff,
+            clock=clock,
+            telemetry=RecordingTelemetry(),
+            edge=EdgeState(),
+        )
+    assert "repo" in caplog.text.lower()
+    assert inner.read_cycle_index() == 0  # index n'a PAS avancé : rejouera le cycle
+
+
+@pytest.mark.asyncio
+async def test_repository_error_on_save_channel_backoff_is_absorbed(
+    catalog: SqliteCatalogRepository,
+    local_connection: sqlite3.Connection,
+    engine: MatchingEngine,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Régression error-boundary#1 (symétrique) : une RepositoryError sur save_channel_backoff
+    # est absorbée de la même façon. L'index ne doit PAS avancer (atomicité §3/§7 : si l'un
+    # des deux échoue, le cycle est rejouable au prochain démarrage).
+    from emule_indexer.ports.repository_errors import RepositoryError
+    from emule_indexer.ports.scheduler_state_repository import ChannelBackoff
+
+    clock = FakeClock()
+    backoff = BackoffRegistry(_POLICY, clock, FakeRng())
+    client = FakeMuleClient()
+    worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
+    inner = SqliteSchedulerStateRepository(local_connection)
+
+    class _SchedulerSaveRaises:
+        def read_cycle_index(self) -> int:
+            return inner.read_cycle_index()
+
+        def load_channel_backoff(self) -> dict[str, ChannelBackoff]:
+            return inner.load_channel_backoff()
+
+        def write_cycle_state(self, cycle_index: int, last_full_cycle_at: object) -> None:
+            inner.write_cycle_state(cycle_index, last_full_cycle_at)  # type: ignore[arg-type]
+
+        def save_channel_backoff(self, snapshot: dict[str, ChannelBackoff]) -> None:
+            raise RepositoryError("local.db verrouillé")
+
+    with caplog.at_level(logging.ERROR, logger="emule_indexer.application.run_search_cycle"):
+        await run_search_cycle(
+            workers=[worker],
+            clients=[client],
+            targets=_TARGETS,
+            rng=_NoopRng(),
+            node_id="node-A",
+            cycle_index=0,
+            scheduler_state=_SchedulerSaveRaises(),
+            backoff=backoff,
+            clock=clock,
+            telemetry=RecordingTelemetry(),
+            edge=EdgeState(),
+        )
+    assert "repo" in caplog.text.lower()
+
+
+@pytest.mark.asyncio
 async def test_emits_cycle_completed_and_connected_gauges(
     catalog: SqliteCatalogRepository,
     local_connection: sqlite3.Connection,
