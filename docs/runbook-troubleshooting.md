@@ -147,24 +147,47 @@ Plusieurs causes, à vérifier dans cet ordre :
 
 ## Stockage & droits
 
+> ⚠️ **Prérequis pour cette section** : Linux + ligne de commande Docker. Les commandes `docker
+> volume`, `chown`, UID/GID supposent une familiarité Unix. Si vous bloquez sur un de ces
+> diagnostics et n'êtes pas à l'aise, l'option de repli sûre est de **repartir d'un volume vide**
+> (perte du catalogue accumulé) : `docker compose down -v` puis `up -d`. Lourd mais simple.
+
 ### Volume `/data` déjà peuplé : permission refusée
 
 - **Cause.** Le crawler tourne en `user: 999`. Les images pré-créent `/data/{catalog,local,quarantine}`
   en `nonroot`, donc un volume nommé **vide** hérite de la bonne propriété. Mais un volume **déjà
   peuplé** (root-owned) garde ses droits.
-- **Solution.** Corrigez la propriété à la main :
+- **Solution.** Trouvez d'abord le nom exact de votre volume (il dépend du nom du projet Docker
+  Compose, par défaut le nom du dossier qui contient `examples/`) :
   ```bash
+  docker volume ls | grep catalog-db
+  # Exemple de sortie : local  emule-indexer_catalog-db
+  ```
+  Puis corrigez la propriété :
+  ```bash
+  docker run --rm -v <nom-du-volume>:/d alpine chown -R 999:999 /d
+  # Avec le nom trouvé ci-dessus, par ex. :
   docker run --rm -v emule-indexer_catalog-db:/d alpine chown -R 999:999 /d
   ```
 
 ### Droits cross-user sur la quarantaine
 
-- **Cause.** `amuled` est une image **tierce** lancée avec **son propre user** (on ne lui impose pas
-  notre durcissement). Le volume `quarantine` est écrit à la fois par amuled (fichiers finis) et par
-  le crawler (déplacement atomique) ; un accroc de droits cross-user peut survenir au tout premier
-  vrai téléchargement.
-- **Solution.** À surveiller au premier téléchargement réel ; si un déplacement échoue pour cause de
-  droits, alignez la propriété du volume `quarantine`.
+- **Cause.** `amuled` est une image **tierce** lancée avec **son propre user** : conformément au
+  choix de confinement acté ([CLAUDE.md § Confinement posture](../CLAUDE.md), 2026-06-17), on
+  **n'impose pas** notre durcissement (cap_drop, user dédié, etc.) à amuled. Risque résiduel
+  assumé : si amuled était compromis, l'attaquant accéderait au volume quarantaine. C'est un
+  **non-objectif assumé pour v0.x**, pas un manque non vu (voir aussi
+  [runbook d'administration § Limites connues](runbook-administration.md#limites-connues--follow-ups)).
+
+  Conséquence opérationnelle : le volume `quarantine` est écrit à la fois par amuled (fichiers
+  finis) et par le crawler (déplacement atomique) ; un accroc de droits cross-user peut survenir au
+  tout premier vrai téléchargement.
+- **Solution.** À surveiller au premier téléchargement réel ; si un déplacement échoue pour cause
+  de droits :
+  ```bash
+  docker volume ls | grep quarantine   # trouver le nom exact du volume
+  docker run --rm -v <nom-du-volume>:/q alpine chown -R 999:999 /q
+  ```
 
 ---
 
