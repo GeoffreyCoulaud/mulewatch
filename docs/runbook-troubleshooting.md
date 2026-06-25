@@ -19,12 +19,31 @@ format : **symptôme → cause → solution**. Pour *monter* un nœud, voir le
   ```bash
   docker compose logs gluetun     # le tunnel doit être « up » et afficher une IP publique VPN
   ```
+
+  **Ce que vous devez voir (tunnel sain) :**
+  ```
+  [gluetun] [main] Listening on 0.0.0.0:8000
+  [gluetun] [main] You are running on the public IP address W.X.Y.Z   ← IP VPN (pas la vôtre !)
+  [gluetun] [vpn] connected
+  ```
+  **Symptômes d'un tunnel cassé :**
+  ```
+  [gluetun] [vpn] cannot connect to ...   ← VPN provider/clé refusée
+  [gluetun] [main] retrying in N seconds
+  ```
   amuled **partage le réseau de gluetun** : tant que le tunnel est down, amuled n'a aucune sortie. Si
   le tunnel ne monte pas, corrigez le VPN (clé WireGuard, fournisseur, `SERVER_COUNTRIES`) puis
   relancez ; une fois gluetun « up », redémarrez amuled : `docker compose restart amuled`.
-- **Autre cause : image amuled dérivée du pin.** Seules les versions **≥ 3.0.0** font l'auto-amorçage.
-  Une image `latest` ou `2.3.3-*` casse l'amorçage du premier run **sans erreur évidente**. Gardez
-  `ngosang/amule:3.0.0-1` dans le fichier `examples/` utilisé.
+- **Autre cause : image amuled dérivée du pin.** Le projet est **testé avec `ngosang/amule:3.0.0-1`
+  (validé en juin 2026)**. Les versions ≥ 3.0.0 supportent l'auto-amorçage ; une image `latest` ou
+  `2.3.3-*` casse l'amorçage du premier run **sans erreur évidente**. Vérifiez l'image utilisée :
+  ```bash
+  docker compose -f examples/<fichier> images amuled
+  # Vous devez voir : ngosang/amule:3.0.0-1
+  ```
+  Si vous voyez `latest` ou `2.3.3-*`, fixez la version dans votre `examples/*.yaml` puis re-pullez.
+  *(Si une version 4.x sort dans le futur, ré-évaluer la compatibilité avant migration — ce projet
+  n'a été éprouvé qu'avec 3.0.0-1.)*
 
 ### Le statut « Low-ID » apparaît dans les logs
 
