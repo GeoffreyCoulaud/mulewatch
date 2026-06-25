@@ -194,3 +194,18 @@ def test_seccomp_enabled_invalid_raises() -> None:
     # valeur non booléenne → ValueError (fail-fast, cohérent avec _parse_int).
     with pytest.raises(ValueError):
         AnalysisConfig.from_env({"SECCOMP_ENABLED": "maybe"})
+
+
+def test_seccomp_enabled_accepts_any_casing_and_on_off() -> None:
+    # Régression config-validation#5 : `SECCOMP_ENABLED=True` (casse Python) levait
+    # ValueError au lieu d'être accepté. Désormais strip().lower() + ``on``/``off``.
+    for raw in ("True", "TRUE", " true ", "Yes", "ON", "1"):
+        assert AnalysisConfig.from_env({"SECCOMP_ENABLED": raw}).seccomp_enabled is True
+    for raw in ("False", "FALSE", "No", "OFF", "0"):
+        assert AnalysisConfig.from_env({"SECCOMP_ENABLED": raw}).seccomp_enabled is False
+
+
+def test_seccomp_enabled_invalid_lists_accepted_literals() -> None:
+    # Le message d'erreur doit lister les littéraux acceptés (l'opérateur sait quoi corriger).
+    with pytest.raises(ValueError, match="true.*false"):
+        AnalysisConfig.from_env({"SECCOMP_ENABLED": "maybe"})

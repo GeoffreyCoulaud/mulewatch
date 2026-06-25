@@ -138,11 +138,20 @@ def _parse_float(raw: str | None, default: float) -> float:
         raise ValueError(f"flottant attendu, reçu {raw!r}") from exc
 
 
+_BOOL_TRUE = ("1", "true", "yes", "on")
+_BOOL_FALSE = ("0", "false", "no", "off")
+
+
 def _parse_bool(raw: str | None, default: bool) -> bool:
+    # Insensible à la casse + tolère le whitespace (config-validation#5) : `True`, `TRUE`,
+    # `On`, ` true ` sont équivalents à `true`. Le message d'erreur LISTE les littéraux
+    # acceptés pour aider l'opérateur à corriger.
     if raw is None:
         return default
-    if raw in ("0", "false", "no"):
+    normalized = raw.strip().lower()
+    if normalized in _BOOL_FALSE:
         return False
-    if raw in ("1", "true", "yes"):
+    if normalized in _BOOL_TRUE:
         return True
-    raise ValueError(f"booléen attendu, reçu {raw!r}")
+    accepted = ", ".join((*_BOOL_TRUE, *_BOOL_FALSE))
+    raise ValueError(f"booléen attendu (accepté : {accepted}), reçu {raw!r}")
