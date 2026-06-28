@@ -17,3 +17,5 @@ config/crawler/download.yaml
 # Secrets de deploiement (ProtonVPN, EC password) — JAMAIS versionnes. Seul .env.example l'est.
 .env
 vendor/
+# Worktrees crees par EnterWorktree (checkouts lies, hors versionnement)
+.claude/worktrees/

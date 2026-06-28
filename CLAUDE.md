@@ -82,9 +82,33 @@ Integration suites (Docker / ffmpeg, deselected by default, excluded from covera
 - **Strict TDD**: tests are the spec; write the failing test first, watch it fail, then the minimal implementation. Code review judges the tests first. Every test function is annotated `-> None` with typed params.
 - **`mypy --strict`** over **both `src` and `tests`**. **`ruff`** selects `E,F,I,UP,B,SIM`, line-length **100**.
 - **Clean / Hexagonal**: `domain/` is **pure** — no I/O, no `yaml`/DB/network/clock/logging imports. All I/O lives in `adapters/`. The dependency graph is a DAG.
-- **Python only** (≥3.12). Work directly on `main`; tag each milestone `vX.Y.Z-<name>` (annotated, not pushed). Conventional commits (`feat(domain):`, `fix(domain):`, `test:`, `chore:`, `docs:`).
+- **Python only** (≥3.12). **`main` is integration-only — branch/worktree per unit of work** (see *Workflow* below; do not edit code/docs directly on `main`). Tag each milestone `vX.Y.Z-<name>` (annotated, not pushed) at merge time. Conventional commits (`feat(domain):`, `fix(domain):`, `test:`, `chore:`, `docs:`).
 - Plans are executed **subagent-driven**: fresh implementer per task → spec-compliance review → code-quality review → final holistic review before tagging. The holistic review repeatedly catches cross-cutting bugs — keep it.
 - For library/framework/CLI questions, use the **context7 MCP** (current docs), not recalled knowledge.
+
+## Workflow — branch & worktree per unit of work
+
+`main` is **integration-only**; never edit code/docs directly on it. The moment real work begins, branch first.
+
+**Trigger.** Stay on `main` for discussion, reading, exploration, no-patch debugging. At the **first** of these two events, stop and ask *before* touching anything:
+- you are about to edit code/docs directly, **or**
+- you are about to plan work that coding agents will then execute.
+
+By then the conversation has enough context to name the branch well.
+
+**Ask** (via `AskUserQuestion` — these four options):
+1. Stay on the current branch (no new branch).
+2. New branch **in place** — same dir, `git switch -c <branch>`. Best for direct edits the user follows in their own editor.
+3. New **worktree** — `EnterWorktree({name: "<branch>"})`. Isolation; best when dispatching coding agents (the user's editor stays on `main`).
+4. Other — the user describes (e.g. resume an existing branch/worktree).
+
+Suggested default: option 2 for direct edits, option 3 for the plan-then-dispatch case. **The user decides.**
+
+**Naming.** `<type>/<kebab-slug>` mirroring the conventional-commit types (`feat`, `fix`, `docs`, `chore`, `test`, `refactor`) — e.g. `feat/session-worktree-workflow`. Branch name = worktree name; slug derived from the topic.
+
+**Worktrees.** `EnterWorktree` creates `.claude/worktrees/<name>` on a new branch and moves **only the agent session** there — the user's editor stays on `main`, so they review via diff/merge. `worktree.baseRef = "head"` (branch from local HEAD) is set in `.claude/settings.json`; `.claude/worktrees/` is gitignored.
+
+**Closing (back to `main`).** Once the gate is green, **ask each time** how to integrate — default suggestion = **local merge into `main`** (then the annotated milestone tag if applicable, then `ExitWorktree remove`); switch to a **PR** when the change touches CI or otherwise needs to run remotely. Use the `finishing-a-development-branch` skill. Worktree merge order: `ExitWorktree(keep)` → back in the `main` dir → `git merge` → tag → `git worktree remove`.
 
 ## Architecture — the matching engine
 
