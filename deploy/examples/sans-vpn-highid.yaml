@@ -1,11 +1,11 @@
 # Stack D — sans VPN, High-ID statique (spec 2026-06-20 §5, §10). IP domestique exposée.
 # Redirige LISTEN_PORT (TCP+UDP) sur ta box vers cette machine + autorise au pare-feu (Windows inclus).
 # LISTEN_PORT DOIT égaler le port d'amuled (amule.conf Port=, défaut 4662 → marche sans config).
-# Lancer : docker compose -f examples/sans-vpn-highid.yaml --profile <observer|download> [--profile monitoring] up -d
-# Détails : docs/runbook-deployment.md
+# Lancer : docker compose -f deploy/examples/sans-vpn-highid.yaml --profile <observer|download> [--profile monitoring] up -d
+# Détails : docs/runbooks/deployment.md
 name: emule-indexer
 include:
-  - path: ../bricks/compose.core.yaml
+  - path: ../compose.base.yaml
     project_directory: ..
 services:
   amuled:

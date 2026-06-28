@@ -10,8 +10,8 @@ Ce guide explique comment **choisir son scénario de déploiement et lancer la s
 
 > Une fois le nœud monté : pour l'**exploiter et le régler** (cycle de vie, High-ID, analyse
 > antivirus, métriques, durcissement gVisor, outils de catalogue), voir le
-> **[Runbook d'administration](runbook-administration.md)** ; en cas de souci, le
-> **[Runbook de dépannage](runbook-troubleshooting.md)**.
+> **[Runbook d'administration](administration.md)** ; en cas de souci, le
+> **[Runbook de dépannage](troubleshooting.md)**.
 
 ---
 
@@ -70,7 +70,7 @@ Cellules non triviales :
 - **Stack B — comment le High-ID est obtenu** : le crawler demande au VPN le port forwardé puis le
   pousse à amuled (« port-sync »). Cette boucle exige **trois pièces qui marchent ensemble** : (1) un
   VPN avec port forwarding **activé** dans `.env`, (2) un service `docker-proxy` qui lit le socket
-  Docker, (3) le `port_sync` armé dans `config/crawler/download.yaml` (étape 3). Si **une seule**
+  Docker, (3) le `port_sync` armé dans `deploy/config/crawler/download.yaml` (étape 3). Si **une seule**
   manque, le crawler reste en Low-ID sans erreur visible.
 - **Stack B incompatible Docker Desktop** (Win/macOS) : le port-sync a besoin d'un accès direct au
   socket Docker que Docker Desktop n'expose pas correctement. Voir
@@ -81,7 +81,7 @@ Cellules non triviales :
 
 Mapping stack → fichier de point d'entrée :
 
-| Stack | Fichier `examples/` | High-ID via |
+| Stack | Fichier `deploy/examples/` | High-ID via |
 |---|---|---|
 | A | `gluetun.yaml` | — (Low-ID) |
 | B | `gluetun.yaml` (+ port-sync armé) | port-sync auto (VPN PF) |
@@ -94,7 +94,7 @@ Mapping stack → fichier de point d'entrée :
 > chaîne téléchargement → quarantaine → vérification) : volume partagé crawler/amuled, FS Linux,
 > pas de catégories amuled, jeu partagé restreint. **Détail et rationale complets dans la référence
 > [Complétion d'un download côté amuled](reference/2026-06-17-amuled-completion-behavior.md)
-> § Contraintes de déploiement.** Lisez-la avant de remplir `config/crawler/download.yaml`
+> § Contraintes de déploiement.** Lisez-la avant de remplir `deploy/config/crawler/download.yaml`
 > (étape 3) si vous montez une stack en mode download.
 
 ---
@@ -108,7 +108,7 @@ Les prérequis *contraignants* figurent déjà comme colonnes dans la matrice. D
 - **B** : **hôte Linux Docker rootful** + VPN **avec port forwarding** (cherchez les fournisseurs
   marqués `PORT_FORWARDING: yes` dans la [liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)
   — en juin 2026, ProtonVPN, PIA, PrivateVPN et PerfectPrivacy sont éligibles) → clé dans `.env` ;
-  armer le bloc `port_sync` dans `config/crawler/download.yaml` (voir étape 3).
+  armer le bloc `port_sync` dans `deploy/config/crawler/download.yaml` (voir étape 3).
 - **C** : rien de spécial, le plus simple. ⚠ ton IP domestique est exposée aux pairs (mets un VPN au
   niveau hôte pour l'éviter).
 - **D** : rediriger `LISTEN_PORT` (TCP + UDP) sur ta box vers cette machine + autoriser au pare-feu
@@ -210,31 +210,31 @@ plutôt qu'à débugger un échec silencieux.
 
 ### Étape 3 — Config crawler
 
-Le dossier `config/crawler/` contient des **fichiers modèles** suffixés `.example.yaml`. Copiez
+Le dossier `deploy/config/crawler/` contient des **fichiers modèles** suffixés `.example.yaml`. Copiez
 celui qui correspond à votre mode (observer ou download) sous le nom attendu (sans `.example`) :
 
 ```bash
 # Linux / macOS / WSL2 — exemple pour le mode observer :
-cp config/crawler/observer.example.yaml config/crawler/observer.yaml
+cp deploy/config/crawler/observer.example.yaml deploy/config/crawler/observer.yaml
 # PowerShell :
-Copy-Item config/crawler/observer.example.yaml config/crawler/observer.yaml
+Copy-Item deploy/config/crawler/observer.example.yaml deploy/config/crawler/observer.yaml
 ```
 
 De même pour le mode download :
 
 ```bash
 # Linux / macOS / WSL2 :
-cp config/crawler/download.example.yaml config/crawler/download.yaml
+cp deploy/config/crawler/download.example.yaml deploy/config/crawler/download.yaml
 # PowerShell :
-Copy-Item config/crawler/download.example.yaml config/crawler/download.yaml
+Copy-Item deploy/config/crawler/download.example.yaml deploy/config/crawler/download.yaml
 ```
 
 Dans le fichier copié, renseignez `amules[].password` avec **la même valeur** que
 `AMULE_EC_PASSWORD` du `.env` (étape 2). **Pourquoi** : ce mot de passe protège le canal interne
-EC ; sans correspondance entre le `.env` (amuled) et `config/crawler/download.yaml` (crawler),
+EC ; sans correspondance entre le `.env` (amuled) et `deploy/config/crawler/download.yaml` (crawler),
 amuled refuse la connexion EC et le crawler ne démarre pas.
 
-> **Stack B uniquement — activer le port-sync.** Dans `config/crawler/download.yaml`, décommentez le
+> **Stack B uniquement — activer le port-sync.** Dans `deploy/config/crawler/download.yaml`, décommentez le
 > bloc `port_sync` (champs `gluetun_control_url` et `restarter_url`) pour armer la boucle High-ID
 > automatique. Sans cela, la stack B reste en Low-ID (état inoffensif).
 
@@ -247,34 +247,34 @@ amuled refuse la connexion EC et le crawler ne démarre pas.
 ### Étape 4 — Tirer les images
 
 ```bash
-docker compose -f examples/<fichier> --profile <observer|download> pull
+docker compose -f deploy/examples/<fichier> --profile <observer|download> pull
 ```
 
 Ou construire localement :
 
 ```bash
-docker compose -f examples/<fichier> --profile <observer|download> build
+docker compose -f deploy/examples/<fichier> --profile <observer|download> build
 ```
 
 ### Étape 5 — Lancer
 
 ```bash
-docker compose -f examples/<fichier> --profile <observer|download> [--profile monitoring] up -d
+docker compose -f deploy/examples/<fichier> --profile <observer|download> [--profile monitoring] up -d
 ```
 
 Exemples concrets :
 
 ```bash
 # Stack C, mode observer (le plus simple) :
-docker compose -f examples/sans-vpn-lowid.yaml --profile observer up -d
+docker compose -f deploy/examples/sans-vpn-lowid.yaml --profile observer up -d
 
 # Stack A, mode download + monitoring :
-docker compose -f examples/gluetun.yaml --profile download --profile monitoring up -d
+docker compose -f deploy/examples/gluetun.yaml --profile download --profile monitoring up -d
 ```
 
 ```bash
 # Stack D, mode download, avec gVisor — ⚠️ Linux uniquement (runsc enregistré sur l'hôte) :
-CONTAINER_RUNTIME=runsc docker compose -f examples/sans-vpn-highid.yaml --profile download up -d
+CONTAINER_RUNTIME=runsc docker compose -f deploy/examples/sans-vpn-highid.yaml --profile download up -d
 ```
 
 > ⚠️ **`CONTAINER_RUNTIME=runsc` ne fonctionne que sur Linux** avec gVisor installé. Sur macOS ou
@@ -299,12 +299,12 @@ nominaux. Ne les traitez pas comme des pannes :
    fichiers atterrissent en `suspicious`. C'est **transitoire** : une fois `freshclam: […]
    updated ok` visible dans les logs (`docker compose logs verifier | grep freshclam`), les
    prochains fichiers seront verdictés normalement. Détails dans le
-   [runbook d'administration](runbook-administration.md).
+   [runbook d'administration](administration.md).
 
 **Signes que le premier boot s'est bien passé :**
 
 ```bash
-docker compose -f examples/<fichier> ps         # tous les services en "Up" (pas "Restarting")
+docker compose -f deploy/examples/<fichier> ps         # tous les services en "Up" (pas "Restarting")
 docker compose logs amuled | head -50           # voit "Connecting to" puis "Connected to" un serveur
 docker compose logs crawler | grep -iE "cycle|search"   # le crawler annonce au moins un cycle
 ```
@@ -319,20 +319,20 @@ Si une étape échoue, regardez les logs **avant** de relancer :
 | Symptôme | Cause probable | Quoi vérifier |
 |---|---|---|
 | `docker compose pull` échoue | Image absente / réseau / mauvaise version | Vérifiez votre connexion Internet + que `IMAGE_TAG` (dans `.env`) existe sur GHCR. |
-| `docker compose up -d` retourne immédiatement avec un service `Exited (1)` | Erreur de config (mauvais `.env`, mauvais `config/crawler/*.yaml`) | `docker compose logs <service-en-erreur>` (souvent : variable manquante, mot de passe `change-me` oublié, chemin invalide). |
+| `docker compose up -d` retourne immédiatement avec un service `Exited (1)` | Erreur de config (mauvais `.env`, mauvais `deploy/config/crawler/*.yaml`) | `docker compose logs <service-en-erreur>` (souvent : variable manquante, mot de passe `change-me` oublié, chemin invalide). |
 | Le verifier ne démarre jamais | RAM insuffisante avec clamav, ou base clamav non téléchargée | Vérifiez la RAM dispo (`docker stats`) ; si < 2 Go, désactivez clamav (voir runbook administration). |
-| Le crawler boucle sur "verifier unreachable" pendant > 5 minutes | Le verifier est down OU `verifier_url` mal configuré dans `config/crawler/download.yaml` | `docker compose logs verifier` (doit montrer un `Listening on :8000`) + comparer avec `verifier_url` côté crawler. |
+| Le crawler boucle sur "verifier unreachable" pendant > 5 minutes | Le verifier est down OU `verifier_url` mal configuré dans `deploy/config/crawler/download.yaml` | `docker compose logs verifier` (doit montrer un `Listening on :8000`) + comparer avec `verifier_url` côté crawler. |
 | Port déjà utilisé (`bind: address already in use`) | Un autre service (autre crawler, autre Grafana) utilise le port | Modifiez `LISTEN_PORT` ou `GRAFANA_PORT` dans `.env`. |
 
 Pour les pannes **après** déploiement (amuled sans serveurs, fichier sain en `suspicious` une fois
 la base clamav prête, port-sync inopérant, etc.), voir le
-[runbook de dépannage](runbook-troubleshooting.md).
+[runbook de dépannage](troubleshooting.md).
 
 ### Étape 6 — Vérifier
 
 ```bash
-docker compose -f examples/<fichier> ps       # état des conteneurs
-docker compose -f examples/<fichier> logs -f crawler   # logs du crawler
+docker compose -f deploy/examples/<fichier> ps       # état des conteneurs
+docker compose -f deploy/examples/<fichier> logs -f crawler   # logs du crawler
 ```
 
 Voir aussi la sous-section [« Premier boot : ce qui est normal »](#premier-boot--ce-qui-est-normal-et-ce-qui-ne-lest-pas)
@@ -370,7 +370,7 @@ de la matrice car elles seraient cochées pour toutes :
 Au **tout premier run**, amuled récupère **automatiquement** sa liste de serveurs eD2k (`server.met`)
 et de nœuds Kad (`nodes.dat`) pour se connecter — comptez **1 à 3 minutes** après le démarrage,
 vous n'avez rien à faire. *(Si après 5 minutes amuled ne se connecte à aucun réseau, voir le
-[runbook de dépannage](runbook-troubleshooting.md).)*
+[runbook de dépannage](troubleshooting.md).)*
 
 En mode download, voir aussi la sous-section [« Premier boot : ce qui est normal »](#premier-boot--ce-qui-est-normal-et-ce-qui-ne-lest-pas)
 de l'étape 5 pour les deux comportements transitoires (crawler qui redémarre, clamav qui synchronise).
@@ -388,16 +388,16 @@ Ne traitez donc pas un statut « Low-ID » dans les logs comme une erreur à cor
 
 Le **High-ID** (joignabilité optimale, plus de sources) est une optimisation **optionnelle** — son
 activation, ses prérequis et ses compromis (y compris l'ouverture d'un port et ses risques) sont
-décrits dans le [runbook d'administration](runbook-administration.md).
+décrits dans le [runbook d'administration](administration.md).
 
 ---
 
 ## Pour aller plus loin
 
-- **[Runbook d'administration](runbook-administration.md)** — exploiter et régler un nœud monté :
+- **[Runbook d'administration](administration.md)** — exploiter et régler un nœud monté :
   cycle de vie (arrêt/mise à jour/persistance), High-ID (optionnel), analyse antivirus (clamav),
   métriques Prometheus, durcissement gVisor, outils de catalogue, limites connues.
-- **[Runbook de dépannage](runbook-troubleshooting.md)** — symptômes courants et résolutions (amuled
+- **[Runbook de dépannage](troubleshooting.md)** — symptômes courants et résolutions (amuled
   ne se connecte pas, fichier sain en `suspicious`, port-sync inopérant, droits de volume…).
 - **[Guide des tests](testing-guide.md)** — valider/tester en profondeur (suites d'intégration,
   smoke, CI).

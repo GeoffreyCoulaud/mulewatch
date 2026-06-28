@@ -57,7 +57,7 @@ votre juridiction.
 ### Ce qui finit sur votre disque
 
 - Les bases SQLite du catalogue (`catalog.db`, `local.db`) : qq Mo à qq Go selon l'usage et la
-  compaction (cf. [runbook-administration § Planification disque](runbook-administration.md#planification-disque)).
+  compaction (cf. [runbook-administration § Planification disque](runbooks/administration.md#planification-disque)).
 - En **mode download** : les fichiers téléchargés, en quarantaine puis remis à votre disposition
   s'ils passent la vérification.
 
@@ -139,14 +139,14 @@ dérogations couvrent automatiquement le P2P.
   « no-log » avéré est protecteur ; en pratique, vérifiez la juridiction du fournisseur et son
   historique.
 - **Une fuite DNS ou IPv6.** Si votre système fait des résolutions DNS hors tunnel, ou si IPv6
-  passe en clair, votre IP fuit. gluetun bloque ces fuites par défaut dans la stack `examples/`
+  passe en clair, votre IP fuit. gluetun bloque ces fuites par défaut dans la stack `deploy/examples/`
   — c'est une de ses raisons d'être.
 - **Une corrélation de timing.** Si vous êtes la seule personne en France à télécharger une œuvre
   obscure à 3h du matin, une analyse de flux côté FAI peut vous identifier malgré le VPN. Pour ce
   projet, c'est de la science-fiction (la cible est trop banale et le volume trop faible pour
   justifier une telle analyse).
 - **Un compromis de votre machine.** Si un attaquant entre dans votre conteneur amuled (rappel :
-  amuled n'est pas durci, [risque accepté pour v0.x](runbook-administration.md#limites-connues--follow-ups)),
+  amuled n'est pas durci, [risque accepté pour v0.x](runbooks/administration.md#limites-connues--follow-ups)),
   il accède au volume quarantaine — pas à votre IP via le VPN, mais à tout ce qui est sur ce
   volume.
 
@@ -173,8 +173,8 @@ Si vous opérez en collaboration avec d'autres chercheurs, voir
 
 ## Pour aller plus loin
 
-- [`runbook-administration.md`](runbook-administration.md) — opérations courantes, sécurité du
+- [`runbooks/administration.md`](runbooks/administration.md) — opérations courantes, sécurité du
   durcissement, gVisor.
-- [`runbook-troubleshooting.md`](runbook-troubleshooting.md) — quand quelque chose casse.
+- [`runbooks/troubleshooting.md`](runbooks/troubleshooting.md) — quand quelque chose casse.
 - [`CLAUDE.md`](../CLAUDE.md) — invariants de design (notamment : « le sujet du catalogue est le
   fichier, jamais la personne »).

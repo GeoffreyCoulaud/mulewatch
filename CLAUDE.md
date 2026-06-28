@@ -13,9 +13,9 @@ It is a **virtual uv workspace** with four packages: `packages/crawler/` (packag
 The live state, history, and recommended next step are deliberately **not** in this file (they would rot here). They live in:
 
 - `docs/handoffs/` — one continuation guide per milestone (`<ISO date> - handoff - <context>.md`). **The newest is the entry point**: current state, what was just built, learned pitfalls, next step, and what is *not yet validated against real hardware*.
-- `docs/superpowers/specs/2026-06-10-crawler-mvp-design.md` — the authoritative MVP design (17 sections). Other dated specs in that dir record each subsystem's design + decisions; plans are in `docs/superpowers/plans/`.
+- `docs/specs/2026-06-10-crawler-mvp-design.md` — the authoritative MVP design (17 sections). Other dated specs in that dir record each subsystem's design + decisions; plans are in `docs/plans/`.
 - `docs/testing-guide.md` — every test suite (unit + the integration markers), prerequisites, CI pistes.
-- `docs/runbook-deployment.md` — bring a node up (compose profiles, VPN, secrets, first boot, High-ID/Low-ID); `docs/runbook-administration.md` — operate & tune one (lifecycle, optional High-ID + its risks, clamav, metrics, gVisor, catalog tools, known limits); `docs/runbook-troubleshooting.md` — symptom → cause → fix entries (any level).
+- `docs/runbooks/deployment.md` — bring a node up (compose profiles, VPN, secrets, first boot, High-ID/Low-ID); `docs/runbooks/administration.md` — operate & tune one (lifecycle, optional High-ID + its risks, clamav, metrics, gVisor, catalog tools, known limits); `docs/runbooks/troubleshooting.md` — symptom → cause → fix entries (any level).
 - `docs/reference/` — dated empirical findings about EC / amuled.
 - `git tag` — milestones are annotated `vX.Y.Z-<name>` (not pushed), one per subsystem.
 
@@ -36,7 +36,7 @@ The crawler is Clean/Hexagonal: `domain/` pure, `application/` async use-cases, 
 | Observability | c: `domain/observability/`, `adapters/observability/` | events → policy → dispatcher; Prometheus + apprise |
 | Port-sync (High-ID) | c: `application/` | gluetun port → EC SetPort → restart amuled |
 | Standalone catalog tools | c: `merge/`, `compact/` | `python -m emule_indexer.{merge,compact}` — N→1 fusion / daily rollup |
-| Packaging | `bricks/compose.core.yaml` + `examples/*.yaml` + `compose.smoke.yaml`, `packages/*/Dockerfile` | observer/download profiles; smoke stack; gVisor via `CONTAINER_RUNTIME` knob |
+| Packaging | `deploy/compose.base.yaml` + `deploy/examples/*.yaml` + `tests/smoke/compose.yaml`, `packages/*/Dockerfile` | observer/download profiles; smoke stack; gVisor via `CONTAINER_RUNTIME` knob |
 
 ## Design invariants (do not violate)
 
@@ -46,8 +46,8 @@ The crawler is Clean/Hexagonal: `domain/` pure, `application/` async use-cases, 
 - **Two run modes:** *observer* (no `verifier_url`) is crawl-only; *download* (`verifier_url` set) wires the download + verification loops live, fail-fast on a verifier health check.
 - **Standalone tools** (`merge`, `compact`) never touch prod code or mutate a DB in place — they read a source and write a NEW file.
 - **Boundary discipline (E-D13):** absorb failures from external I/O (apprise notifiers, the verifier RPC → degrade), but let in-process 100%-tested code crash loudly (a `PrometheusSink` failure is a bug, not a transient).
-- **Confinement posture (decided 2026-06-17):** the portable floor is container hardening (`cap_drop: ALL` / `no-new-privileges` / `read_only` / `internal`) + per-child seccomp **blocklist** + rlimits. **gVisor via `CONTAINER_RUNTIME=runsc` IS the kernel ring**; per-child kernel namespaces and a seccomp allowlist are deliberate non-goals. **Why** : per-child kernel namespaces (`net=none`, bwrap, mount namespaces) require either `CAP_SYS_ADMIN` (which would regress the `cap_drop: ALL` baseline) or unprivileged user namespaces (host-sysctl-dependent, conflicts with Docker's default seccomp, fragile under gVisor) — gVisor delivers an equivalent isolation without that cost. Seccomp allowlist (vs. the current blocklist) was rejected because it's too brittle on healthy media (false-positive risk on legitimate libc calls during `ffprobe` / `clamscan`). Same reasoning summarized for operators in `docs/runbook-administration.md` § Limites connues. See `docs/superpowers/specs/2026-06-15-ring-noyau-design.md` for the full record.
-- **amuled is third-party and intentionally NOT hardened with our `cap_drop: ALL` / `user:` / `read_only` baseline** (decided 2026-06-17, same posture decision). Documented in `docs/runbook-troubleshooting.md` § Droits cross-user and `docs/runbook-administration.md` § Limites connues. Residual risk accepted for v0.x: if amuled is compromised, the attacker reaches the `quarantine` volume. Do not "fix" this without revisiting the decision record.
+- **Confinement posture (decided 2026-06-17):** the portable floor is container hardening (`cap_drop: ALL` / `no-new-privileges` / `read_only` / `internal`) + per-child seccomp **blocklist** + rlimits. **gVisor via `CONTAINER_RUNTIME=runsc` IS the kernel ring**; per-child kernel namespaces and a seccomp allowlist are deliberate non-goals. **Why** : per-child kernel namespaces (`net=none`, bwrap, mount namespaces) require either `CAP_SYS_ADMIN` (which would regress the `cap_drop: ALL` baseline) or unprivileged user namespaces (host-sysctl-dependent, conflicts with Docker's default seccomp, fragile under gVisor) — gVisor delivers an equivalent isolation without that cost. Seccomp allowlist (vs. the current blocklist) was rejected because it's too brittle on healthy media (false-positive risk on legitimate libc calls during `ffprobe` / `clamscan`). Same reasoning summarized for operators in `docs/runbooks/administration.md` § Limites connues. See `docs/specs/2026-06-15-ring-noyau-design.md` for the full record.
+- **amuled is third-party and intentionally NOT hardened with our `cap_drop: ALL` / `user:` / `read_only` baseline** (decided 2026-06-17, same posture decision). Documented in `docs/runbooks/troubleshooting.md` § Droits cross-user and `docs/runbooks/administration.md` § Limites connues. Residual risk accepted for v0.x: if amuled is compromised, the attacker reaches the `quarantine` volume. Do not "fix" this without revisiting the decision record.
 
 ## Commands
 
@@ -66,7 +66,7 @@ uv run sqlfluff lint packages/crawler/src                    # embedded SQLite m
 uv run python -m catalog_webui._dev.check_templates packages/webui/src/catalog_webui/adapters/templates  # garde templates sans logique
 ```
 
-**The gate is PER PACKAGE** (`cd packages/<pkg> && uv run pytest`). The intent: each package owns its own pytest config and 100 % branch coverage in isolation — a root run would mix coverage data across packages and break the per-package threshold. A bare `uv run pytest` from the repo root is also blocked mechanically (the root has no `[tool.pytest.ini_options]` and a root `conftest.py` sets `collect_ignore_glob = ["packages/*"]` → exit 5 with zero collected). Tooling split: `[tool.ruff]` / `[tool.mypy]` at root span all four packages; `[tool.pytest]` / `[tool.coverage]` / `[tool.sqlfluff]` are per-package; one root `uv.lock`; `config/` stays at root.
+**The gate is PER PACKAGE** (`cd packages/<pkg> && uv run pytest`). The intent: each package owns its own pytest config and 100 % branch coverage in isolation — a root run would mix coverage data across packages and break the per-package threshold. A bare `uv run pytest` from the repo root is also blocked mechanically (the root has no `[tool.pytest.ini_options]` and a root `conftest.py` sets `collect_ignore_glob = ["packages/*"]` → exit 5 with zero collected). Tooling split: `[tool.ruff]` / `[tool.mypy]` at root span all four packages; `[tool.pytest]` / `[tool.coverage]` / `[tool.sqlfluff]` are per-package; one root `uv.lock`. Deployment artifacts live under `deploy/` (compose + `config/` + `.env.example` at root by convention); the smoke stack under `tests/smoke/`.
 
 **Single test** (the package-wide `--cov-fail-under=100` makes a lone test "fail" — disable coverage):
 

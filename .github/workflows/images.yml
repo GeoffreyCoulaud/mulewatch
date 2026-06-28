@@ -23,7 +23,7 @@ jobs:
       - name: Build images (smoke)
         run: |
           AMULE_EC_PASSWORD=smoke-ec-password \
-            docker compose -p emule-smoke-ci -f compose.smoke.yaml --profile download build
+            docker compose -p emule-smoke-ci --project-directory . -f tests/smoke/compose.yaml --profile download build
       - name: Run compose smoke e2e
         run: ( cd packages/crawler && uv run pytest -m compose_integration --no-cov -q )
 

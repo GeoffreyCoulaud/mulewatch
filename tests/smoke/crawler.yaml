@@ -1,5 +1,5 @@
 # crawler.yaml SMOKE — cadences courtes (le smoke verifie le cablage, pas la duree).
-# Meme schema que config/crawler.yaml (parse_crawler_config) ; valeurs raccourcies.
+# Meme schema que deploy/config/crawler/crawler.yaml (parse_crawler_config) ; valeurs raccourcies.
 cycle_interval_seconds: 5.0
 search_poll_budget_seconds: 3.0
 search_poll_interval_seconds: 1.0

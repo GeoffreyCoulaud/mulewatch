@@ -1,6 +1,8 @@
 # Stack SMOKE autonome (test compose_integration) — PAS un déploiement réel : configs tests/smoke/,
 # volumes nommés (test des perms), sans gluetun/monitoring/docker-proxy. Profils observer/download.
 # Piloté par packages/crawler/tests/integration/test_compose_smoke.py.
+# Invoqué avec --project-directory <repo root> : tous les chemins relatifs sont résolus contre le repo
+# root (context=., configs ./tests/smoke/*.yaml, verifier réel ./deploy/config/verifier.yaml).
 services:
   amuled:
     image: ngosang/amule:3.0.0-1
@@ -66,7 +68,7 @@ services:
       ENABLED_CHECKS: type_sniff,ffprobe
     volumes:
       - quarantine:/quarantine:ro
-      - ./config/verifier.yaml:/config/verifier.yaml:ro
+      - ./deploy/config/verifier.yaml:/config/verifier.yaml:ro
     networks:
       - verify-internal
     healthcheck:

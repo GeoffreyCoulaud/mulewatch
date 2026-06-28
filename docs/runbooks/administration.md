@@ -1,8 +1,8 @@
 # Runbook d'administration — emule-indexer
 
 Ce guide s'adresse à qui **exploite et règle** un nœud déjà monté. Pour *monter* la stack, commencez
-par le **[Runbook de déploiement](runbook-deployment.md)** ; pour résoudre un problème concret, le
-**[Runbook de dépannage](runbook-troubleshooting.md)**. On trouve ici le cycle de vie du nœud, le
+par le **[Runbook de déploiement](deployment.md)** ; pour résoudre un problème concret, le
+**[Runbook de dépannage](troubleshooting.md)**. On trouve ici le cycle de vie du nœud, le
 High-ID (optionnel), l'analyse antivirus, les métriques, le durcissement noyau, les outils de
 catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jamais la personne**.
 
@@ -14,15 +14,15 @@ catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jama
   `local-db`, `quarantine`, `amule-state`, et `clamav-db` en mode download). Ils **persistent** à la
   recréation des conteneurs — ne lancez `docker compose down` **avec `-v`** que si vous voulez
   réellement **effacer** le catalogue.
-- **Arrêter le nœud** : `docker compose -f examples/<fichier> --profile <observer|download> down`.
+- **Arrêter le nœud** : `docker compose -f deploy/examples/<fichier> --profile <observer|download> down`.
 - **Mettre à jour** : re-tirez les images puis relancez :
   ```bash
-  docker compose -f examples/<fichier> --profile download pull
-  docker compose -f examples/<fichier> --profile download up -d
+  docker compose -f deploy/examples/<fichier> --profile download pull
+  docker compose -f deploy/examples/<fichier> --profile download up -d
   ```
 - **Redémarrage de la machine hôte.** Les conteneurs ont `restart: unless-stopped` — ils reviennent
   seuls au boot de l'hôte (Docker doit démarrer en service système). **Aucune commande à relancer.**
-  Vérifiez après reboot : `docker compose -f examples/<fichier> ps`. Si un service est en `Exited`
+  Vérifiez après reboot : `docker compose -f deploy/examples/<fichier> ps`. Si un service est en `Exited`
   alors que les autres sont `Up`, voir « Diagnostic après panne » ci-dessous.
 
 ### Diagnostic après panne
@@ -31,13 +31,13 @@ Si le nœud tourne mais ne semble plus catalogue / télécharge plus rien :
 
 | Symptôme | Premier check | Action |
 |---|---|---|
-| Le crawler tourne mais aucune nouvelle observation depuis > 1 h | `docker compose logs crawler --tail 100` | Cherchez « EC unavailable », « no servers » ou « cycle » récent. Si pas de cycle, amuled est probablement déconnecté du réseau (voir [runbook-troubleshooting](runbook-troubleshooting.md)). |
+| Le crawler tourne mais aucune nouvelle observation depuis > 1 h | `docker compose logs crawler --tail 100` | Cherchez « EC unavailable », « no servers » ou « cycle » récent. Si pas de cycle, amuled est probablement déconnecté du réseau (voir [runbook-troubleshooting](troubleshooting.md)). |
 | Téléchargements bloqués en QUEUED | `docker compose logs crawler \| grep -i download` | Vérifier que amuled est en High-ID **ou** qu'il a des sources (sources directes nécessaires en Low-ID). |
 | Tous les fichiers ressortent `suspicious` | `docker compose logs verifier --tail 100` | Voir clamav rlimits ci-dessous — probable manque de RAM pour le scan. |
 | Le verifier crash périodiquement (logs `Killed`) | `docker stats verifier` | RAM insuffisante. Augmentez `mem_limit` ou désactivez clamav. |
 | Un volume Docker se remplit | `docker system df -v` | Catalogue trop gros (voir Compaction) ou quarantaine accumulée. |
 
-Pour les symptômes inconnus, voir le [runbook de dépannage](runbook-troubleshooting.md).
+Pour les symptômes inconnus, voir le [runbook de dépannage](troubleshooting.md).
 
 ### Planification disque
 
@@ -92,7 +92,7 @@ quand certains réglages combinés sont incohérents.
 
 1. **VPN avec port forwarding** + `VPN_PORT_FORWARDING: "on"` dans `.env` (cherchez les fournisseurs
    marqués `PORT_FORWARDING: yes` dans la [liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)).
-2. Le service **`docker-proxy`** (profil download, stack B / `examples/gluetun.yaml`), qui redémarre
+2. Le service **`docker-proxy`** (profil download, stack B / `deploy/examples/gluetun.yaml`), qui redémarre
    amuled de façon confinée (le crawler ne voit jamais le socket Docker directement). Renseignez
    `DOCKER_GID` dans `.env` (GID du groupe `docker` de l'hôte) :
 
@@ -103,11 +103,11 @@ quand certains réglages combinés sont incohérents.
 
    > **⚠️ Linux uniquement.** `getent` et le groupe `docker` n'existent pas tels quels sur macOS ni
    > sur Windows. **Docker Desktop et le mode rootless ne fonctionnent pas** pour Route A (voir le
-   > [runbook de dépannage](runbook-troubleshooting.md) si vous voulez comprendre pourquoi). Si vous
+   > [runbook de dépannage](troubleshooting.md) si vous voulez comprendre pourquoi). Si vous
    > êtes sur Docker Desktop : utilisez la Route B.
-3. Dans `config/crawler/download.yaml` : décommentez le bloc `port_sync` (champs
+3. Dans `deploy/config/crawler/download.yaml` : décommentez le bloc `port_sync` (champs
    `gluetun_control_url: "http://gluetun:8000"` et `restarter_url: "http://docker-proxy:2375"`) ; la
-   section `port_sync` de `config/crawler/crawler.yaml` contient les valeurs par défaut (réglage fin
+   section `port_sync` de `deploy/config/crawler/crawler.yaml` contient les valeurs par défaut (réglage fin
    optionnel).
 
 Une fois actif, surveillez les events `port-sync` / `High-ID retrouvé` dans les logs et les
@@ -141,7 +141,7 @@ au risque**.
 En **mode download**, le verifier ajoute une 3ᵉ source de verdict : un scan **par signatures**
 (`clamscan`) qui produit un verdict `malicious` quand un fichier correspond à une signature de
 virus connue. C'est **activé par défaut** dans le profil download (`ENABLED_CHECKS:
-type_sniff,ffprobe,clamav` dans `bricks/compose.core.yaml`).
+type_sniff,ffprobe,clamav` dans `deploy/compose.base.yaml`).
 
 > **Ce que clamav fait, et ce qu'il ne fait pas.** Il détecte les virus dont la signature est connue
 > dans sa base — c'est un **filet** opportuniste, pas une garantie. Un fichier `clean` selon clamav
@@ -163,7 +163,7 @@ fibre, 10-20 min en ADSL/4G**.
 **Comment vérifier que la base est prête :**
 
 ```bash
-docker compose -f examples/<fichier> logs freshclam | grep -iE "updated|main\.cvd"
+docker compose -f deploy/examples/<fichier> logs freshclam | grep -iE "updated|main\.cvd"
 ```
 
 Vous devez voir une ligne du type `freshclam: ClamAV update process started ... main.cvd updated`.
@@ -206,12 +206,12 @@ redémarrez le verifier, retestez. Si le symptôme persiste, doublez encore.
 > **Optionnel.** Cette section ne concerne que les opérateurs qui veulent **scraper** les métriques
 > du nœud depuis un système de monitoring **externe** (Prometheus + Grafana qu'ils gèrent par
 > ailleurs). Si vous voulez juste voir les métriques sur un dashboard sans rien configurer, lancez
-> le profil `monitoring` du compose (cf. [runbook de déploiement § Options orthogonales](runbook-deployment.md#options-orthogonales-toutes-stacks))
+> le profil `monitoring` du compose (cf. [runbook de déploiement § Options orthogonales](deployment.md#options-orthogonales-toutes-stacks))
 > et ouvrez Grafana — le scrape est déjà configuré et le dashboard est livré clé en main.
 
 Le crawler et le verifier exposent des métriques Prometheus.
 
-- **crawler** — sur un port HTTP dédié (`observability.metrics.port` dans `config/crawler/crawler.yaml`),
+- **crawler** — sur un port HTTP dédié (`observability.metrics.port` dans `deploy/config/crawler/crawler.yaml`),
   accessible depuis le réseau `ec`.
 - **verifier** — sur son port de service (par défaut `8000`), route `/metrics`. Comme le verifier est
   sur un réseau **sans sortie Internet**, un Prometheus externe doit **rejoindre ce réseau** (ou vous
@@ -240,7 +240,7 @@ capabilities retirées, rootfs en lecture seule, verifier sans aucune sortie Int
 une couche **en plus**, pas un remplacement.
 
 ```bash
-CONTAINER_RUNTIME=runsc docker compose -f examples/<fichier> --profile <observer|download> up -d   # Linux + runsc uniquement
+CONTAINER_RUNTIME=runsc docker compose -f deploy/examples/<fichier> --profile <observer|download> up -d   # Linux + runsc uniquement
 ```
 
 > ⚠️ **Linux uniquement** — gVisor exige le runtime `runsc` enregistré sur l'hôte. Sur macOS ou
@@ -312,10 +312,10 @@ accès à aucun réseau applicatif (elle monte uniquement les volumes de bases d
 
 ```bash
 # Mode observer (catalogue seul) :
-docker compose -f examples/<fichier> --profile observer up -d webui
+docker compose -f deploy/examples/<fichier> --profile observer up -d webui
 
 # Mode download (catalogue + téléchargements) :
-docker compose -f examples/<fichier> --profile download up -d webui
+docker compose -f deploy/examples/<fichier> --profile download up -d webui
 ```
 
 ### Routes disponibles
@@ -355,7 +355,7 @@ webui.example.com {
 ```
 
 > **Garantie lecture seule de la WebUI.** Les volumes `catalog-db` et `local-db` sont montés en
-> **lecture-écriture** dans les `examples/*.yaml`, mais la WebUI applique elle-même la garantie
+> **lecture-écriture** dans les `deploy/examples/*.yaml`, mais la WebUI applique elle-même la garantie
 > lecture seule au niveau SQL via `PRAGMA query_only=ON` (paramétré dans le code applicatif). Toute
 > tentative d'écriture est refusée par SQLite avant même d'atteindre le disque — votre catalogue
 > est donc protégé contre une régression du code WebUI.
@@ -405,7 +405,7 @@ webui.example.com {
   (`nom(0).ext`) est gérée par construction. Les **contraintes de déploiement** qui en découlent
   (IncomingDir = quarantaine, FS Linux, pas de catégories, amuled dédié) sont décrites dans la
   [référence amuled-completion-behavior](reference/2026-06-17-amuled-completion-behavior.md#contraintes-de-déploiement-résumé)
-  (source unique) et signalées dans le [runbook de déploiement](runbook-deployment.md) (mode download).
+  (source unique) et signalées dans le [runbook de déploiement](deployment.md) (mode download).
 - **WebUI — montage WAL `:ro` inter-conteneurs** : **point empirique clos (2026-06-25)** — le
   montage Docker `:ro` a été retiré en faveur du `PRAGMA query_only=ON` applicatif (aussi sûr,
   plus robuste). Voir section « WebUI » plus haut et

@@ -30,13 +30,13 @@ Quatre stacks de déploiement disponibles selon votre besoin :
 - **D** download + High-ID sans VPN, port ouvert sur la box (votre IP domestique exposée).
 
 Pour la confidentialité, **préférez A ou B**. Détails et matrice complète dans le
-[runbook de déploiement](docs/runbook-deployment.md) ; les implications légales et de
+[runbook de déploiement](docs/runbooks/deployment.md) ; les implications légales et de
 confidentialité sont discutées franchement dans
 [légalité et confidentialité](docs/legal-and-privacy.md).
 
 > 🐳 Déploiement `docker compose` (profils `observer`/`download`, option `monitoring`)
-> disponible — voir [`docs/runbook-deployment.md`](docs/runbook-deployment.md). Pour résoudre un
-> problème : [`docs/runbook-troubleshooting.md`](docs/runbook-troubleshooting.md).
+> disponible — voir [`docs/runbooks/deployment.md`](docs/runbooks/deployment.md). Pour résoudre un
+> problème : [`docs/runbooks/troubleshooting.md`](docs/runbooks/troubleshooting.md).
 
 ## Pour les curieux (comment ça marche)
 
@@ -69,18 +69,18 @@ git clone <repo> && cd emule-indexer
 > format, mypy, pytest) — un push ne part pas si un check échoue.
 
 ### Conception
-- Spec : [`docs/superpowers/specs/2026-06-10-crawler-mvp-design.md`](docs/superpowers/specs/2026-06-10-crawler-mvp-design.md)
-- Plans d'implémentation : [`docs/superpowers/plans/`](docs/superpowers/plans/)
-- Déploiement (Docker / compose) : [`docs/runbook-deployment.md`](docs/runbook-deployment.md)
+- Spec : [`docs/specs/2026-06-10-crawler-mvp-design.md`](docs/specs/2026-06-10-crawler-mvp-design.md)
+- Plans d'implémentation : [`docs/plans/`](docs/plans/)
+- Déploiement (Docker / compose) : [`docs/runbooks/deployment.md`](docs/runbooks/deployment.md)
 
 ## Statut fonctionnel (juin 2026)
 
 | Capacité | État | Détails |
 |---|---|---|
 | Observer (recherche + catalogage + WebUI) | ✅ Stable | Sur les 4 stacks. |
-| Download (téléchargement + vérification) | ⚠️ Fonctionnel, non éprouvé en prod réelle | Chaîne complète confirmée par lecture des sources amont d'amuled ; la suite e2e bout-en-bout a été abandonnée, voir [admin § Limites connues](docs/runbook-administration.md#limites-connues--follow-ups). |
+| Download (téléchargement + vérification) | ⚠️ Fonctionnel, non éprouvé en prod réelle | Chaîne complète confirmée par lecture des sources amont d'amuled ; la suite e2e bout-en-bout a été abandonnée, voir [admin § Limites connues](docs/runbooks/administration.md#limites-connues--follow-ups). |
 | High-ID via port-sync (Route A) | ⚠️ Construit, validation bout-en-bout pendante | Exige Docker rootful Linux. Cf. runbook-admin. |
 | High-ID via port-forward manuel (Route B) | ✅ Fonctionnel | N'importe quelle plateforme avec port redirigé. |
-| Antivirus (clamav) | ⚠️ Activé par défaut en download ; rlimits non validés en prod | Hypothèse de calibration à éprouver en homelab, voir [admin § clamav](docs/runbook-administration.md#analyse-antivirus-clamav--provisioning--réglage). |
+| Antivirus (clamav) | ⚠️ Activé par défaut en download ; rlimits non validés en prod | Hypothèse de calibration à éprouver en homelab, voir [admin § clamav](docs/runbooks/administration.md#analyse-antivirus-clamav--provisioning--réglage). |
 | Multi-instances / fusion catalogues | ✅ Outil `merge` disponible | Cycle de partage hors-ligne, voir [docs/README § Collaboration](docs/README.md#collaboration-entre-chercheurs). |
 | Hub central / notifications inter-nœuds | ❌ Non-objectif v0.x | Non prévu. |

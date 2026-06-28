@@ -1,11 +1,11 @@
 # Stacks A/B — VPN intégré gluetun (spec 2026-06-20 §5, §10). Le P2P sort par le VPN (IP masquée).
 # A (Low-ID) : par défaut. B (High-ID) : hôte Linux rootful + VPN avec port forwarding ;
-# passer VPN_PORT_FORWARDING=on (.env) ET décommenter le bloc port_sync dans config/crawler/download.yaml.
-# Lancer : docker compose -f examples/gluetun.yaml --profile <observer|download> [--profile monitoring] up -d
-# Détails : docs/runbook-deployment.md
+# passer VPN_PORT_FORWARDING=on (.env) ET décommenter le bloc port_sync dans deploy/config/crawler/download.yaml.
+# Lancer : docker compose -f deploy/examples/gluetun.yaml --profile <observer|download> [--profile monitoring] up -d
+# Détails : docs/runbooks/deployment.md
 name: emule-indexer
 include:
-  - path: ../bricks/compose.core.yaml
+  - path: ../compose.base.yaml
     project_directory: ..
 services:
   gluetun:
