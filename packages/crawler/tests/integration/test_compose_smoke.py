@@ -46,6 +46,12 @@ pytestmark = pytest.mark.compose_integration
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _SMOKE = _REPO_ROOT / "tests/smoke/compose.yaml"
 
+# En CI, l'étape build pré-construit les images et passe IMAGE_TAG ; le smoke les consomme alors
+# SANS rebuild. En local (IMAGE_TAG absent) on rebuild via compose, comme avant.
+_IMAGE_TAG = os.environ.get("IMAGE_TAG")
+_USES_PREBUILT = _IMAGE_TAG is not None
+_BUILD_FLAGS: tuple[str, ...] = () if _USES_PREBUILT else ("--build",)
+
 _ENTRY_POINTS = ("gluetun", "sans-vpn-lowid", "sans-vpn-highid")
 _CONFIG_CASES: tuple[tuple[str, tuple[str, ...]], ...] = tuple(
     (entry, profiles)
@@ -122,7 +128,11 @@ def _run(*args: str, files: tuple[Path, ...], timeout: float) -> subprocess.Comp
     return subprocess.run(
         command,
         cwd=_REPO_ROOT,
-        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), **_ENV_STUB},
+        env={
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            **_ENV_STUB,
+            **({"IMAGE_TAG": _IMAGE_TAG} if _IMAGE_TAG is not None else {}),
+        },
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -178,6 +188,7 @@ def project_files() -> Iterator[tuple[Path, ...]]:
         _down(base)
 
 
+@pytest.mark.skipif(_USES_PREBUILT, reason="images pré-buildées en CI — rien à builder")
 def test_build_succeeds(project_files: tuple[Path, ...]) -> None:
     result = _run("--profile", "download", "build", files=project_files, timeout=900)
     assert result.returncode == 0, result.stderr
@@ -201,7 +212,7 @@ def test_download_verifier_healthy_and_crawler_up(
         ),
     )
     files = (*project_files, override)
-    result = _run("--profile", "download", "up", "-d", "--build", files=files, timeout=900)
+    result = _run("--profile", "download", "up", "-d", *_BUILD_FLAGS, files=files, timeout=900)
     assert result.returncode == 0, result.stderr
 
     # depends_on: service_healthy => le verifier est déjà sain quand le crawler démarre.
@@ -233,7 +244,7 @@ def test_observer_starts_without_verifier(project_files: tuple[Path, ...], tmp_p
         ),
     )
     files = (*project_files, override)
-    result = _run("--profile", "observer", "up", "-d", "--build", files=files, timeout=900)
+    result = _run("--profile", "observer", "up", "-d", *_BUILD_FLAGS, files=files, timeout=900)
     assert result.returncode == 0, result.stderr
 
     # Le profil observer ne définit PAS le verifier ; le crawler démarre quand même et reste Up.
@@ -256,7 +267,7 @@ def test_download_without_verifier_fails_fast(
     # On lève UNIQUEMENT amuled + crawler (sans `--profile download`) => le verifier est ABSENT.
     # Config download (verifier_url présent) => le crawler health-check le verifier au démarrage,
     # échoue, et avec restart: "no" SE FIGE en exited (pas de boucle de redémarrage).
-    result = _run("up", "-d", "--build", "amuled", "crawler", files=files, timeout=900)
+    result = _run("up", "-d", *_BUILD_FLAGS, "amuled", "crawler", files=files, timeout=900)
     assert result.returncode == 0, result.stderr
 
     state, exit_code = _wait_state("crawler", "exited", files)
