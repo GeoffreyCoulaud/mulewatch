@@ -7,7 +7,7 @@ import pytest
 from emule_indexer.composition import __main__ as entry
 from emule_indexer.composition.app import CrawlerApp
 
-_CONFIG = Path(__file__).resolve().parents[4] / "config" / "crawler"
+_CONFIG = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler"
 
 
 def _args(**overrides: Path) -> argparse.Namespace:
@@ -119,8 +119,8 @@ def test_main_refuses_on_missing_file(tmp_path: Path, capsys: pytest.CaptureFixt
 
 def test_default_args_point_at_config_dir() -> None:
     namespace = entry._parse_args([])
-    assert namespace.crawler == Path("config/crawler.yaml")
-    assert namespace.local == Path("config/local.yaml")
+    assert namespace.crawler == Path("deploy/config/crawler/crawler.yaml")
+    assert namespace.local == Path("deploy/config/crawler/local.yaml")
 
 
 def test_package_main_shim_reexports_main() -> None:
@@ -186,12 +186,12 @@ def test_validate_config_reports_valid(capsys: pytest.CaptureFixture[str]) -> No
 
 
 def test_validate_config_defaults_point_at_config_dir() -> None:
-    # Les options de validate-config ont les MÊMES défauts config/*.yaml que le run.
+    # Les options de validate-config ont les MÊMES défauts deploy/config/crawler/*.yaml que le run.
     namespace = entry._parse_validate_args([])
-    assert namespace.crawler == Path("config/crawler.yaml")
-    assert namespace.local == Path("config/local.yaml")
-    assert namespace.targets == Path("config/targets.yaml")
-    assert namespace.matcher == Path("config/matcher.yaml")
+    assert namespace.crawler == Path("deploy/config/crawler/crawler.yaml")
+    assert namespace.local == Path("deploy/config/crawler/local.yaml")
+    assert namespace.targets == Path("deploy/config/crawler/targets.yaml")
+    assert namespace.matcher == Path("deploy/config/crawler/matcher.yaml")
 
 
 def test_validate_config_rejects_broken_yaml(

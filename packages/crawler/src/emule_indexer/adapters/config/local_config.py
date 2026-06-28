@@ -3,8 +3,8 @@
 Endpoints EC + mots de passe + chemins des bases + override optionnel du ``node_id``.
 Parsé depuis le dict YAML chargé par ``load_yaml`` en dataclasses GELÉES, validation
 FAIL-FAST (≥ 1 instance, champs présents → ``ConfigError`` sinon, spec §5/§14). Aucune
-variable d'environnement (spec §3). ``config/crawler/observer.example.yaml`` (mode observer)
-et ``config/crawler/download.example.yaml`` (mode download) sont versionnés comme modèles ;
+variable d'environnement (spec §3). ``deploy/config/crawler/observer.example.yaml`` (mode observer)
+et ``deploy/config/crawler/download.example.yaml`` (mode download) sont versionnés comme modèles ;
 ``local.yaml`` ne l'est jamais (``.gitignore``).
 """
 

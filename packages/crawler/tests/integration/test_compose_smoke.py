@@ -2,7 +2,7 @@
 
 Run dédié : ( cd packages/crawler && uv run pytest -m compose_integration --no-cov )
 Docker + docker compose v2 requis. Monte verifier + crawler + amuled (gluetun retiré via
-compose.smoke.yaml) et asserte le CÂBLAGE — AUCUN téléchargement réel (amuled n'a ni serveur
+tests/smoke/compose.yaml) et asserte le CÂBLAGE — AUCUN téléchargement réel (amuled n'a ni serveur
 eD2k ni VPN ; seul son serveur EC est sollicité) :
   1. `docker compose build` réussit (les 2 images se construisent).
   2. download : verifier devient healthy (/health 200) ET le crawler reste Up.
@@ -11,8 +11,10 @@ eD2k ni VPN ; seul son serveur EC est sollicité) :
 Volumes éphémères : chaque scénario fait `docker compose down -v` dans un finally.
 
 Mécaniques arrêtées EMPIRIQUEMENT (compose v5, Docker 29) :
-  * Les chemins de volumes relatifs des fichiers compose (`./tests/smoke/...`) sont résolus
-    contre le `working_dir` du projet : tous les `subprocess.run` tournent donc `cwd=_REPO_ROOT`.
+  * Les chemins relatifs des fichiers compose sont résolus contre le project-directory. On le FIXE
+    explicitement à `_REPO_ROOT` via `--project-directory` (cf. `_run`) : `./tests/smoke/...`,
+    `context: .` et `./deploy/config/verifier.yaml` résolvent de façon déterministe, sans dépendre
+    du défaut (cwd vs dossier du `-f`). Les `subprocess.run` tournent aussi `cwd=_REPO_ROOT`.
   * Les DB sont écrites par le crawler (uid 999, ``read_only: true``) dans les VRAIS volumes
     nommés ``catalog-db``/``local-db`` (montés ``/data/catalog`` + ``/data/local``). Le Dockerfile
     crée ces points de montage possédés par ``nonroot`` => un volume nommé VIDE hérite de la
@@ -42,7 +44,7 @@ import pytest
 pytestmark = pytest.mark.compose_integration
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_SMOKE = _REPO_ROOT / "compose.smoke.yaml"
+_SMOKE = _REPO_ROOT / "tests/smoke/compose.yaml"
 
 _ENTRY_POINTS = ("gluetun", "sans-vpn-lowid", "sans-vpn-highid")
 _CONFIG_CASES: tuple[tuple[str, tuple[str, ...]], ...] = tuple(
@@ -74,7 +76,7 @@ _ENV_STUB = {
 # Listes de volumes des overrides : on monte les configs smoke + les VRAIS volumes nommés
 # (catalog-db/local-db/quarantine). Le crawler non-root (uid 999) y crée ses bases SQLite —
 # le Dockerfile possède les points de montage en nonroot pour que les volumes vides héritent
-# de 999:999. Les chemins de bind restent relatifs au working_dir du projet.
+# de 999:999. Les chemins de bind restent relatifs au project-directory (fixé à _REPO_ROOT).
 _DOWNLOAD_LOCAL_VOLUMES = [
     "./tests/smoke/local.download.yaml:/app/config/local.yaml:ro",
     "./tests/smoke/crawler.yaml:/app/config/crawler.yaml:ro",
@@ -107,7 +109,16 @@ def _run(*args: str, files: tuple[Path, ...], timeout: float) -> subprocess.Comp
     file_flags: list[str] = []
     for path in files:
         file_flags += ["-f", str(path)]
-    command = ["docker", "compose", "-p", _PROJECT, *file_flags, *args]
+    command = [
+        "docker",
+        "compose",
+        "-p",
+        _PROJECT,
+        "--project-directory",
+        str(_REPO_ROOT),
+        *file_flags,
+        *args,
+    ]
     return subprocess.run(
         command,
         cwd=_REPO_ROOT,
@@ -255,7 +266,7 @@ def test_download_without_verifier_fails_fast(
 
 @pytest.mark.parametrize("entry,profiles", _CONFIG_CASES)
 def test_entrypoint_config_renders(entry: str, profiles: tuple[str, ...]) -> None:
-    """`docker compose -f examples/<entry>.yaml --profile … config` rend sans erreur.
+    """`docker compose -f deploy/examples/<entry>.yaml --profile … config` rend sans erreur.
 
     Verrouille include + forward-refs + ancres/merge + interpolation (pas de daemon requis ;
     les sources de bind-mount n'ont pas besoin d'exister pour `config`).
@@ -267,7 +278,7 @@ def test_entrypoint_config_renders(entry: str, profiles: tuple[str, ...]) -> Non
         "docker",
         "compose",
         "-f",
-        f"examples/{entry}.yaml",
+        f"deploy/examples/{entry}.yaml",
         *profile_flags,
         "config",
     ]

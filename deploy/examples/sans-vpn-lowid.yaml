@@ -1,10 +1,10 @@
 # Stack C — sans VPN, Low-ID (spec 2026-06-20 §5). Le P2P sort par ta connexion : IP domestique
 # exposée aux pairs (mets un VPN au niveau hôte pour l'éviter). Aucun port à ouvrir.
-# Lancer : docker compose -f examples/sans-vpn-lowid.yaml --profile <observer|download> [--profile monitoring] up -d
-# Détails : docs/runbook-deployment.md
+# Lancer : docker compose -f deploy/examples/sans-vpn-lowid.yaml --profile <observer|download> [--profile monitoring] up -d
+# Détails : docs/runbooks/deployment.md
 name: emule-indexer
 include:
-  - path: ../bricks/compose.core.yaml
+  - path: ../compose.base.yaml
     project_directory: ..
 services:
   amuled:

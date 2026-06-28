@@ -2,7 +2,7 @@
 
 Ce guide décrit **comment lancer les tests d'intégration** (les suites « lourdes » désélectionnées
 par défaut), leurs **prérequis exacts** et **ce qu'on doit attendre** en sortie. Il complète le
-[runbook de déploiement](runbook-deployment.md) : le runbook explique comment faire tourner la
+[runbook de déploiement](runbooks/deployment.md) : le runbook explique comment faire tourner la
 stack, ce guide-ci explique comment la **valider**.
 
 Public visé : **dev local + CI**. Pas pour les opérateurs (qui n'ont pas à lancer les suites de
@@ -140,7 +140,7 @@ conditionnels clamav `RLIMIT_AS_BYTES_CLAMAV` (défaut 1,5 Gio) / `RLIMIT_CPU_S_
 
 > **Dimensionnement des rlimits clamav (hypothèse, non testé).** Quand `clamav` est activé,
 > `clamscan` mmap toute la base de signatures : on relâche `RLIMIT_AS_BYTES_CLAMAV` à **1,5 Gio** et
-> on cale le `mem_limit` du service verifier à **2 Gio** dans `bricks/compose.core.yaml`. C'est un **choix
+> on cale le `mem_limit` du service verifier à **2 Gio** dans `deploy/compose.base.yaml`. C'est un **choix
 > optimiste assumé**, pas validé par un test (la calibration n'aurait de sens que contre l'image de
 > prod, pas un `clamscan` bare-metal — d'où le retrait des tests d'intégration clamav). Si, en prod,
 > un média **sain** ressort `suspicious`, le signal est de **relever `RLIMIT_AS_BYTES_CLAMAV` et le
@@ -251,7 +251,7 @@ file`).
 - Les variables gluetun sont **stubées** par le test lui-même (`WIREGUARD_PRIVATE_KEY`,
   `AMULE_EC_PASSWORD`, `SERVER_COUNTRIES`) car compose les interpole au parse même si gluetun est
   désactivé — **rien à poser côté opérateur**.
-- Fichiers compose utilisés : `compose.smoke.yaml` (autonome) + overrides temporaires par scénario + `examples/*.yaml` pour `test_entrypoint_config_renders` ; configs smoke sous `tests/smoke/`.
+- Fichiers compose utilisés : `tests/smoke/compose.yaml` (autonome) + overrides temporaires par scénario + `deploy/examples/*.yaml` pour `test_entrypoint_config_renders` ; configs smoke sous `tests/smoke/`.
 - Le test n'importe **aucun** module `emule_indexer` (préserve le 100 % branch du paquet).
 
 **Commande.**
@@ -327,6 +327,6 @@ Outils ponctuels destinés au **développeur** (mesure/diagnostic, pas exploitat
 
 ## 7. Voir aussi
 
-- [Runbook de déploiement](runbook-deployment.md) — pour **déployer et exploiter** un nœud
+- [Runbook de déploiement](runbooks/deployment.md) — pour **déployer et exploiter** un nœud
   (le runbook renvoie ici pour la validation en profondeur).
 - [Index de la doc](README.md) — aiguillage par audience (opérateur / développeur / historique).

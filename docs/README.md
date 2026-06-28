@@ -13,12 +13,12 @@ Vous voulez **déployer et exploiter** un nœud (homelab, serveur). *Prérequis 
 d'être à l'aise avec un **terminal** et **Docker** (orientation Linux/serveur) ; l'état par défaut
 **Low-ID** suffit pour contribuer.*
 
-- **[Runbook de déploiement](runbook-deployment.md)** — *monter* la stack `docker compose` et la voir
+- **[Runbook de déploiement](runbooks/deployment.md)** — *monter* la stack `docker compose` et la voir
   tourner : matrice de choix (stacks A/B/C/D), profils observer/download, secrets, premier boot, Low-ID.
-- **[Runbook d'administration](runbook-administration.md)** — *exploiter et régler* un nœud monté :
+- **[Runbook d'administration](runbooks/administration.md)** — *exploiter et régler* un nœud monté :
   cycle de vie, High-ID (optionnel), analyse antivirus (clamav), métriques Prometheus, durcissement
   gVisor, outils de catalogue (fusion/compaction/validation), limites connues.
-- **[Runbook de dépannage](runbook-troubleshooting.md)** — *résoudre un problème* concret, quel que
+- **[Runbook de dépannage](runbooks/troubleshooting.md)** — *résoudre un problème* concret, quel que
   soit votre niveau : symptôme → cause → solution.
 - **[Légalité, confidentialité, éthique](legal-and-privacy.md)** — ce que votre nœud catalogue et
   stocke (et ce qu'il ne stocke pas), le risque légal honnêtement, ce qu'un VPN protège vraiment.
@@ -39,7 +39,7 @@ en partageant des bases SQLite (`catalog.db`) entre chercheurs qui ont chacun le
   avec l'outil `merge`.
 
 **Outil de fusion :** chaque chercheur peut fusionner N catalogues collectés vers un seul, avec
-[l'outil `emule_indexer.merge` documenté dans le runbook d'administration § Outils de catalogue](runbook-administration.md#outils-de-catalogue).
+[l'outil `emule_indexer.merge` documenté dans le runbook d'administration § Outils de catalogue](runbooks/administration.md#outils-de-catalogue).
 La fusion est **idempotente** (re-merger le même fichier est un no-op) et **safe-by-default**
 (pas d'écrasement sans `--force`). Chaque fichier est identifié par son **empreinte de contenu
 eD2k** — la fusion ne crée jamais de doublons.
@@ -47,7 +47,7 @@ eD2k** — la fusion ne crée jamais de doublons.
 **Cycle de partage typique :**
 
 1. Vous catalogez localement pendant N semaines.
-2. Vous exportez votre `catalog.db` (copie depuis le volume Docker, voir runbook-administration
+2. Vous exportez votre `catalog.db` (copie depuis le volume Docker, voir runbooks/administration.md
    § Planification disque).
 3. Vous l'échangez avec d'autres chercheurs via un canal hors-ligne.
 4. Vous re-fusionnez les catalogues reçus dans le vôtre : `python -m emule_indexer.merge --output
@@ -71,7 +71,7 @@ les décisions de conception.
 
 - **[Guide des tests](testing-guide.md)** — toutes les suites (unitaire + intégration) + pistes CI +
   outils de diagnostic.
-- **[Specs de conception](superpowers/specs/)** — le design MVP autoritatif (17 sections) et
+- **[Specs de conception](specs/)** — le design MVP autoritatif (17 sections) et
   l'architecture (moteur de matching, hexagonal/Clean).
 - Le **gate** (commandes de build/test/lint, règles dures) est décrit dans le `CLAUDE.md` à la racine.
 
@@ -81,6 +81,6 @@ Le **pourquoi** des choix, jalon par jalon, et les plans d'implémentation exéc
 
 - **[Handoffs](handoffs/)** — un guide de continuation par jalon (`<date ISO> - handoff - <contexte>.md`) ;
   le plus récent est le point d'entrée du contexte courant.
-- **[Plans d'implémentation](superpowers/plans/)** — les plans exécutés en mode subagent-driven.
+- **[Plans d'implémentation](plans/)** — les plans exécutés en mode subagent-driven.
 - **[Notes de référence](reference/)** — constats empiriques datés (richesse des champs EC, opcodes
   download, etc.).

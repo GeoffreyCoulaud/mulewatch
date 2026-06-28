@@ -1,10 +1,11 @@
-# Brique COMMUNE (spec 2026-06-20 §4) — incluse par chaque examples/*.yaml.
-# Définit TOUT sauf amuled & le VPN. Cohérente seule :
-#   GRAFANA_PWD=x docker compose -f bricks/compose.core.yaml config
+# Brique COMMUNE (spec 2026-06-20 §4) — incluse par chaque deploy/examples/*.yaml.
+# Définit TOUT sauf amuled & le VPN. Cohérente seule (depuis le repo root) :
+#   GRAFANA_PWD=x docker compose -f deploy/compose.base.yaml config
+# Chemins relatifs (context, ./config/...) résolus contre le project-dir = deploy/.
 x-crawler-common: &crawler-common
   image: ghcr.io/geoffreycoulaud/emule-indexer-crawler:${IMAGE_TAG:-latest}
   build:
-    context: .
+    context: ..
     dockerfile: packages/crawler/Dockerfile
   user: "999:999"
   read_only: true
@@ -69,7 +70,7 @@ services:
   verifier:
     image: ghcr.io/geoffreycoulaud/emule-indexer-verifier:${IMAGE_TAG:-latest}
     build:
-      context: .
+      context: ..
       dockerfile: packages/verifier/Dockerfile
     profiles: [download]
     runtime: ${CONTAINER_RUNTIME:-runc}
@@ -164,7 +165,7 @@ services:
   webui:
     image: ghcr.io/geoffreycoulaud/emule-indexer-webui:${IMAGE_TAG:-latest}
     build:
-      context: .
+      context: ..
       dockerfile: packages/webui/Dockerfile
     profiles: [observer, download]
     runtime: ${CONTAINER_RUNTIME:-runc}

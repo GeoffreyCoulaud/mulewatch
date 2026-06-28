@@ -1,8 +1,8 @@
 # Runbook de dépannage — emule-indexer
 
 Symptômes courants et leur résolution. Chaque entrée suit le même format : **symptôme → cause →
-solution**. Pour *monter* un nœud, voir le [runbook de déploiement](runbook-deployment.md) ; pour
-le *régler*, le [runbook d'administration](runbook-administration.md).
+solution**. Pour *monter* un nœud, voir le [runbook de déploiement](deployment.md) ; pour
+le *régler*, le [runbook d'administration](administration.md).
 
 > **À qui ça s'adresse.** La plupart des entrées ci-dessous restent accessibles sans expertise
 > particulière (lecture de logs, redémarrage de service). **Certaines sections — High-ID/port-sync
@@ -44,10 +44,10 @@ le *régler*, le [runbook d'administration](runbook-administration.md).
   (validé en juin 2026)**. Les versions ≥ 3.0.0 supportent l'auto-amorçage ; une image `latest` ou
   `2.3.3-*` casse l'amorçage du premier run **sans erreur évidente**. Vérifiez l'image utilisée :
   ```bash
-  docker compose -f examples/<fichier> images amuled
+  docker compose -f deploy/examples/<fichier> images amuled
   # Vous devez voir : ngosang/amule:3.0.0-1
   ```
-  Si vous voyez `latest` ou `2.3.3-*`, fixez la version dans votre `examples/*.yaml` puis re-pullez.
+  Si vous voyez `latest` ou `2.3.3-*`, fixez la version dans votre `deploy/examples/*.yaml` puis re-pullez.
   *(Si une version 4.x sort dans le futur, ré-évaluer la compatibilité avant migration — ce projet
   n'a été éprouvé qu'avec 3.0.0-1.)*
 
@@ -56,7 +56,7 @@ le *régler*, le [runbook d'administration](runbook-administration.md).
 - **Ce n'est pas une panne.** Low-ID est l'**état normal** par défaut : recherche, catalogage et
   téléchargement fonctionnent ; seule la joignabilité est sous-optimale (moins de sources directes).
 - **Pour passer en High-ID** (optionnel), voir « High-ID (optionnel) » dans le
-  [runbook d'administration](runbook-administration.md).
+  [runbook d'administration](administration.md).
 
 ---
 
@@ -70,8 +70,8 @@ le *régler*, le [runbook d'administration](runbook-administration.md).
 - **Solution rapide.** Le crawler finit par démarrer dès que le verifier est sain. Pour éviter les
   redémarrages initiaux, démarrez le verifier d'abord, puis le reste :
   ```bash
-  docker compose -f examples/<fichier> --profile download up -d verifier
-  docker compose -f examples/<fichier> --profile download up -d
+  docker compose -f deploy/examples/<fichier> --profile download up -d verifier
+  docker compose -f deploy/examples/<fichier> --profile download up -d
   ```
 - **Si la boucle persiste > 5 min**, diagnostic en escalier :
   1. **Le verifier a-t-il démarré proprement ?** `docker compose logs verifier --tail 50` — vous
@@ -82,7 +82,7 @@ le *régler*, le [runbook d'administration](runbook-administration.md).
      wget -qO- http://verifier:8000/healthz` (si `wget` n'est pas dispo, `curl` aussi) — doit
      renvoyer un JSON `{"status":"ok"}`. Si `Connection refused`, le verifier est down ; si `Name
      resolution failure`, le service n'est pas sur le même réseau Docker (config compose suspecte).
-  3. **`verifier_url` est-il correct côté crawler ?** Ouvrir `config/crawler/download.yaml` et
+  3. **`verifier_url` est-il correct côté crawler ?** Ouvrir `deploy/config/crawler/download.yaml` et
      vérifier que `verifier_url` pointe sur `http://verifier:8000` (nom de service compose, pas
      `localhost` ni IP). Une mauvaise URL → le crawler ne joint jamais le verifier, peu importe son
      état.
@@ -98,7 +98,7 @@ Trois causes possibles, de la plus probable à la moins :
 2. **Le scan se fait tuer faute de mémoire.** `clamscan` charge toute la base en RAM ; si les limites
    sont trop basses, l'OOM-killer tue le scan avant la fin → `suspicious`. Augmentez
    `RLIMIT_AS_BYTES_CLAMAV` / `RLIMIT_CPU_S_CLAMAV` et le `mem_limit` du verifier (voir
-   [runbook d'administration](runbook-administration.md), « Analyse antivirus (clamav) »).
+   [runbook d'administration](administration.md), « Analyse antivirus (clamav) »).
 3. **Accroc de droits sur la quarantaine** (voir « Droits cross-user sur la quarantaine » plus bas).
 
 ### Le fichier fini n'est pas récupéré (reste dans l'IncomingDir, non catalogué)
@@ -128,7 +128,7 @@ Trois causes possibles, de la plus probable à la moins :
 > ⚠️ **Prérequis pour ce diagnostic** : connaissance Docker (sockets, groupes Unix). Si vous n'êtes
 > pas à l'aise avec ces concepts, le port-sync n'est probablement pas la bonne voie pour vous —
 > envisagez la **Route B** (port-forward manuel sur votre box) ou restez en **Low-ID** (qui marche
-> très bien). Voir [runbook d'administration § High-ID](runbook-administration.md#high-id-optionnel--devenir-joignable).
+> très bien). Voir [runbook d'administration § High-ID](administration.md#high-id-optionnel--devenir-joignable).
 
 ### Le port-sync reste inopérant (toujours Low-ID alors qu'il est activé)
 
@@ -145,7 +145,7 @@ Plusieurs causes, à vérifier dans cet ordre :
   (`getent group docker`).
 - **Conteneur amuled mal nommé.** Le proxy n'autorise QUE `POST .../containers/amuled/restart` : le
   conteneur doit s'appeler **exactement `amuled`** (épinglé via `container_name: amuled` dans
-  `examples/gluetun.yaml`). Sous un autre nom, le restart fait **404** et le port-sync ne fait rien.
+  `deploy/examples/gluetun.yaml`). Sous un autre nom, le restart fait **404** et le port-sync ne fait rien.
 - **Fournisseur sans port forwarding.** Le High-ID exige un provider à port forwarding
   (Proton/PIA/PrivateVPN/PerfectPrivacy) et `VPN_PORT_FORWARDING: "on"`.
 
@@ -164,7 +164,7 @@ Plusieurs causes, à vérifier dans cet ordre :
   en `nonroot`, donc un volume nommé **vide** hérite de la bonne propriété. Mais un volume **déjà
   peuplé** (root-owned) garde ses droits.
 - **Solution.** Trouvez d'abord le nom exact de votre volume (il dépend du nom du projet Docker
-  Compose, par défaut le nom du dossier qui contient `examples/`) :
+  Compose, par défaut le nom du dossier qui contient `deploy/examples/`) :
   ```bash
   docker volume ls | grep catalog-db
   # Exemple de sortie : local  emule-indexer_catalog-db
@@ -183,7 +183,7 @@ Plusieurs causes, à vérifier dans cet ordre :
   **n'impose pas** notre durcissement (cap_drop, user dédié, etc.) à amuled. Risque résiduel
   assumé : si amuled était compromis, l'attaquant accéderait au volume quarantaine. C'est un
   **non-objectif assumé pour v0.x**, pas un manque non vu (voir aussi
-  [runbook d'administration § Limites connues](runbook-administration.md#limites-connues--follow-ups)).
+  [runbook d'administration § Limites connues](administration.md#limites-connues--follow-ups)).
 
   Conséquence opérationnelle : le volume `quarantine` est écrit à la fois par amuled (fichiers
   finis) et par le crawler (déplacement atomique) ; un accroc de droits cross-user peut survenir au
@@ -223,9 +223,9 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 - **Symptôme.** Le crawler refuse de se connecter à amuled (`EC auth failed` dans les logs).
 - **Solution.** Choisissez un nouveau mot de passe, mettez à jour `AMULE_EC_PASSWORD` dans `.env`
-  ET `amules[].password` dans `config/crawler/download.yaml` (ou `observer.yaml`), puis redémarrez :
+  ET `amules[].password` dans `deploy/config/crawler/download.yaml` (ou `observer.yaml`), puis redémarrez :
   ```bash
-  docker compose -f examples/<fichier> --profile <mode> up -d --force-recreate amuled crawler
+  docker compose -f deploy/examples/<fichier> --profile <mode> up -d --force-recreate amuled crawler
   ```
   Pas de perte de catalogue (le mot de passe ne protège que le canal EC, pas les données).
 
@@ -253,7 +253,7 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 - **Solution destructive (irréversible).** Arrêtez tout et supprimez les volumes :
   ```bash
-  docker compose -f examples/<fichier> --profile <mode> down -v
+  docker compose -f deploy/examples/<fichier> --profile <mode> down -v
   ```
   Le `-v` est ce qui efface. Sans lui, les volumes (donc le catalogue) sont préservés.
   Sauvegardez d'abord ce que vous tenez à garder.
@@ -278,5 +278,5 @@ uv run python -m emule_indexer validate-config
 ```
 
 Charge + valide les 4 configs et sort en erreur (code ≠ 0) si l'une est invalide, **sans rien
-démarrer**. À lancer **avant** un déploiement (entre étape 3 et étape 4 du [runbook de déploiement](runbook-deployment.md))
+démarrer**. À lancer **avant** un déploiement (entre étape 3 et étape 4 du [runbook de déploiement](deployment.md))
 ou après une modification de config.

@@ -12,8 +12,8 @@ dist/
 *.db-wal
 *.db-shm
 # Config locale crawler (machine + secret EC) — JAMAIS versionnée. Seuls les *.example.yaml le sont.
-config/crawler/observer.yaml
-config/crawler/download.yaml
+deploy/config/crawler/observer.yaml
+deploy/config/crawler/download.yaml
 # Secrets de deploiement (ProtonVPN, EC password) — JAMAIS versionnes. Seul .env.example l'est.
 .env
 vendor/
