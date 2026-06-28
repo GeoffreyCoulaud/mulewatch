@@ -1,0 +1,30 @@
+name: Build (and optionally push) a package image
+description: >
+  Build l'image d'un package via buildx. Mono-arch --load (tests) ou multi-arch --push
+  (publication) selon `push`. Cache partagé type=gha (scope par package).
+inputs:
+  package:
+    description: Nom du package (crawler|verifier|webui).
+    required: true
+  push:
+    description: "'true' = build-push multi-arch ; 'false' = build --load local."
+    required: true
+  platforms:
+    description: Plateformes buildx (ex. linux/amd64 ou linux/amd64,linux/arm64).
+    required: true
+  tags:
+    description: Tags d'image (multiligne).
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: packages/${{ inputs.package }}/Dockerfile
+        platforms: ${{ inputs.platforms }}
+        load: ${{ inputs.push == 'false' }}
+        push: ${{ inputs.push == 'true' }}
+        tags: ${{ inputs.tags }}
+        cache-from: type=gha,scope=${{ inputs.package }}
+        cache-to: type=gha,mode=max,scope=${{ inputs.package }}
