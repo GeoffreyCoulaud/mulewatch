@@ -3,7 +3,8 @@
 Milestone **`v0.20.0-deploy-simplification`** (annoté, non poussé). Mergé dans `main` en `--no-ff`
 (`6a7472e`). Gate complet **vert** (matching 185 / crawler 721 / verifier 176 / webui 97, tous
 100 % branch ; ruff / format / mypy / sqlfluff / check_templates). Revue globale (opus) :
-**Ready to merge**, 0 Critical / 0 Important.
+**Ready to merge**, 0 Critical / 0 Important. CI verte (run 28398609445) après un
+correctif post-merge (`e3b1a61`, voir Pièges) ; images publiées sur GHCR.
 
 ## État courant
 
@@ -48,6 +49,13 @@ Le modèle :
   l'adapter). Mis à jour dans `CLAUDE.md` et annoté dans la spec MVP.
 - **Paresse > YAGNI ici** (décision consciente de Geoffrey) : interpoler à la consommation permet
   qu'une section `enabled: false` n'exige jamais ses `${VAR}` — débloque les itérations futures.
+- **Les tests `compose_integration` ne tournent qu'en CI** (Docker requis) — angle mort du sandbox.
+  Un refactor de **chemins de fichiers** DOIT les greper explicitement : `test_compose_smoke.py::
+  test_entrypoint_config_renders` pointait encore `deploy/examples/*.yaml` (supprimés en T7),
+  invisible au gate local (marqueur désélectionné), à `mypy` (ce ne sont que des chaînes) et aux
+  greps docs. A cassé la CI au 1er push (job « compose smoke stack »), corrigé en `e3b1a61`. Les
+  tests de **stack réelle** (full-stack / fail-fast), eux, passaient déjà — confirmant que le
+  réalignement smoke des configs (T9) était correct ; seul ce test d'entrée avait été oublié.
 
 ## Prochaine étape suggérée
 
