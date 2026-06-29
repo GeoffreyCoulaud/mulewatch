@@ -36,14 +36,14 @@ The crawler is Clean/Hexagonal: `domain/` pure, `application/` async use-cases, 
 | Observability | c: `domain/observability/`, `adapters/observability/` | events → policy → dispatcher; Prometheus + apprise |
 | Port-sync (High-ID) | c: `application/` | gluetun port → EC SetPort → restart amuled |
 | Standalone catalog tools | c: `merge/`, `compact/` | `python -m emule_indexer.{merge,compact}` — N→1 fusion / daily rollup |
-| Packaging | `deploy/compose.base.yaml` + `deploy/examples/*.yaml` + `tests/smoke/compose.yaml`, `packages/*/Dockerfile` | observer/download profiles; smoke stack; container hardening (cap_drop, read_only, seccomp) |
+| Packaging | `deploy/base.compose.yml` + `deploy/{gluetun,direct}.compose.yml` + `tests/smoke/compose.yaml`, `packages/*/Dockerfile` | observer/download profiles; smoke stack; container hardening (cap_drop, read_only, seccomp) |
 
 ## Design invariants (do not violate)
 
 - **The catalog's subject is the file, never the person** — no tracking, no deanonymization.
 - **The crawler PROD never reads downloaded bytes.** Quarantine promotion is `os.replace` only; bytes are read solely inside the disposable verifier child. Completion is a *positive signal* (amuled's shared-files list), never byte-inference.
 - **Package boundary:** the crawler never imports `download_verifier`; the verifier never imports `emule_indexer`. Only the contract test crosses it.
-- **Two run modes:** *observer* (no `verifier_url`) is crawl-only; *download* (`verifier_url` set) wires the download + verification loops live, fail-fast on a verifier health check.
+- **Two run modes:** *observer* (`download.enabled: false` or absent in `crawler.yml`) is crawl-only; *download* (`download.enabled: true`) wires the download + verification loops live, fail-fast on a verifier health check.
 - **Standalone tools** (`merge`, `compact`) never touch prod code or mutate a DB in place — they read a source and write a NEW file.
 - **Boundary discipline (E-D13):** absorb failures from external I/O (apprise notifiers, the verifier RPC → degrade), but let in-process 100%-tested code crash loudly (a `PrometheusSink` failure is a bug, not a transient).
 - **Confinement posture (decided 2026-06-17, updated 2026-06-29):** the portable floor is container hardening (`cap_drop: ALL` / `no-new-privileges` / `read_only` / `internal`) + per-child seccomp **blocklist** + rlimits. Per-child kernel namespaces and a seccomp allowlist are deliberate non-goals. **Why** : per-child kernel namespaces (`net=none`, bwrap, mount namespaces) require either `CAP_SYS_ADMIN` (which would regress the `cap_drop: ALL` baseline) or unprivileged user namespaces (host-sysctl-dependent, conflicts with Docker's default seccomp). Seccomp allowlist (vs. the current blocklist) was rejected because it's too brittle on healthy media (false-positive risk on legitimate libc calls during `ffprobe` / `clamscan`). Same reasoning summarized for operators in `docs/runbooks/administration.md` § Limites connues. See `docs/specs/2026-06-15-ring-noyau-design.md` for the full record (gVisor section deprecated 2026-06-29, YAGNI).
@@ -66,7 +66,7 @@ uv run sqlfluff lint packages/crawler/src                    # embedded SQLite m
 uv run python -m catalog_webui._dev.check_templates packages/webui/src/catalog_webui/adapters/templates  # garde templates sans logique
 ```
 
-**The gate is PER PACKAGE** (`cd packages/<pkg> && uv run pytest`). The intent: each package owns its own pytest config and 100 % branch coverage in isolation — a root run would mix coverage data across packages and break the per-package threshold. A bare `uv run pytest` from the repo root is also blocked mechanically (the root has no `[tool.pytest.ini_options]` and a root `conftest.py` sets `collect_ignore_glob = ["packages/*"]` → exit 5 with zero collected). Tooling split: `[tool.ruff]` / `[tool.mypy]` at root span all four packages; `[tool.pytest]` / `[tool.coverage]` / `[tool.sqlfluff]` are per-package; one root `uv.lock`. Deployment artifacts live under `deploy/` (compose + `config/` + `.env.example` at root by convention); the smoke stack under `tests/smoke/`.
+**The gate is PER PACKAGE** (`cd packages/<pkg> && uv run pytest`). The intent: each package owns its own pytest config and 100 % branch coverage in isolation — a root run would mix coverage data across packages and break the per-package threshold. A bare `uv run pytest` from the repo root is also blocked mechanically (the root has no `[tool.pytest.ini_options]` and a root `conftest.py` sets `collect_ignore_glob = ["packages/*"]` → exit 5 with zero collected). Tooling split: `[tool.ruff]` / `[tool.mypy]` at root span all four packages; `[tool.pytest]` / `[tool.coverage]` / `[tool.sqlfluff]` are per-package; one root `uv.lock`. Deployment artifacts live under `deploy/` (compose + `config/` + `deploy/.env.example`); the smoke stack under `tests/smoke/`.
 
 **Single test** (the package-wide `--cov-fail-under=100` makes a lone test "fail" — disable coverage):
 
@@ -81,7 +81,7 @@ Integration suites (Docker / ffmpeg, deselected by default, excluded from covera
 - **100% branch coverage on unit tests, per package**, gated in CI and the pre-push hook (`--cov-fail-under=100`, `branch=true`). Integration suites (`ec_integration`, `download_integration`, `verify_integration`, `analysis_integration`, `orchestration_integration`, `compose_integration`) are deselected by the per-package `addopts` and excluded from coverage measurement — they run **on demand**, not in the gate (see `docs/testing-guide.md`). Never lower the unit-test threshold; add the missing test (exercise *both* sides of every conditional).
 - **Strict TDD**: tests are the spec; write the failing test first, watch it fail, then the minimal implementation. Code review judges the tests first. Every test function is annotated `-> None` with typed params.
 - **`mypy --strict`** over **both `src` and `tests`**. **`ruff`** selects `E,F,I,UP,B,SIM`, line-length **100**.
-- **Clean / Hexagonal**: `domain/` is **pure** — no I/O, no `yaml`/DB/network/clock/logging imports. All I/O lives in `adapters/`. The dependency graph is a DAG.
+- **Clean / Hexagonal**: `domain/` is **pure** — no I/O, no `yaml`/DB/network/clock/logging imports. All I/O lives in `adapters/`. The dependency graph is a DAG. `${NAME}` env-var interpolation in `crawler.yml` is resolved by the config adapter before anything reaches the domain — the domain itself never touches env vars.
 - **Python only** (≥3.12). Conventional commits (`feat(domain):`, `fix(domain):`, `test:`, `chore:`, `docs:`).
 - **Subagent-driven execution** (Act phase) + **holistic review** (Verify phase): the cross-cutting review regularly catches bugs — don't skip it.
 - For library/framework/CLI questions, use the **context7 MCP** (current docs), not recalled knowledge.

@@ -1,6 +1,12 @@
 # Exemples de déploiement composables (sans gluetun + clé en main) — design (2026-06-20)
 
-> **🔵 Note 2026-06-29** : la section §9 (gVisor / `CONTAINER_RUNTIME`) est dépréciée — gVisor a été retiré du projet (YAGNI).
+> **🔵 Note 2026-06-29 (a)** : la section §9 (gVisor / `CONTAINER_RUNTIME`) est dépréciée — gVisor a été retiré du projet (YAGNI).
+>
+> **🔵 Note 2026-06-29 (b)** : la structure `deploy/examples/<scénario>.yaml` décrite dans cette
+> spec a été **remplacée** par `deploy/{gluetun,direct}.compose.yml` (+ `deploy/base.compose.yml`
+> en fragment `include`), et `deploy/config/crawler/` est passé à une config unifiée
+> `crawler.yml`. Voir [`2026-06-29-simplification-deploiement-design.md`](2026-06-29-simplification-deploiement-design.md).
+> Le corps de cette spec reste à titre de record historique.
 >
 > Spec issue d'une session de brainstorming « un sujet à la fois ». Sujet : fournir **plusieurs
 > exemples de déploiement** — dont des topologies **sans gluetun** — sous forme de **briques

@@ -18,6 +18,13 @@
 
 ## 3. Modes de déploiement (deux conteneurs indépendants)
 
+> **⚠️ Note 2026-06-29** : l'invariant « aucune variable d'environnement dans la config crawler »
+> et le mécanisme d'activation par `VERIFIER_URL` ont été révisés par la spec
+> [`2026-06-29-simplification-deploiement-design.md`](2026-06-29-simplification-deploiement-design.md).
+> Le mode est désormais `download.enabled: true/false` dans `crawler.yml` ; l'interpolation
+> `${NAME}` pour les secrets vit dans l'adapter de config (domaine toujours pur). Le corps de
+> cette section reste à titre de record historique.
+
 | | **Observer** (défaut, distribution) | **Full** (homelab Linux) |
 |---|---|---|
 | Recherche + catalogue + notif (avec **lien ed2k**) | ✅ | ✅ |
