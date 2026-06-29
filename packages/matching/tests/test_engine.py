@@ -124,7 +124,13 @@ _CANONICAL_RAW: dict[str, object] = {
         "keroro_titar": {"any": ["keroro", "titar"]},
         "teletoon": {"regex": "t[eé]l[eé]toon"},
         "segment_id": {"regex": r"n[°o]?\s*0*{number}\s*{segment}"},
-        "air_date": {"regex": "{date_alt}"},
+        "foreign_lang": {
+            "regex": (
+                r"\b(ITA|KOR|Korean|Italiano|Coreano|VOSTFR|VOSTA|Subs?FR|"
+                r"Espa[nñ]ol|English\s?Dub|ENG)\b"
+            ),
+        },
+        "french_safe": {"not": "foreign_lang"},
         "title_hit": {"coverage": "title", "min": 0.6},
         "is_video": {"regex": r"\.(avi|mkv|mp4|mpg|ogm)$"},
     },
@@ -132,19 +138,23 @@ _CANONICAL_RAW: dict[str, object] = {
         {
             "name": "id_segment_exact",
             "tier": "download",
-            "all": ["is_video", "segment_id", "keroro"],
+            "all": ["french_safe", "is_video", "segment_id", "keroro"],
         },
         {
-            "name": "date_teletoon_titre",
+            "name": "teletoon_titre",
             "tier": "download",
-            "all": ["air_date", "teletoon", {"token": "title_hit", "min": 0.4}],
+            "all": ["french_safe", "teletoon", {"token": "title_hit", "min": 0.6}],
         },
         {
             "name": "numero_titre",
             "tier": "notify",
-            "all": ["segment_id", {"token": "title_hit", "min": 0.5}],
+            "all": ["french_safe", "segment_id", {"token": "title_hit", "min": 0.5}],
         },
-        {"name": "keroro_large", "tier": "catalog", "any": ["keroro_titar"]},
+        {
+            "name": "keroro_large",
+            "tier": "catalog",
+            "all": ["french_safe", "keroro_titar"],
+        },
     ],
 }
 
@@ -292,7 +302,7 @@ def test_explanation_on_real_62a_lists_fired_rules_tokens_and_coverage() -> None
     # Le réel 62A fait feu sur les 4 règles (vérifié empiriquement) -> plusieurs rules_fired.
     assert explanation.rules_fired == (
         "id_segment_exact",
-        "date_teletoon_titre",
+        "teletoon_titre",
         "numero_titre",
         "keroro_large",
     )

@@ -14,13 +14,12 @@ cases:
     target_id: S2E062A
     rule_name: id_segment_exact
 
-  - id: near_collision_063A_still_download_via_date_rule
-    # Numéro DIFFÉRENT (063A) -> segment_id échoue, mais date+teletoon+titre suffisent
-    # (date_teletoon_titre) -> reste download sur 62A. Quasi-collision documentée.
-    filename: "[TV] KERORO MISSION TITAR N°063A « Les demoiselles cambrioleuses » [21 septembre 2008 sur TELETOON].avi"
+  - id: match_via_teletoon_titre_sans_segment_id
+    # Sans numéro de segment -> id_segment_exact faux, mais teletoon + titre (0.6) -> download sur 62A.
+    filename: "[TV] KERORO MISSION TITAR « Les demoiselles cambrioleuses » [21 septembre 2008 sur TELETOON].avi"
     tier: download
     target_id: S2E062A
-    rule_name: date_teletoon_titre
+    rule_name: teletoon_titre
 
   - id: numero_titre_no_video_extension
     # 062A + titre mais extension non vidéo -> id_segment_exact faux, numero_titre vrai.
@@ -42,4 +41,14 @@ cases:
 
   - id: decoy_random_movie
     filename: "Big.Buck.Bunny.1080p.mkv"
+    discarded: true
+
+  - id: decoy_italian_keroro
+    # Contient "ITA" -> foreign_lang matche -> french_safe bloque toutes les règles.
+    filename: "Keroro Missione Titar 62 ITA.avi"
+    discarded: true
+
+  - id: decoy_korean_keroro
+    # Contient "KOR" -> foreign_lang matche -> french_safe bloque toutes les règles.
+    filename: "Keroro 62 KOR.avi"
     discarded: true

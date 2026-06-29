@@ -1,15 +1,16 @@
-# Config matcher canonique (cf. spec §8.3). Sert le corpus golden bout-en-bout.
+# Config matcher (déploiement). Copie synchronisée de packages/matching/tests/fixtures/canonical_config.yaml.
 tokens:
   keroro:       { keyword: keroro }
   titar:        { keyword: titar }
   keroro_titar: { any: [keroro, titar] }
   teletoon:     { regex: "t[eé]l[eé]toon" }
   segment_id:   { regex: "n[°o]?\\s*0*{number}\\s*{segment}" }
-  air_date:     { regex: "{date_alt}" }
+  foreign_lang: { regex: "\\b(ITA|KOR|Korean|Italiano|Coreano|VOSTFR|VOSTA|Subs?FR|Espa[nñ]ol|English\\s?Dub|ENG)\\b" }
+  french_safe:  { not: foreign_lang }
   title_hit:    { coverage: title, min: 0.6 }
   is_video:     { regex: "\\.(avi|mkv|mp4|mpg|ogm)$" }
 rules:
-  - { name: id_segment_exact,    tier: download, all: [is_video, segment_id, keroro] }
-  - { name: date_teletoon_titre, tier: download, all: [air_date, teletoon, { token: title_hit, min: 0.4 }] }
-  - { name: numero_titre,        tier: notify,   all: [segment_id, { token: title_hit, min: 0.5 }] }
-  - { name: keroro_large,        tier: catalog,  any: [keroro_titar] }
+  - { name: id_segment_exact, tier: download, all: [french_safe, is_video, segment_id, keroro] }
+  - { name: teletoon_titre,   tier: download, all: [french_safe, teletoon, { token: title_hit, min: 0.6 }] }
+  - { name: numero_titre,     tier: notify,   all: [french_safe, segment_id, { token: title_hit, min: 0.5 }] }
+  - { name: keroro_large,     tier: catalog,  all: [french_safe, keroro_titar] }
