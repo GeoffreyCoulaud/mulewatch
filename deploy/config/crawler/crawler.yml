@@ -1,4 +1,4 @@
-# Config du crawler — versionnée. Secrets via ${VAR} (depuis .env), reste en clair.
+# Config du crawler — versionnée. Secrets via ${VAR} (.env), reste en clair.
 # Mode download : basculer download.enabled à true ET lancer --profile download.
 
 cycle_interval_seconds: 300.0
