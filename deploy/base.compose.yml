@@ -1,4 +1,4 @@
-# Base fragment (spec §4) — included by each deploy/examples/*.yaml.
+# Base fragment (spec §4) — included by deploy/{gluetun,direct}.compose.yml.
 # Defines everything except amuled and the VPN layer.
 # Validate alone (from repo root):
 #   GRAFANA_PWD=x docker compose -f deploy/base.compose.yml config
@@ -69,7 +69,10 @@ services:
         - "CMD"
         - "python"
         - "-c"
-        - "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"
+        - |
+          import urllib.request, sys
+          r = urllib.request.urlopen("http://localhost:8000/health")
+          sys.exit(0 if r.status == 200 else 1)
       interval: 10s
       timeout: 3s
       retries: 5
@@ -171,7 +174,10 @@ services:
         - "CMD"
         - "python"
         - "-c"
-        - "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8080/health').status==200 else sys.exit(1)"
+        - |
+          import urllib.request, sys
+          r = urllib.request.urlopen("http://localhost:8080/health")
+          sys.exit(0 if r.status == 200 else 1)
       interval: 30s
       timeout: 3s
       retries: 3
