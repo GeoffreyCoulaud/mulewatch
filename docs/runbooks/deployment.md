@@ -84,6 +84,8 @@ docker compose -f deploy/direct.compose.yml logs crawler          # activité du
 docker compose -f deploy/direct.compose.yml logs amuled | head -50 # connexion réseau amuled
 ```
 
+> Stack VPN : remplacez `direct.compose.yml` par `gluetun.compose.yml` dans ces commandes.
+
 amuled récupère sa liste de serveurs eD2k et nœuds Kad **automatiquement** au premier boot (1–3 min) — vous n'avez rien à faire. « Low-ID » dans les logs n'est **pas une panne**.
 
 En mode download, le crawler redémarre en boucle pendant 1–2 min (il attend que le verifier soit sain) et les premiers fichiers ressortent `suspicious` le temps que clamav télécharge sa base (~5–20 min selon la connexion) — comportements transitoires normaux.
@@ -97,7 +99,7 @@ Plus de sources → recherche et téléchargement plus efficaces. Non requis pou
 | Voie | Comment activer |
 |---|---|
 | `direct` + port ouvert | Rediriger `LISTEN_PORT` (défaut `4662` TCP + UDP) sur votre box vers cette machine. Régler `LISTEN_PORT` dans `.env` si vous changez le port. |
-| `gluetun` + VPN avec port forwarding | `VPN_PORT_FORWARDING=on` dans `.env` **et** `port_sync.enabled: true` dans `crawler.yml`. Le fournisseur VPN doit supporter le port forwarding ([liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)). |
+| `gluetun` + VPN avec port forwarding | `VPN_PORT_FORWARDING=on` dans `.env` **et** `port_sync.enabled: true` dans `deploy/config/crawler/crawler.yml`. Le fournisseur VPN doit supporter le port forwarding ([liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)). |
 
 Détails, compromis, activation pas à pas : **[Runbook d'administration — High-ID](administration.md#high-id-optionnel--devenir-joignable)**.
 
