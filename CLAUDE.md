@@ -82,33 +82,61 @@ Integration suites (Docker / ffmpeg, deselected by default, excluded from covera
 - **Strict TDD**: tests are the spec; write the failing test first, watch it fail, then the minimal implementation. Code review judges the tests first. Every test function is annotated `-> None` with typed params.
 - **`mypy --strict`** over **both `src` and `tests`**. **`ruff`** selects `E,F,I,UP,B,SIM`, line-length **100**.
 - **Clean / Hexagonal**: `domain/` is **pure** — no I/O, no `yaml`/DB/network/clock/logging imports. All I/O lives in `adapters/`. The dependency graph is a DAG.
-- **Python only** (≥3.12). **`main` is integration-only — branch/worktree per unit of work** (see *Workflow* below; do not edit code/docs directly on `main`). Tag each milestone `vX.Y.Z-<name>` (annotated, not pushed) at merge time. Conventional commits (`feat(domain):`, `fix(domain):`, `test:`, `chore:`, `docs:`).
-- Plans are executed **subagent-driven**: fresh implementer per task → spec-compliance review → code-quality review → final holistic review before tagging. The holistic review repeatedly catches cross-cutting bugs — keep it.
+- **Python only** (≥3.12). Conventional commits (`feat(domain):`, `fix(domain):`, `test:`, `chore:`, `docs:`).
+- **Subagent-driven execution** (Act phase) + **holistic review** (Verify phase): the cross-cutting review regularly catches bugs — don't skip it.
 - For library/framework/CLI questions, use the **context7 MCP** (current docs), not recalled knowledge.
 
-## Workflow — branch & worktree per unit of work
+## Workflow — Discuss → Plan → Act → Verify → Wrap
 
-`main` is **integration-only**; never edit code/docs directly on it. The moment real work begins, branch first.
+Five phases, always in order. **Committing is cheap** — you're allowed to commit autonomously.
 
-**Trigger.** Stay on `main` for discussion, reading, exploration, no-patch debugging. At the **first** of these two events, stop and ask *before* touching anything:
-- you are about to edit code/docs directly, **or**
-- you are about to plan work that coding agents will then execute.
+### 1. Discuss
 
-By then the conversation has enough context to name the branch well.
+**Free-form text** discussion with the user. Use `brainstorm` or `pick-my-brain` skills if clarification is needed. **No `AskUserQuestion` tool** — ask the question in the message directly. No code, no plan — just understanding.
 
-**Ask** (via `AskUserQuestion` — these four options):
-1. Stay on the current branch (no new branch).
-2. New branch **in place** — same dir, `git switch -c <branch>`. Best for direct edits the user follows in their own editor.
-3. New **worktree** — `EnterWorktree({name: "<branch>"})`. Isolation; best when dispatching coding agents (the user's editor stays on `main`).
-4. Other — the user describes (e.g. resume an existing branch/worktree).
+### 2. Plan
 
-Suggested default: option 2 for direct edits, option 3 for the plan-then-dispatch case. **The user decides.**
+Two forms, depending on complexity:
 
-**Naming.** `<type>/<kebab-slug>` mirroring the conventional-commit types (`feat`, `fix`, `docs`, `chore`, `test`, `refactor`) — e.g. `feat/session-worktree-workflow`. Branch name = worktree name; slug derived from the topic.
+- **Simple / obvious** : inline plan in the conversation, a few paragraphs.
+- **Structured** : plan markdown (`docs/plans/<date>-<slug>.md`) + spec markdown (`docs/specs/<date>-<slug>.md`) if needed.
 
-**Worktrees.** `EnterWorktree` creates `.claude/worktrees/<name>` on a new branch and moves **only the agent session** there — the user's editor stays on `main`, so they review via diff/merge. `worktree.baseRef = "head"` (branch from local HEAD) is set in `.claude/settings.json`; `.claude/worktrees/` is gitignored.
+**The plan is reviewed and approved by the user** before writing specs (if any). Specs are not reviewed — they follow from the approved plan.
 
-**Closing (back to `main`).** Once the gate is green, **ask each time** how to integrate — default suggestion = **local merge into `main`** (then the annotated milestone tag if applicable, then `ExitWorktree remove`); switch to a **PR** when the change touches CI or otherwise needs to run remotely. Use the `finishing-a-development-branch` skill. Worktree merge order: `ExitWorktree(keep)` → back in the `main` dir → `git merge` → tag → `git worktree remove`.
+**Do not use `EnterPlanMode`.** The project workflow is self-contained, not coupled to Claude Code's plan-mode feature.
+
+### 3. Act
+
+`main` is **integration-only** ; never edit directly on it. As soon as code or docs will be modified, **branch first**.
+
+**Branching :** ask the user (4 options) :
+1. Stay on current branch
+2. New branch **in-place** (`git switch -c <branch>`) — suggested default for edits the user follows in their editor
+3. New **worktree** (`EnterWorktree`) — suggested default when dispatching coding agents
+4. Other (user describes)
+
+Naming: `<type>/<kebab-slug>` (conventional-commit types: `feat`, `fix`, `docs`, `chore`, `test`, `refactor`).
+
+**Execution: subagent-driven by default.** Delegate work to subagents (`Agent`) to keep the main context clean. Exception: very simple, short, localized action (e.g. one file, one change) → do inline. Use the `subagent-driven-development` or `dispatching-parallel-agents` skill as appropriate.
+
+**Worktrees:** `EnterWorktree` creates `.claude/worktrees/<name>`, moves the agent session there, the user's editor stays on `main`. `.claude/worktrees/` is gitignored. `worktree.baseRef = "head"`.
+
+### 4. Verify
+
+Run the **full gate** (unit tests 100% branch per package, ruff, mypy, sqlfluff, check_templates). Review the produced code **holistically** — this review regularly catches cross-cutting bugs.
+
+If the change touches CI or benefits from being verified on remote hardware, **open a PR** to see CI run.
+
+### 5. Wrap
+
+Once the gate is green and code reviewed:
+
+1. **Integrate** per user preference: local merge into `main`, or PR, or leave as-is. Suggested default: local merge, unless the change touches CI → PR.
+2. **Tag** annotated `vX.Y.Z-<name>` (not pushed), one per subsystem.
+3. **Clean up** branch and/or worktree if applicable.
+4. **Write the handoff** in `docs/handoffs/<ISO date> - handoff - <context>.md`: current state, what was just built, learned pitfalls, suggested next step, what is NOT validated against real hardware. The handoff is committed and pushed on `main`.
+
+Use the `finishing-a-development-branch` skill to guide this phase.
 
 ## Architecture — the matching engine
 
