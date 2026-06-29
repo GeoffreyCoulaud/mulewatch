@@ -1,19 +1,21 @@
 """Point d'entrée ``python -m emule_indexer`` : charge la config, monte l'app, tourne (§4).
 
-Mode OBSERVATEUR (spec §2) : observe, catalogue, décide, boucle — rien d'autre (pas de
-download/notify : plans D/E). Charge ``crawler.yaml`` + ``local.yaml`` + ``targets.yaml`` +
-la config matcher (fail-fast au moindre souci → refus de démarrer, spec §5/§14), assemble
-les adapters réels (horloge/RNG/nudge), puis ``asyncio.run(app.run())``. L'arrêt propre &
-borné est porté par ``CrawlerApp`` (spec §6).
+Mode OBSERVATEUR (spec §2) : observe, catalogue, décide, boucle — rien d'autre. Le mode DOWNLOAD
+s'active via ``download.enabled: true`` dans la config (le parseur unifié câble alors les boucles
+download + vérification). Charge la config crawler unifiée (``crawler.yml``) + ``targets`` + la
+config matcher (fail-fast au moindre souci → refus de démarrer, spec §5/§14), assemble les adapters
+réels (horloge/RNG/nudge), puis ``asyncio.run(app.run())``. L'arrêt propre & borné est porté par
+``CrawlerApp`` (spec §6).
 
-Les chemins de config sont passés en arguments (``--crawler``/``--local``/``--targets``/
-``--matcher``) avec des défauts ``deploy/config/crawler/*.yaml`` ; aucune variable
-d'environnement (spec §3).
+Les chemins de config sont passés en arguments (``--config``/``--targets``/``--matcher``) avec des
+défauts ``deploy/config/crawler/*.yml``. Les valeurs sensibles (secrets, URLs) de la config sont
+interpolées depuis l'environnement par ``${NAME}`` (``os.environ``, adapter de config).
 """
 
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -26,18 +28,16 @@ from catalog_matching.validation import (
 )
 from emule_indexer.adapters.clock_asyncio import AsyncioClock, SeededRng
 from emule_indexer.adapters.config.crawler_config import ConfigError, parse_crawler_config
-from emule_indexer.adapters.config.local_config import parse_local_config
 from emule_indexer.adapters.config.yaml_loader import YamlLoadError, load_yaml
 from emule_indexer.adapters.decision_signal_asyncio import AsyncioDecisionSignal
 from emule_indexer.composition.app import CrawlerApp
 
 
 def _add_config_options(parser: argparse.ArgumentParser) -> None:
-    """Les 4 chemins de config (mêmes options, mêmes défauts) pour le run ET validate-config."""
-    parser.add_argument("--crawler", type=Path, default=Path("deploy/config/crawler/crawler.yaml"))
-    parser.add_argument("--local", type=Path, default=Path("deploy/config/crawler/local.yaml"))
-    parser.add_argument("--targets", type=Path, default=Path("deploy/config/crawler/targets.yaml"))
-    parser.add_argument("--matcher", type=Path, default=Path("deploy/config/crawler/matcher.yaml"))
+    """Les chemins de config (mêmes options, mêmes défauts) pour le run ET validate-config."""
+    parser.add_argument("--config", type=Path, default=Path("deploy/config/crawler/crawler.yml"))
+    parser.add_argument("--targets", type=Path, default=Path("deploy/config/crawler/targets.yml"))
+    parser.add_argument("--matcher", type=Path, default=Path("deploy/config/crawler/matcher.yml"))
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -51,7 +51,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def _parse_validate_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="emule_indexer validate-config",
-        description="Charge + valide la config (matcher/targets/crawler/local), sans rien démarrer",
+        description="Charge + valide la config (matcher/targets/crawler), sans rien démarrer",
     )
     _add_config_options(parser)
     return parser.parse_args(argv)
@@ -60,18 +60,17 @@ def _parse_validate_args(argv: list[str]) -> argparse.Namespace:
 def build_app(args: argparse.Namespace) -> CrawlerApp:
     """Charge + valide toute la config (fail-fast §5/§14) et assemble la ``CrawlerApp``.
 
-    Toute erreur de config (``YamlLoadError``/``ConfigError``/``MatcherConfigError``) remonte
-    telle quelle : ``main`` l'attrape, logge clair, et refuse de démarrer (spec §14).
+    La config crawler unifiée est interpolée depuis ``os.environ`` (``${NAME}`` → secrets/URLs).
+    Toute erreur (``YamlLoadError``/``ConfigError``/``MatcherConfigError``) remonte telle quelle :
+    ``main`` l'attrape, logge clair, et refuse de démarrer (spec §14).
     """
-    crawler_config = parse_crawler_config(load_yaml(args.crawler))
+    crawler_config = parse_crawler_config(load_yaml(args.config), os.environ)
     if crawler_config.observability is not None:
         logging.getLogger().setLevel(crawler_config.observability.log_level)
-    local_config = parse_local_config(load_yaml(args.local))
     targets = parse_targets(load_yaml(args.targets))
     matcher_config = parse_matcher_config(load_yaml(args.matcher))
     return CrawlerApp(
         crawler_config=crawler_config,
-        local_config=local_config,
         targets=targets,
         matcher_config=matcher_config,
         clock=AsyncioClock(),
@@ -81,16 +80,17 @@ def build_app(args: argparse.Namespace) -> CrawlerApp:
 
 
 def validate_config(argv: list[str]) -> int:
-    """Charge + valide les 4 configs via les parseurs EXISTANTS — un check PUR, ne démarre RIEN.
+    """Charge + valide la config via les parseurs EXISTANTS — un check PUR, ne démarre RIEN.
 
-    Réutilise strictement ``load_yaml`` + ``parse_{crawler,local,targets,matcher}_config`` (aucune
-    logique de validation nouvelle). Toute erreur (``YamlLoadError``/``ConfigError``/
-    ``MatcherConfigError``) → message clair sur stderr + code 1, comme le refus de démarrer du run.
+    Réutilise strictement ``load_yaml`` + ``parse_{crawler_config,targets,matcher_config}`` (aucune
+    logique de validation nouvelle). Comme la config est interpolée depuis ``os.environ``, l'effet
+    de bord VOULU est qu'on valide AUSSI la présence des variables d'env référencées par les
+    sections ACTIVES. Toute erreur (``YamlLoadError``/``ConfigError``/``MatcherConfigError``) →
+    message clair sur stderr + code 1, comme le refus de démarrer du run.
     """
     args = _parse_validate_args(argv)
     try:
-        parse_crawler_config(load_yaml(args.crawler))
-        parse_local_config(load_yaml(args.local))
+        parse_crawler_config(load_yaml(args.config), os.environ)
         parse_targets(load_yaml(args.targets))
         parse_matcher_config(load_yaml(args.matcher))
     except (YamlLoadError, ConfigError, MatcherConfigError) as error:
@@ -103,17 +103,17 @@ def validate_config(argv: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     """Entrée CLI. Rend un code de sortie (0 = arrêt propre, 1 = config invalide).
 
-    Le ``try`` couvre AUSSI ``asyncio.run(app.run())`` : le gate full-mode (mode ``verifier_url``)
-    lève un ``ConfigError`` AU RUNTIME — health-check du verifier KO ou ensemble download
-    incomplet — qui est un refus de démarrer au même titre qu'une config invalide build-time.
-    On le rend donc avec le MÊME message propre + code de sortie non-zéro (au lieu d'un traceback
-    nu). Les ressources sont déjà fermées proprement par le ``run`` (stack LIFO) avant la levée.
+    Le ``try`` couvre AUSSI ``asyncio.run(app.run())`` : le gate full-mode (``download.enabled``)
+    lève un ``ConfigError`` AU RUNTIME — health-check du verifier KO — qui est un refus de démarrer
+    au même titre qu'une config invalide build-time. On le rend donc avec le MÊME message propre +
+    code de sortie non-zéro (au lieu d'un traceback nu). Les ressources sont déjà fermées proprement
+    par le ``run`` (stack LIFO) avant la levée.
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     tokens = sys.argv[1:] if argv is None else argv
     # Dispatch en tête : la sous-commande ``validate-config`` route vers le check pur. L'invocation
     # NUE (sans sous-commande) retombe EXACTEMENT sur le chemin run — contrainte de rétro-compat
-    # (compose.yaml lance ``python -m emule_indexer --crawler … --local …`` sans sous-commande).
+    # (compose lance ``python -m emule_indexer --config … --targets …`` sans sous-commande).
     if tokens and tokens[0] == "validate-config":
         return validate_config(list(tokens[1:]))
     args = _parse_args(tokens)

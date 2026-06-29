@@ -1,15 +1,25 @@
-"""Config de POLITIQUE du crawler (``crawler.yaml``, versionné — spec orchestration §5).
+"""Config UNIFIÉE du crawler (``crawler.yml``, versionné — design simplification-déploiement).
 
-Cadences, budgets de polling, jitter, backoff, filet du nudge, délai d'arrêt. Parsé depuis
-le dict YAML déjà chargé par ``load_yaml`` (l'I/O est dans ``yaml_loader``) en une
-dataclass GELÉE, avec validation FAIL-FAST (bornes cohérentes → ``ConfigError``, refus de
-démarrer, spec §5/§14). Aucune variable d'environnement (spec §3).
+Fusionne l'ancienne config de POLITIQUE (cadences, budgets de polling, jitter, backoff, délai
+d'arrêt) et l'ancienne config LOCALE (endpoints EC + secrets + chemins des bases + câblage
+download/port-sync). Parsée depuis le dict YAML déjà chargé par ``load_yaml`` (l'I/O fichier est
+dans ``yaml_loader``) en dataclasses GELÉES, avec validation FAIL-FAST (bornes cohérentes,
+champs présents → ``ConfigError`` sinon, refus de démarrer, spec §5/§14).
+
+Les valeurs sensibles au déploiement (secrets, URLs) sont interpolées depuis l'environnement par
+``${NAME}`` (sous-chaîne, PARESSEUX : une section désactivée n'exige aucune variable, D1). Les
+sections ``download`` et ``port_sync`` sont présentes ⟺ activées (``enabled: true``, D5) :
+``enabled`` absent/``false`` ⇒ section ``None`` (on ne descend pas dans le reste) ; ``enabled:
+true`` ⇒ tous les champs de câblage requis.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from emule_indexer.adapters.config.errors import ConfigError  # ré-exporté (compat)
+from emule_indexer.adapters.config.errors import ConfigError as ConfigError  # ré-export explicite
+from emule_indexer.adapters.config.interpolation import interpolate
+from emule_indexer.domain.observability.policy import Audience
 
 
 @dataclass(frozen=True)
@@ -27,22 +37,27 @@ class BackoffConfig:
 
 
 @dataclass(frozen=True)
-class DownloadConfig:
-    """Politique de téléchargement (spec download §3/§7). OPTIONNELLE (DÉCISION D11).
+class AmuleEndpoint:
+    """Un daemon ``amuled`` joignable par EC (spec §5). ``name`` est l'étiquette d'instance
+    (logging, clé de backoff/scheduler_state) ; UNIQUE par config."""
 
-    ``poll_interval_seconds`` : cadence de relevé de la file de download (le nudge réveille
-    plus tôt). ``disk_cap_bytes`` : plafond disque APPLICATIF — somme des ``size_bytes`` des
-    downloads actifs au-dessus de laquelle on diffère (back-pressure gracieux, jamais
-    d'abandon). Le quota INFRA (FS/Docker) est hors périmètre (Plan F).
-    """
+    name: str
+    host: str
+    port: int
+    password: str
 
-    poll_interval_seconds: float
-    disk_cap_bytes: int
+
+@dataclass(frozen=True)
+class NotificationTarget:
+    """Une cible apprise (secret via ``${...}``). ``tag`` = l'audience consommatrice (E-D7)."""
+
+    url: str
+    tag: Audience
 
 
 @dataclass(frozen=True)
 class VerifyConfig:
-    """Politique de vérification (spec verify §6). OPTIONNELLE (DÉCISION DV12).
+    """Politique de vérification (spec verify §6). Imbriquée dans ``download``.
 
     ``poll_interval_seconds`` : cadence à laquelle la boucle de vérif ``claim`` la file quand
     elle est vide (la file durable est le couplage — pas de nudge dédié, DÉCISION DV5).
@@ -56,16 +71,38 @@ class VerifyConfig:
 
 
 @dataclass(frozen=True)
+class DownloadConfig:
+    """Politique + câblage du téléchargement (spec download §3/§7). Présent ⟺ ``enabled``.
+
+    ``poll_interval_seconds`` : cadence de relevé de la file de download (le nudge réveille plus
+    tôt). ``disk_cap_bytes`` : plafond disque APPLICATIF (back-pressure gracieux). ``endpoint`` :
+    2e connexion EC dédiée au download (DÉCISION D3). ``staging_dir`` = l'Incoming d'amuled ;
+    ``quarantine_dir`` = la zone tampon avant promotion. ``verifier_url`` = service de vérif.
+    ``verify`` = politique de la boucle de vérification.
+    """
+
+    poll_interval_seconds: float
+    disk_cap_bytes: int
+    endpoint: AmuleEndpoint
+    staging_dir: str
+    quarantine_dir: str
+    verifier_url: str
+    verify: VerifyConfig
+
+
+@dataclass(frozen=True)
 class PortSyncConfig:
-    """Politique de port-sync High-ID (design port-sync §8.1). OPTIONNELLE.
+    """Politique + câblage du port-sync High-ID (design port-sync §8.1). Présent ⟺ ``enabled``.
 
     ``poll_interval_seconds`` : cadence du poll gluetun + comparaison du port. ``restart_min_
-    interval_seconds`` : fenêtre de rate-limit des restarts (≤ 1 restart / fenêtre) — empêche une
-    boucle de restarts si gluetun oscille ou si le port forwardé refuse de donner un High-ID.
+    interval_seconds`` : fenêtre de rate-limit des restarts. ``gluetun_control_url`` = control-
+    server gluetun (port forwardé) ; ``restarter_url`` = docker-socket-proxy (restart d'amuled).
     """
 
     poll_interval_seconds: float
     restart_min_interval_seconds: float
+    gluetun_control_url: str
+    restarter_url: str
 
 
 _LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
@@ -81,24 +118,28 @@ class MetricsConfig:
 
 @dataclass(frozen=True)
 class ObservabilityConfig:
-    """Réglages d'observabilité NON secrets (``crawler.yaml``). Les URLs apprise sont dans
-    ``local.yaml`` (E-D2). ``log_level`` pilote le logging global (bootstrap → setLevel)."""
+    """Réglages d'observabilité (``crawler.yml``). ``log_level`` pilote le logging global
+    (bootstrap → setLevel) ; ``notifications`` = cibles apprise (URLs interpolées, E-D2/E-D7)."""
 
     log_level: str
     metrics: MetricsConfig | None
     notification_timeout_seconds: float
+    notifications: tuple[NotificationTarget, ...]
 
 
 @dataclass(frozen=True)
 class CrawlerConfig:
-    """Politique du crawler (spec §5). Toutes les durées en SECONDES.
+    """Config unifiée du crawler (politique + câblage). Toutes les durées en SECONDES.
 
-    ``cycle_interval_seconds`` : cadence visée d'un cycle complet. ``search_poll_budget_seconds``
-    : temps max d'attente des résultats d'une recherche avant ``fetch``+passage au suivant.
-    ``search_poll_interval_seconds`` : pas de polling de la progression. ``keyword_pause`` :
-    bornes (min/max) du jitter inter-mots-clés. ``decision_poll_interval_seconds`` : filet
-    du nudge (un consommateur futur re-vérifie la table). ``shutdown_deadline_seconds`` :
-    borne dure de l'arrêt propre (dépassée → on force, spec §6).
+    Politique (inchangée) : ``cycle_interval_seconds`` (cadence visée d'un cycle),
+    ``search_poll_budget_seconds`` (temps max d'attente des résultats), ``search_poll_interval_
+    seconds`` (pas de polling), ``keyword_pause_{min,max}_seconds`` (jitter inter-mots-clés),
+    ``backoff``, ``decision_poll_interval_seconds`` (filet du nudge), ``shutdown_deadline_seconds``
+    (borne dure de l'arrêt propre).
+
+    Câblage (ex-local) : ``amules`` (pool EC), chemins des bases, ``node_id`` (``None`` = celui de
+    ``local.db``), ``observability``, ``download`` (``None`` ⟺ mode observer), ``port_sync``
+    (``None`` ⟺ port-sync off).
     """
 
     cycle_interval_seconds: float
@@ -109,9 +150,12 @@ class CrawlerConfig:
     backoff: BackoffConfig
     decision_poll_interval_seconds: float
     shutdown_deadline_seconds: float
-    download: DownloadConfig | None = None
-    verify: VerifyConfig | None = None
+    amules: tuple[AmuleEndpoint, ...]
+    catalog_db_path: str
+    local_db_path: str
+    node_id: str | None
     observability: ObservabilityConfig | None = None
+    download: DownloadConfig | None = None
     port_sync: PortSyncConfig | None = None
 
 
@@ -155,6 +199,7 @@ def _positive_int(mapping: dict[str, Any], key: str, what: str) -> int:
 
 
 def _bool(mapping: dict[str, Any], key: str, what: str) -> bool:
+    """Booléen REQUIS, sinon ``ConfigError`` (fail-fast §5/§14)."""
     if key not in mapping:
         raise ConfigError(f"{what} : clé {key!r} manquante")
     value = mapping[key]
@@ -163,7 +208,50 @@ def _bool(mapping: dict[str, Any], key: str, what: str) -> bool:
     return value
 
 
-def _parse_observability(raw: dict[str, Any]) -> ObservabilityConfig:
+def _bool_default(mapping: dict[str, Any], key: str, default: bool, what: str) -> bool:
+    """Booléen OPTIONNEL (défaut ``default``) ; refuse un non-bool — fail-fast (§5/§14)."""
+    if key not in mapping:
+        return default
+    value = mapping[key]
+    if not isinstance(value, bool):
+        raise ConfigError(f"{what}.{key} : booléen attendu, obtenu {value!r}")
+    return value
+
+
+def _require_str(mapping: dict[str, Any], key: str, what: str, env: Mapping[str, str]) -> str:
+    """Chaîne non vide, interpolée ``${NAME}`` depuis ``env`` APRÈS lecture, AVANT le contrôle
+    non-vide (fail-fast §5/§14). Variable d'env absente ⇒ ``ConfigError`` (via ``interpolate``)."""
+    if key not in mapping:
+        raise ConfigError(f"{what} : clé {key!r} manquante")
+    value = mapping[key]
+    if not isinstance(value, str):
+        raise ConfigError(f"{what}.{key} : chaîne non vide attendue, obtenu {value!r}")
+    interpolated = interpolate(value, env, f"{what}.{key}")
+    if not interpolated:
+        raise ConfigError(f"{what}.{key} : chaîne non vide attendue, obtenu {interpolated!r}")
+    return interpolated
+
+
+def _require_port(mapping: dict[str, Any], what: str) -> int:
+    if "port" not in mapping:
+        raise ConfigError(f"{what} : clé 'port' manquante")
+    value = mapping["port"]
+    if not isinstance(value, int) or isinstance(value, bool) or not (0 < value < 65536):
+        raise ConfigError(f"{what}.port : entier 1..65535 attendu, obtenu {value!r}")
+    return value
+
+
+def _parse_endpoint(mapping: dict[str, Any], what: str, env: Mapping[str, str]) -> AmuleEndpoint:
+    """Construit un ``AmuleEndpoint`` (name/host/password interpolés, port validé)."""
+    return AmuleEndpoint(
+        name=_require_str(mapping, "name", what, env),
+        host=_require_str(mapping, "host", what, env),
+        port=_require_port(mapping, what),
+        password=_require_str(mapping, "password", what, env),
+    )
+
+
+def _parse_observability(raw: dict[str, Any], env: Mapping[str, str]) -> ObservabilityConfig:
     log_level = raw.get("log_level", "INFO")
     if not isinstance(log_level, str) or log_level not in _LOG_LEVELS:
         raise ConfigError(
@@ -181,13 +269,73 @@ def _parse_observability(raw: dict[str, Any]) -> ObservabilityConfig:
         if "notification_timeout_seconds" in raw
         else 5.0
     )
+    notifications: list[NotificationTarget] = []
+    for index, entry in enumerate(raw.get("notifications", [])):
+        what = f"observability.notifications[{index}]"
+        mapping = _require_mapping(entry, what)
+        tag_raw = _require_str(mapping, "tag", what, env)
+        try:
+            tag = Audience(tag_raw)
+        except ValueError as error:
+            raise ConfigError(
+                f"{what}.tag : 'community' ou 'operations' attendu, obtenu {tag_raw!r}"
+            ) from error
+        notifications.append(
+            NotificationTarget(url=_require_str(mapping, "url", what, env), tag=tag)
+        )
     return ObservabilityConfig(
-        log_level=log_level, metrics=metrics, notification_timeout_seconds=timeout
+        log_level=log_level,
+        metrics=metrics,
+        notification_timeout_seconds=timeout,
+        notifications=tuple(notifications),
     )
 
 
-def parse_crawler_config(raw: dict[str, Any]) -> CrawlerConfig:
-    """Construit un ``CrawlerConfig`` validé depuis le dict YAML parsé (fail-fast §5/§14)."""
+def _parse_download(raw: dict[str, Any], env: Mapping[str, str]) -> DownloadConfig | None:
+    if "download" not in raw:
+        return None
+    section = _require_mapping(raw["download"], "section 'download'")
+    if not _bool_default(section, "enabled", False, "download"):
+        return None  # paresse : on ne lit/interpole RIEN d'autre (aucune var exigée)
+    endpoint_raw = _require_mapping(section.get("endpoint"), "download.endpoint")
+    verify_raw = _require_mapping(section.get("verify", {}), "download.verify")
+    return DownloadConfig(
+        poll_interval_seconds=_positive(section, "poll_interval_seconds", "download"),
+        disk_cap_bytes=_positive_int(section, "disk_cap_bytes", "download"),
+        endpoint=_parse_endpoint(endpoint_raw, "download.endpoint", env),
+        staging_dir=_require_str(section, "staging_dir", "download", env),
+        quarantine_dir=_require_str(section, "quarantine_dir", "download", env),
+        verifier_url=_require_str(section, "verifier_url", "download", env),
+        verify=VerifyConfig(
+            poll_interval_seconds=_positive(verify_raw, "poll_interval_seconds", "download.verify"),
+            client_timeout_seconds=(
+                _positive(verify_raw, "client_timeout_seconds", "download.verify")
+                if "client_timeout_seconds" in verify_raw
+                else 180.0
+            ),
+        ),
+    )
+
+
+def _parse_port_sync(raw: dict[str, Any], env: Mapping[str, str]) -> PortSyncConfig | None:
+    if "port_sync" not in raw:
+        return None
+    section = _require_mapping(raw["port_sync"], "section 'port_sync'")
+    if not _bool_default(section, "enabled", False, "port_sync"):
+        return None  # paresse : on ne lit/interpole RIEN d'autre
+    return PortSyncConfig(
+        poll_interval_seconds=_positive(section, "poll_interval_seconds", "port_sync"),
+        restart_min_interval_seconds=_positive(
+            section, "restart_min_interval_seconds", "port_sync"
+        ),
+        gluetun_control_url=_require_str(section, "gluetun_control_url", "port_sync", env),
+        restarter_url=_require_str(section, "restarter_url", "port_sync", env),
+    )
+
+
+def parse_crawler_config(raw: dict[str, Any], env: Mapping[str, str]) -> CrawlerConfig:
+    """Construit un ``CrawlerConfig`` validé depuis le dict YAML parsé + l'environnement ``env``
+    (interpolation des ``${NAME}``). Fail-fast §5/§14 : la moindre incohérence → ``ConfigError``."""
     backoff_raw = _require_mapping(raw.get("backoff", {}), "section 'backoff'")
     factor = _positive(backoff_raw, "factor", "backoff")
     if factor < 1:
@@ -209,37 +357,27 @@ def parse_crawler_config(raw: dict[str, Any]) -> CrawlerConfig:
         raise ConfigError(
             f"keyword_pause_max_seconds ({pause_max}) < min ({pause_min}) : intervalle vide"
         )
-    download: DownloadConfig | None = None
-    if "download" in raw:
-        download_raw = _require_mapping(raw["download"], "section 'download'")
-        download = DownloadConfig(
-            poll_interval_seconds=_positive(download_raw, "poll_interval_seconds", "download"),
-            disk_cap_bytes=_positive_int(download_raw, "disk_cap_bytes", "download"),
-        )
-    verify: VerifyConfig | None = None
-    if "verify" in raw:
-        verify_raw = _require_mapping(raw["verify"], "section 'verify'")
-        verify = VerifyConfig(
-            poll_interval_seconds=_positive(verify_raw, "poll_interval_seconds", "verify"),
-            client_timeout_seconds=(
-                _positive(verify_raw, "client_timeout_seconds", "verify")
-                if "client_timeout_seconds" in verify_raw
-                else 180.0
-            ),
-        )
+    amules_raw = raw.get("amules")
+    if not isinstance(amules_raw, list) or not amules_raw:
+        raise ConfigError("section 'amules' : liste NON VIDE attendue (≥ 1 instance, spec §5)")
+    endpoints: list[AmuleEndpoint] = []
+    seen_names: set[str] = set()
+    for index, entry in enumerate(amules_raw):
+        what = f"amules[{index}]"
+        endpoint = _parse_endpoint(_require_mapping(entry, what), what, env)
+        if endpoint.name in seen_names:
+            raise ConfigError(
+                f"nom d'instance en double : {endpoint.name!r} (doit être unique, spec §5)"
+            )
+        seen_names.add(endpoint.name)
+        endpoints.append(endpoint)
+    node_id_raw = raw.get("node_id")
+    if node_id_raw is not None and (not isinstance(node_id_raw, str) or not node_id_raw):
+        raise ConfigError(f"node_id : chaîne non vide ou absent attendu, obtenu {node_id_raw!r}")
     observability: ObservabilityConfig | None = None
     if "observability" in raw:
         observability = _parse_observability(
-            _require_mapping(raw["observability"], "section 'observability'")
-        )
-    port_sync: PortSyncConfig | None = None
-    if "port_sync" in raw:
-        port_sync_raw = _require_mapping(raw["port_sync"], "section 'port_sync'")
-        port_sync = PortSyncConfig(
-            poll_interval_seconds=_positive(port_sync_raw, "poll_interval_seconds", "port_sync"),
-            restart_min_interval_seconds=_positive(
-                port_sync_raw, "restart_min_interval_seconds", "port_sync"
-            ),
+            _require_mapping(raw["observability"], "section 'observability'"), env
         )
     return CrawlerConfig(
         cycle_interval_seconds=_positive(raw, "cycle_interval_seconds", "crawler"),
@@ -250,8 +388,11 @@ def parse_crawler_config(raw: dict[str, Any]) -> CrawlerConfig:
         backoff=backoff,
         decision_poll_interval_seconds=_positive(raw, "decision_poll_interval_seconds", "crawler"),
         shutdown_deadline_seconds=_positive(raw, "shutdown_deadline_seconds", "crawler"),
-        download=download,
-        verify=verify,
+        amules=tuple(endpoints),
+        catalog_db_path=_require_str(raw, "catalog_db_path", "crawler", env),
+        local_db_path=_require_str(raw, "local_db_path", "crawler", env),
+        node_id=node_id_raw,
         observability=observability,
-        port_sync=port_sync,
+        download=_parse_download(raw, env),
+        port_sync=_parse_port_sync(raw, env),
     )

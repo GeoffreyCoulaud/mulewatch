@@ -18,8 +18,11 @@ from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 from catalog_matching.models import TargetSegment
 from catalog_matching.validation import parse_matcher_config
 from emule_indexer.adapters.clock_asyncio import AsyncioClock, SeededRng
-from emule_indexer.adapters.config.crawler_config import BackoffConfig, CrawlerConfig
-from emule_indexer.adapters.config.local_config import AmuleEndpoint, LocalConfig
+from emule_indexer.adapters.config.crawler_config import (
+    AmuleEndpoint,
+    BackoffConfig,
+    CrawlerConfig,
+)
 from emule_indexer.adapters.config.yaml_loader import load_yaml
 from emule_indexer.adapters.decision_signal_asyncio import AsyncioDecisionSignal
 from emule_indexer.adapters.persistence_sqlite.connection import open_local
@@ -125,8 +128,6 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_p
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=60.0, factor=2.0, jitter_ratio=0.3),
         decision_poll_interval_seconds=5.0,
         shutdown_deadline_seconds=30.0,
-    )
-    local_config = LocalConfig(
         amules=(AmuleEndpoint(name="amule-1", host=host, port=port, password=_EC_PASSWORD),),
         catalog_db_path=str(tmp_path / "catalog.db"),
         local_db_path=str(tmp_path / "local.db"),
@@ -140,7 +141,6 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_p
 
     app = CrawlerApp(
         crawler_config=crawler_config,
-        local_config=local_config,
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=AsyncioClock(),
@@ -155,7 +155,7 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_p
     # qu'en FIN de cycle). Sans cette assertion, le test passait avant même qu'un cycle tourne.
     assert (tmp_path / "catalog.db").exists()
     assert (tmp_path / "local.db").exists()
-    local_conn = open_local(Path(local_config.local_db_path))
+    local_conn = open_local(Path(crawler_config.local_db_path))
     try:
         scheduler_state = SqliteSchedulerStateRepository(local_conn)
         assert scheduler_state.read_cycle_index() >= 1  # un cycle complet a avancé l'index

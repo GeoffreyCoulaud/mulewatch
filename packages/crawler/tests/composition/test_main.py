@@ -9,43 +9,82 @@ from emule_indexer.composition.app import CrawlerApp
 
 _CONFIG = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler"
 
+# Config crawler UNIFIÉE minimale (politique + câblage observer), secret par ${...}. Le fichier
+# unifié versionné (deploy/config/crawler/crawler.yml) est créé par une tâche ultérieure ; les
+# tests qui chargent réellement la config écrivent donc leur propre fixture dans tmp_path.
+_UNIFIED_CONFIG = """\
+cycle_interval_seconds: 300.0
+search_poll_budget_seconds: 30.0
+search_poll_interval_seconds: 5.0
+keyword_pause_min_seconds: 1.0
+keyword_pause_max_seconds: 4.0
+decision_poll_interval_seconds: 5.0
+shutdown_deadline_seconds: 10.0
+backoff:
+  base_seconds: 2.0
+  cap_seconds: 300.0
+  factor: 2.0
+  jitter_ratio: 0.3
+amules:
+  - name: amule-1
+    host: amuled
+    port: 4712
+    password: ${AMULE_EC_PASSWORD}
+catalog_db_path: /data/catalog.db
+local_db_path: /data/local.db
+"""
 
-def _args(**overrides: Path) -> argparse.Namespace:
-    base = {
-        "crawler": _CONFIG / "crawler.yaml",
-        "local": _CONFIG / "observer.example.yaml",
-        "targets": _CONFIG / "targets.yaml",
-        "matcher": _CONFIG / "matcher.yaml",
-    }
-    base.update(overrides)
-    return argparse.Namespace(**base)
+_UNIFIED_CONFIG_WITH_OBS = (
+    _UNIFIED_CONFIG
+    + """\
+observability:
+  log_level: DEBUG
+  notification_timeout_seconds: 5.0
+"""
+)
 
 
-def test_build_app_assembles_a_crawler_app(tmp_path: Path) -> None:
-    # crawler.yaml SANS section observability → couvre la branche `observability is None`
-    # de build_app (le crawler.yaml versionné EN A une désormais ; on la retire ici).
-    full = (_CONFIG / "crawler.yaml").read_text(encoding="utf-8")
-    without_obs = full.split("\nobservability:")[0] + "\n"
-    crawler_yaml = tmp_path / "crawler_no_obs.yaml"
-    crawler_yaml.write_text(without_obs, encoding="utf-8")
-    app = entry.build_app(_args(crawler=crawler_yaml))
+def _write_config(tmp_path: Path, *, body: str = _UNIFIED_CONFIG) -> Path:
+    path = tmp_path / "crawler.yml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def _args(config: Path) -> argparse.Namespace:
+    return argparse.Namespace(
+        config=config,
+        targets=_CONFIG / "targets.yaml",
+        matcher=_CONFIG / "matcher.yaml",
+    )
+
+
+def _argv(config: Path) -> list[str]:
+    return [
+        "--config",
+        str(config),
+        "--targets",
+        str(_CONFIG / "targets.yaml"),
+        "--matcher",
+        str(_CONFIG / "matcher.yaml"),
+    ]
+
+
+def test_build_app_assembles_a_crawler_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Config SANS section observability → couvre la branche `observability is None` de build_app.
+    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+    app = entry.build_app(_args(_write_config(tmp_path)))
     assert isinstance(app, CrawlerApp)
 
 
 def test_build_app_applies_log_level_when_observability_configured(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """La branche observability is not None de build_app appelle setLevel."""
-    base = (_CONFIG / "crawler.yaml").read_text(encoding="utf-8").split("\nobservability:")[0]
-    crawler_yaml = tmp_path / "crawler_obs.yaml"
-    crawler_yaml.write_text(
-        base + "\nobservability:\n  log_level: DEBUG\n  notification_timeout_seconds: 5.0\n",
-        encoding="utf-8",
-    )
-    app = entry.build_app(_args(crawler=crawler_yaml))
+    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+    config = _write_config(tmp_path, body=_UNIFIED_CONFIG_WITH_OBS)
+    app = entry.build_app(_args(config))
     assert isinstance(app, CrawlerApp)
-    # Le niveau racine a été appliqué (DEBUG=10).
-    assert logging.getLogger().level == logging.DEBUG
+    assert logging.getLogger().level == logging.DEBUG  # niveau racine appliqué (DEBUG=10)
 
 
 class _SpyApp:
@@ -67,9 +106,9 @@ def test_main_returns_zero_on_clean_run(monkeypatch: pytest.MonkeyPatch) -> None
 def test_main_renders_runtime_config_error_from_run_as_clean_message(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Le gate full-mode lève un ``ConfigError`` AU RUNTIME (health-check verifier KO / ensemble
-    # download incomplet) depuis ``app.run()`` — pas depuis ``build_app``. ``main`` doit le rendre
-    # avec le MÊME message propre + code de sortie 1 (et non un traceback nu).
+    # Le gate full-mode lève un ``ConfigError`` AU RUNTIME (health-check verifier KO) depuis
+    # ``app.run()`` — pas depuis ``build_app``. ``main`` doit le rendre avec le MÊME message propre
+    # + code de sortie 1 (et non un traceback nu).
     from emule_indexer.adapters.config.crawler_config import ConfigError
 
     def fake_run(coro: object) -> None:
@@ -86,41 +125,24 @@ def test_main_renders_runtime_config_error_from_run_as_clean_message(
 def test_main_refuses_to_start_on_invalid_config(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    bad_local = tmp_path / "local.yaml"
-    bad_local.write_text("amules: []\ncatalog_db_path: c\nlocal_db_path: l\n", encoding="utf-8")
-    code = entry.main(
-        [
-            "--crawler",
-            str(_CONFIG / "crawler.yaml"),
-            "--local",
-            str(bad_local),
-            "--targets",
-            str(_CONFIG / "targets.yaml"),
-            "--matcher",
-            str(_CONFIG / "matcher.yaml"),
-        ]
-    )
+    bad = tmp_path / "crawler.yml"
+    bad.write_text("amules: []\ncatalog_db_path: c\nlocal_db_path: l\n", encoding="utf-8")
+    code = entry.main(["--config", str(bad)])
     assert code == 1
     assert "Config invalide" in capsys.readouterr().err
 
 
 def test_main_refuses_on_missing_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    code = entry.main(
-        [
-            "--crawler",
-            str(tmp_path / "absent.yaml"),
-            "--local",
-            str(_CONFIG / "observer.example.yaml"),
-        ]
-    )
+    code = entry.main(["--config", str(tmp_path / "absent.yml")])
     assert code == 1
     assert "Config invalide" in capsys.readouterr().err
 
 
 def test_default_args_point_at_config_dir() -> None:
     namespace = entry._parse_args([])
-    assert namespace.crawler == Path("deploy/config/crawler/crawler.yaml")
-    assert namespace.local == Path("deploy/config/crawler/local.yaml")
+    assert namespace.config == Path("deploy/config/crawler/crawler.yml")
+    assert namespace.targets == Path("deploy/config/crawler/targets.yml")
+    assert namespace.matcher == Path("deploy/config/crawler/matcher.yml")
 
 
 def test_package_main_shim_reexports_main() -> None:
@@ -134,40 +156,30 @@ def test_package_main_shim_reexports_main() -> None:
 # ---------------------------------------------------------------- sous-commande validate-config
 
 
-def _valid_run_argv() -> list[str]:
-    """Les 4 chemins de config VALIDES versionnés (observer.example.yaml fait foi du local)."""
-    return [
-        "--crawler",
-        str(_CONFIG / "crawler.yaml"),
-        "--local",
-        str(_CONFIG / "observer.example.yaml"),
-        "--targets",
-        str(_CONFIG / "targets.yaml"),
-        "--matcher",
-        str(_CONFIG / "matcher.yaml"),
-    ]
-
-
 def test_bare_invocation_still_runs_the_crawler(monkeypatch: pytest.MonkeyPatch) -> None:
     # CONTRAINTE DURE de rétro-compat : SANS sous-commande, on retombe EXACTEMENT sur le
-    # chemin run (build_app → asyncio.run). C'est ce que fait compose.yaml.
+    # chemin run (build_app → asyncio.run). C'est ce que fait le compose.
     seen: dict[str, object] = {}
 
     def fake_run(coro: object) -> None:
         coro.close()  # type: ignore[attr-defined]  # ferme la coroutine sans la lancer
 
     def fake_build_app(args: argparse.Namespace) -> _SpyApp:
-        seen["crawler"] = args.crawler  # prouve qu'on est passé par _parse_args
+        seen["config"] = args.config  # prouve qu'on est passé par _parse_args
         return _SpyApp()
 
     monkeypatch.setattr("emule_indexer.composition.__main__.asyncio.run", fake_run)
     monkeypatch.setattr(entry, "build_app", fake_build_app)
-    assert entry.main(_valid_run_argv()) == 0
-    assert seen["crawler"] == _CONFIG / "crawler.yaml"
+    assert entry.main(_argv(Path("crawler.yml"))) == 0
+    assert seen["config"] == Path("crawler.yml")
 
 
-def test_validate_config_does_not_start_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_validate_config_does_not_start_the_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # validate-config ne démarre RIEN : ni build_app, ni asyncio.run.
+    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+
     def boom_run(coro: object) -> None:  # pragma: no cover - ne doit jamais être appelé
         raise AssertionError("asyncio.run ne doit pas être appelé par validate-config")
 
@@ -176,89 +188,68 @@ def test_validate_config_does_not_start_the_app(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr("emule_indexer.composition.__main__.asyncio.run", boom_run)
     monkeypatch.setattr(entry, "build_app", boom_build_app)
-    assert entry.main(["validate-config", *_valid_run_argv()]) == 0
+    assert entry.main(["validate-config", *_argv(_write_config(tmp_path))]) == 0
 
 
-def test_validate_config_reports_valid(capsys: pytest.CaptureFixture[str]) -> None:
-    code = entry.main(["validate-config", *_valid_run_argv()])
+def test_validate_config_reports_valid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+    code = entry.main(["validate-config", *_argv(_write_config(tmp_path))])
     assert code == 0
     assert "Config valide" in capsys.readouterr().out
 
 
 def test_validate_config_defaults_point_at_config_dir() -> None:
-    # Les options de validate-config ont les MÊMES défauts deploy/config/crawler/*.yaml que le run.
+    # Les options de validate-config ont les MÊMES défauts deploy/config/crawler/*.yml que le run.
     namespace = entry._parse_validate_args([])
-    assert namespace.crawler == Path("deploy/config/crawler/crawler.yaml")
-    assert namespace.local == Path("deploy/config/crawler/local.yaml")
-    assert namespace.targets == Path("deploy/config/crawler/targets.yaml")
-    assert namespace.matcher == Path("deploy/config/crawler/matcher.yaml")
+    assert namespace.config == Path("deploy/config/crawler/crawler.yml")
+    assert namespace.targets == Path("deploy/config/crawler/targets.yml")
+    assert namespace.matcher == Path("deploy/config/crawler/matcher.yml")
+
+
+def test_validate_config_reports_missing_env_var(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # EFFET DE BORD VOULU : la config référence ${AMULE_EC_PASSWORD} (section active : amules) ;
+    # la variable absente de l'environnement → interpolation fail-fast → code 1, message clair.
+    monkeypatch.delenv("AMULE_EC_PASSWORD", raising=False)
+    code = entry.main(["validate-config", *_argv(_write_config(tmp_path))])
+    assert code == 1
+    assert "Config invalide" in capsys.readouterr().err
 
 
 def test_validate_config_rejects_broken_yaml(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    broken = tmp_path / "crawler.yaml"
+    broken = tmp_path / "crawler.yml"
     broken.write_text("ports: [unclosed\n", encoding="utf-8")  # YAML syntaxiquement cassé
-    argv = ["validate-config", "--crawler", str(broken), "--local", str(_CONFIG / "local.yaml")]
-    code = entry.main(argv)
+    code = entry.main(["validate-config", "--config", str(broken)])
     assert code == 1
     assert "Config invalide" in capsys.readouterr().err
 
 
-def test_validate_config_rejects_config_error_in_local(
+def test_validate_config_rejects_config_error(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    bad_local = tmp_path / "local.yaml"
-    bad_local.write_text("amules: []\ncatalog_db_path: c\nlocal_db_path: l\n", encoding="utf-8")
-    argv = [
-        "validate-config",
-        "--crawler",
-        str(_CONFIG / "crawler.yaml"),
-        "--local",
-        str(bad_local),
-        "--targets",
-        str(_CONFIG / "targets.yaml"),
-        "--matcher",
-        str(_CONFIG / "matcher.yaml"),
-    ]
-    code = entry.main(argv)
-    assert code == 1
-    assert "Config invalide" in capsys.readouterr().err
-
-
-def test_validate_config_rejects_config_error_in_crawler(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    bad_crawler = tmp_path / "crawler.yaml"
-    bad_crawler.write_text("search: {}\n", encoding="utf-8")  # mapping valide mais incomplet
-    argv = [
-        "validate-config",
-        "--crawler",
-        str(bad_crawler),
-        "--local",
-        str(_CONFIG / "observer.example.yaml"),
-        "--targets",
-        str(_CONFIG / "targets.yaml"),
-        "--matcher",
-        str(_CONFIG / "matcher.yaml"),
-    ]
-    code = entry.main(argv)
+    bad = tmp_path / "crawler.yml"
+    bad.write_text("amules: []\ncatalog_db_path: c\nlocal_db_path: l\n", encoding="utf-8")
+    code = entry.main(["validate-config", "--config", str(bad)])
     assert code == 1
     assert "Config invalide" in capsys.readouterr().err
 
 
 def test_validate_config_rejects_matcher_config_error(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
     bad_matcher = tmp_path / "matcher.yaml"
     # rules non-liste → MatcherConfigError (parse structural)
     bad_matcher.write_text("tokens: {}\nrules: {}\n", encoding="utf-8")
     argv = [
         "validate-config",
-        "--crawler",
-        str(_CONFIG / "crawler.yaml"),
-        "--local",
-        str(_CONFIG / "observer.example.yaml"),
+        "--config",
+        str(_write_config(tmp_path)),
         "--targets",
         str(_CONFIG / "targets.yaml"),
         "--matcher",
@@ -270,16 +261,15 @@ def test_validate_config_rejects_matcher_config_error(
 
 
 def test_validate_config_rejects_config_error_in_targets(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
     bad_targets = tmp_path / "targets.yaml"
     bad_targets.write_text("episodes: nope\n", encoding="utf-8")  # episodes non-liste → ConfigError
     argv = [
         "validate-config",
-        "--crawler",
-        str(_CONFIG / "crawler.yaml"),
-        "--local",
-        str(_CONFIG / "observer.example.yaml"),
+        "--config",
+        str(_write_config(tmp_path)),
         "--targets",
         str(bad_targets),
         "--matcher",

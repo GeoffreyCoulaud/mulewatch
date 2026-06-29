@@ -10,15 +10,16 @@ from catalog_matching.config import MatcherConfig
 from catalog_matching.models import TargetSegment
 from catalog_matching.validation import parse_matcher_config
 from emule_indexer.adapters.config.crawler_config import (
+    AmuleEndpoint,
     BackoffConfig,
     ConfigError,
     CrawlerConfig,
     DownloadConfig,
     MetricsConfig,
     ObservabilityConfig,
+    PortSyncConfig,
     VerifyConfig,
 )
-from emule_indexer.adapters.config.local_config import AmuleEndpoint, LocalConfig
 from emule_indexer.adapters.config.yaml_loader import load_yaml
 from emule_indexer.composition.app import CrawlerApp, default_client_factory
 from emule_indexer.domain.observation import FileObservation
@@ -56,9 +57,14 @@ def matcher_config() -> MatcherConfig:
 
 
 def _crawler_config(
+    tmp_path: Path,
     shutdown_deadline: float = 30.0,
     *,
+    count: int = 1,
+    node_id: str | None = None,
     observability: ObservabilityConfig | None = None,
+    download: DownloadConfig | None = None,
+    port_sync: PortSyncConfig | None = None,
 ) -> CrawlerConfig:
     return CrawlerConfig(
         cycle_interval_seconds=300.0,
@@ -69,12 +75,6 @@ def _crawler_config(
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=60.0, factor=2.0, jitter_ratio=0.0),
         decision_poll_interval_seconds=5.0,
         shutdown_deadline_seconds=shutdown_deadline,
-        observability=observability,
-    )
-
-
-def _local_config(tmp_path: Path, *, count: int = 1, node_id: str | None = None) -> LocalConfig:
-    return LocalConfig(
         amules=tuple(
             AmuleEndpoint(name=f"amule-{i}", host="h", port=4712 + i, password="p")
             for i in range(count)
@@ -82,7 +82,44 @@ def _local_config(tmp_path: Path, *, count: int = 1, node_id: str | None = None)
         catalog_db_path=str(tmp_path / "catalog.db"),
         local_db_path=str(tmp_path / "local.db"),
         node_id=node_id,
+        observability=observability,
+        download=download,
+        port_sync=port_sync,
     )
+
+
+def _download_config(tmp_path: Path) -> DownloadConfig:
+    staging = tmp_path / "staging"
+    quarantine = tmp_path / "quarantine"
+    staging.mkdir(exist_ok=True)
+    quarantine.mkdir(exist_ok=True)
+    return DownloadConfig(
+        poll_interval_seconds=30.0,
+        disk_cap_bytes=1_000_000_000,
+        endpoint=AmuleEndpoint(name="dl", host="h", port=4799, password="p"),
+        staging_dir=str(staging),
+        quarantine_dir=str(quarantine),
+        verifier_url="http://verifier:8000",
+        verify=VerifyConfig(poll_interval_seconds=10.0, client_timeout_seconds=180.0),
+    )
+
+
+def _full_crawler_config(tmp_path: Path) -> CrawlerConfig:
+    """Config mode FULL : section ``download`` présente (endpoint/dirs/verifier_url/verify)."""
+    return _crawler_config(tmp_path, download=_download_config(tmp_path))
+
+
+def _port_sync_config() -> PortSyncConfig:
+    return PortSyncConfig(
+        poll_interval_seconds=60.0,
+        restart_min_interval_seconds=300.0,
+        gluetun_control_url="http://gluetun:8000",
+        restarter_url="http://docker-proxy:2375",
+    )
+
+
+def _port_sync_crawler_config(tmp_path: Path) -> CrawlerConfig:
+    return _crawler_config(tmp_path, port_sync=_port_sync_config())
 
 
 def _make_app(
@@ -100,8 +137,9 @@ def _make_app(
     if metrics_server is not None:
         extra["metrics_server"] = metrics_server
     return CrawlerApp(
-        crawler_config=_crawler_config(shutdown_deadline, observability=observability),
-        local_config=_local_config(tmp_path, node_id=node_id),
+        crawler_config=_crawler_config(
+            tmp_path, shutdown_deadline, node_id=node_id, observability=observability
+        ),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=clock or FakeClock(),
@@ -150,7 +188,7 @@ async def test_app_runs_one_cycle_then_shuts_down_cleanly(
         matcher_config,
         factory=factory,
         observability=ObservabilityConfig(
-            log_level="INFO", metrics=None, notification_timeout_seconds=5.0
+            log_level="INFO", metrics=None, notification_timeout_seconds=5.0, notifications=()
         ),
     )
     app_holder["app"] = app
@@ -211,8 +249,7 @@ async def test_pool_setup_connects_each_client_before_coverage(
         return client
 
     app = CrawlerApp(
-        crawler_config=_crawler_config(),
-        local_config=_local_config(tmp_path, count=2),
+        crawler_config=_crawler_config(tmp_path, count=2),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -494,7 +531,7 @@ async def test_observations_are_catalogued_during_the_cycle(
 
 
 # ---------------------------------------------------------------------------
-# Task 11 — mode full (verifier_url) : gate + câblage des 2 boucles
+# Mode full (download.enabled) : gate health + câblage des 2 boucles
 # ---------------------------------------------------------------------------
 
 
@@ -561,45 +598,11 @@ class _UnreachableDownloadClient(FakeDownloadClient):
         raise MuleUnreachableError("download daemon down")
 
 
-def _full_local_config(tmp_path: Path, *, verifier_url: str | None) -> LocalConfig:
-    base = _local_config(tmp_path)
-    staging = tmp_path / "staging"
-    quarantine = tmp_path / "quarantine"
-    staging.mkdir(exist_ok=True)
-    quarantine.mkdir(exist_ok=True)
-    return LocalConfig(
-        amules=base.amules,
-        catalog_db_path=base.catalog_db_path,
-        local_db_path=base.local_db_path,
-        node_id=base.node_id,
-        download_endpoint=AmuleEndpoint(name="dl", host="h", port=4799, password="p"),
-        staging_dir=str(staging),
-        quarantine_dir=str(quarantine),
-        verifier_url=verifier_url,
-    )
-
-
-def _full_crawler_config() -> CrawlerConfig:
-    base = _crawler_config()
-    return CrawlerConfig(
-        cycle_interval_seconds=base.cycle_interval_seconds,
-        search_poll_budget_seconds=base.search_poll_budget_seconds,
-        search_poll_interval_seconds=base.search_poll_interval_seconds,
-        keyword_pause_min_seconds=base.keyword_pause_min_seconds,
-        keyword_pause_max_seconds=base.keyword_pause_max_seconds,
-        backoff=base.backoff,
-        decision_poll_interval_seconds=base.decision_poll_interval_seconds,
-        shutdown_deadline_seconds=base.shutdown_deadline_seconds,
-        download=DownloadConfig(poll_interval_seconds=30.0, disk_cap_bytes=1_000_000_000),
-        verify=VerifyConfig(poll_interval_seconds=10.0, client_timeout_seconds=180.0),
-    )
-
-
 @pytest.mark.asyncio
 async def test_observer_mode_runs_without_download_or_verify_loops(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # verifier_url absent → observateur : démarre, tourne un cycle, s'arrête ; aucun verifier
+    # download absent → observateur : démarre, tourne un cycle, s'arrête ; aucun verifier
     # construit, aucune boucle download/verif. (Comportement Plan C inchangé.)
     holder: dict[str, CrawlerApp] = {}
     verifier = FakeContentVerifier()
@@ -608,8 +611,7 @@ async def test_observer_mode_runs_without_download_or_verify_loops(
         return _ShutdownOnStatusClient(holder)
 
     app = CrawlerApp(
-        crawler_config=_crawler_config(),
-        local_config=_local_config(tmp_path),  # pas de verifier_url
+        crawler_config=_crawler_config(tmp_path),  # pas de download → observer
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -640,8 +642,7 @@ async def test_full_mode_health_ok_runs_both_loops(
         return FakeMuleClient()  # ne pilote PAS l'arrêt : c'est la boucle download qui l'arme
 
     app = CrawlerApp(
-        crawler_config=_full_crawler_config(),
-        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        crawler_config=_full_crawler_config(tmp_path),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -669,8 +670,7 @@ async def test_full_mode_health_failure_is_fail_fast(
         return FakeMuleClient()
 
     app = CrawlerApp(
-        crawler_config=_full_crawler_config(),
-        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        crawler_config=_full_crawler_config(tmp_path),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -683,65 +683,6 @@ async def test_full_mode_health_failure_is_fail_fast(
     with pytest.raises(ConfigError, match="verifier"):
         await app.run()
     assert verifier.closed is True  # le client verifier est fermé même en fail-fast
-
-
-@pytest.mark.asyncio
-async def test_full_mode_missing_download_config_is_fail_fast(
-    tmp_path: Path, matcher_config: MatcherConfig
-) -> None:
-    # verifier_url présent MAIS l'ensemble download incomplet (download_endpoint absent) →
-    # fail-fast au montage (handoff §3.5 : on ne télécharge jamais sans la config complète).
-    local = _local_config(tmp_path)
-    local = LocalConfig(
-        amules=local.amules,
-        catalog_db_path=local.catalog_db_path,
-        local_db_path=local.local_db_path,
-        node_id=local.node_id,
-        verifier_url="http://verifier:8000",  # full déclenché, mais pas d'endpoint/dirs
-    )
-    app = CrawlerApp(
-        crawler_config=_full_crawler_config(),
-        local_config=local,
-        targets=_TARGETS,
-        matcher_config=matcher_config,
-        clock=FakeClock(),
-        rng=_NoopRng(),
-        signal_hub=RecordingSignal(),
-        client_factory=lambda endpoint: FakeMuleClient(),
-        verifier_factory=lambda url, _timeout: FakeContentVerifier(),
-    )
-    with pytest.raises(ConfigError, match="download"):
-        await app.run()
-
-
-@pytest.mark.asyncio
-async def test_full_mode_missing_crawler_verify_and_download_sections_is_fail_fast(
-    tmp_path: Path, matcher_config: MatcherConfig
-) -> None:
-    # verifier_url présent MAIS crawler_config sans sections verify ET download →
-    # fail-fast : couvre les branches verify is None et download is None de _require_full_config.
-    local = _local_config(tmp_path)
-    local = LocalConfig(
-        amules=local.amules,
-        catalog_db_path=local.catalog_db_path,
-        local_db_path=local.local_db_path,
-        node_id=local.node_id,
-        verifier_url="http://verifier:8000",
-    )
-    crawler = _crawler_config()  # download=None, verify=None
-    app = CrawlerApp(
-        crawler_config=crawler,
-        local_config=local,
-        targets=_TARGETS,
-        matcher_config=matcher_config,
-        clock=FakeClock(),
-        rng=_NoopRng(),
-        signal_hub=RecordingSignal(),
-        client_factory=lambda endpoint: FakeMuleClient(),
-        verifier_factory=lambda url, _timeout: FakeContentVerifier(),
-    )
-    with pytest.raises(ConfigError, match="verify"):
-        await app.run()
 
 
 @pytest.mark.asyncio
@@ -760,8 +701,7 @@ async def test_full_mode_tolerates_download_daemon_unreachable_at_startup(
         return _UnreachableDownloadClient()
 
     app = CrawlerApp(
-        crawler_config=_full_crawler_config(),
-        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        crawler_config=_full_crawler_config(tmp_path),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -827,8 +767,7 @@ async def test_full_mode_shutdown_cancels_download_and_verify_loops_promptly(
 
     # _full_crawler_config : download poll 30 s, verify poll 10 s, shutdown_deadline 30 s.
     app = CrawlerApp(
-        crawler_config=_full_crawler_config(),
-        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        crawler_config=_full_crawler_config(tmp_path),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=clock,
@@ -864,8 +803,7 @@ async def test_full_mode_shutdown_leaves_no_task_leaked(
     verifier = FakeContentVerifier(healthy=True)
     clock = _BlockingPollClock(holder)
     app = CrawlerApp(
-        crawler_config=_full_crawler_config(),
-        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        crawler_config=_full_crawler_config(tmp_path),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=clock,
@@ -912,6 +850,7 @@ async def test_metrics_server_started_when_enabled(
             log_level="INFO",
             metrics=MetricsConfig(enabled=True, port=9123),
             notification_timeout_seconds=5.0,
+            notifications=(),
         ),
         metrics_server=metrics_server,
     )
@@ -942,6 +881,7 @@ async def test_metrics_server_not_started_when_disabled(
             log_level="INFO",
             metrics=MetricsConfig(enabled=False, port=9123),
             notification_timeout_seconds=5.0,
+            notifications=(),
         ),
         metrics_server=metrics_server,
     )
@@ -1003,8 +943,7 @@ async def test_emits_crawler_started_full_mode(
     download_client = _ShutdownOnQueueDownloadClient(holder)
 
     app = CrawlerApp(
-        crawler_config=_full_crawler_config(),
-        local_config=_full_local_config(tmp_path, verifier_url="http://verifier:8000"),
+        crawler_config=_full_crawler_config(tmp_path),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -1021,7 +960,7 @@ async def test_emits_crawler_started_full_mode(
 
 
 # ---------------------------------------------------------------------------
-# Port-sync (High-ID) : boucle ON / OFF / partiel → ConfigError
+# Port-sync (High-ID) : boucle ON / OFF
 # ---------------------------------------------------------------------------
 
 
@@ -1077,54 +1016,18 @@ class _RecordingRestarter:
         return None
 
 
-def _port_sync_crawler_config() -> CrawlerConfig:
-    from emule_indexer.adapters.config.crawler_config import PortSyncConfig
-
-    base = _crawler_config()
-    return CrawlerConfig(
-        cycle_interval_seconds=base.cycle_interval_seconds,
-        search_poll_budget_seconds=base.search_poll_budget_seconds,
-        search_poll_interval_seconds=base.search_poll_interval_seconds,
-        keyword_pause_min_seconds=base.keyword_pause_min_seconds,
-        keyword_pause_max_seconds=base.keyword_pause_max_seconds,
-        backoff=base.backoff,
-        decision_poll_interval_seconds=base.decision_poll_interval_seconds,
-        shutdown_deadline_seconds=base.shutdown_deadline_seconds,
-        port_sync=PortSyncConfig(poll_interval_seconds=60.0, restart_min_interval_seconds=300.0),
-    )
-
-
-def _port_sync_local_config(
-    tmp_path: Path, *, gluetun_control_url: str | None, restarter_url: str | None
-) -> LocalConfig:
-    base = _local_config(tmp_path)
-    return LocalConfig(
-        amules=base.amules,
-        catalog_db_path=base.catalog_db_path,
-        local_db_path=base.local_db_path,
-        node_id=base.node_id,
-        gluetun_control_url=gluetun_control_url,
-        restarter_url=restarter_url,
-    )
-
-
 @pytest.mark.asyncio
-async def test_port_sync_loop_runs_when_all_three_configs_present(
+async def test_port_sync_loop_runs_when_section_present(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # Les 3 réglages présents → la boucle port-sync est ARMÉE. L'arrêt est piloté par le reader
-    # (1er poll → signal) → on prouve que le CORPS de la boucle a tourné, sans course de timing.
+    # Section port_sync présente (enabled: true) → la boucle port-sync est ARMÉE. L'arrêt est
+    # piloté par le reader (1er poll → signal) → on prouve que le CORPS de la boucle a tourné.
     holder: dict[str, CrawlerApp] = {}
     reader = _ShutdownOnPollReader(holder)
     ec_client = _PortSyncCapableClient()
 
     app = CrawlerApp(
-        crawler_config=_port_sync_crawler_config(),
-        local_config=_port_sync_local_config(
-            tmp_path,
-            gluetun_control_url="http://gluetun:8000",
-            restarter_url="http://docker-proxy:2375",
-        ),
+        crawler_config=_port_sync_crawler_config(tmp_path),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -1143,7 +1046,7 @@ async def test_port_sync_loop_runs_when_all_three_configs_present(
 async def test_port_sync_loop_off_when_no_config(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # Aucun des 3 réglages → boucle OFF (Low-ID toléré). Les factories ne doivent JAMAIS être
+    # Pas de section port_sync → boucle OFF (Low-ID toléré). Les factories ne doivent JAMAIS être
     # appelées : on le prouve avec des factories qui lèveraient si elles l'étaient.
     holder: dict[str, CrawlerApp] = {}
 
@@ -1157,8 +1060,7 @@ async def test_port_sync_loop_off_when_no_config(
         return _ShutdownOnStatusClient(holder)
 
     app = CrawlerApp(
-        crawler_config=_crawler_config(),  # pas de port_sync
-        local_config=_local_config(tmp_path),  # pas d'URLs
+        crawler_config=_crawler_config(tmp_path),  # pas de port_sync
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -1170,75 +1072,6 @@ async def test_port_sync_loop_off_when_no_config(
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)  # ne lève pas (factories jamais appelées)
-
-
-@pytest.mark.asyncio
-async def test_port_sync_partial_config_is_fail_fast_missing_restarter(
-    tmp_path: Path, matcher_config: MatcherConfig
-) -> None:
-    # gluetun_control_url + crawler.port_sync présents MAIS restarter_url absent → ConfigError.
-    local = _port_sync_local_config(
-        tmp_path, gluetun_control_url="http://gluetun:8000", restarter_url=None
-    )
-    app = CrawlerApp(
-        crawler_config=_port_sync_crawler_config(),
-        local_config=local,
-        targets=_TARGETS,
-        matcher_config=matcher_config,
-        clock=FakeClock(),
-        rng=_NoopRng(),
-        signal_hub=RecordingSignal(),
-        client_factory=lambda endpoint: FakeMuleClient(),
-    )
-    with pytest.raises(ConfigError, match="restarter_url"):
-        await app.run()
-
-
-@pytest.mark.asyncio
-async def test_port_sync_partial_config_is_fail_fast_missing_gluetun_url(
-    tmp_path: Path, matcher_config: MatcherConfig
-) -> None:
-    # restarter_url + crawler.port_sync présents MAIS gluetun_control_url absent → ConfigError
-    # (couvre la branche gluetun_control_url is None de _require_port_sync_config).
-    local = _port_sync_local_config(
-        tmp_path, gluetun_control_url=None, restarter_url="http://docker-proxy:2375"
-    )
-    app = CrawlerApp(
-        crawler_config=_port_sync_crawler_config(),
-        local_config=local,
-        targets=_TARGETS,
-        matcher_config=matcher_config,
-        clock=FakeClock(),
-        rng=_NoopRng(),
-        signal_hub=RecordingSignal(),
-        client_factory=lambda endpoint: FakeMuleClient(),
-    )
-    with pytest.raises(ConfigError, match="gluetun_control_url"):
-        await app.run()
-
-
-@pytest.mark.asyncio
-async def test_port_sync_partial_config_is_fail_fast_missing_section(
-    tmp_path: Path, matcher_config: MatcherConfig
-) -> None:
-    # Les 2 URLs présentes MAIS crawler.port_sync absent → ConfigError (couvre la branche section).
-    local = _port_sync_local_config(
-        tmp_path,
-        gluetun_control_url="http://gluetun:8000",
-        restarter_url="http://docker-proxy:2375",
-    )
-    app = CrawlerApp(
-        crawler_config=_crawler_config(),  # port_sync=None
-        local_config=local,
-        targets=_TARGETS,
-        matcher_config=matcher_config,
-        clock=FakeClock(),
-        rng=_NoopRng(),
-        signal_hub=RecordingSignal(),
-        client_factory=lambda endpoint: FakeMuleClient(),
-    )
-    with pytest.raises(ConfigError, match="crawler.port_sync"):
-        await app.run()
 
 
 @pytest.mark.asyncio
@@ -1255,12 +1088,7 @@ async def test_port_sync_tolerates_ec_daemon_unreachable_at_startup(
             raise MuleUnreachableError("port-sync daemon down")
 
     app = CrawlerApp(
-        crawler_config=_port_sync_crawler_config(),
-        local_config=_port_sync_local_config(
-            tmp_path,
-            gluetun_control_url="http://gluetun:8000",
-            restarter_url="http://docker-proxy:2375",
-        ),
+        crawler_config=_port_sync_crawler_config(tmp_path),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),

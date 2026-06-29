@@ -18,9 +18,7 @@ def interpolate(value: str, env: Mapping[str, str], what: str) -> str:
     def _replace(match: re.Match[str]) -> str:
         name = match.group(1)
         if name not in env:
-            raise ConfigError(
-                f"{what} : variable d'environnement {name!r} référencée mais absente"
-            )
+            raise ConfigError(f"{what} : variable d'environnement {name!r} référencée mais absente")
         return env[name]
 
     return _PATTERN.sub(_replace, value)
