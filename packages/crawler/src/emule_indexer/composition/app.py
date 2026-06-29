@@ -311,7 +311,8 @@ class CrawlerApp:
 
         Repos UNIQUES partagés (``catalog_repo``/``local_repo`` déjà construits ; un
         ``SqliteDownloadRepository`` sur la MÊME ``local_conn`` — writer unique sur l'event
-        loop, aucune course). Une 2e connexion EC (``download_endpoint``) connectée en tolérant
+        loop, aucune course). Une 2e connexion EC (``download_config.endpoint``) connectée en
+        tolérant
         ``MuleUnreachableError`` (un daemon down au démarrage ne tue pas le crawler ; le backoff
         de la boucle gouverne). ``staging_dir`` est l'Incoming d'amuled configuré ; le NOM du
         fichier complété vient désormais des fichiers PARTAGÉS EC (le vrai nom on-disk rapporté

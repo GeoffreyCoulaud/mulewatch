@@ -14,7 +14,7 @@ catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jama
   `local-db`, `quarantine`, `amule-state`, et `clamav-db` en mode download). Ils **persistent** à la
   recréation des conteneurs — ne lancez `docker compose down` **avec `-v`** que si vous voulez
   réellement **effacer** le catalogue.
-- **Arrêter le nœud** : `docker compose -f deploy/gluetun.compose.yml --profile <observer|download> down`
+- **Arrêter le nœud** : `docker compose -f deploy/gluetun.compose.yml down`
   (remplacez `gluetun` par `direct` si vous utilisez la stack sans VPN conteneur).
 - **Mettre à jour** : re-tirez les images puis relancez :
   ```bash
@@ -275,11 +275,11 @@ accès à aucun réseau applicatif (elle monte uniquement les volumes de bases d
 ### Lancer la WebUI
 
 ```bash
-# Mode observer (catalogue seul) :
-docker compose -f deploy/gluetun.compose.yml --profile observer up -d webui
+# Observer (catalogue seul) + WebUI :
+docker compose -f deploy/gluetun.compose.yml --profile webui up -d
 
-# Mode download (catalogue + téléchargements) :
-docker compose -f deploy/gluetun.compose.yml --profile download up -d webui
+# Download (catalogue + téléchargements) + WebUI :
+docker compose -f deploy/gluetun.compose.yml --profile download --profile webui up -d
 ```
 
 ### Routes disponibles
