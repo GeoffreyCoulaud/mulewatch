@@ -1,0 +1,25 @@
+# Stack sans VPN. amuled en réseau direct.
+# Low-ID par défaut ; High-ID = ouvrir LISTEN_PORT.
+# Lancer :
+#   docker compose -f deploy/direct.compose.yml \
+#     [--profile download|monitoring|webui] up -d
+
+include:
+  - path: base.compose.yml
+
+services:
+  amuled:
+    image: ngosang/amule:3.0.0-1
+    container_name: amuled
+    environment:
+      GUI_PWD: ${AMULE_EC_PASSWORD:?}
+    ports:
+      - "${LISTEN_PORT:-4662}:4662"
+      - "${LISTEN_PORT:-4662}:4662/udp"
+    volumes:
+      - amule-state:/home/amule/.aMule
+      - quarantine:/data/quarantine
+    networks:
+      ec:
+        aliases: [amuled]
+    restart: unless-stopped
