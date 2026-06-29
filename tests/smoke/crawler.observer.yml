@@ -1,5 +1,5 @@
-# crawler.yaml SMOKE — cadences courtes (le smoke verifie le cablage, pas la duree).
-# Meme schema que deploy/config/crawler/crawler.yaml (parse_crawler_config) ; valeurs raccourcies.
+# crawler.observer.yml SMOKE — mode OBSERVATEUR (pas de section
+# download => boucles dl/verif OFF). Cadences courtes.
 cycle_interval_seconds: 5.0
 search_poll_budget_seconds: 3.0
 search_poll_interval_seconds: 1.0
@@ -14,9 +14,11 @@ backoff:
   factor: 2.0
   jitter_ratio: 0.3
 
-download:
-  poll_interval_seconds: 3.0
-  disk_cap_bytes: 53687091200
+amules:
+  - name: amule-smoke
+    host: amuled
+    port: 4712
+    password: smoke-ec-password
 
-verify:
-  poll_interval_seconds: 3.0
+catalog_db_path: /data/catalog/catalog.db
+local_db_path: /data/local/local.db

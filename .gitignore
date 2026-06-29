@@ -11,10 +11,8 @@ dist/
 *.db
 *.db-wal
 *.db-shm
-# Config locale crawler (machine + secret EC) — JAMAIS versionnée. Seuls les *.example.yaml le sont.
-deploy/config/crawler/observer.yaml
-deploy/config/crawler/download.yaml
-# Secrets de deploiement (ProtonVPN, EC password) — JAMAIS versionnes. Seul .env.example l'est.
+# Secrets de déploiement (EC password, clé VPN) — JAMAIS versionnés.
+# Seul deploy/.env.example est versionné ; deploy/.env (et tout .env) est ignoré.
 .env
 vendor/
 # Worktrees crees par EnterWorktree (checkouts lies, hors versionnement)

@@ -44,10 +44,10 @@ le *régler*, le [runbook d'administration](administration.md).
   (validé en juin 2026)**. Les versions ≥ 3.0.0 supportent l'auto-amorçage ; une image `latest` ou
   `2.3.3-*` casse l'amorçage du premier run **sans erreur évidente**. Vérifiez l'image utilisée :
   ```bash
-  docker compose -f deploy/examples/<fichier> images amuled
+  docker compose -f deploy/gluetun.compose.yml images amuled
   # Vous devez voir : ngosang/amule:3.0.0-1
   ```
-  Si vous voyez `latest` ou `2.3.3-*`, fixez la version dans votre `deploy/examples/*.yaml` puis re-pullez.
+  Si vous voyez `latest` ou `2.3.3-*`, fixez la version dans `deploy/base.compose.yml` puis re-pullez.
   *(Si une version 4.x sort dans le futur, ré-évaluer la compatibilité avant migration — ce projet
   n'a été éprouvé qu'avec 3.0.0-1.)*
 
@@ -70,8 +70,8 @@ le *régler*, le [runbook d'administration](administration.md).
 - **Solution rapide.** Le crawler finit par démarrer dès que le verifier est sain. Pour éviter les
   redémarrages initiaux, démarrez le verifier d'abord, puis le reste :
   ```bash
-  docker compose -f deploy/examples/<fichier> --profile download up -d verifier
-  docker compose -f deploy/examples/<fichier> --profile download up -d
+  docker compose -f deploy/gluetun.compose.yml --profile download up -d verifier
+  docker compose -f deploy/gluetun.compose.yml --profile download up -d
   ```
 - **Si la boucle persiste > 5 min**, diagnostic en escalier :
   1. **Le verifier a-t-il démarré proprement ?** `docker compose logs verifier --tail 50` — vous
@@ -82,10 +82,10 @@ le *régler*, le [runbook d'administration](administration.md).
      wget -qO- http://verifier:8000/healthz` (si `wget` n'est pas dispo, `curl` aussi) — doit
      renvoyer un JSON `{"status":"ok"}`. Si `Connection refused`, le verifier est down ; si `Name
      resolution failure`, le service n'est pas sur le même réseau Docker (config compose suspecte).
-  3. **`verifier_url` est-il correct côté crawler ?** Ouvrir `deploy/config/crawler/download.yaml` et
-     vérifier que `verifier_url` pointe sur `http://verifier:8000` (nom de service compose, pas
-     `localhost` ni IP). Une mauvaise URL → le crawler ne joint jamais le verifier, peu importe son
-     état.
+  3. **L'URL du verifier est-elle correcte ?** Ouvrir `deploy/config/crawler/crawler.yml` et
+     vérifier que `download.verifier_url` pointe sur `http://verifier:8000` (nom de service compose,
+     pas `localhost` ni IP). Une mauvaise URL → le crawler ne joint jamais le verifier, peu importe
+     son état.
 
 ### Un fichier manifestement sain ressort `suspicious`
 
@@ -143,7 +143,7 @@ Plusieurs causes, à vérifier dans cet ordre :
   [`docs/reference/2026-06-17-docker-desktop-rootless-socket.md`](reference/2026-06-17-docker-desktop-rootless-socket.md)).
 - **Conteneur amuled mal nommé.** Le proxy n'autorise QUE `POST .../containers/amuled/restart` : le
   conteneur doit s'appeler **exactement `amuled`** (épinglé via `container_name: amuled` dans
-  `deploy/examples/gluetun.yaml`). Sous un autre nom, le restart fait **404** et le port-sync ne fait rien.
+  `deploy/gluetun.compose.yml`). Sous un autre nom, le restart fait **404** et le port-sync ne fait rien.
 - **Fournisseur sans port forwarding.** Le High-ID exige un provider à port forwarding
   (Proton/PIA/PrivateVPN/PerfectPrivacy) et `VPN_PORT_FORWARDING: "on"`.
 
@@ -162,7 +162,7 @@ Plusieurs causes, à vérifier dans cet ordre :
   en `nonroot`, donc un volume nommé **vide** hérite de la bonne propriété. Mais un volume **déjà
   peuplé** (root-owned) garde ses droits.
 - **Solution.** Trouvez d'abord le nom exact de votre volume (il dépend du nom du projet Docker
-  Compose, par défaut le nom du dossier qui contient `deploy/examples/`) :
+  Compose, par défaut le nom du dossier qui contient `deploy/*.compose.yml`) :
   ```bash
   docker volume ls | grep catalog-db
   # Exemple de sortie : local  emule-indexer_catalog-db
@@ -221,9 +221,9 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 - **Symptôme.** Le crawler refuse de se connecter à amuled (`EC auth failed` dans les logs).
 - **Solution.** Choisissez un nouveau mot de passe, mettez à jour `AMULE_EC_PASSWORD` dans `.env`
-  ET `amules[].password` dans `deploy/config/crawler/download.yaml` (ou `observer.yaml`), puis redémarrez :
+  ET `amules[].password` dans `deploy/config/crawler/crawler.yml`, puis redémarrez :
   ```bash
-  docker compose -f deploy/examples/<fichier> --profile <mode> up -d --force-recreate amuled crawler
+  docker compose -f deploy/gluetun.compose.yml --profile <mode> up -d --force-recreate amuled crawler
   ```
   Pas de perte de catalogue (le mot de passe ne protège que le canal EC, pas les données).
 
@@ -231,7 +231,7 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 - **Symptôme.** `docker compose up` retourne une erreur de parsing ou un service `Exited (1)`
   immédiatement.
-- **Solution.** Recommencez à partir du modèle : `cp .env.example .env.new`, recopiez vos secrets
+- **Solution.** Recommencez à partir du modèle : `cp deploy/.env.example .env.new`, recopiez vos secrets
   un par un en vérifiant la syntaxe (pas d'espaces autour du `=`, pas de guillemets autour des
   valeurs sauf nécessaire), puis `mv .env.new .env`. Évite d'avoir à débugger un fichier corrompu.
 
@@ -251,7 +251,7 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 - **Solution destructive (irréversible).** Arrêtez tout et supprimez les volumes :
   ```bash
-  docker compose -f deploy/examples/<fichier> --profile <mode> down -v
+  docker compose -f deploy/gluetun.compose.yml --profile <mode> down -v
   ```
   Le `-v` est ce qui efface. Sans lui, les volumes (donc le catalogue) sont préservés.
   Sauvegardez d'abord ce que vous tenez à garder.

@@ -30,8 +30,12 @@ from prometheus_client import CollectorRegistry, start_http_server
 from catalog_matching.config import MatcherConfig
 from catalog_matching.engine import MatchingEngine
 from catalog_matching.models import TargetSegment
-from emule_indexer.adapters.config.crawler_config import ConfigError, CrawlerConfig
-from emule_indexer.adapters.config.local_config import AmuleEndpoint, LocalConfig
+from emule_indexer.adapters.config.crawler_config import (
+    AmuleEndpoint,
+    ConfigError,
+    CrawlerConfig,
+    DownloadConfig,
+)
 from emule_indexer.adapters.docker_restart_http import HttpMuleRestarter
 from emule_indexer.adapters.gluetun_port import GluetunPortReader
 from emule_indexer.adapters.mule_ec.client import AmuleEcClient
@@ -161,7 +165,6 @@ class CrawlerApp:
         self,
         *,
         crawler_config: CrawlerConfig,
-        local_config: LocalConfig,
         targets: Sequence[TargetSegment],
         matcher_config: MatcherConfig,
         clock: Clock,
@@ -177,7 +180,6 @@ class CrawlerApp:
         metrics_server: MetricsServer = default_metrics_server,
     ) -> None:
         self._crawler_config = crawler_config
-        self._local_config = local_config
         self._targets = tuple(targets)
         self._matcher_config = matcher_config
         self._clock = clock
@@ -238,66 +240,13 @@ class CrawlerApp:
             remaining = max(0.0, self._crawler_config.cycle_interval_seconds - elapsed)
             await self._clock.sleep(remaining)
 
-    def _require_full_config(self) -> None:
-        """Fail-fast au montage si le mode full est déclenché sans config complète (DV15).
-
-        ``verifier_url`` est le DÉCLENCHEUR du mode full ; l'ensemble download DOIT suivre
-        (handoff §3.5 — la lacune unidirectionnelle du parser : des dirs sans endpoint sont
-        ignorés, mais un crawler full SANS endpoint/dirs/section download/verify ne doit PAS
-        démarrer : on ne télécharge jamais sans pouvoir vérifier ni sans staging/quarantaine).
-        """
-        missing: list[str] = []
-        if self._crawler_config.verify is None:
-            missing.append("crawler.verify")
-        if self._crawler_config.download is None:
-            missing.append("crawler.download")
-        if self._local_config.download_endpoint is None:
-            missing.append("local.download_endpoint")
-        if self._local_config.staging_dir is None:
-            missing.append("local.staging_dir")
-        if self._local_config.quarantine_dir is None:
-            missing.append("local.quarantine_dir")
-        if missing:
-            raise ConfigError(
-                "mode full (verifier_url défini) exige aussi : "
-                + ", ".join(missing)
-                + " (refus de télécharger sans config complète)"
-            )
-
     def _port_sync_enabled(self) -> bool:
-        """Le port-sync s'active SSI les 3 configs sont TOUTES présentes (design §8.2/§9)."""
-        return (
-            self._local_config.gluetun_control_url is not None
-            and self._local_config.restarter_url is not None
-            and self._crawler_config.port_sync is not None
-        )
+        """Le port-sync s'active SSI la section ``port_sync`` est présente (``enabled: true``).
 
-    def _require_port_sync_config(self) -> None:
-        """Fail-fast au montage si le port-sync est déclenché PARTIELLEMENT (miroir DV15).
-
-        Les 3 réglages (``gluetun_control_url`` + ``restarter_url`` + ``crawler.port_sync``) sont
-        SOLIDAIRES : 1 ou 2 présents sans le reste = config incohérente → ``ConfigError`` (on ne
-        port-syncerait jamais à moitié). Les 3 absents = port-sync OFF (Low-ID toléré, mode
-        observer/full inchangé). Miroir de ``_require_full_config``.
+        Le parseur unifié garantit la complétude de la section quand elle est présente (URLs +
+        cadences) — plus de règle « 3 réglages solidaires » à la composition (design simpl.-dépl.).
         """
-        present = [
-            self._local_config.gluetun_control_url is not None,
-            self._local_config.restarter_url is not None,
-            self._crawler_config.port_sync is not None,
-        ]
-        if any(present) and not all(present):
-            missing: list[str] = []
-            if self._local_config.gluetun_control_url is None:
-                missing.append("local.gluetun_control_url")
-            if self._local_config.restarter_url is None:
-                missing.append("local.restarter_url")
-            if self._crawler_config.port_sync is None:
-                missing.append("crawler.port_sync")
-            raise ConfigError(
-                "port-sync partiellement configuré ; il exige AUSSI : "
-                + ", ".join(missing)
-                + " (les 3 réglages sont solidaires)"
-            )
+        return self._crawler_config.port_sync is not None
 
     async def _build_port_sync_loop(
         self,
@@ -314,21 +263,17 @@ class CrawlerApp:
         crawler ; le backoff de la boucle gouverne). En prod, host = ``gluetun`` (compose) — c'est
         le MÊME endpoint que les autres clients EC.
         """
-        gluetun_control_url = self._local_config.gluetun_control_url
-        restarter_url = self._local_config.restarter_url
         port_sync_config = self._crawler_config.port_sync
-        assert gluetun_control_url is not None  # garanti par _port_sync_enabled (mypy : narrow)
-        assert restarter_url is not None
-        assert port_sync_config is not None
+        assert port_sync_config is not None  # garanti par _port_sync_enabled (mypy : narrow)
 
-        reader = self._port_forwarding_reader_factory(gluetun_control_url)
+        reader = self._port_forwarding_reader_factory(port_sync_config.gluetun_control_url)
         stack.push_async_callback(reader.aclose)  # type: ignore[attr-defined]
-        restarter = self._mule_restarter_factory(restarter_url)
+        restarter = self._mule_restarter_factory(port_sync_config.restarter_url)
         stack.push_async_callback(restarter.aclose)  # type: ignore[attr-defined]
 
         # Connexion EC DÉDIÉE au port-sync : on vise le 1er endpoint amuled configuré (host EC en
         # prod = gluetun). Tolère MuleUnreachableError au boot, comme la connexion download.
-        endpoint = self._local_config.amules[0]
+        endpoint = self._crawler_config.amules[0]
         ec_client = self._client_factory(endpoint)
         stack.push_async_callback(ec_client.close)
         try:
@@ -353,6 +298,7 @@ class CrawlerApp:
     async def _build_full_loops(
         self,
         *,
+        download_config: DownloadConfig,
         stack: AsyncExitStack,
         catalog_repo: SqliteCatalogRepository,
         local_repo: SqliteLocalStateRepository,
@@ -365,20 +311,17 @@ class CrawlerApp:
 
         Repos UNIQUES partagés (``catalog_repo``/``local_repo`` déjà construits ; un
         ``SqliteDownloadRepository`` sur la MÊME ``local_conn`` — writer unique sur l'event
-        loop, aucune course). Une 2e connexion EC (``download_endpoint``) connectée en tolérant
+        loop, aucune course). Une 2e connexion EC (``download_config.endpoint``) connectée en
+        tolérant
         ``MuleUnreachableError`` (un daemon down au démarrage ne tue pas le crawler ; le backoff
         de la boucle gouverne). ``staging_dir`` est l'Incoming d'amuled configuré ; le NOM du
         fichier complété vient désormais des fichiers PARTAGÉS EC (le vrai nom on-disk rapporté
         par amuled — résout DV10-Q2 ; la confinement anti-traversal vit dans ``_safe_basename``).
         """
-        endpoint = self._local_config.download_endpoint
-        assert endpoint is not None  # garanti par _require_full_config (mypy : narrow)
-        staging_dir = self._local_config.staging_dir
-        quarantine_dir = self._local_config.quarantine_dir
-        assert staging_dir is not None and quarantine_dir is not None
-        download_config = self._crawler_config.download
-        verify_config = self._crawler_config.verify
-        assert download_config is not None and verify_config is not None
+        endpoint = download_config.endpoint
+        staging_dir = download_config.staging_dir
+        quarantine_dir = download_config.quarantine_dir
+        verify_config = download_config.verify
 
         download_client = self._download_client_factory(endpoint)
         stack.push_async_callback(download_client.close)
@@ -506,17 +449,18 @@ class CrawlerApp:
         loop.add_signal_handler(signal.SIGTERM, self._on_signal)
         stack = AsyncExitStack()
         try:
-            catalog_conn = open_catalog(self._local_config.catalog_db_path)
+            catalog_conn = open_catalog(self._crawler_config.catalog_db_path)
             stack.callback(catalog_conn.close)
-            local_conn = open_local(self._local_config.local_db_path)
+            local_conn = open_local(self._crawler_config.local_db_path)
             stack.callback(local_conn.close)
 
             local_repo = SqliteLocalStateRepository(local_conn)
-            node_id = self._local_config.node_id or local_repo.node_id()
+            node_id = self._crawler_config.node_id or local_repo.node_id()
             obs = self._crawler_config.observability
+            notifications = obs.notifications if obs is not None else ()
             registry = CollectorRegistry()
             notifier = AppriseNotifier(
-                tuple((target.url, target.tag) for target in self._local_config.notifications),
+                tuple((target.url, target.tag) for target in notifications),
                 node_id=node_id,
             )
             telemetry = ObservabilityDispatcher(
@@ -551,7 +495,7 @@ class CrawlerApp:
 
             clients: list[MuleClient] = []
             workers: list[SearchWorker] = []
-            for endpoint in self._local_config.amules:
+            for endpoint in self._crawler_config.amules:
                 client = self._client_factory(endpoint)
                 stack.push_async_callback(client.close)
                 # CONNECTE au montage du pool, AVANT le 1er relevé de coverage (sinon
@@ -578,12 +522,13 @@ class CrawlerApp:
             verifier: ContentVerifier | None = None
             download_deps: DownloadLoopDeps | None = None
             verify_deps: VerifyLoopDeps | None = None
-            if self._local_config.verifier_url is not None:
-                self._require_full_config()
-                verify_config = self._crawler_config.verify
-                assert verify_config is not None  # garanti par _require_full_config (mypy : narrow)
+            # Mode FULL ⟺ la section ``download`` est présente (``enabled: true``). Le parseur
+            # unifié garantit alors la complétude du câblage (endpoint/dirs/verifier_url/verify) —
+            # plus de gate ``_require_full_config`` à la composition.
+            download_config = self._crawler_config.download
+            if download_config is not None:
                 verifier = self._verifier_factory(
-                    self._local_config.verifier_url, verify_config.client_timeout_seconds
+                    download_config.verifier_url, download_config.verify.client_timeout_seconds
                 )
                 # Ferme le client verifier au teardown. Le port ``ContentVerifier`` ne déclare
                 # PAS ``aclose`` (détail d'adapter http) → ``# type: ignore`` documenté ; toute
@@ -596,6 +541,7 @@ class CrawlerApp:
                         "refus de démarrer en mode full"
                     )
                 download_deps, verify_deps = await self._build_full_loops(
+                    download_config=download_config,
                     stack=stack,
                     catalog_repo=catalog_repo,
                     local_repo=local_repo,
@@ -606,9 +552,8 @@ class CrawlerApp:
                 )
                 _logger.info("mode full : boucles download + vérification armées")
 
-            # Port-sync (High-ID) : INDÉPENDANT du mode observer/full (déclencheur propre =
-            # gluetun_control_url ET restarter_url ET crawler.port_sync). Fail-fast si partiel.
-            self._require_port_sync_config()
+            # Port-sync (High-ID) : INDÉPENDANT du mode observer/full (déclencheur propre = section
+            # ``port_sync`` présente avec ``enabled: true`` ; complétude garantie par le parseur).
             port_sync_deps: PortSyncLoopDeps | None = None
             if self._port_sync_enabled():
                 port_sync_deps = await self._build_port_sync_loop(
@@ -616,7 +561,7 @@ class CrawlerApp:
                 )
                 _logger.info("port-sync (High-ID) armé")
 
-            mode = "full" if self._local_config.verifier_url is not None else "observer"
+            mode = "full" if download_config is not None else "observer"
             await telemetry.emit(CrawlerStarted(mode=mode))
 
             # Borne ENTRÉE DÉSARMÉE (None) : le régime permanent est non borné ; ``_supervise``

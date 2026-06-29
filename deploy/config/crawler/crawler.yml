@@ -1,0 +1,56 @@
+# Config du crawler — versionnée. Secrets via ${VAR} (.env), reste en clair.
+# Mode download : basculer download.enabled à true ET lancer --profile download.
+
+cycle_interval_seconds: 300.0
+search_poll_budget_seconds: 30.0
+search_poll_interval_seconds: 5.0
+keyword_pause_min_seconds: 1.0
+keyword_pause_max_seconds: 4.0
+decision_poll_interval_seconds: 5.0
+shutdown_deadline_seconds: 10.0
+
+backoff:
+  base_seconds: 2.0
+  cap_seconds: 300.0
+  factor: 2.0
+  jitter_ratio: 0.3
+
+amules:
+  - name: amule-1
+    host: amuled
+    port: 4712
+    password: ${AMULE_EC_PASSWORD}
+
+catalog_db_path: /data/catalog/catalog.db
+local_db_path: /data/local/local.db
+
+observability:
+  log_level: INFO
+  metrics: { enabled: true, port: 9090 }
+  notification_timeout_seconds: 5.0
+  # notifications:
+  #   - url: "discord://${DISCORD_WEBHOOK_ID}/${DISCORD_WEBHOOK_TOKEN}"
+  #     tag: operations
+
+download:
+  enabled: false
+  poll_interval_seconds: 30.0
+  disk_cap_bytes: 53687091200
+  endpoint:
+    name: amule-dl
+    host: amuled
+    port: 4712
+    password: ${AMULE_EC_PASSWORD}
+  staging_dir: /data/quarantine
+  quarantine_dir: /data/quarantine
+  verifier_url: http://verifier:8000
+  verify:
+    poll_interval_seconds: 10.0
+    client_timeout_seconds: 180.0
+
+port_sync:
+  enabled: false
+  poll_interval_seconds: 60.0
+  restart_min_interval_seconds: 300.0
+  gluetun_control_url: http://gluetun:8000
+  restarter_url: http://docker-proxy:2375

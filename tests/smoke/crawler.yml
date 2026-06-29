@@ -1,0 +1,40 @@
+# crawler.yml SMOKE — mode DOWNLOAD (download.enabled: true =>
+# health-check verifier au démarrage). Cadences courtes.
+cycle_interval_seconds: 5.0
+search_poll_budget_seconds: 3.0
+search_poll_interval_seconds: 1.0
+keyword_pause_min_seconds: 0.1
+keyword_pause_max_seconds: 0.5
+decision_poll_interval_seconds: 2.0
+shutdown_deadline_seconds: 5.0
+
+backoff:
+  base_seconds: 1.0
+  cap_seconds: 10.0
+  factor: 2.0
+  jitter_ratio: 0.3
+
+amules:
+  - name: amule-smoke
+    host: amuled
+    port: 4712
+    password: smoke-ec-password
+
+catalog_db_path: /data/catalog/catalog.db
+local_db_path: /data/local/local.db
+
+download:
+  enabled: true
+  poll_interval_seconds: 3.0
+  disk_cap_bytes: 53687091200
+  endpoint:
+    name: amule-smoke-dl
+    host: amuled
+    port: 4712
+    password: smoke-ec-password
+  staging_dir: /data/quarantine
+  quarantine_dir: /data/quarantine
+  verifier_url: http://verifier:8000
+  verify:
+    poll_interval_seconds: 3.0
+    client_timeout_seconds: 30.0

@@ -1,4 +1,4 @@
-# matcher.yaml SMOKE — copie verbatim de deploy/config/crawler/matcher.yaml.
+# matcher.yml SMOKE — copie verbatim de deploy/config/crawler/matcher.yml.
 tokens:
   keroro:       { keyword: keroro }
   titar:        { keyword: titar }

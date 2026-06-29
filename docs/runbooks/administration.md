@@ -14,15 +14,16 @@ catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jama
   `local-db`, `quarantine`, `amule-state`, et `clamav-db` en mode download). Ils **persistent** à la
   recréation des conteneurs — ne lancez `docker compose down` **avec `-v`** que si vous voulez
   réellement **effacer** le catalogue.
-- **Arrêter le nœud** : `docker compose -f deploy/examples/<fichier> --profile <observer|download> down`.
+- **Arrêter le nœud** : `docker compose -f deploy/gluetun.compose.yml down`
+  (remplacez `gluetun` par `direct` si vous utilisez la stack sans VPN conteneur).
 - **Mettre à jour** : re-tirez les images puis relancez :
   ```bash
-  docker compose -f deploy/examples/<fichier> --profile download pull
-  docker compose -f deploy/examples/<fichier> --profile download up -d
+  docker compose -f deploy/gluetun.compose.yml --profile download pull
+  docker compose -f deploy/gluetun.compose.yml --profile download up -d
   ```
 - **Redémarrage de la machine hôte.** Les conteneurs ont `restart: unless-stopped` — ils reviennent
   seuls au boot de l'hôte (Docker doit démarrer en service système). **Aucune commande à relancer.**
-  Vérifiez après reboot : `docker compose -f deploy/examples/<fichier> ps`. Si un service est en `Exited`
+  Vérifiez après reboot : `docker compose -f deploy/gluetun.compose.yml ps`. Si un service est en `Exited`
   alors que les autres sont `Up`, voir « Diagnostic après panne » ci-dessous.
 
 ### Diagnostic après panne
@@ -92,12 +93,11 @@ quand certains réglages combinés sont incohérents.
 
 1. **VPN avec port forwarding** + `VPN_PORT_FORWARDING: "on"` dans `.env` (cherchez les fournisseurs
    marqués `PORT_FORWARDING: yes` dans la [liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)).
-2. Le service **`docker-proxy`** (profil download, stack B / `deploy/examples/gluetun.yaml`), qui redémarre
+2. Le service **`docker-proxy`** (profil download, stack `deploy/gluetun.compose.yml`), qui redémarre
    amuled de façon confinée (le crawler ne voit jamais le socket Docker directement).
-3. Dans `deploy/config/crawler/download.yaml` : décommentez le bloc `port_sync` (champs
-   `gluetun_control_url: "http://gluetun:8000"` et `restarter_url: "http://docker-proxy:2375"`) ; la
-   section `port_sync` de `deploy/config/crawler/crawler.yaml` contient les valeurs par défaut (réglage fin
-   optionnel).
+3. Dans `deploy/config/crawler/crawler.yml` : basculez `port_sync.enabled: true` (le bloc est
+   présent par défaut avec les URL déjà configurées — `gluetun_control_url` et `restarter_url` ;
+   réglage fin optionnel via les autres champs de la section).
 
 Une fois actif, surveillez les events `port-sync` / `High-ID retrouvé` dans les logs et les
 métriques `emule_port_*`.
@@ -130,7 +130,7 @@ au risque**.
 En **mode download**, le verifier ajoute une 3ᵉ source de verdict : un scan **par signatures**
 (`clamscan`) qui produit un verdict `malicious` quand un fichier correspond à une signature de
 virus connue. C'est **activé par défaut** dans le profil download (`ENABLED_CHECKS:
-type_sniff,ffprobe,clamav` dans `deploy/compose.base.yaml`).
+type_sniff,ffprobe,clamav` dans `deploy/base.compose.yml`).
 
 > **Ce que clamav fait, et ce qu'il ne fait pas.** Il détecte les virus dont la signature est connue
 > dans sa base — c'est un **filet** opportuniste, pas une garantie. Un fichier `clean` selon clamav
@@ -152,7 +152,7 @@ fibre, 10-20 min en ADSL/4G**.
 **Comment vérifier que la base est prête :**
 
 ```bash
-docker compose -f deploy/examples/<fichier> logs freshclam | grep -iE "updated|main\.cvd"
+docker compose -f deploy/gluetun.compose.yml logs freshclam | grep -iE "updated|main\.cvd"
 ```
 
 Vous devez voir une ligne du type `freshclam: ClamAV update process started ... main.cvd updated`.
@@ -200,7 +200,7 @@ redémarrez le verifier, retestez. Si le symptôme persiste, doublez encore.
 
 Le crawler et le verifier exposent des métriques Prometheus.
 
-- **crawler** — sur un port HTTP dédié (`observability.metrics.port` dans `deploy/config/crawler/crawler.yaml`),
+- **crawler** — sur un port HTTP dédié (`observability.metrics.port` dans `deploy/config/crawler/crawler.yml`),
   accessible depuis le réseau `ec`.
 - **verifier** — sur son port de service (par défaut `8000`), route `/metrics`. Comme le verifier est
   sur un réseau **sans sortie Internet**, un Prometheus externe doit **rejoindre ce réseau** (ou vous
@@ -275,11 +275,11 @@ accès à aucun réseau applicatif (elle monte uniquement les volumes de bases d
 ### Lancer la WebUI
 
 ```bash
-# Mode observer (catalogue seul) :
-docker compose -f deploy/examples/<fichier> --profile observer up -d webui
+# Observer (catalogue seul) + WebUI :
+docker compose -f deploy/gluetun.compose.yml --profile webui up -d
 
-# Mode download (catalogue + téléchargements) :
-docker compose -f deploy/examples/<fichier> --profile download up -d webui
+# Download (catalogue + téléchargements) + WebUI :
+docker compose -f deploy/gluetun.compose.yml --profile download --profile webui up -d
 ```
 
 ### Routes disponibles
@@ -319,7 +319,7 @@ webui.example.com {
 ```
 
 > **Garantie lecture seule de la WebUI.** Les volumes `catalog-db` et `local-db` sont montés en
-> **lecture-écriture** dans les `deploy/examples/*.yaml`, mais la WebUI applique elle-même la garantie
+> **lecture-écriture** dans les `deploy/{gluetun,direct}.compose.yml`, mais la WebUI applique elle-même la garantie
 > lecture seule au niveau SQL via `PRAGMA query_only=ON` (paramétré dans le code applicatif). Toute
 > tentative d'écriture est refusée par SQLite avant même d'atteindre le disque — votre catalogue
 > est donc protégé contre une régression du code WebUI.

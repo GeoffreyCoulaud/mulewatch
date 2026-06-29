@@ -1,4 +1,0 @@
-# Observabilité du verifier (E-D10) — log_level uniquement (/metrics toujours exposé sur le port
-# du service). Monté dans le conteneur et pointé par VERIFIER_CONFIG.
-observability:
-  log_level: INFO

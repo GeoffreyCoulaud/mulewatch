@@ -140,7 +140,7 @@ conditionnels clamav `RLIMIT_AS_BYTES_CLAMAV` (défaut 1,5 Gio) / `RLIMIT_CPU_S_
 
 > **Dimensionnement des rlimits clamav (hypothèse, non testé).** Quand `clamav` est activé,
 > `clamscan` mmap toute la base de signatures : on relâche `RLIMIT_AS_BYTES_CLAMAV` à **1,5 Gio** et
-> on cale le `mem_limit` du service verifier à **2 Gio** dans `deploy/compose.base.yaml`. C'est un **choix
+> on cale le `mem_limit` du service verifier à **2 Gio** dans `deploy/base.compose.yml`. C'est un **choix
 > optimiste assumé**, pas validé par un test (la calibration n'aurait de sens que contre l'image de
 > prod, pas un `clamscan` bare-metal — d'où le retrait des tests d'intégration clamav). Si, en prod,
 > un média **sain** ressort `suspicious`, le signal est de **relever `RLIMIT_AS_BYTES_CLAMAV` et le
@@ -251,7 +251,7 @@ file`).
 - Les variables gluetun sont **stubées** par le test lui-même (`WIREGUARD_PRIVATE_KEY`,
   `AMULE_EC_PASSWORD`, `SERVER_COUNTRIES`) car compose les interpole au parse même si gluetun est
   désactivé — **rien à poser côté opérateur**.
-- Fichiers compose utilisés : `tests/smoke/compose.yaml` (autonome) + overrides temporaires par scénario + `deploy/examples/*.yaml` pour `test_entrypoint_config_renders` ; configs smoke sous `tests/smoke/`.
+- Fichiers compose utilisés : `tests/smoke/compose.yaml` (autonome) + overrides temporaires par scénario + `deploy/{gluetun,direct}.compose.yml` pour `test_entrypoint_config_renders` ; configs smoke sous `tests/smoke/`.
 - Le test n'importe **aucun** module `emule_indexer` (préserve le 100 % branch du paquet).
 
 **Commande.**
@@ -278,7 +278,7 @@ Pour pouvoir lancer **toutes** les suites :
   `CLAMAV_DB_DIR` ailleurs) — **optionnel** ; sans base, les tests clamav sont skippés.
 - **libseccomp + `pyseccomp`** (déjà dans le lock du paquet verifier) + un `no_new_privs` posable —
   **optionnel** ; sinon les tests seccomp sont skippés.
-- Un **`.env`** (copié de `.env.example`) pour les commandes compose **manuelles** : `WIREGUARD_PRIVATE_KEY`,
+- Un **`.env`** (copié de `deploy/.env.example`) pour les commandes compose **manuelles** : `WIREGUARD_PRIVATE_KEY`,
   `SERVER_COUNTRIES`, `AMULE_EC_PASSWORD`. Note : le test
   `compose_integration` **stube lui-même** ces variables, donc le `.env` n'est pas requis pour le lancer.
 

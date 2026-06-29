@@ -13,7 +13,7 @@ Volumes éphémères : chaque scénario fait `docker compose down -v` dans un fi
 Mécaniques arrêtées EMPIRIQUEMENT (compose v5, Docker 29) :
   * Les chemins relatifs des fichiers compose sont résolus contre le project-directory. On le FIXE
     explicitement à `_REPO_ROOT` via `--project-directory` (cf. `_run`) : `./tests/smoke/...`,
-    `context: .` et `./deploy/config/verifier.yaml` résolvent de façon déterministe, sans dépendre
+    `context: .` et `./deploy/config/verifier.yml` résolvent de façon déterministe, sans dépendre
     du défaut (cwd vs dossier du `-f`). Les `subprocess.run` tournent aussi `cwd=_REPO_ROOT`.
   * Les DB sont écrites par le crawler (uid 999, ``read_only: true``) dans les VRAIS volumes
     nommés ``catalog-db``/``local-db`` (montés ``/data/catalog`` + ``/data/local``). Le Dockerfile
@@ -24,7 +24,7 @@ Mécaniques arrêtées EMPIRIQUEMENT (compose v5, Docker 29) :
   * Download : un override ré-ajoute ``depends_on: { verifier: service_healthy }`` (absent de la
     base smoke pour que le profil ``observer`` valide) => démarrage DÉTERMINISTE après le verifier
     sain.
-  * Observer : un override re-monte ``local.observer.yaml`` (pas de ``verifier_url``) et on lève
+  * Observer : un override re-monte ``crawler.observer.yml`` (sans section download) et on lève
     le profil ``observer`` (le service verifier n'y existe pas).
   * Fail-fast : un override force ``restart: "no"`` (sinon ``unless-stopped`` boucle à l'infini) ;
     on lève amuled+crawler SANS profil (=> verifier ABSENT) ; le crawler download health-check le
@@ -83,19 +83,17 @@ _ENV_STUB = {
 # le Dockerfile possède les points de montage en nonroot pour que les volumes vides héritent
 # de 999:999. Les chemins de bind restent relatifs au project-directory (fixé à _REPO_ROOT).
 _DOWNLOAD_LOCAL_VOLUMES = [
-    "./tests/smoke/local.download.yaml:/app/config/local.yaml:ro",
-    "./tests/smoke/crawler.yaml:/app/config/crawler.yaml:ro",
-    "./tests/smoke/targets.yaml:/app/config/targets.yaml:ro",
-    "./tests/smoke/matcher.yaml:/app/config/matcher.yaml:ro",
+    "./tests/smoke/crawler.yml:/app/config/crawler.yml:ro",
+    "./tests/smoke/targets.yml:/app/config/targets.yml:ro",
+    "./tests/smoke/matcher.yml:/app/config/matcher.yml:ro",
     "quarantine:/data/quarantine",
     "catalog-db:/data/catalog",
     "local-db:/data/local",
 ]
 _OBSERVER_LOCAL_VOLUMES = [
-    "./tests/smoke/local.observer.yaml:/app/config/local.yaml:ro",
-    "./tests/smoke/crawler.yaml:/app/config/crawler.yaml:ro",
-    "./tests/smoke/targets.yaml:/app/config/targets.yaml:ro",
-    "./tests/smoke/matcher.yaml:/app/config/matcher.yaml:ro",
+    "./tests/smoke/crawler.observer.yml:/app/config/crawler.yml:ro",
+    "./tests/smoke/targets.yml:/app/config/targets.yml:ro",
+    "./tests/smoke/matcher.yml:/app/config/matcher.yml:ro",
     "quarantine:/data/quarantine",
     "catalog-db:/data/catalog",
     "local-db:/data/local",
