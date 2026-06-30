@@ -1,105 +1,32 @@
-import datetime
-
 import pytest
 import re2
 
-from catalog_matching.interpolation import (
-    FRENCH_MONTHS,
-    InterpolationError,
-    date_alternation_pattern,
-    interpolate,
-)
+from catalog_matching.interpolation import InterpolationError, interpolate
 from catalog_matching.models import TargetSegment
-from catalog_matching.normalization import fold
 
 
-def test_french_months_are_accent_free_and_complete() -> None:
-    assert FRENCH_MONTHS == {
-        1: "janvier",
-        2: "fevrier",
-        3: "mars",
-        4: "avril",
-        5: "mai",
-        6: "juin",
-        7: "juillet",
-        8: "aout",
-        9: "septembre",
-        10: "octobre",
-        11: "novembre",
-        12: "decembre",
-    }
-
-
-def test_date_alternation_matches_known_forms() -> None:
-    pattern = date_alternation_pattern(datetime.date(2008, 9, 21))
-    compiled = re2.compile(pattern)
-    for text in (
-        "diffuse le 21 septembre 2008 sur teletoon",
-        "keroro 21/09/2008.avi",
-        "2008-09-21 keroro.avi",
-    ):
-        assert compiled.search(fold(text)) is not None
-
-
-def test_date_alternation_does_not_match_unrelated_date() -> None:
-    pattern = date_alternation_pattern(datetime.date(2008, 9, 21))
-    compiled = re2.compile(pattern)
-    assert compiled.search(fold("2007-01-01 autre chose")) is None
-
-
-def test_date_alternation_single_digit_day_not_matched_inside_larger_number() -> None:
-    # Le jour 5 ne doit pas matcher dans "15/09/2008" (bord numérique \b).
-    pattern = date_alternation_pattern(datetime.date(2008, 9, 5))
-    compiled = re2.compile(pattern)
-    assert compiled.search(fold("keroro 15/09/2008.avi")) is None
-    # ... mais les formes légitimes du jour 5 matchent toujours :
-    assert compiled.search(fold("keroro 5/09/2008.avi")) is not None
-    assert compiled.search(fold("keroro 05/09/2008.avi")) is not None
-
-
-def test_date_alternation_matches_dates_adjacent_to_release_separators() -> None:
-    # Bords non-chiffres courants en P2P (_ , lettre, bord de chaîne) doivent matcher.
-    pattern = date_alternation_pattern(datetime.date(2008, 9, 21))
-    compiled = re2.compile(pattern)
-    for text in (
-        "keroro_21/09/2008.avi",  # underscore avant le jour
-        "2008-09-21_keroro.mkv",  # underscore après le jour (forme ymd)
-        "x21/09/2008",  # lettre collée au jour
-        "21/09/2008",  # date seule, bords de chaîne
-    ):
-        assert compiled.search(fold(text)) is not None
-
-
-def _target(broadcast_date: datetime.date | None = None) -> TargetSegment:
+def _target() -> TargetSegment:
     return TargetSegment(
-        season=2,
-        number=62,
-        segment="a",
-        title="Les demoiselles",
-        broadcast_date=broadcast_date,
+        season=2, seasonal_number=11, absolute_number=62, segment="a", title="Les demoiselles"
     )
 
 
-def test_interpolate_substitutes_number_and_segment_escaped() -> None:
-    pattern = r"n[°o]?\s*0*{number}\s*{segment}"
-    result = interpolate(pattern, _target())
-    assert result == r"n[°o]?\s*0*62\s*A"
+def test_interpolate_substitutes_absolute_number_and_segment_escaped() -> None:
+    pattern = r"n[°o]?\s*0*{absolute_number}\s*{segment}"
+    assert interpolate(pattern, _target()) == r"n[°o]?\s*0*62\s*A"
+
+
+def test_interpolate_substitutes_season_and_seasonal_number() -> None:
+    assert interpolate(r"s0*{season}\s*e0*{seasonal_number}", _target()) == r"s0*2\s*e0*11"
 
 
 def test_interpolate_escapes_regex_special_title() -> None:
-    target = TargetSegment(season=1, number=1, segment="a", title="C++ (demo)")
+    target = TargetSegment(
+        season=1, seasonal_number=1, absolute_number=1, segment="a", title="C++ (demo)"
+    )
     result = interpolate(r"prefix {title} suffix", target)
-    # re2.escape rend le titre littéral : '+', '(', ')' et l'espace sont échappés.
     assert result == r"prefix " + re2.escape("C++ (demo)") + r" suffix"
-    # Le fragment échappé compile et matche le texte littéral exact.
     assert re2.compile(result).search("prefix C++ (demo) suffix") is not None
-
-
-def test_interpolate_date_alt_inserts_raw_fragment() -> None:
-    target = _target(broadcast_date=datetime.date(2008, 9, 21))
-    result = interpolate(r"{date_alt}", target)
-    assert result == date_alternation_pattern(datetime.date(2008, 9, 21))
-    assert re2.compile(result).search(fold("21/09/2008")) is not None
 
 
 def test_interpolate_unknown_placeholder_raises() -> None:
@@ -107,12 +34,24 @@ def test_interpolate_unknown_placeholder_raises() -> None:
         interpolate(r"a {bogus} b", _target())
 
 
-def test_interpolate_date_alt_without_date_raises() -> None:
-    with pytest.raises(InterpolationError, match="date_alt"):
-        interpolate(r"{date_alt}", _target(broadcast_date=None))
+def test_interpolate_former_number_placeholder_is_now_unknown() -> None:
+    # {number} a été renommé {absolute_number} : désormais inconnu (fail-fast).
+    with pytest.raises(InterpolationError, match="number"):
+        interpolate(r"{number}", _target())
 
 
 def test_interpolate_leaves_regex_quantifier_braces_untouched() -> None:
     # Un quantificateur RE2 {2,4} n'est PAS un placeholder et reste intact.
-    pattern = r"keroro\d{2,4}{number}"
-    assert interpolate(pattern, _target()) == r"keroro\d{2,4}62"
+    assert interpolate(r"keroro\d{2,4}{absolute_number}", _target()) == r"keroro\d{2,4}62"
+
+
+def test_interpolate_mono_gate_empty_for_sole_segment() -> None:
+    t = TargetSegment(
+        season=1, seasonal_number=10, absolute_number=10, segment="a", title="x", sole_segment=True
+    )
+    assert interpolate(r"{mono_gate}KEROW", t) == "KEROW"
+
+
+def test_interpolate_mono_gate_never_match_for_multi_segment() -> None:
+    t = TargetSegment(season=2, seasonal_number=11, absolute_number=62, segment="a", title="x")
+    assert interpolate(r"{mono_gate}KEROW", t) == r"[^\s\S]KEROW"

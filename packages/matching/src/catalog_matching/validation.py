@@ -6,7 +6,6 @@ schéma + validations locales (tier fermé, enum ``attr_between``, override cove
 La validation de graphe (DAG/profondeur) et le compile-check RE2 sont ajoutés en Task 6.
 """
 
-import datetime
 from typing import Any
 
 import re2
@@ -220,14 +219,14 @@ def parse_matcher_config(raw: dict[str, Any]) -> MatcherConfig:
 
 _DEFAULT_MAX_DEPTH = 32
 
-# Cible-sonde pour le compile-check : fournit number/segment/title/date_alt afin que
-# l'interpolation de toute RegexDef soit testable au chargement (cf. spec §8.4/§8.5).
+# Cible-sonde pour le compile-check : fournit season/seasonal_number/absolute_number/
+# segment/title afin que l'interpolation de toute RegexDef soit testable au chargement.
 _PROBE_TARGET = TargetSegment(
     season=2,
-    number=62,
+    seasonal_number=11,
+    absolute_number=62,
     segment="a",
     title="sonde",
-    broadcast_date=datetime.date(2008, 9, 21),
 )
 
 
@@ -411,22 +410,21 @@ def parse_targets(raw: dict[str, Any]) -> tuple[TargetSegment, ...]:
     for episode in episodes:
         ep = _require_mapping(episode, "épisode")
         season = int(_require_key(ep, "season", "épisode"))
-        number = int(_require_key(ep, "number", "épisode"))
-        broadcast = ep.get("broadcast_date")
-        broadcast_date = broadcast if isinstance(broadcast, datetime.date) else None
-        status = str(ep.get("status", "lost"))
-        for seg in ep.get("segments", []):
+        seasonal_number = int(_require_key(ep, "seasonal_number", "épisode"))
+        absolute_number = int(_require_key(ep, "absolute_number", "épisode"))
+        seg_list = ep.get("segments", [])
+        sole = len(seg_list) == 1
+        for seg in seg_list:
             seg_map = _require_mapping(seg, "segment")
-            aliases = tuple(str(alias) for alias in seg_map.get("aliases", ()))
             segments.append(
                 TargetSegment(
                     season=season,
-                    number=number,
+                    seasonal_number=seasonal_number,
+                    absolute_number=absolute_number,
                     segment=str(_require_key(seg_map, "letter", "segment")),
                     title=str(_require_key(seg_map, "title", "segment")),
-                    broadcast_date=broadcast_date,
-                    status=status,
-                    aliases=aliases,
+                    status=str(seg_map.get("status", "lost")),
+                    sole_segment=sole,
                 )
             )
     result = tuple(segments)

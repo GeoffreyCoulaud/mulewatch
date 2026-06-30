@@ -12,7 +12,8 @@ _TARGETS = {
     "episodes": [
         {
             "season": 2,
-            "number": 62,
+            "seasonal_number": 11,
+            "absolute_number": 62,
             "segments": [{"letter": "A", "title": "Les demoiselles cambrioleuses"}],
         }
     ]

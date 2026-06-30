@@ -30,7 +30,8 @@ def test_load_targets_minimal_returns_tuple_with_segment(tmp_path: Path) -> None
         """\
 episodes:
   - season: 2
-    number: 62
+    seasonal_number: 11
+    absolute_number: 62
     segments:
       - letter: a
         title: "La Grenouille Cosmique"
@@ -52,7 +53,8 @@ def test_load_targets_multiple_segments(tmp_path: Path) -> None:
         """\
 episodes:
   - season: 2
-    number: 62
+    seasonal_number: 11
+    absolute_number: 62
     segments:
       - letter: a
         title: "Segment A"

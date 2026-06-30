@@ -34,7 +34,15 @@ from tests.application.fakes import (
 
 _HASH = "31d6cfe0d16ae931b73c59d7e0c089c0"
 _DL_NAME = "Keroro N°062A Les demoiselles cambrioleuses.avi"
-_TARGETS = (TargetSegment(season=2, number=62, segment="A", title="Les demoiselles cambrioleuses"),)
+_TARGETS = (
+    TargetSegment(
+        season=2,
+        seasonal_number=11,
+        absolute_number=62,
+        segment="A",
+        title="Les demoiselles cambrioleuses",
+    ),
+)
 
 # keyword_pause 1.0..1.0 (min == max) → pause FIXE de 1.0s (jitter span 0) : chaque pause
 # inter-mots-clés ajoute EXACTEMENT 1.0s aux clock.sleeps, ce qui rend la pause OBSERVABLE

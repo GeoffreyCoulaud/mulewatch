@@ -7,7 +7,6 @@ peuvent être vides (pas d'accès réseau eD2k garanti) : c'est la BOUCLE (déma
 recherche, catalogage, arrêt borné) qui est validée, pas la richesse des résultats.
 """
 
-import datetime
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -40,10 +39,10 @@ _FIXTURES = Path(__file__).resolve().parents[3] / "matching" / "tests" / "fixtur
 _TARGETS = (
     TargetSegment(
         season=2,
-        number=62,
+        seasonal_number=11,
+        absolute_number=62,
         segment="A",
         title="Les demoiselles cambrioleuses",
-        broadcast_date=datetime.date(2008, 9, 21),
     ),
 )
 

@@ -1,4 +1,3 @@
-import datetime
 import random
 
 from catalog_matching.engine import MatchingEngine
@@ -14,7 +13,7 @@ _CANONICAL_RAW: dict[str, object] = {
         "titar": {"keyword": "titar"},
         "keroro_titar": {"any": ["keroro", "titar"]},
         "teletoon": {"regex": "t[eé]l[eé]toon"},
-        "segment_id": {"regex": r"n[°o]?\s*0*{number}\s*{segment}"},
+        "segment_id": {"regex": r"n[°o]?\s*0*{absolute_number}\s*{segment}"},
         "foreign_lang": {
             "regex": (
                 r"\b(ITA|KOR|Korean|Italiano|Coreano|VOSTFR|VOSTA|Subs?FR|"
@@ -47,30 +46,29 @@ _CANONICAL_RAW: dict[str, object] = {
 
 
 def _targets() -> list[TargetSegment]:
-    date = datetime.date(2008, 9, 21)
     return [
         TargetSegment(
             season=2,
-            number=62,
+            seasonal_number=11,
+            absolute_number=62,
             segment="a",
             title="Les demoiselles cambrioleuses",
-            broadcast_date=date,
             status="partial",
         ),
         TargetSegment(
             season=2,
-            number=62,
+            seasonal_number=11,
+            absolute_number=62,
             segment="b",
             title="Le grand combat sous-marin",
-            broadcast_date=date,
             status="lost",
         ),
         TargetSegment(
             season=1,
-            number=5,
+            seasonal_number=5,
+            absolute_number=5,
             segment="a",
             title="Un titre quelconque",
-            broadcast_date=date,
             status="lost",
         ),
     ]

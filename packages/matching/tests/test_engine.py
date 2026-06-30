@@ -1,5 +1,4 @@
 import dataclasses
-import datetime
 
 import pytest
 
@@ -70,10 +69,10 @@ def test_match_decision_is_frozen_and_holds_persisted_columns_plus_explanation()
 
 _TARGET_62A = TargetSegment(
     season=2,
-    number=62,
+    seasonal_number=11,
+    absolute_number=62,
     segment="a",
     title="Les demoiselles cambrioleuses",
-    broadcast_date=datetime.date(2008, 9, 21),
     status="partial",
 )
 
@@ -81,7 +80,7 @@ _TARGET_62A = TargetSegment(
 _TWO_RULE_RAW: dict[str, object] = {
     "tokens": {
         "is_video": {"regex": r"\.(avi|mkv)$"},
-        "seg": {"regex": r"n[°o]?\s*0*{number}\s*{segment}"},
+        "seg": {"regex": r"n[°o]?\s*0*{absolute_number}\s*{segment}"},
         "keroro": {"keyword": "keroro"},
     },
     "rules": [
@@ -123,7 +122,7 @@ _CANONICAL_RAW: dict[str, object] = {
         "titar": {"keyword": "titar"},
         "keroro_titar": {"any": ["keroro", "titar"]},
         "teletoon": {"regex": "t[eé]l[eé]toon"},
-        "segment_id": {"regex": r"n[°o]?\s*0*{number}\s*{segment}"},
+        "segment_id": {"regex": r"n[°o]?\s*0*{absolute_number}\s*{segment}"},
         "foreign_lang": {
             "regex": (
                 r"\b(ITA|KOR|Korean|Italiano|Coreano|VOSTFR|VOSTA|Subs?FR|"
@@ -160,10 +159,10 @@ _CANONICAL_RAW: dict[str, object] = {
 
 _TARGET_62B = TargetSegment(
     season=2,
-    number=62,
+    seasonal_number=11,
+    absolute_number=62,
     segment="b",
     title="Le grand combat sous-marin",
-    broadcast_date=datetime.date(2008, 9, 21),
     status="lost",
 )
 
@@ -228,7 +227,7 @@ def test_evaluate_tiebreak_same_tier_lowest_target_id_wins() -> None:
 _INDEX_TIEBREAK_RAW: dict[str, object] = {
     "tokens": {
         "is_video": {"regex": r"\.(avi|mkv)$"},
-        "seg": {"regex": r"n[°o]?\s*0*{number}\s*{segment}"},
+        "seg": {"regex": r"n[°o]?\s*0*{absolute_number}\s*{segment}"},
         "title_hit": {"coverage": "title", "min": 0.6},
     },
     "rules": [
@@ -245,10 +244,16 @@ _INDEX_TIEBREAK_RAW: dict[str, object] = {
 def test_evaluate_tiebreak_same_tier_lowest_rule_index_wins_over_target_id() -> None:
     config = parse_matcher_config(_INDEX_TIEBREAK_RAW)
     # target_high : grand target_id (S2E099Z), matche by_segment (index 0).
-    target_high = TargetSegment(season=2, number=99, segment="z", title="zzz aucun rapport")
+    target_high = TargetSegment(
+        season=2, seasonal_number=99, absolute_number=99, segment="z", title="zzz aucun rapport"
+    )
     # target_low : petit target_id (S2E001A), matche by_title (index 1).
     target_low = TargetSegment(
-        season=2, number=1, segment="a", title="Les demoiselles cambrioleuses"
+        season=2,
+        seasonal_number=1,
+        absolute_number=1,
+        segment="a",
+        title="Les demoiselles cambrioleuses",
     )
     engine = MatchingEngine(config, (target_low, target_high))
     candidate = FileCandidate(filename="N°099Z Les demoiselles cambrioleuses.avi")
@@ -320,7 +325,7 @@ def test_explanation_single_rule_fired_and_no_coverage_token() -> None:
     raw: dict[str, object] = {
         "tokens": {
             "is_video": {"regex": r"\.(avi|mkv)$"},
-            "seg": {"regex": r"n[°o]?\s*0*{number}\s*{segment}"},
+            "seg": {"regex": r"n[°o]?\s*0*{absolute_number}\s*{segment}"},
         },
         "rules": [{"name": "only", "tier": "download", "all": ["is_video", "seg"]}],
     }
@@ -330,3 +335,86 @@ def test_explanation_single_rule_fired_and_no_coverage_token() -> None:
     assert decision.explanation.rules_fired == ("only",)  # une seule règle
     assert decision.explanation.coverage_values == ()  # aucun coverage
     assert decision.explanation.tokens_matched == ("is_video", "seg")
+
+
+# --- Routage mono B-safe : segment_id_loose / numero_nu_mono (Task 4) ---
+# Une cible mono (sole_segment=True) avec un numéro NU ("Keroro 10.avi") remonte en
+# notify (revue humaine), JAMAIS en download. Pour une cible bi-segment, {mono_gate}
+# neutralise segment_id_loose (never-match) : la règle ne la concerne jamais.
+
+_TARGET_MONO = TargetSegment(
+    season=1,
+    seasonal_number=10,
+    absolute_number=10,
+    segment="a",
+    title="Episode mono",
+    sole_segment=True,
+)
+
+_MONO_ROUTING_RAW: dict[str, object] = {
+    "tokens": {
+        "is_video": {"regex": r"\.(avi|mkv)$"},
+        "keroro": {"keyword": "keroro"},
+        "segment_id": {"regex": r"n[°o]?\s*0*{absolute_number}\s*{segment}"},
+        "segment_id_loose": {
+            "regex": r"{mono_gate}(?:^|[^0-9])0*(?:{absolute_number}|{seasonal_number})(?:[^0-9]|$)"
+        },
+    },
+    "rules": [
+        {
+            "name": "id_segment_exact",
+            "tier": "download",
+            "all": ["is_video", "segment_id", "keroro"],
+        },
+        {
+            "name": "numero_nu_mono",
+            "tier": "notify",
+            "all": ["is_video", "keroro", "segment_id_loose"],
+        },
+        {"name": "keroro_large", "tier": "catalog", "any": ["keroro"]},
+    ],
+}
+
+
+def _mono_routing_engine() -> MatchingEngine:
+    # 2 cibles : target_mono (sole_segment=True) et la 62A bi-segment existante.
+    config = parse_matcher_config(_MONO_ROUTING_RAW)
+    return MatchingEngine(config, (_TARGET_MONO, _TARGET_62A))
+
+
+def test_evaluate_bare_number_on_mono_target_is_notify_numero_nu_mono() -> None:
+    # "Keroro 10.avi" : numéro nu sur cible mono -> notify/numero_nu_mono, JAMAIS download.
+    decision = _mono_routing_engine().evaluate(FileCandidate(filename="Keroro 10.avi"))
+    assert decision is not None
+    assert decision.tier == "notify"
+    assert decision.rule_name == "numero_nu_mono"
+    assert decision.target_id == "S1E010A"
+
+
+def test_evaluate_bare_number_on_bi_segment_target_never_fires_numero_nu_mono() -> None:
+    # "Keroro 62.avi" : 62 est le numéro absolu de la cible BI-segment 62A -> {mono_gate}
+    # neutralise segment_id_loose pour elle (never-match) -> numero_nu_mono ne fait jamais
+    # feu ; seul keroro_large (catalog) matche (départage target_id -> S1E010A).
+    decision = _mono_routing_engine().evaluate(FileCandidate(filename="Keroro 62.avi"))
+    assert decision is not None
+    assert decision.tier == "catalog"
+    assert decision.rule_name == "keroro_large"
+
+
+def test_evaluate_lettered_mono_number_stays_download_via_strict_segment_id() -> None:
+    # Mono structuré AVEC lettre ("N°010A") reste éligible download via le segment_id strict
+    # (inchangé, Task 2) : la lettre obligatoire fait foi, indépendamment de segment_id_loose.
+    decision = _mono_routing_engine().evaluate(FileCandidate(filename="Keroro N°010A.avi"))
+    assert decision is not None
+    assert decision.tier == "download"
+    assert decision.rule_name == "id_segment_exact"
+    assert decision.target_id == "S1E010A"
+
+
+def test_evaluate_bare_number_digit_boundary_guard_rejects_substring() -> None:
+    # Garde de bord chiffre : "10" est un SOUS-STRING de "105", PAS un numéro nu isolé ->
+    # segment_id_loose ne matche pas -> pas de numero_nu_mono (seul keroro_large matche).
+    decision = _mono_routing_engine().evaluate(FileCandidate(filename="Keroro 105.avi"))
+    assert decision is not None
+    assert decision.tier == "catalog"
+    assert decision.rule_name == "keroro_large"

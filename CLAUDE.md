@@ -154,9 +154,9 @@ load_yaml(path)                         # adapters/config/yaml_loader.py — the
 
 Module roles (each file is single-purpose):
 - `normalization.py` — `fold()` (NFKD + strip diacritics + casefold + `{œ→oe, æ→ae}`, keeps punctuation/digits), `normalize()`/`tokenize()` (alphanumerics only).
-- `models.py` — `FileCandidate`, `TargetSegment` (`.target_id` = `S2E062A`, zero-padded).
+- `models.py` — `FileCandidate`, `TargetSegment` (`season`/`seasonal_number`/`absolute_number`/`segment`/`title`/`status`/`sole_segment`; `.target_id` = `S2E062A` from `absolute_number`, zero-padded; double numérotation absolu+saisonnal).
 - `matchers.py` — the 4 leaf matchers (`KeywordMatcher`, `RegexMatcher` over **RE2**, `CoverageMatcher` via rapidfuzz, `AttrBetweenMatcher`).
-- `interpolation.py` — regex placeholder interpolation (`{number} {segment} {title} {date_alt}`), folded French months.
+- `interpolation.py` — regex placeholder interpolation (`{season} {seasonal_number} {absolute_number} {segment} {title}`, plus `{mono_gate}` → `[^\s\S]` never-match pour neutraliser un token sur les cibles non-mono).
 - `combinators.py` — the `Matcher` Protocol (`matches(candidate) -> bool`) + `All/Any/NotMatcher`; leaf matchers satisfy it structurally.
 - `config.py` — frozen tagged-union config model (`*Def`, `Rule`, `MatcherConfig`, `TIERS`).
 - `validation.py` — `parse_*` (structural) + `validate_config` (semantic/graph pass; checks needing the full token table live here, not in parsing).

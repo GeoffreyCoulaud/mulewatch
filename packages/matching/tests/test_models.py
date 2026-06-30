@@ -1,5 +1,3 @@
-import datetime
-
 from catalog_matching.models import FileCandidate, TargetSegment
 
 
@@ -24,28 +22,28 @@ def test_file_candidate_with_attributes() -> None:
 
 
 def test_target_segment_defaults() -> None:
-    target = TargetSegment(season=2, number=62, segment="a", title="Les demoiselles")
-    assert target.broadcast_date is None
+    target = TargetSegment(
+        season=2, seasonal_number=11, absolute_number=62, segment="a", title="Les demoiselles"
+    )
     assert target.status == "lost"
-    assert target.aliases == ()
+    assert target.sole_segment is False
 
 
 def test_target_segment_target_id_pads_and_uppercases() -> None:
-    target = TargetSegment(season=2, number=62, segment="a", title="Les demoiselles")
+    target = TargetSegment(
+        season=2, seasonal_number=11, absolute_number=62, segment="a", title="Les demoiselles"
+    )
     assert target.target_id == "S2E062A"
 
 
 def test_target_segment_full_fields() -> None:
     target = TargetSegment(
         season=1,
-        number=5,
+        seasonal_number=5,
+        absolute_number=5,
         segment="b",
         title="Le grand combat",
-        broadcast_date=datetime.date(2008, 9, 21),
         status="partial",
-        aliases=("alt one", "alt two"),
     )
     assert target.target_id == "S1E005B"
-    assert target.broadcast_date == datetime.date(2008, 9, 21)
     assert target.status == "partial"
-    assert target.aliases == ("alt one", "alt two")

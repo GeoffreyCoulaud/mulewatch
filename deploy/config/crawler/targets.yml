@@ -1,9 +1,598 @@
-# Cibles canoniques (cf. spec §7). target_id : S2E062A / S2E062B.
+# Catalogue Keroro VF — saisons 1 et 2 (titres FR verbatim de Wikipédia FR).
+# Source : Liste_des_épisodes_de_Keroro,_mission_Titar (wikitext brut, double
+# extraction vérifiée). absolute_number : S1 = seasonal_number ; S2 = 51 + seasonal_number.
+# 26 épisodes sont mono-segment (un seul titre listé) -> une seule cible (letter A).
+# status par segment : "found" = déjà récupéré ; absent = défaut "lost".
 episodes:
-  - season: 2
-    number: 62
-    broadcast_date: 2008-09-21
-    status: partial
+  - season: 1
+    seasonal_number: 1
+    absolute_number: 1
     segments:
-      - { letter: A, title: "Les demoiselles cambrioleuses", aliases: [] }
+      - { letter: A, title: "Je suis le sergent Keroro", status: found }
+      - { letter: B, title: "Le sergent Keroro arrive sur Terre", status: found }
+  - season: 1
+    seasonal_number: 2
+    absolute_number: 2
+    segments:
+      - { letter: A, title: "Garance et Tamama", status: found }
+      - { letter: B, title: "Garance est amoureuse", status: found }
+  - season: 1
+    seasonal_number: 3
+    absolute_number: 3
+    segments:
+      - { letter: A, title: "Crise de nerfs", status: found }
+      - { letter: B, title: "La mission top secrète", status: found }
+  - season: 1
+    seasonal_number: 4
+    absolute_number: 4
+    segments:
+      - { letter: A, title: "Giroro voit rouge", status: found }
+      - { letter: B, title: "Drôle de climat", status: found }
+  - season: 1
+    seasonal_number: 5
+    absolute_number: 5
+    segments:
+      - { letter: A, title: "Le magasin de jouets", status: found }
+      - { letter: B, title: "Une maquette pour Keroro", status: found }
+  - season: 1
+    seasonal_number: 6
+    absolute_number: 6
+    segments:
+      - { letter: A, title: "Vacances au soleil", status: found }
+      - { letter: B, title: "Un drôle de fantôme", status: found }
+  - season: 1
+    seasonal_number: 7
+    absolute_number: 7
+    segments:
+      - { letter: A, title: "La mission de Donaré" }
+      - { letter: B, title: "Tamama est jaloux !" }
+  - season: 1
+    seasonal_number: 8
+    absolute_number: 8
+    segments:
+      - { letter: A, title: "Retour aux choses sérieuses" }
+      - { letter: B, title: "Danger pour la base" }
+  - season: 1
+    seasonal_number: 9
+    absolute_number: 9
+    segments:
+      - { letter: A, title: "Kururu, un fin stratège" }
+      - { letter: B, title: "Le rajeunisseur" }
+  - season: 1
+    seasonal_number: 10
+    absolute_number: 10
+    segments:
+      - { letter: A, title: "L'arrivée de l'envahisseur extraterrestre microscopique super Dary", status: found }
+  - season: 1
+    seasonal_number: 11
+    absolute_number: 11
+    segments:
+      - { letter: A, title: "Inédit" }
+  - season: 1
+    seasonal_number: 12
+    absolute_number: 12
+    segments:
+      - { letter: A, title: "Sumomo, l'idole de l'espace" }
+      - { letter: B, title: "Giroro, petit ange de combat" }
+  - season: 1
+    seasonal_number: 13
+    absolute_number: 13
+    segments:
+      - { letter: A, title: "Dororo, le guerrier oublié" }
+      - { letter: B, title: "La troupe au complet ?" }
+  - season: 1
+    seasonal_number: 14
+    absolute_number: 14
+    segments:
+      - { letter: A, title: "L'offensive titarienne" }
+      - { letter: B, title: "Des fleurs partout" }
+  - season: 1
+    seasonal_number: 15
+    absolute_number: 15
+    segments:
+      - { letter: A, title: "Terribles jumelles !" }
+      - { letter: B, title: "Anti-Garance se rebelle !" }
+  - season: 1
+    seasonal_number: 16
+    absolute_number: 16
+    segments:
+      - { letter: A, title: "Les sosies ?!" }
+      - { letter: B, title: "Donaré panique" }
+  - season: 1
+    seasonal_number: 17
+    absolute_number: 17
+    segments:
+      - { letter: A, title: "Le grand duel aquatique" }
+      - { letter: B, title: "Histoires de fantômes" }
+  - season: 1
+    seasonal_number: 18
+    absolute_number: 18
+    segments:
+      - { letter: A, title: "Crise de rires à la plage !" }
+      - { letter: B, title: "Une histoire drôle" }
+  - season: 1
+    seasonal_number: 19
+    absolute_number: 19
+    segments:
+      - { letter: A, title: "Grande confrontation à la fête du quartier" }
+      - { letter: B, title: "Keroro envahit les ondes radio" }
+  - season: 1
+    seasonal_number: 20
+    absolute_number: 20
+    segments:
+      - { letter: A, title: "Artus et la petite sirène" }
+      - { letter: B, title: "Artus contre tout l'océan" }
+  - season: 1
+    seasonal_number: 21
+    absolute_number: 21
+    segments:
+      - { letter: A, title: "Economie d'énergie" }
+      - { letter: B, title: "Keroro part à la campagne" }
+  - season: 1
+    seasonal_number: 22
+    absolute_number: 22
+    segments:
+      - { letter: A, title: "Tamama devient chef à la place du chef" }
+  - season: 1
+    seasonal_number: 23
+    absolute_number: 23
+    segments:
+      - { letter: A, title: "Des Keroro par milliers" }
+  - season: 1
+    seasonal_number: 24
+    absolute_number: 24
+    segments:
+      - { letter: A, title: "Keroro et le détective de l'espace" }
+      - { letter: B, title: "Un emploi pour Zedor" }
+  - season: 1
+    seasonal_number: 25
+    absolute_number: 25
+    segments:
+      - { letter: A, title: "Garance en danger" }
+  - season: 1
+    seasonal_number: 26
+    absolute_number: 26
+    segments:
+      - { letter: A, title: "La compétition sportive" }
+  - season: 1
+    seasonal_number: 27
+    absolute_number: 27
+    segments:
+      - { letter: A, title: "Un papa encombrant" }
+      - { letter: B, title: "Station thermale à gogo !", status: found }
+  - season: 1
+    seasonal_number: 28
+    absolute_number: 28
+    segments:
+      - { letter: A, title: "Bataille sauvage de boules de neige" }
+      - { letter: B, title: "Kh kh kh kh kh" }
+  - season: 1
+    seasonal_number: 29
+    absolute_number: 29
+    segments:
+      - { letter: A, title: "April et Enéa ou la passion du théâtre" }
+      - { letter: B, title: "Keroro, info ou intox" }
+  - season: 1
+    seasonal_number: 30
+    absolute_number: 30
+    segments:
+      - { letter: A, title: "Tamama et le jeune titarien" }
+      - { letter: B, title: "La métamorphose de Garance !" }
+  - season: 1
+    seasonal_number: 31
+    absolute_number: 31
+    segments:
+      - { letter: A, title: "Perdu au milieu de la nuit" }
+  - season: 1
+    seasonal_number: 32
+    absolute_number: 32
+    segments:
+      - { letter: A, title: "Rassemblement de troupeau" }
+      - { letter: B, title: "Parole de chat !" }
+  - season: 1
+    seasonal_number: 33
+    absolute_number: 33
+    segments:
+      - { letter: A, title: "Keroro fait un cartoon ! 3" }
+  - season: 1
+    seasonal_number: 34
+    absolute_number: 34
+    segments:
+      - { letter: A, title: "Keroro part en thalasso" }
+      - { letter: B, title: "Keroro et Arthus font une promenade" }
+  - season: 1
+    seasonal_number: 35
+    absolute_number: 35
+    segments:
+      - { letter: A, title: "Opération secrète : l'anniversaire d'April" }
+  - season: 1
+    seasonal_number: 36
+    absolute_number: 36
+    segments:
+      - { letter: A, title: "Keroro contre le général Hiver" }
+      - { letter: B, title: "La station de ski privée des Bellair", status: found }
+  - season: 1
+    seasonal_number: 37
+    absolute_number: 37
+    segments:
+      - { letter: A, title: "Les leçons de ninjutsu de Dororo" }
+      - { letter: B, title: "Le dinosaure de Keroro" }
+  - season: 1
+    seasonal_number: 38
+    absolute_number: 38
+    segments:
+      - { letter: A, title: "Giroro tombe dans le panneau" }
+      - { letter: B, title: "Giroro contre April : rencontre au sommet" }
+  - season: 1
+    seasonal_number: 39
+    absolute_number: 39
+    segments:
+      - { letter: A, title: "Keroro et la grande opération de Noël" }
+      - { letter: B, title: "Keroro et le grand nettoyage de la nouvelle année" }
+  - season: 1
+    seasonal_number: 40
+    absolute_number: 40
+    segments:
+      - { letter: A, title: "Donaré ! Je veux dire bonne année !" }
+      - { letter: B, title: "Des devoirs en retard" }
+  - season: 1
+    seasonal_number: 41
+    absolute_number: 41
+    segments:
+      - { letter: A, title: "Le jeu de l'oie de l'espace" }
+      - { letter: B, title: "Dororo a le feu sacré" }
+  - season: 1
+    seasonal_number: 42
+    absolute_number: 42
+    segments:
+      - { letter: A, title: "Keroro, champion du monde" }
+      - { letter: B, title: "Tamama et le tir jaloux de l'amitié" }
+  - season: 1
+    seasonal_number: 43
+    absolute_number: 43
+    segments:
+      - { letter: A, title: "Une histoire diabolique" }
+      - { letter: B, title: "Giroro et la fête du printemps" }
+  - season: 1
+    seasonal_number: 44
+    absolute_number: 44
+    segments:
+      - { letter: A, title: "Keroro contre Artus : un combat sportif acharné" }
+      - { letter: B, title: "Kururu contre Anna : un combat explosif" }
+  - season: 1
+    seasonal_number: 45
+    absolute_number: 45
+    segments:
+      - { letter: A, title: "Keroro et le gâteau de l'amour" }
+      - { letter: B, title: "Une saint-Valentin réussie" }
+  - season: 1
+    seasonal_number: 46
+    absolute_number: 46
+    segments:
+      - { letter: A, title: "L'histoire de la fille fantôme" }
+  - season: 1
+    seasonal_number: 47
+    absolute_number: 47
+    segments:
+      - { letter: A, title: "April soutient la fête des jeunes filles" }
+      - { letter: B, title: "Dance-man en concert" }
+  - season: 1
+    seasonal_number: 48
+    absolute_number: 48
+    segments:
+      - { letter: A, title: "Invasion par la paresse" }
+      - { letter: B, title: "Opération sauvetage soporifique" }
+  - season: 1
+    seasonal_number: 49
+    absolute_number: 49
+    segments:
+      - { letter: A, title: "Keroro la débrouille" }
+      - { letter: B, title: "Opération déclaration d'amour" }
+  - season: 1
+    seasonal_number: 50
+    absolute_number: 50
+    segments:
+      - { letter: A, title: "April une guerrière malade" }
+      - { letter: B, title: "Il faut sauver April" }
+  - season: 1
+    seasonal_number: 51
+    absolute_number: 51
+    segments:
+      - { letter: A, title: "La section Keroro lève le camp !" }
+  - season: 2
+    seasonal_number: 1
+    absolute_number: 52
+    segments:
+      - { letter: A, title: "De retour sur Terre" }
+      - { letter: B, title: "Tamama et Tamama sombre" }
+  - season: 2
+    seasonal_number: 2
+    absolute_number: 53
+    segments:
+      - { letter: A, title: "En route pour la chasse au trésor !" }
+      - { letter: B, title: "Les fleurs sont si belles" }
+  - season: 2
+    seasonal_number: 3
+    absolute_number: 54
+    segments:
+      - { letter: A, title: "Artus le détective" }
+      - { letter: B, title: "Le retour d'un grand guerrier" }
+  - season: 2
+    seasonal_number: 4
+    absolute_number: 55
+    segments:
+      - { letter: A, title: "La naissance d'un soldat" }
+      - { letter: B, title: "Le jour où volent les poissons" }
+  - season: 2
+    seasonal_number: 5
+    absolute_number: 56
+    segments:
+      - { letter: A, title: "Les princesses de la terre battue" }
+      - { letter: B, title: "En Mai, fais ce qu'il te plait" }
+  - season: 2
+    seasonal_number: 6
+    absolute_number: 57
+    segments:
+      - { letter: A, title: "Dororo contre-attaque" }
+      - { letter: B, title: "La monstrueuse grenouille des mers du sud" }
+  - season: 2
+    seasonal_number: 7
+    absolute_number: 58
+    segments:
+      - { letter: A, title: "L'invasion commence par les machines automatiques" }
+      - { letter: B, title: "La nouvelle technique de combat de Tamama" }
+  - season: 2
+    seasonal_number: 8
+    absolute_number: 59
+    segments:
+      - { letter: A, title: "Élevons un château" }
+      - { letter: B, title: "Keroro et son château ambulant" }
+  - season: 2
+    seasonal_number: 9
+    absolute_number: 60
+    segments:
+      - { letter: A, title: "La course de voitures" }
+      - { letter: B, title: "La belle au bois dormant ou le manque flagrant de sommeil" }
+  - season: 2
+    seasonal_number: 10
+    absolute_number: 61
+    segments:
+      - { letter: A, title: "La mystérieuse nouvelle" }
+      - { letter: B, title: "Un couple qui ne peut se comprendre" }
+  - season: 2
+    seasonal_number: 11
+    absolute_number: 62
+    segments:
+      - { letter: A, title: "Les demoiselles cambrioleuses", status: found }
       - { letter: B, title: "Le grand combat sous-marin" }
+  - season: 2
+    seasonal_number: 12
+    absolute_number: 63
+    segments:
+      - { letter: A, title: "Professeur Keroro" }
+      - { letter: B, title: "Réunion de famille" }
+  - season: 2
+    seasonal_number: 13
+    absolute_number: 64
+    segments:
+      - { letter: A, title: "Aspiration, inspiration" }
+      - { letter: B, title: "Surmonter son traumatisme" }
+  - season: 2
+    seasonal_number: 14
+    absolute_number: 65
+    segments:
+      - { letter: A, title: "Notre but : la Terre !" }
+      - { letter: B, title: "Le visiteur de Titar" }
+  - season: 2
+    seasonal_number: 15
+    absolute_number: 66
+    segments:
+      - { letter: A, title: "Opération sauvetage de l'amour" }
+      - { letter: B, title: "April et Enéa, une journée entre filles" }
+  - season: 2
+    seasonal_number: 16
+    absolute_number: 67
+    segments:
+      - { letter: A, title: "Le mystérieux rendez-vous" }
+      - { letter: B, title: "Et si on créait un jeu vidéo" }
+  - season: 2
+    seasonal_number: 17
+    absolute_number: 68
+    segments:
+      - { letter: A, title: "Attention, travaux exceptionnels" }
+      - { letter: B, title: "Le duel du destin" }
+  - season: 2
+    seasonal_number: 18
+    absolute_number: 69
+    segments:
+      - { letter: A, title: "Le voyage d'April et d'Artus" }
+      - { letter: B, title: "Le concours estival de duo comique" }
+  - season: 2
+    seasonal_number: 19
+    absolute_number: 70
+    segments:
+      - { letter: A, title: "L'affrontement général entre titariens et terriens" }
+      - { letter: B, title: "La toute première boulette de riz d'Enéa" }
+  - season: 2
+    seasonal_number: 20
+    absolute_number: 71
+    segments:
+      - { letter: A, title: "Le fainéant des devoirs de vacances" }
+  - season: 2
+    seasonal_number: 21
+    absolute_number: 72
+    segments:
+      - { letter: A, title: "Le défi des chefs cuisiniers" }
+      - { letter: B, title: "Duel contre le plus puissant des combattants" }
+  - season: 2
+    seasonal_number: 22
+    absolute_number: 73
+    segments:
+      - { letter: A, title: "Nos vacances d'été d'il y a 20 ans" }
+  - season: 2
+    seasonal_number: 23
+    absolute_number: 74
+    segments:
+      - { letter: A, title: "Keroro special" }
+  - season: 2
+    seasonal_number: 24
+    absolute_number: 75
+    segments:
+      - { letter: A, title: "L'éveil de la 3e Garance" }
+  - season: 2
+    seasonal_number: 25
+    absolute_number: 76
+    segments:
+      - { letter: A, title: "Emmène-moi sur la lune" }
+  - season: 2
+    seasonal_number: 26
+    absolute_number: 77
+    segments:
+      - { letter: A, title: "Je vais vraiment me marier alors ?" }
+      - { letter: B, title: "Le Tamama impact bloqué" }
+  - season: 2
+    seasonal_number: 27
+    absolute_number: 78
+    segments:
+      - { letter: A, title: "À la recherche du trésor enfoui" }
+  - season: 2
+    seasonal_number: 28
+    absolute_number: 79
+    segments:
+      - { letter: A, title: "Les rencontres sportives de l'école" }
+      - { letter: B, title: "Un chat bien attentionné" }
+  - season: 2
+    seasonal_number: 29
+    absolute_number: 80
+    segments:
+      - { letter: A, title: "Quand on fugue, on se sent vraiment seul" }
+  - season: 2
+    seasonal_number: 30
+    absolute_number: 81
+    segments:
+      - { letter: A, title: "Un atout à portée de main" }
+      - { letter: B, title: "Vas-y Enéa, veille sur tes amis !" }
+  - season: 2
+    seasonal_number: 31
+    absolute_number: 82
+    segments:
+      - { letter: A, title: "Tu veux passer dans mon émission radio ?" }
+      - { letter: B, title: "Combat à petite échelle" }
+  - season: 2
+    seasonal_number: 32
+    absolute_number: 83
+    segments:
+      - { letter: A, title: "La mystérieuse affaire de la station thermale" }
+      - { letter: B, title: "Mais pourquoi est-il aussi méchant" }
+  - season: 2
+    seasonal_number: 33
+    absolute_number: 84
+    segments:
+      - { letter: A, title: "Si on faisait un déjeuner dans l'espace" }
+      - { letter: B, title: "La chasse aux champignons" }
+  - season: 2
+    seasonal_number: 34
+    absolute_number: 85
+    segments:
+      - { letter: A, title: "Tournez et permutez !" }
+      - { letter: B, title: "Si je pouvais devenir magicienne" }
+  - season: 2
+    seasonal_number: 35
+    absolute_number: 86
+    segments:
+      - { letter: A, title: "Un démon chez les Monaté" }
+      - { letter: B, title: "Jouons aux superhéros" }
+  - season: 2
+    seasonal_number: 36
+    absolute_number: 87
+    segments:
+      - { letter: A, title: "Bon anniversaire Keroro !" }
+      - { letter: B, title: "Donaré au pays des merveilles" }
+  - season: 2
+    seasonal_number: 37
+    absolute_number: 88
+    segments:
+      - { letter: A, title: "À moi la Terre !" }
+  - season: 2
+    seasonal_number: 38
+    absolute_number: 89
+    segments:
+      - { letter: A, title: "L'homme aux sept visages" }
+      - { letter: B, title: "Le tournoi de la dernière chance" }
+  - season: 2
+    seasonal_number: 39
+    absolute_number: 90
+    segments:
+      - { letter: A, title: "Je n'ose pas te souhaiter un joyeux Noël" }
+  - season: 2
+    seasonal_number: 40
+    absolute_number: 91
+    segments:
+      - { letter: A, title: "Nouvelle année, nouveau Keroro" }
+      - { letter: B, title: "Grand-mère est venue" }
+  - season: 2
+    seasonal_number: 41
+    absolute_number: 92
+    segments:
+      - { letter: A, title: "On vous envoie tout notre amour depuis le ciel" }
+      - { letter: B, title: "Bataille acharnée au badminton" }
+  - season: 2
+    seasonal_number: 42
+    absolute_number: 93
+    segments:
+      - { letter: A, title: "L'infiltration de la base secrète" }
+      - { letter: B, title: "La femme la plus puissante de l'univers" }
+  - season: 2
+    seasonal_number: 43
+    absolute_number: 94
+    segments:
+      - { letter: A, title: "La Terre est à nous !" }
+  - season: 2
+    seasonal_number: 44
+    absolute_number: 95
+    segments:
+      - { letter: A, title: "La dernière heure de Giroro" }
+  - season: 2
+    seasonal_number: 45
+    absolute_number: 96
+    segments:
+      - { letter: A, title: "La bataille de la Saint-Valentin" }
+      - { letter: B, title: "La pierre de la malchance" }
+  - season: 2
+    seasonal_number: 46
+    absolute_number: 97
+    segments:
+      - { letter: A, title: "Amie et ennemie" }
+      - { letter: B, title: "Tous les deux..." }
+  - season: 2
+    seasonal_number: 47
+    absolute_number: 98
+    segments:
+      - { letter: A, title: "La stratégie de l'escapade" }
+      - { letter: B, title: "Souvenirs d'une rencontre" }
+  - season: 2
+    seasonal_number: 48
+    absolute_number: 99
+    segments:
+      - { letter: A, title: "Les malheurs d'April" }
+      - { letter: B, title: "Keroppa l'espiègle" }
+  - season: 2
+    seasonal_number: 49
+    absolute_number: 100
+    segments:
+      - { letter: A, title: "Amnésie générale" }
+  - season: 2
+    seasonal_number: 50
+    absolute_number: 101
+    segments:
+      - { letter: A, title: "Les nouveaux envahisseurs" }
+  - season: 2
+    seasonal_number: 51
+    absolute_number: 102
+    segments:
+      - { letter: A, title: "Terre, planète de l'amour" }
+  - season: 2
+    seasonal_number: 52
+    absolute_number: 103
+    segments:
+      - { letter: A, title: "Bien à vous sincèrement", status: found }

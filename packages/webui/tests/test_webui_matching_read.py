@@ -21,7 +21,8 @@ def _minimal_targets_yaml(path: Path) -> Path:
         """\
 episodes:
   - season: 2
-    number: 62
+    seasonal_number: 11
+    absolute_number: 62
     segments:
       - letter: a
         title: "La Grenouille Cosmique"

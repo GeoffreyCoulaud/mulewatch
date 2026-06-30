@@ -1,5 +1,4 @@
 import asyncio
-import datetime
 import logging
 import sqlite3
 from pathlib import Path
@@ -31,10 +30,10 @@ from tests.application.fakes import FakeClock, FakeMuleClient, RecordingSignal
 _TARGETS = (
     TargetSegment(
         season=2,
-        number=62,
+        seasonal_number=11,
+        absolute_number=62,
         segment="A",
         title="Les demoiselles cambrioleuses",
-        broadcast_date=datetime.date(2008, 9, 21),
     ),
 )
 _FIXTURES = Path(__file__).resolve().parents[3] / "matching" / "tests" / "fixtures"

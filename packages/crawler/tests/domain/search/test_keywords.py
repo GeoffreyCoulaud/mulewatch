@@ -1,16 +1,20 @@
-import datetime
-
 from catalog_matching.models import TargetSegment
 from emule_indexer.domain.search.keywords import SearchKeyword, generate_keywords
 
 _S2E062A = TargetSegment(
     season=2,
-    number=62,
+    seasonal_number=11,
+    absolute_number=62,
     segment="A",
     title="Les demoiselles cambrioleuses",
-    broadcast_date=datetime.date(2008, 9, 21),
 )
-_S2E062B = TargetSegment(season=2, number=62, segment="B", title="Le grand combat sous-marin")
+_S2E062B = TargetSegment(
+    season=2,
+    seasonal_number=11,
+    absolute_number=62,
+    segment="B",
+    title="Le grand combat sous-marin",
+)
 
 
 def test_broad_keyword_is_first_and_tagged_broad() -> None:
@@ -38,7 +42,9 @@ def test_title_tokens_are_generated_and_tagged_with_target_id() -> None:
 def test_short_title_tokens_are_dropped() -> None:
     # "le" (len 2) reste, mais un token d'un seul caractère est écarté ; on force le cas
     # avec un titre contenant un mot d'une lettre.
-    target = TargetSegment(season=2, number=1, segment="A", title="a b cd")
+    target = TargetSegment(
+        season=2, seasonal_number=1, absolute_number=1, segment="A", title="a b cd"
+    )
     texts = [kw.text for kw in generate_keywords([target])]
     assert "a" not in texts  # 1 caractère : écarté
     assert "b" not in texts
@@ -46,8 +52,12 @@ def test_short_title_tokens_are_dropped() -> None:
 
 
 def test_duplicate_tokens_across_targets_appear_once_first_seen_wins() -> None:
-    shared = TargetSegment(season=2, number=2, segment="A", title="combat secret")
-    other = TargetSegment(season=2, number=3, segment="A", title="combat final")
+    shared = TargetSegment(
+        season=2, seasonal_number=2, absolute_number=2, segment="A", title="combat secret"
+    )
+    other = TargetSegment(
+        season=2, seasonal_number=3, absolute_number=3, segment="A", title="combat final"
+    )
     keywords = generate_keywords([shared, other])
     combats = [kw for kw in keywords if kw.text == "combat"]
     assert len(combats) == 1
