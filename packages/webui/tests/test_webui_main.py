@@ -23,7 +23,8 @@ def _write_targets_yaml(tmp: Path) -> Path:
         """\
 episodes:
   - season: 2
-    number: 62
+    seasonal_number: 11
+    absolute_number: 62
     segments:
       - letter: a
         title: "La Grenouille Cosmique"

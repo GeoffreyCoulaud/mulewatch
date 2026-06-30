@@ -52,3 +52,31 @@ cases:
     # Contient "KOR" -> foreign_lang matche -> french_safe bloque toutes les règles.
     filename: "Keroro 62 KOR.avi"
     discarded: true
+
+  - id: seasonal_sxxexx_62A_download
+    # Forme S02E11A (saison 2, épisode 11, segment A = absolu 62A) + keroro + vidéo.
+    filename: "Keroro Mission Titar S02E11A Les demoiselles cambrioleuses.avi"
+    tier: download
+    target_id: S2E062A
+    rule_name: id_segment_exact
+
+  - id: seasonal_NxM_62B_download
+    # Forme 2x11B -> segment B (absolu 62B).
+    filename: "Keroro Mission Titar 2x11B Le grand combat sous-marin.avi"
+    tier: download
+    target_id: S2E062B
+    rule_name: id_segment_exact
+
+  - id: seasonal_episode_no_segment_falls_back_to_catalog
+    # "S2E11" sans lettre -> segment_id NE matche PAS (précision A/B) ; keroro -> catalog, 62A (départage).
+    filename: "Keroro S2E11.mkv"
+    tier: catalog
+    target_id: S2E062A
+    rule_name: keroro_large
+
+  - id: decoy_resolution_not_a_segment
+    # "1920x1080" ne doit pas déclencher la branche NxM ; keroro -> catalog, PAS download.
+    filename: "Keroro 1920x1080 BDRip.mkv"
+    tier: catalog
+    target_id: S2E062A
+    rule_name: keroro_large

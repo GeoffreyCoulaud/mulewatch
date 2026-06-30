@@ -24,8 +24,17 @@ _A = "a" * 32
 _B = "b" * 32
 
 _TARGETS = (
-    TargetSegment(season=2, number=62, segment="A", title="t", status="lost"),
-    TargetSegment(season=2, number=63, segment="A", title="t2", status="complete"),
+    TargetSegment(
+        season=2, seasonal_number=11, absolute_number=62, segment="A", title="t", status="lost"
+    ),
+    TargetSegment(
+        season=2,
+        seasonal_number=63,
+        absolute_number=63,
+        segment="A",
+        title="t2",
+        status="complete",
+    ),
 )
 
 

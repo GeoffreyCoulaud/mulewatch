@@ -31,7 +31,7 @@ from catalog_matching.config import (
     TokenDef,
     TokenRef,
 )
-from catalog_matching.interpolation import MissingDateError, interpolate
+from catalog_matching.interpolation import interpolate
 from catalog_matching.matchers import (
     AttrBetweenMatcher,
     CoverageMatcher,
@@ -101,14 +101,7 @@ class MatcherResolver:
             case KeywordDef(phrase=phrase):
                 return KeywordMatcher(phrase)
             case RegexDef(pattern=pattern, flags=flags):
-                try:
-                    interpolated = interpolate(pattern, target)
-                except MissingDateError:
-                    # Cible sans broadcast_date + regex {date_alt} : la règle datée ne s'applique
-                    # pas à cette cible (décision design test-gaps#2). AnyMatcher(()) ne matche
-                    # JAMAIS → la condition qui en dépend exclut cette cible, sans crasher le boot.
-                    return AnyMatcher(())
-                return RegexMatcher(interpolated, flags=flags)
+                return RegexMatcher(interpolate(pattern, target), flags=flags)
             case CoverageDef(reference=reference, min=min_value, fuzz=fuzz_value):
                 text = target.title if reference == _TITLE_KEYWORD else reference
                 return CoverageMatcher(

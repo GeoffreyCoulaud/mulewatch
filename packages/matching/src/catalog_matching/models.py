@@ -1,7 +1,6 @@
 """Modèles du moteur de matching (cf. spec §7, §8)."""
 
-import datetime
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -23,19 +22,21 @@ class FileCandidate:
 class TargetSegment:
     """Un segment d'épisode cible (granularité segment, cf. spec §7).
 
-    Fournit ``{number}``, ``{segment}``, ``{title}`` et ``{date_alt}`` (via
-    ``broadcast_date``) à l'interpolation des patterns regex.
+    Fournit ``{season} {seasonal_number} {absolute_number} {segment} {title}`` à
+    l'interpolation des patterns regex. ``sole_segment`` n'est PAS lu du YAML : il est
+    dérivé par ``parse_targets`` (``True`` ssi l'épisode n'a qu'un seul segment) et
+    pilote le placeholder ``{mono_gate}`` (cf. interpolation.py).
     """
 
     season: int
-    number: int
+    seasonal_number: int
+    absolute_number: int
     segment: str
     title: str
-    broadcast_date: datetime.date | None = None
     status: str = "lost"
-    aliases: tuple[str, ...] = field(default_factory=tuple)
+    sole_segment: bool = False
 
     @property
     def target_id(self) -> str:
         """Identifiant stable du segment, ex. ``S2E062A``."""
-        return f"S{self.season}E{self.number:03d}{self.segment.upper()}"
+        return f"S{self.season}E{self.absolute_number:03d}{self.segment.upper()}"

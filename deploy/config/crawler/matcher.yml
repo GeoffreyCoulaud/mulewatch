@@ -4,7 +4,8 @@ tokens:
   titar:        { keyword: titar }
   keroro_titar: { any: [keroro, titar] }
   teletoon:     { regex: "t[eé]l[eé]toon" }
-  segment_id:   { regex: "n[°o]?\\s*0*{number}\\s*{segment}" }
+  segment_id:   { regex: "(?:n[°o]?\\s*0*{absolute_number}|s0*{season}\\s*e0*{seasonal_number}|0*{season}\\s*x\\s*0*{seasonal_number})\\s*{segment}" }
+  segment_id_loose: { regex: "{mono_gate}(?:^|[^0-9])0*(?:{absolute_number}|{seasonal_number})(?:[^0-9]|$)" }
   foreign_lang: { regex: "\\b(ITA|KOR|Korean|Italiano|Coreano|VOSTFR|VOSTA|Subs?FR|Espa[nñ]ol|English\\s?Dub|ENG)\\b" }
   french_safe:  { not: foreign_lang }
   title_hit:    { coverage: title, min: 0.6 }
@@ -13,4 +14,5 @@ rules:
   - { name: id_segment_exact, tier: download, all: [french_safe, is_video, segment_id, keroro] }
   - { name: teletoon_titre,   tier: download, all: [french_safe, teletoon, { token: title_hit, min: 0.6 }] }
   - { name: numero_titre,     tier: notify,   all: [french_safe, segment_id, { token: title_hit, min: 0.5 }] }
+  - { name: numero_nu_mono,   tier: notify,   all: [french_safe, is_video, keroro, segment_id_loose] }
   - { name: keroro_large,     tier: catalog,  all: [french_safe, keroro_titar] }

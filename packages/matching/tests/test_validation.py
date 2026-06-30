@@ -1,5 +1,3 @@
-import datetime
-
 import pytest
 
 from catalog_matching.config import (
@@ -69,7 +67,7 @@ def test_parse_rule_with_inline_token_ref_and_condition() -> None:
         {
             "tokens": {
                 "title_hit": {"coverage": "title", "min": 0.6},
-                "seg": {"regex": "0*{number}"},
+                "seg": {"regex": "0*{absolute_number}"},
             },
             "rules": [
                 {
@@ -222,17 +220,16 @@ def test_operand_wrong_type_raises() -> None:
         )
 
 
-def test_parse_targets_builds_segments() -> None:
+def test_parse_targets_builds_segments_with_per_segment_status() -> None:
     targets = parse_targets(
         {
             "episodes": [
                 {
                     "season": 2,
-                    "number": 62,
-                    "broadcast_date": datetime.date(2008, 9, 21),
-                    "status": "partial",
+                    "seasonal_number": 11,
+                    "absolute_number": 62,
                     "segments": [
-                        {"letter": "A", "title": "Les demoiselles", "aliases": ["alt"]},
+                        {"letter": "A", "title": "Les demoiselles", "status": "found"},
                         {"letter": "B", "title": "Le grand combat"},
                     ],
                 }
@@ -242,20 +239,124 @@ def test_parse_targets_builds_segments() -> None:
     assert len(targets) == 2
     a, b = targets
     assert a.target_id == "S2E062A"
-    assert a.broadcast_date == datetime.date(2008, 9, 21)
-    assert a.status == "partial"
-    assert a.aliases == ("alt",)
+    assert a.seasonal_number == 11
+    assert a.absolute_number == 62
+    assert a.status == "found"  # status PROPRE au segment A
     assert b.target_id == "S2E062B"
-    assert b.aliases == ()
-    assert b.status == "partial"
+    assert b.status == "lost"  # défaut, B non marqué
+
+
+def test_parse_targets_requires_seasonal_number() -> None:
+    with pytest.raises(ConfigError, match="seasonal_number"):
+        parse_targets(
+            {
+                "episodes": [
+                    {
+                        "season": 1,
+                        "absolute_number": 5,
+                        "segments": [{"letter": "a", "title": "x"}],
+                    }
+                ]
+            }
+        )
+
+
+def test_parse_targets_requires_absolute_number() -> None:
+    with pytest.raises(ConfigError, match="absolute_number"):
+        parse_targets(
+            {
+                "episodes": [
+                    {
+                        "season": 1,
+                        "seasonal_number": 5,
+                        "segments": [{"letter": "a", "title": "x"}],
+                    }
+                ]
+            }
+        )
 
 
 def test_parse_targets_default_status_is_lost() -> None:
     targets = parse_targets(
-        {"episodes": [{"season": 1, "number": 5, "segments": [{"letter": "a", "title": "x"}]}]}
+        {
+            "episodes": [
+                {
+                    "season": 1,
+                    "seasonal_number": 5,
+                    "absolute_number": 5,
+                    "segments": [{"letter": "a", "title": "x"}],
+                }
+            ]
+        }
     )
     assert targets[0].status == "lost"
-    assert targets[0].broadcast_date is None
+
+
+def test_parse_targets_episode_without_segments() -> None:
+    targets = parse_targets(
+        {"episodes": [{"season": 1, "seasonal_number": 1, "absolute_number": 1}]}
+    )
+    assert targets == ()
+
+
+def test_parse_targets_duplicate_target_id_raises() -> None:
+    with pytest.raises(ConfigError, match="double"):
+        parse_targets(
+            {
+                "episodes": [
+                    {
+                        "season": 2,
+                        "seasonal_number": 11,
+                        "absolute_number": 62,
+                        "segments": [
+                            {"letter": "a", "title": "x"},
+                            {"letter": "A", "title": "y"},
+                        ],
+                    }
+                ]
+            }
+        )
+
+
+def test_parse_targets_marks_sole_segment_for_mono_episode() -> None:
+    targets = parse_targets(
+        {
+            "episodes": [
+                {
+                    "season": 1,
+                    "seasonal_number": 10,
+                    "absolute_number": 10,
+                    "segments": [{"letter": "A", "title": "x"}],
+                }
+            ]
+        }
+    )
+    assert targets[0].sole_segment is True
+
+
+def test_parse_targets_two_segments_are_not_sole() -> None:
+    targets = parse_targets(
+        {
+            "episodes": [
+                {
+                    "season": 2,
+                    "seasonal_number": 11,
+                    "absolute_number": 62,
+                    "segments": [
+                        {"letter": "A", "title": "x"},
+                        {"letter": "B", "title": "y"},
+                    ],
+                }
+            ]
+        }
+    )
+    assert [t.sole_segment for t in targets] == [False, False]
+
+
+def test_regex_with_date_alt_placeholder_is_rejected() -> None:
+    # {date_alt} supprimé : un token l'utilisant échoue au chargement (placeholder inconnu).
+    with pytest.raises(ConfigError, match="date_alt"):
+        parse_matcher_config({"tokens": {"air": {"regex": "{date_alt}"}}, "rules": []})
 
 
 def test_parse_targets_missing_episodes_raises() -> None:
@@ -263,14 +364,20 @@ def test_parse_targets_missing_episodes_raises() -> None:
         parse_targets({})
 
 
-def test_parse_targets_missing_required_episode_field_raises() -> None:
-    with pytest.raises(ConfigError, match="number"):
-        parse_targets({"episodes": [{"season": 1, "segments": [{"letter": "a", "title": "x"}]}]})
-
-
 def test_parse_targets_missing_required_segment_field_raises() -> None:
     with pytest.raises(ConfigError, match="title"):
-        parse_targets({"episodes": [{"season": 1, "number": 5, "segments": [{"letter": "a"}]}]})
+        parse_targets(
+            {
+                "episodes": [
+                    {
+                        "season": 1,
+                        "seasonal_number": 5,
+                        "absolute_number": 5,
+                        "segments": [{"letter": "a"}],
+                    }
+                ]
+            }
+        )
 
 
 # --- Résidus de couverture de branches ---
@@ -331,12 +438,6 @@ def test_token_ref_with_coverage_token_no_override_ok() -> None:
         }
     )
     assert config.rules[0].name == "r"
-
-
-def test_parse_targets_episode_without_segments() -> None:
-    """Épisode sans clé 'segments' : boucle vide, aucun segment émis."""
-    targets = parse_targets({"episodes": [{"season": 1, "number": 1}]})
-    assert targets == ()
 
 
 # --- Task 6 : graph validation (DAG, depth, RE2 compile-check) ---
@@ -401,15 +502,9 @@ def test_regex_unknown_placeholder_rejected_at_load() -> None:
 
 def test_regex_with_known_placeholders_validates() -> None:
     config = parse_matcher_config(
-        {"tokens": {"seg": {"regex": "n[°o]?\\s*0*{number}\\s*{segment}"}}, "rules": []}
+        {"tokens": {"seg": {"regex": "n[°o]?\\s*0*{absolute_number}\\s*{segment}"}}, "rules": []}
     )
     assert "seg" in config.tokens
-
-
-def test_regex_date_alt_placeholder_validates_via_probe() -> None:
-    # {date_alt} exige un broadcast_date ; la sonde de validation en fournit un.
-    config = parse_matcher_config({"tokens": {"air": {"regex": "{date_alt}"}}, "rules": []})
-    assert "air" in config.tokens
 
 
 def test_depth_within_bound_validates() -> None:
@@ -466,25 +561,6 @@ def test_empty_config_validates() -> None:
     # Table de tokens vide : _max_resolution_depth doit renvoyer 0 (default), pas d'erreur.
     config = parse_matcher_config({"tokens": {}, "rules": []})
     assert config.tokens == {}
-
-
-def test_parse_targets_duplicate_target_id_raises() -> None:
-    # 'a' et 'A' -> même target_id S2E062A : rejet fail-fast (le moteur exige l'unicité).
-    with pytest.raises(ConfigError, match="double"):
-        parse_targets(
-            {
-                "episodes": [
-                    {
-                        "season": 2,
-                        "number": 62,
-                        "segments": [
-                            {"letter": "a", "title": "x"},
-                            {"letter": "A", "title": "y"},
-                        ],
-                    }
-                ]
-            }
-        )
 
 
 def test_coverage_override_forward_reference_in_composite_validates() -> None:

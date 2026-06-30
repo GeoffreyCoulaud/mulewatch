@@ -40,7 +40,7 @@ def _segment_id_keyword(target: TargetSegment) -> str:
     minuscule, comme les noms de fichiers source ``N°062A``, spec §7). Le ``°``/``n`` est
     laissé de côté : les serveurs eD2k tokenisent sur les non-alphanumériques, donc
     ``062a`` est le token précis qui distingue le segment."""
-    return f"{target.number:03d}{target.segment.lower()}"
+    return f"{target.absolute_number:03d}{target.segment.lower()}"
 
 
 def generate_keywords(targets: Sequence[TargetSegment]) -> tuple[SearchKeyword, ...]:

@@ -1,9 +1,8 @@
 # Cibles canoniques (cf. spec §7). target_id : S2E062A / S2E062B.
 episodes:
   - season: 2
-    number: 62
-    broadcast_date: 2008-09-21
-    status: partial
+    seasonal_number: 11
+    absolute_number: 62
     segments:
-      - { letter: A, title: "Les demoiselles cambrioleuses", aliases: [] }
-      - { letter: B, title: "Le grand combat sous-marin" }
+      - { letter: A, title: "Les demoiselles cambrioleuses", status: partial }
+      - { letter: B, title: "Le grand combat sous-marin", status: partial }

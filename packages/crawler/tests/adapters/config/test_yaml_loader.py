@@ -12,13 +12,14 @@ def test_load_yaml_reads_mapping(tmp_path: Path) -> None:
     assert data == {"tokens": {"keroro": {"keyword": "keroro"}}}
 
 
-def test_load_yaml_parses_dates(tmp_path: Path) -> None:
+def test_load_yaml_parses_nested_episode_mapping(tmp_path: Path) -> None:
     path = tmp_path / "t.yaml"
-    path.write_text("episodes:\n  - { number: 62, broadcast_date: 2008-09-21 }\n", encoding="utf-8")
-    import datetime
-
+    path.write_text(
+        "episodes:\n  - { season: 2, seasonal_number: 11, absolute_number: 62 }\n",
+        encoding="utf-8",
+    )
     data = load_yaml(path)
-    assert data["episodes"][0]["broadcast_date"] == datetime.date(2008, 9, 21)
+    assert data["episodes"][0]["absolute_number"] == 62
 
 
 def test_load_yaml_non_mapping_root_raises(tmp_path: Path) -> None:
