@@ -15,18 +15,18 @@ cases:
     rule_name: id_segment_exact
 
   - id: match_via_teletoon_titre_sans_segment_id
-    # Sans numéro de segment -> id_segment_exact faux, mais teletoon + titre (0.6) -> download sur 62A.
+    # Sans numéro de segment -> id_segment_exact faux, mais teletoon (source_marker) + titre -> title_confirmed (download).
     filename: "[TV] KERORO MISSION TITAR « Les demoiselles cambrioleuses » [21 septembre 2008 sur TELETOON].avi"
     tier: download
     target_id: S2E062A
-    rule_name: teletoon_titre
+    rule_name: title_confirmed
 
-  - id: numero_titre_no_video_extension
-    # 062A + titre mais extension non vidéo -> id_segment_exact faux, numero_titre vrai.
+  - id: segment_id_non_video_falls_back_to_catalog
+    # 062A + titre mais extension NON vidéo -> aucune règle actionnable -> keroro_large (catalog).
     filename: "KERORO N°062A Les demoiselles cambrioleuses.txt"
-    tier: notify
+    tier: catalog
     target_id: S2E062A
-    rule_name: numero_titre
+    rule_name: keroro_large
 
   - id: keroro_only_catalog_tiebreak_target_id
     # "Keroro" seul -> keroro_large (catalog) sur 62A ET 62B ; départage target_id -> 62A.
@@ -80,3 +80,63 @@ cases:
     tier: catalog
     target_id: S2E062A
     rule_name: keroro_large
+
+  - id: title_review_notify_without_source_marker
+    # Titre proche, sans segment_id ni marqueur de source -> title_review (notify).
+    filename: "Keroro Les demoiselles cambrioleuses.avi"
+    tier: notify
+    target_id: S2E062A
+    rule_name: title_review
+
+  - id: title_confirmed_via_vf_marker
+    # Titre + marqueur VF -> title_confirmed (download).
+    filename: "Keroro VF Les demoiselles cambrioleuses.avi"
+    tier: download
+    target_id: S2E062A
+    rule_name: title_confirmed
+
+  - id: title_confirmed_via_idf1_marker
+    # Titre + marqueur IDF1 (autre chaîne) -> title_confirmed (download).
+    filename: "Keroro IDF1 Les demoiselles cambrioleuses.avi"
+    tier: download
+    target_id: S2E062A
+    rule_name: title_confirmed
+
+  - id: archive_with_segment_id_is_notify
+    # Archive (.rar) + segment_id -> archive_candidate (notify, revue humaine).
+    filename: "Keroro N°062A Les demoiselles cambrioleuses.rar"
+    tier: notify
+    target_id: S2E062A
+    rule_name: archive_candidate
+
+  - id: not_episode_opening_demotes_title_to_catalog
+    # Titre proche MAIS "opening" -> not_episode -> is_episode faux -> pas title_review ;
+    # keroro_large (catalog) reste (permissif).
+    filename: "Keroro Les demoiselles cambrioleuses opening.avi"
+    tier: catalog
+    target_id: S2E062A
+    rule_name: keroro_large
+
+  - id: non_video_non_archive_mp3_is_catalog
+    # .mp3 -> ni is_video ni is_archive -> keroro_large (catalog), pas actionnable.
+    filename: "Keroro N°062A Les demoiselles cambrioleuses.mp3"
+    tier: catalog
+    target_id: S2E062A
+    rule_name: keroro_large
+
+  - id: decoy_dino_riders_via_titar
+    # titar remonte ce Dino-Riders ES ; "dino-riders" -> foreign_lang -> écarté (même avec titar).
+    filename: "Dino-Riders - 10 - Titar pierde los estribos.avi"
+    discarded: true
+
+  - id: decoy_italian_content_word_guerriero
+    filename: "Keroro il guerriero 62.avi"
+    discarded: true
+
+  - id: decoy_country_code_jp
+    filename: "Keroro Mission Titar 62 (JP).avi"
+    discarded: true
+
+  - id: decoy_signor_italian
+    filename: "Keroro signor N°062A.avi"
+    discarded: true
