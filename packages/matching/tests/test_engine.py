@@ -121,39 +121,68 @@ _CANONICAL_RAW: dict[str, object] = {
         "keroro": {"keyword": "keroro"},
         "titar": {"keyword": "titar"},
         "keroro_titar": {"any": ["keroro", "titar"]},
-        "teletoon": {"regex": "t[eé]l[eé]toon"},
-        "segment_id": {"regex": r"n[°o]?\s*0*{absolute_number}\s*{segment}"},
         "foreign_lang": {
             "regex": (
                 r"\b(ITA|KOR|Korean|Italiano|Coreano|VOSTFR|VOSTA|Subs?FR|"
-                r"Espa[nñ]ol|English\s?Dub|ENG)\b"
+                r"Espa[nñ]ol|English\s?Dub|ENG)\b|dino-riders|guerriero|risveglio|"
+                r"sarxento|sargento|benjo|fatacolorata|catala|signor|\((?:ita|j|jp|k|kr|ks)\)"
             ),
         },
         "french_safe": {"not": "foreign_lang"},
+        "is_keroro": {"all": ["french_safe", "keroro_titar"]},
+        "not_episode": {
+            "regex": r"opening|ending|g[eé]n[eé]rique|\bsample\b|preview|trailer|bande.?annonce"
+        },
+        "is_episode": {"all": ["is_keroro", {"not": "not_episode"}]},
+        "teletoon": {"regex": "t[eé]l[eé]toon"},
+        "idf1": {"regex": r"\bidf\s?1\b"},
+        "vf": {"regex": r"\b(?:vf|vff|vfb)\b|version\s?francaise"},
+        "source_marker": {"any": ["teletoon", "idf1", "vf"]},
+        "segment_id": {
+            "regex": (
+                r"(?:n[°o]?\s*0*{absolute_number}|s0*{season}\s*e0*{seasonal_number}"
+                r"|0*{season}\s*x\s*0*{seasonal_number})\s*{segment}"
+            )
+        },
+        "segment_id_loose": {
+            "regex": r"{mono_gate}(?:^|[^0-9])0*(?:{absolute_number}|{seasonal_number})(?:[^0-9]|$)"
+        },
         "title_hit": {"coverage": "title", "min": 0.6},
-        "is_video": {"regex": r"\.(avi|mkv|mp4|mpg|ogm)$"},
+        "is_video": {"regex": r"\.(avi|mkv|mp4|mpg|mpeg|divx|m4v|ogm)$"},
+        "is_archive": {"regex": r"\.(zip|7z|rar|r\d\d|z\d\d|part\d+\.rar)$"},
     },
     "rules": [
         {
             "name": "id_segment_exact",
             "tier": "download",
-            "all": ["french_safe", "is_video", "segment_id", "keroro"],
+            "all": ["is_episode", "is_video", "segment_id"],
         },
         {
-            "name": "teletoon_titre",
+            "name": "title_confirmed",
             "tier": "download",
-            "all": ["french_safe", "teletoon", {"token": "title_hit", "min": 0.6}],
+            "all": ["is_episode", "is_video", "title_hit", "source_marker"],
         },
         {
-            "name": "numero_titre",
+            "name": "numero_nu_confirmed",
+            "tier": "download",
+            "all": ["is_episode", "is_video", "segment_id_loose", "source_marker"],
+        },
+        {"name": "title_review", "tier": "notify", "all": ["is_episode", "is_video", "title_hit"]},
+        {
+            "name": "numero_nu",
             "tier": "notify",
-            "all": ["french_safe", "segment_id", {"token": "title_hit", "min": 0.5}],
+            "all": ["is_episode", "is_video", "segment_id_loose"],
         },
         {
-            "name": "keroro_large",
-            "tier": "catalog",
-            "all": ["french_safe", "keroro_titar"],
+            "name": "archive_candidate",
+            "tier": "notify",
+            "all": [
+                "is_episode",
+                "is_archive",
+                {"any": ["segment_id", "title_hit", "source_marker"]},
+            ],
         },
+        {"name": "keroro_large", "tier": "catalog", "all": ["is_keroro"]},
     ],
 }
 
@@ -201,13 +230,13 @@ def test_evaluate_highest_tier_comes_from_a_different_target() -> None:
     assert decision.target_id == "S2E062B"
 
 
-def test_evaluate_notify_tier_when_only_numero_titre_matches() -> None:
-    # 062A + titre mais PAS d'extension vidéo -> id_segment_exact faux, numero_titre vrai.
-    candidate = FileCandidate(filename="KERORO N°062A Les demoiselles cambrioleuses.txt")
+def test_evaluate_notify_tier_via_title_review() -> None:
+    # Titre proche, PAS de marqueur de source -> title_review (notify), pas download.
+    candidate = FileCandidate(filename="KERORO Les demoiselles cambrioleuses.avi")
     decision = _canonical_engine().evaluate(candidate)
     assert decision is not None
     assert decision.tier == "notify"
-    assert decision.rule_name == "numero_titre"
+    assert decision.rule_name == "title_review"
     assert decision.target_id == "S2E062A"
 
 
@@ -304,11 +333,13 @@ def test_explanation_on_real_62a_lists_fired_rules_tokens_and_coverage() -> None
     assert decision is not None
     explanation = decision.explanation
     assert explanation.target_id == "S2E062A"
-    # Le réel 62A fait feu sur les 4 règles (vérifié empiriquement) -> plusieurs rules_fired.
+    # Le réel 62A fait feu sur 4 règles (vérifié empiriquement) -> plusieurs rules_fired.
+    # segment_id_loose ne fait jamais feu (bi-segment -> {mono_gate} never-match) donc
+    # numero_nu_confirmed/numero_nu sont absents ; archive_candidate absent (pas d'archive).
     assert explanation.rules_fired == (
         "id_segment_exact",
-        "teletoon_titre",
-        "numero_titre",
+        "title_confirmed",
+        "title_review",
         "keroro_large",
     )
     # Tokens nommés qui matchent (triés). title_hit est un coverage et matche (value 1.0).
@@ -337,10 +368,11 @@ def test_explanation_single_rule_fired_and_no_coverage_token() -> None:
     assert decision.explanation.tokens_matched == ("is_video", "seg")
 
 
-# --- Routage mono B-safe : segment_id_loose / numero_nu_mono (Task 4) ---
+# --- Routage mono B-safe : segment_id_loose / numero_nu / numero_nu_confirmed (Task 4) ---
 # Une cible mono (sole_segment=True) avec un numéro NU ("Keroro 10.avi") remonte en
-# notify (revue humaine), JAMAIS en download. Pour une cible bi-segment, {mono_gate}
-# neutralise segment_id_loose (never-match) : la règle ne la concerne jamais.
+# notify (revue humaine), JAMAIS en download SAUF marqueur de source (numero_nu_confirmed).
+# Pour une cible bi-segment, {mono_gate} neutralise segment_id_loose (never-match) : les
+# règles à numéro nu ne la concernent jamais.
 
 _TARGET_MONO = TargetSegment(
     season=1,
@@ -355,6 +387,14 @@ _MONO_ROUTING_RAW: dict[str, object] = {
     "tokens": {
         "is_video": {"regex": r"\.(avi|mkv)$"},
         "keroro": {"keyword": "keroro"},
+        "keroro_titar": {"any": ["keroro"]},
+        "foreign_lang": {"regex": r"\b(ITA|KOR)\b"},
+        "french_safe": {"not": "foreign_lang"},
+        "is_keroro": {"all": ["french_safe", "keroro_titar"]},
+        "not_episode": {"regex": r"opening|ending|\bsample\b"},
+        "is_episode": {"all": ["is_keroro", {"not": "not_episode"}]},
+        "teletoon": {"regex": "t[eé]l[eé]toon"},
+        "source_marker": {"any": ["teletoon"]},
         "segment_id": {"regex": r"n[°o]?\s*0*{absolute_number}\s*{segment}"},
         "segment_id_loose": {
             "regex": r"{mono_gate}(?:^|[^0-9])0*(?:{absolute_number}|{seasonal_number})(?:[^0-9]|$)"
@@ -364,14 +404,19 @@ _MONO_ROUTING_RAW: dict[str, object] = {
         {
             "name": "id_segment_exact",
             "tier": "download",
-            "all": ["is_video", "segment_id", "keroro"],
+            "all": ["is_episode", "is_video", "segment_id"],
         },
         {
-            "name": "numero_nu_mono",
-            "tier": "notify",
-            "all": ["is_video", "keroro", "segment_id_loose"],
+            "name": "numero_nu_confirmed",
+            "tier": "download",
+            "all": ["is_episode", "is_video", "segment_id_loose", "source_marker"],
         },
-        {"name": "keroro_large", "tier": "catalog", "any": ["keroro"]},
+        {
+            "name": "numero_nu",
+            "tier": "notify",
+            "all": ["is_episode", "is_video", "segment_id_loose"],
+        },
+        {"name": "keroro_large", "tier": "catalog", "all": ["is_keroro"]},
     ],
 }
 
@@ -383,18 +428,19 @@ def _mono_routing_engine() -> MatchingEngine:
 
 
 def test_evaluate_bare_number_on_mono_target_is_notify_numero_nu_mono() -> None:
-    # "Keroro 10.avi" : numéro nu sur cible mono -> notify/numero_nu_mono, JAMAIS download.
+    # "Keroro 10.avi" : numéro nu sur cible mono -> notify/numero_nu, JAMAIS download.
     decision = _mono_routing_engine().evaluate(FileCandidate(filename="Keroro 10.avi"))
     assert decision is not None
     assert decision.tier == "notify"
-    assert decision.rule_name == "numero_nu_mono"
+    assert decision.rule_name == "numero_nu"
     assert decision.target_id == "S1E010A"
 
 
 def test_evaluate_bare_number_on_bi_segment_target_never_fires_numero_nu_mono() -> None:
     # "Keroro 62.avi" : 62 est le numéro absolu de la cible BI-segment 62A -> {mono_gate}
-    # neutralise segment_id_loose pour elle (never-match) -> numero_nu_mono ne fait jamais
-    # feu ; seul keroro_large (catalog) matche (départage target_id -> S1E010A).
+    # neutralise segment_id_loose pour elle (never-match) -> numero_nu/numero_nu_confirmed
+    # ne font jamais feu pour elle ; seul keroro_large (catalog) matche (départage
+    # target_id -> S1E010A).
     decision = _mono_routing_engine().evaluate(FileCandidate(filename="Keroro 62.avi"))
     assert decision is not None
     assert decision.tier == "catalog"
@@ -413,8 +459,26 @@ def test_evaluate_lettered_mono_number_stays_download_via_strict_segment_id() ->
 
 def test_evaluate_bare_number_digit_boundary_guard_rejects_substring() -> None:
     # Garde de bord chiffre : "10" est un SOUS-STRING de "105", PAS un numéro nu isolé ->
-    # segment_id_loose ne matche pas -> pas de numero_nu_mono (seul keroro_large matche).
+    # segment_id_loose ne matche pas -> pas de numero_nu (seul keroro_large matche).
     decision = _mono_routing_engine().evaluate(FileCandidate(filename="Keroro 105.avi"))
+    assert decision is not None
+    assert decision.tier == "catalog"
+    assert decision.rule_name == "keroro_large"
+
+
+def test_evaluate_bare_number_on_mono_with_source_marker_is_download() -> None:
+    # Numéro nu + marqueur de source (teletoon) sur cible mono -> numero_nu_confirmed (download).
+    decision = _mono_routing_engine().evaluate(FileCandidate(filename="Keroro 10 teletoon.avi"))
+    assert decision is not None
+    assert decision.tier == "download"
+    assert decision.rule_name == "numero_nu_confirmed"
+    assert decision.target_id == "S1E010A"
+
+
+def test_evaluate_opening_with_bare_number_demoted_to_catalog_by_not_episode() -> None:
+    # "Keroro 10 opening.avi" : numéro nu mono MAIS "opening" -> not_episode -> is_episode
+    # faux -> ni numero_nu ni numero_nu_confirmed ; keroro_large (catalog) reste.
+    decision = _mono_routing_engine().evaluate(FileCandidate(filename="Keroro 10 opening.avi"))
     assert decision is not None
     assert decision.tier == "catalog"
     assert decision.rule_name == "keroro_large"
