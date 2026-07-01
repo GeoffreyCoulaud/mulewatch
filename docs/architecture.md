@@ -17,34 +17,43 @@ toute la métadonnée croisée au passage. **Le sujet du catalogue est le fichie
 
 Un **workspace uv** de quatre paquets, plus des dépendances externes.
 
+**Contexte — le nœud et l'extérieur** (tout le trafic réseau d'`amuled` passe par le VPN) :
+
 ```mermaid
 flowchart LR
-  subgraph node["Nœud emule-indexer"]
-    crawler["Crawler<br/>emule_indexer"]
-    verifier["Verifier<br/>download_verifier"]
-    webui["WebUI<br/>catalog_webui"]
-    matching(["Lib matching<br/>catalog_matching"])
-    catalog[("catalog.db<br/>append-only")]
-    local[("local.db<br/>opérationnel")]
-  end
-  amuled["amuled<br/>client aMule"]
-  vpn["gluetun<br/>VPN + port-forward"]
-  ed2k(("Réseau eD2k / Kad"))
+  crawler["Crawler"]
+  amuled["amuled"]
+  gluetun["gluetun · VPN"]
+  ed2k(("eD2k / Kad"))
+  verifier["Verifier"]
   prom["Prometheus"]
-  apprise["Apprise<br/>mail / Slack"]
+  notif["Mail / Slack"]
 
-  crawler -- "EC / TCP" --> amuled
-  amuled -- eD2k/Kad --> ed2k
-  amuled -. tunnel .-> vpn
-  crawler -- "POST /verify" --> verifier
-  crawler -- écrit --> catalog
-  crawler -- écrit --> local
-  crawler -. importe .-> matching
-  webui -- "lecture seule" --> catalog
-  webui -. importe .-> matching
-  crawler -- metrics --> prom
-  crawler -- notifs --> apprise
-  verifier -- metrics --> prom
+  crawler -->|EC| amuled
+  amuled -->|"tout le trafic"| gluetun
+  gluetun --> ed2k
+  crawler -->|"POST /verify"| verifier
+  crawler -->|metrics| prom
+  verifier -->|metrics| prom
+  crawler -->|"notifs · URL apprise"| notif
+```
+
+**Composants internes & données partagées** (le crawler écrit, le webui lit ; `matching` est une
+lib importée) :
+
+```mermaid
+flowchart RL
+  crawler["Crawler"]
+  webui["WebUI"]
+  catalog[("catalog.db")]
+  local[("local.db")]
+  matching(["matching · lib"])
+
+  crawler -->|écrit| catalog
+  crawler -->|écrit| local
+  crawler -->|importe| matching
+  webui -->|"lecture seule"| catalog
+  webui -->|importe| matching
 ```
 
 | Paquet | Dist | Rôle |
@@ -63,11 +72,11 @@ Le mode découle **de la config** (`crawler.yml`, section `download`) — pas d'
 
 ```mermaid
 flowchart TB
-  app["CrawlerApp._supervise<br/>asyncio.TaskGroup"]
-  app --> s["Recherche<br/>run_search_cycle"]
-  app -->|"si download activé"| d["Download<br/>run_download_cycle"]
-  app -->|"si download activé"| v["Vérification<br/>run_verification_cycle"]
-  app -->|"si section port_sync"| p["Port-sync High-ID<br/>run_port_sync_cycle"]
+  app["Supervision · TaskGroup"]
+  app --> s["Recherche"]
+  app -->|"si download"| d["Download"]
+  app -->|"si download"| v["Vérification"]
+  app -->|"si port_sync"| p["Port-sync"]
 ```
 
 - **Observer** (`download` absent/`enabled: false`) : **seule la boucle recherche tourne** — on
@@ -87,18 +96,18 @@ Le graphe de dépendances est un DAG orienté vers le **domaine pur**.
 
 ```mermaid
 flowchart TB
-  comp["composition/<br/>CrawlerApp + __main__"]
-  appl["application/<br/>use-cases async (run_*_cycle)"]
-  dom["domain/<br/>PUR — search, download, matching-consumer, observability"]
-  ports["ports/<br/>protocols (interfaces)"]
-  adp["adapters/<br/>I/O — mule_ec, persistence_sqlite, observability, config, quarantine"]
+  comp["composition/"]
+  appl["application/"]
+  dom["domain/ · pur"]
+  ports["ports/ · protocols"]
+  adp["adapters/ · I/O"]
 
   comp --> appl
   appl --> dom
   appl --> ports
   dom --> ports
-  comp -->|"injecte les"| adp
-  adp -.->|"implémentent"| ports
+  comp -->|injecte| adp
+  adp -.->|implémentent| ports
 ```
 
 - **`domain/`** est **pur** : aucune I/O, pas de `yaml`/DB/réseau/horloge/logging, pas de lecture
@@ -117,16 +126,16 @@ canaux et toutes les instances `amuled`.
 
 ```mermaid
 flowchart TD
-  start["Début de cycle · cycle_index"]
-  cov["Relève la couverture<br/>network_status de chaque amuled"]
-  kw["generate_keywords config<br/>= keroro, titar"]
-  shuf["shuffle_for_cycle<br/>seed = node_id : cycle_index"]
-  q["LifoQueue<br/>tâches = mots-clés × canaux"]
-  pool["Workers · 1 par instance amuled<br/>drainent la file en parallèle"]
-  persist["Fin de cycle<br/>persiste cycle_index + backoff par canal"]
+  start["Début · cycle_index"]
+  cov["Relève couverture"]
+  kw["Mots-clés<br/>keroro · titar"]
+  shuf["Ordre seedé"]
+  q["File LIFO<br/>mots-clés × canaux"]
+  pool["Pool de workers"]
+  persist["Persiste avance<br/>+ backoff"]
 
   start --> cov --> kw --> shuf --> q --> pool --> persist
-  cov -. "HEALTHY / DEGRADED / BLIND" .-> tel[["telemetry: couverture"]]
+  cov -. "HEALTHY / DEGRADED / BLIND" .-> tel[["télémétrie"]]
 ```
 
 Points clés du parcours :
@@ -195,19 +204,19 @@ précision**. C'est un **moteur fixe minimal + une policy 100 % en YAML** (donn�
 
 ```mermaid
 flowchart LR
-  yaml["policy YAML<br/>tokens + règles"]
-  tgt["cibles<br/>targets.yml"]
-  eng["MatchingEngine<br/>arbre résolu par cible"]
-  cand["FileCandidate<br/>filename, size_mb"]
-  dec{"MatchDecision<br/>ou None"}
+  yaml["policy YAML"]
+  tgt["cibles"]
+  eng["MatchingEngine"]
+  cand["FileCandidate"]
+  dec{"décision ?"}
 
   yaml --> eng
   tgt --> eng
   cand --> eng --> dec
   dec -->|download| a1["télécharger"]
-  dec -->|notify| a2["alerter — revue humaine"]
-  dec -->|catalog| a3["cataloguer seulement"]
-  dec -->|None| a4["écarté"]
+  dec -->|notify| a2["alerter"]
+  dec -->|catalog| a3["cataloguer"]
+  dec -->|None| a4["écarter"]
 ```
 
 - **Deux natures de tokens** : *identifiants d'épisode* (spécifiques à la cible : numéro de segment,
@@ -230,17 +239,17 @@ vérification est une boucle consommatrice séparée.
 
 ```mermaid
 flowchart TD
-  dec["match_decisions<br/>tier = download"]
-  cand["Candidats<br/>décisions ∖ déjà téléchargés"]
-  pol["download_policy<br/>skip complete / dedup / disk-cap"]
-  add["amuled: add_link<br/>fichier en file"]
-  mon["monitor<br/>queued → downloading"]
-  comp["complétion<br/>via shared_files (signal positif)"]
-  quar["quarantaine<br/>os.replace : staging → quarantine"]
-  enq["enqueue_verification"]
-  ver["run_verification_cycle<br/>claim → POST /verify"]
-  child["verifier: process enfant confiné<br/>type_sniff + ffprobe + clamav"]
-  verd["file_verifications<br/>verdict pire-cas"]
+  dec["Décision<br/>tier download"]
+  cand["Candidats neufs"]
+  pol["download_policy"]
+  add["add_link · amuled"]
+  mon["Monitor"]
+  comp["Complétion<br/>via shared_files"]
+  quar["Quarantaine<br/>os.replace"]
+  enq["Enqueue vérif"]
+  ver["Cycle vérif"]
+  child["Enfant confiné"]
+  verd["Verdict"]
 
   dec --> cand --> pol --> add
   add --> mon --> comp --> quar --> enq --> ver --> child --> verd
@@ -273,18 +282,18 @@ Un service Starlette **isolé** (`packages/verifier/`), appelé en HTTP :
 
 ```mermaid
 flowchart LR
-  subgraph cat["catalog.db — append-only, FUSIONNABLE"]
+  subgraph cat["catalog.db · append-only"]
     f["files"]
     fo["file_observations"]
     md["match_decisions"]
     fv["file_verifications"]
-    src["sources / source_observations"]
+    src["sources"]
   end
-  subgraph loc["local.db — opérationnel, JAMAIS fusionné"]
-    nr["node_runtime (node_id)"]
+  subgraph loc["local.db · par nœud"]
+    nr["node_runtime"]
     vt["verification_tasks"]
     dl["downloads"]
-    ss["scheduler_state (cycle_index, backoff)"]
+    ss["scheduler_state"]
   end
 ```
 
@@ -307,17 +316,17 @@ administration runbook.*
 
 ```mermaid
 flowchart LR
-  uc["use-case<br/>telemetry.emit(Event)"]
-  desc["describe(event)<br/>→ Report(severity, metrics, audiences)"]
-  disp["ObservabilityDispatcher"]
-  log["logs structurés"]
-  prom["PrometheusSink"]
-  appr["AppriseNotifier"]
+  uc["use-case<br/>emit(Event)"]
+  desc["describe()<br/>→ Report"]
+  disp["Dispatcher"]
+  log["logs"]
+  prom["Prometheus"]
+  notif["Notifs<br/>URL apprise"]
 
   uc --> desc --> disp
   disp --> log
   disp --> prom
-  disp -->|"best-effort"| appr
+  disp -->|best-effort| notif
 ```
 
 Le **domaine** émet des `Event` purs ; une **policy** pure (`describe`) les route en `Report`
