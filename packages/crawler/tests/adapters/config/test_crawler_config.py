@@ -429,6 +429,42 @@ def test_port_sync_restart_min_interval_must_be_positive() -> None:
         parse_crawler_config(raw, _env())
 
 
+# ------------------------------------------------------------------- search
+
+
+def test_search_keywords_defaults_to_keroro_and_titar_when_section_absent() -> None:
+    config = parse_crawler_config(_minimal_raw(), {})
+    assert config.search_keywords == ("keroro", "titar")
+
+
+def test_search_keywords_defaults_when_section_present_without_keywords_key() -> None:
+    raw = _minimal_raw()
+    raw["search"] = {}
+    config = parse_crawler_config(raw, {})
+    assert config.search_keywords == ("keroro", "titar")
+
+
+def test_search_keywords_read_from_section() -> None:
+    raw = _minimal_raw()
+    raw["search"] = {"keywords": ["keroro", "titar", "mission titar"]}
+    config = parse_crawler_config(raw, {})
+    assert config.search_keywords == ("keroro", "titar", "mission titar")
+
+
+def test_search_keywords_rejects_empty_list() -> None:
+    raw = _minimal_raw()
+    raw["search"] = {"keywords": []}
+    with pytest.raises(ConfigError):
+        parse_crawler_config(raw, {})
+
+
+def test_search_keywords_rejects_non_string_entry() -> None:
+    raw = _minimal_raw()
+    raw["search"] = {"keywords": ["keroro", 42]}
+    with pytest.raises(ConfigError):
+        parse_crawler_config(raw, {})
+
+
 # ----------------------------------------------------------- observability
 
 
