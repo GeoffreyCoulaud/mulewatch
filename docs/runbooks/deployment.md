@@ -92,6 +92,23 @@ En mode download, le crawler redémarre en boucle pendant 1–2 min (il attend q
 
 ---
 
+## Mettre à jour
+
+Les images sont publiées sur ghcr et **la mise à jour est manuelle** : vous choisissez quand l'appliquer. Compose ne re-tire **pas** une image `:latest` déjà présente localement — il faut un `pull` explicite, puis recréer les conteneurs.
+
+```bash
+# Reprenez EXACTEMENT le même fichier de stack et les mêmes --profile qu'au lancement (§4).
+# Un --profile omis = le service correspondant n'est ni tiré ni recréé (ex. webui reste périmé).
+docker compose -f deploy/direct.compose.yml [--profile …] pull
+docker compose -f deploy/direct.compose.yml [--profile …] up -d
+```
+
+`up -d` ne recrée que les conteneurs dont l'image a changé ; les volumes nommés (catalogue, état) **persistent**. Pour seulement redémarrer un service sans changer d'image : `docker compose -f deploy/direct.compose.yml restart <service>`.
+
+> Détails cycle de vie (arrêt, persistance, reboot de l'hôte) : **[Runbook d'administration — Cycle de vie](administration.md#cycle-de-vie--données)**.
+
+---
+
 ## High-ID (optionnel)
 
 Plus de sources → recherche et téléchargement plus efficaces. Non requis pour cataloguer.
