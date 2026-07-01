@@ -140,6 +140,9 @@ class CrawlerConfig:
     Câblage (ex-local) : ``amules`` (pool EC), chemins des bases, ``node_id`` (``None`` = celui de
     ``local.db``), ``observability``, ``download`` (``None`` ⟺ mode observer), ``port_sync``
     (``None`` ⟺ port-sync off).
+
+    ``search_keywords`` : mots-clés interrogés par la boucle de recherche (section ``search``
+    optionnelle ; défaut ``("keroro", "titar")`` si absente).
     """
 
     cycle_interval_seconds: float
@@ -154,6 +157,7 @@ class CrawlerConfig:
     catalog_db_path: str
     local_db_path: str
     node_id: str | None
+    search_keywords: tuple[str, ...] = ("keroro", "titar")
     observability: ObservabilityConfig | None = None
     download: DownloadConfig | None = None
     port_sync: PortSyncConfig | None = None
@@ -317,6 +321,24 @@ def _parse_download(raw: dict[str, Any], env: Mapping[str, str]) -> DownloadConf
     )
 
 
+def _parse_search_keywords(raw: dict[str, Any]) -> tuple[str, ...]:
+    """`search.keywords` : liste de mots-clés non vides. Absent → défaut (keroro, titar)."""
+    if "search" not in raw:
+        return ("keroro", "titar")
+    section = _require_mapping(raw["search"], "section 'search'")
+    if "keywords" not in section:
+        return ("keroro", "titar")
+    keywords = section["keywords"]
+    if not isinstance(keywords, list) or not keywords:
+        raise ConfigError("search.keywords : liste non vide de chaînes attendue")
+    result: list[str] = []
+    for entry in keywords:
+        if not isinstance(entry, str) or not entry:
+            raise ConfigError(f"search.keywords : chaîne non vide attendue, obtenu {entry!r}")
+        result.append(entry)
+    return tuple(result)
+
+
 def _parse_port_sync(raw: dict[str, Any], env: Mapping[str, str]) -> PortSyncConfig | None:
     if "port_sync" not in raw:
         return None
@@ -392,6 +414,7 @@ def parse_crawler_config(raw: dict[str, Any], env: Mapping[str, str]) -> Crawler
         catalog_db_path=_require_str(raw, "catalog_db_path", "crawler", env),
         local_db_path=_require_str(raw, "local_db_path", "crawler", env),
         node_id=node_id_raw,
+        search_keywords=_parse_search_keywords(raw),
         observability=observability,
         download=_parse_download(raw, env),
         port_sync=_parse_port_sync(raw, env),
