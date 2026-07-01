@@ -84,3 +84,18 @@ def test_complete_takes_precedence_over_dedup() -> None:
     assert (
         _verdict(target_status="complete", already_downloaded=True) is DownloadVerdict.SKIP_COMPLETE
     )
+
+
+def test_found_target_still_downloads_a_new_file() -> None:
+    # Invariant produit (spec search-simplification, Lot C) : un épisode déjà "found" se
+    # re-télécharge quand un NOUVEAU fichier le matche (redondance d'archivage voulue).
+    # Seul target_status == "complete" skippe ; "found" ne l'est jamais en PROD.
+    verdict = download_policy(
+        tier="download",
+        target_status="found",
+        already_downloaded=False,
+        committed_bytes=0,
+        file_size=100_000_000,
+        disk_cap=10_000_000_000,
+    )
+    assert verdict is DownloadVerdict.DOWNLOAD
