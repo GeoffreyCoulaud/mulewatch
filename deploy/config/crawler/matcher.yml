@@ -1,4 +1,6 @@
-# Config matcher (déploiement). Copie synchronisée de packages/matching/tests/fixtures/canonical_config.yaml.
+# Config matcher (déploiement) — SOURCE DE VÉRITÉ UNIQUE de la policy. Éditable par l'opérateur.
+# Tout le reste en dérive : golden corpus + tests moteur (packages/matching), câblage crawler,
+# stack smoke. Il n'existe AUCUNE autre copie à synchroniser.
 tokens:
   keroro:        { keyword: keroro }
   titar:         { keyword: titar }

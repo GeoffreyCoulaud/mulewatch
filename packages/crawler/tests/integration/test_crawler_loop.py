@@ -35,7 +35,7 @@ pytestmark = pytest.mark.orchestration_integration
 
 _EC_PASSWORD = "indexer-ec-test"
 _IMAGE = "ngosang/amule:3.0.0-1"
-_FIXTURES = Path(__file__).resolve().parents[3] / "matching" / "tests" / "fixtures"
+_MATCHER = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler" / "matcher.yml"
 _TARGETS = (
     TargetSegment(
         season=2,
@@ -111,7 +111,7 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_p
     from emule_indexer.adapters.mule_ec.client import AmuleEcClient
 
     host, port = amuled
-    matcher_config = parse_matcher_config(load_yaml(_FIXTURES / "canonical_config.yaml"))
+    matcher_config = parse_matcher_config(load_yaml(_MATCHER))
     crawler_config = CrawlerConfig(
         # Intervalle minuscule : le 2e cycle démarre juste après le 1er (qui a écrit son index)
         # → l'arrêt déclenché au coverage du 2e cycle borne le run, bien sous le wait_for 120 s.

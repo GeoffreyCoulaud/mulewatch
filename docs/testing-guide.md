@@ -215,8 +215,8 @@ limite d'un `wait_for` de 120 s. L'assertion clé : l'index de cycle a avancé (
 preuve qu'un cycle a vraiment complété.
 
 **Prérequis exacts.** Identiques à `ec_integration` : **Docker** + image `ngosang/amule:3.0.0-1`,
-readiness sur `listening on 0.0.0.0:4712`. Le test charge une config de matching depuis
-`packages/crawler/tests/fixtures/canonical_config.yaml`.
+readiness sur `listening on 0.0.0.0:4712`. Le test charge la config matcher depuis la source de
+vérité unique `deploy/config/crawler/matcher.yml`.
 
 **Commande.**
 ```bash

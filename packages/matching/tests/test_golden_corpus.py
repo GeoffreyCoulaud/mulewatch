@@ -9,14 +9,15 @@ from catalog_matching.models import FileCandidate
 from catalog_matching.validation import parse_matcher_config, parse_targets
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
+# La policy matcher a une source de vérité unique : la config de déploiement (éditable par
+# l'opérateur). Le golden corpus valide donc la policy RÉELLEMENT livrée, pas une copie.
+_MATCHER = Path(__file__).resolve().parents[3] / "deploy" / "config" / "crawler" / "matcher.yml"
 
 
 def _engine() -> MatchingEngine:
-    config = parse_matcher_config(
-        yaml.safe_load((_FIXTURES / "canonical_config.yaml").read_text(encoding="utf-8"))
-    )
+    config = parse_matcher_config(yaml.safe_load(_MATCHER.read_text(encoding="utf-8")))
     targets = parse_targets(
-        yaml.safe_load((_FIXTURES / "canonical_targets.yaml").read_text(encoding="utf-8"))
+        yaml.safe_load((_FIXTURES / "golden_targets.yaml").read_text(encoding="utf-8"))
     )
     return MatchingEngine(config, targets)
 

@@ -36,7 +36,7 @@ _TARGETS = (
         title="Les demoiselles cambrioleuses",
     ),
 )
-_FIXTURES = Path(__file__).resolve().parents[3] / "matching" / "tests" / "fixtures"
+_MATCHER = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler" / "matcher.yml"
 _DL_NAME = "Keroro N°062A Les demoiselles cambrioleuses.avi"
 
 
@@ -52,7 +52,7 @@ class _NoopRng:
 
 @pytest.fixture
 def matcher_config() -> MatcherConfig:
-    return parse_matcher_config(load_yaml(_FIXTURES / "canonical_config.yaml"))
+    return parse_matcher_config(load_yaml(_MATCHER))
 
 
 def _crawler_config(

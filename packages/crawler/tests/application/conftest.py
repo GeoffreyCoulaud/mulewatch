@@ -12,15 +12,19 @@ from emule_indexer.adapters.config.yaml_loader import load_yaml
 from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
 from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
 
-_FIXTURES = Path(__file__).resolve().parents[3] / "matching" / "tests" / "fixtures"
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+# Matcher : source de vérité unique = config de déploiement. Targets : sous-ensemble §7 du
+# golden corpus (fixture matching, distinct du catalogue prod complet).
+_MATCHER = _REPO_ROOT / "deploy" / "config" / "crawler" / "matcher.yml"
+_FIXTURES = _REPO_ROOT / "packages" / "matching" / "tests" / "fixtures"
 _NODE = "11111111-2222-3333-4444-555555555555"
 
 
 @pytest.fixture
 def engine() -> MatchingEngine:
-    """Moteur RÉEL sur la config/targets canoniques (corpus golden, fixtures partagées)."""
-    config = parse_matcher_config(load_yaml(_FIXTURES / "canonical_config.yaml"))
-    targets = parse_targets(load_yaml(_FIXTURES / "canonical_targets.yaml"))
+    """Moteur RÉEL : matcher de déploiement + targets du golden corpus (fixtures partagées)."""
+    config = parse_matcher_config(load_yaml(_MATCHER))
+    targets = parse_targets(load_yaml(_FIXTURES / "golden_targets.yaml"))
     return MatchingEngine(config, targets)
 
 

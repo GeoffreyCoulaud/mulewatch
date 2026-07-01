@@ -1,6 +1,8 @@
 import dataclasses
+from pathlib import Path
 
 import pytest
+import yaml
 
 from catalog_matching.config import TIERS, MatcherConfig
 from catalog_matching.engine import (
@@ -116,75 +118,12 @@ def test_first_matching_rule_returns_none_when_no_rule_true() -> None:
 
 
 # --- Config canonique §8.3 (réutilisée par plusieurs tests) ---
-_CANONICAL_RAW: dict[str, object] = {
-    "tokens": {
-        "keroro": {"keyword": "keroro"},
-        "titar": {"keyword": "titar"},
-        "keroro_titar": {"any": ["keroro", "titar"]},
-        "foreign_lang": {
-            "regex": (
-                r"\b(ITA|KOR|Korean|Italiano|Coreano|VOSTFR|VOSTA|Subs?FR|"
-                r"Espa[nñ]ol|English\s?Dub|ENG)\b|dino-riders|guerriero|risveglio|"
-                r"sarxento|sargento|benjo|fatacolorata|catala|signor|\((?:ita|j|jp|k|kr|ks)\)"
-            ),
-        },
-        "french_safe": {"not": "foreign_lang"},
-        "is_keroro": {"all": ["french_safe", "keroro_titar"]},
-        "not_episode": {
-            "regex": r"opening|ending|g[eé]n[eé]rique|\bsample\b|preview|trailer|bande.?annonce"
-        },
-        "is_episode": {"all": ["is_keroro", {"not": "not_episode"}]},
-        "teletoon": {"regex": "t[eé]l[eé]toon"},
-        "idf1": {"regex": r"\bidf\s?1\b"},
-        "vf": {"regex": r"\b(?:vf|vff|vfb)\b|version\s?francaise"},
-        "source_marker": {"any": ["teletoon", "idf1", "vf"]},
-        "segment_id": {
-            "regex": (
-                r"(?:n[°o]?\s*0*{absolute_number}|s0*{season}\s*e0*{seasonal_number}"
-                r"|0*{season}\s*x\s*0*{seasonal_number})\s*{segment}"
-            )
-        },
-        "segment_id_loose": {
-            "regex": r"{mono_gate}(?:^|[^0-9])0*(?:{absolute_number}|{seasonal_number})(?:[^0-9]|$)"
-        },
-        "title_hit": {"coverage": "title", "min": 0.6},
-        "is_video": {"regex": r"\.(avi|mkv|mp4|mpg|mpeg|divx|m4v|ogm)$"},
-        "is_archive": {"regex": r"\.(zip|7z|rar|r\d\d|z\d\d|part\d+\.rar)$"},
-    },
-    "rules": [
-        {
-            "name": "id_segment_exact",
-            "tier": "download",
-            "all": ["is_episode", "is_video", "segment_id"],
-        },
-        {
-            "name": "title_confirmed",
-            "tier": "download",
-            "all": ["is_episode", "is_video", "title_hit", "source_marker"],
-        },
-        {
-            "name": "numero_nu_confirmed",
-            "tier": "download",
-            "all": ["is_episode", "is_video", "segment_id_loose", "source_marker"],
-        },
-        {"name": "title_review", "tier": "notify", "all": ["is_episode", "is_video", "title_hit"]},
-        {
-            "name": "numero_nu",
-            "tier": "notify",
-            "all": ["is_episode", "is_video", "segment_id_loose"],
-        },
-        {
-            "name": "archive_candidate",
-            "tier": "notify",
-            "all": [
-                "is_episode",
-                "is_archive",
-                {"any": ["segment_id", "title_hit", "source_marker"]},
-            ],
-        },
-        {"name": "keroro_large", "tier": "catalog", "all": ["is_keroro"]},
-    ],
-}
+# Source de vérité unique : la config matcher de déploiement (éditable par l'opérateur), pas
+# une copie inline. Ces tests valident donc la policy réellement livrée. Cf. test_golden_corpus.
+_CANONICAL_MATCHER = (
+    Path(__file__).resolve().parents[3] / "deploy" / "config" / "crawler" / "matcher.yml"
+)
+_CANONICAL_RAW: dict[str, object] = yaml.safe_load(_CANONICAL_MATCHER.read_text(encoding="utf-8"))
 
 _TARGET_62B = TargetSegment(
     season=2,

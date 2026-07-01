@@ -84,7 +84,7 @@ _ENV_STUB = {
 _DOWNLOAD_LOCAL_VOLUMES = [
     "./tests/smoke/crawler.yml:/app/config/crawler.yml:ro",
     "./tests/smoke/targets.yml:/app/config/targets.yml:ro",
-    "./tests/smoke/matcher.yml:/app/config/matcher.yml:ro",
+    "./deploy/config/crawler/matcher.yml:/app/config/matcher.yml:ro",
     "quarantine:/data/quarantine",
     "catalog-db:/data/catalog",
     "local-db:/data/local",
@@ -92,7 +92,7 @@ _DOWNLOAD_LOCAL_VOLUMES = [
 _OBSERVER_LOCAL_VOLUMES = [
     "./tests/smoke/crawler.observer.yml:/app/config/crawler.yml:ro",
     "./tests/smoke/targets.yml:/app/config/targets.yml:ro",
-    "./tests/smoke/matcher.yml:/app/config/matcher.yml:ro",
+    "./deploy/config/crawler/matcher.yml:/app/config/matcher.yml:ro",
     "quarantine:/data/quarantine",
     "catalog-db:/data/catalog",
     "local-db:/data/local",
