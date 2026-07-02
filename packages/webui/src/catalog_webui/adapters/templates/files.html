@@ -3,6 +3,11 @@
 {% block content %}
 <h1>Files</h1>
 
+<p class="files-summary">
+  {{ summary.summary_text }}
+  <a href="{{ summary.toggle_url }}">{{ summary.toggle_label }}</a>
+</p>
+
 <table>
   <thead>
     <tr>

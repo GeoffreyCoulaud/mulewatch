@@ -181,6 +181,19 @@ class PageNav:
     next_url: str | None
 
 
+@dataclass(frozen=True)
+class FilesSummary:
+    """Precomputed summary line for the /files explorer (spec W-D8: no template logic).
+
+    ``summary_text`` states how many files are shown vs. catalogued; ``toggle_label`` +
+    ``toggle_url`` flip between matched-only (default) and the whole catalogue.
+    """
+
+    summary_text: str
+    toggle_label: str
+    toggle_url: str
+
+
 # ---------------------------------------------------------------------------
 # File detail — display view (precomputed)
 # ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ from catalog_webui.domain.views import (
     FileDetailDisplay,
     FileRow,
     FileRowDisplay,
+    FilesSummary,
     PageNav,
     SchedulerEntry,
     TargetCoverageRow,
@@ -83,6 +84,25 @@ def _page_nav(page: int, n_rows: int, base_path: str, query: dict[str, str]) -> 
         nxt["page"] = str(page + 1)
         next_url = f"{base_path}?{urlencode(nxt)}"
     return PageNav(page=page, prev_url=prev_url, next_url=next_url)
+
+
+def _build_summary(
+    matched: int, total: int, show_unmatched: bool, filter_query: dict[str, str]
+) -> FilesSummary:
+    """Precompute the /files summary line + matched/all toggle (W-D8: no template logic).
+
+    The toggle preserves the active filters and drops ``page`` (counts differ between modes,
+    so page N may not exist → back to page 1)."""
+    if show_unmatched:
+        summary_text = f"Showing all catalogued files — {total:,} catalogued ({matched:,} matched)."
+        toggle_label = "Matched only"
+        toggle_query = dict(filter_query)  # drop show_unmatched → matched only
+    else:
+        summary_text = f"Showing matched files only — {matched:,} of {total:,} catalogued."
+        toggle_label = "Show all catalogued files"
+        toggle_query = {**filter_query, "show_unmatched": "1"}
+    toggle_url = "/files?" + urlencode(toggle_query) if toggle_query else "/files"
+    return FilesSummary(summary_text=summary_text, toggle_label=toggle_label, toggle_url=toggle_url)
 
 
 class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -166,13 +186,14 @@ def build_app(
         tier_param = _normalize(request.query_params.get("tier"))
         verdict_param = _normalize(request.query_params.get("verdict"))
         query_param = _normalize(request.query_params.get("q"))
+        # Presence of ``show_unmatched`` (any value) opts into the whole catalogue.
+        show_unmatched = request.query_params.get("show_unmatched") is not None
         page_raw = request.query_params.get("page", "1")
         try:
             page = int(page_raw)
         except ValueError:
             page = 1
-        # ``max(1, ...)`` (webui-security#2) — without it ``?page=0`` produced OFFSET=-50 which
-        # SQLite treats as 0 → page=0 and page=1 silently rendered the same page.
+        # ``max(1, ...)`` (webui-security#2) — ``?page=0`` → OFFSET=-50 which SQLite treats as 0.
         page = max(1, page)
 
         with contextlib.closing(open_ro(catalog_db)) as catalog_conn:
@@ -183,12 +204,18 @@ def build_app(
                 verdict=verdict_param,
                 query=query_param,
                 page=page,
+                matched_only=not show_unmatched,
+            )
+            matched, total = catalog.count_files(
+                target=target_param,
+                tier=tier_param,
+                verdict=verdict_param,
+                query=query_param,
             )
 
         display_rows = _to_display_rows(file_rows)
-        # Precomputed prev/next links (webui-security#1 — without this, beyond 50 files the
-        # results were inaccessible short of hand-forging ``?page=N``).
-        nav_query = {
+        # Filters shared by the toggle link and the page nav.
+        filter_query = {
             k: v
             for k, v in {
                 "target": target_param,
@@ -198,11 +225,17 @@ def build_app(
             }.items()
             if v is not None
         }
+        summary = _build_summary(matched, total, show_unmatched, filter_query)
+
+        # Precomputed prev/next links (webui-security#1); the nav preserves ``show_unmatched``.
+        nav_query = dict(filter_query)
+        if show_unmatched:
+            nav_query["show_unmatched"] = "1"
         nav = _page_nav(page, len(display_rows), "/files", nav_query)
         return templates.TemplateResponse(
             request,
             "files.html",
-            {"rows": display_rows, "nav": nav},
+            {"rows": display_rows, "nav": nav, "summary": summary},
         )
 
     async def handle_file_detail(request: Request) -> Response:
@@ -275,14 +308,21 @@ def build_app(
                 query=None,
                 page=1,
             )
+            matched, total = catalog.count_files(
+                target=target_id, tier=None, verdict=None, query=None
+            )
 
         display_rows = _to_display_rows(file_rows)
         # No pagination here (target view: we expect few) — empty nav.
         nav = PageNav(page=1, prev_url=None, next_url=None)
+        # The target filter already implies a decision, so matched == total here; the
+        # summary/toggle is still built via the shared helper so files.html (shared with
+        # /files) always has a ``summary`` in context.
+        summary = _build_summary(matched, total, False, {"target": target_id})
         return templates.TemplateResponse(
             request,
             "files.html",
-            {"rows": display_rows, "nav": nav},
+            {"rows": display_rows, "nav": nav, "summary": summary},
         )
 
     async def handle_node(request: Request) -> Response:
