@@ -1,0 +1,92 @@
+name: Validate
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_PREFIX: ghcr.io/geoffreycoulaud/emule-indexer
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-uv-env
+      - name: ruff check
+        run: uv run ruff check .
+      - name: ruff format
+        run: uv run ruff format --check .
+      - name: mypy
+        run: uv run mypy
+      - name: sqlfluff (SQL migrations)
+        run: uv run sqlfluff lint packages/crawler/src
+      - name: webui templates guard
+        run: uv run python -m catalog_webui._dev.check_templates packages/webui/src/catalog_webui/adapters/templates
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [matching, crawler, verifier, webui]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-uv-env
+      - name: Unit tests — ${{ matrix.package }}
+        run: ( cd packages/${{ matrix.package }} && uv run pytest )
+
+  build:
+    needs: [lint, test]
+    # arm64 → native arm runner; amd64 → ubuntu-latest
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [crawler, verifier, webui]
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Build (cache-only) — ${{ matrix.package }} ${{ matrix.arch }}
+        uses: ./.github/actions/docker-image
+        with:
+          package: ${{ matrix.package }}
+          platform: linux/${{ matrix.arch }}
+          outputs: type=cacheonly
+          cache-scope: ${{ matrix.package }}-${{ matrix.arch }}
+          write-cache: true
+
+  integration:
+    needs: build
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-uv-env
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Load crawler image (${{ matrix.arch }}, from gha cache)
+        uses: ./.github/actions/docker-image
+        with:
+          package: crawler
+          platform: linux/${{ matrix.arch }}
+          outputs: type=docker
+          tags: ${{ env.IMAGE_PREFIX }}-crawler:ci-${{ github.sha }}
+          cache-scope: crawler-${{ matrix.arch }}
+      - name: Load verifier image (${{ matrix.arch }}, from gha cache)
+        uses: ./.github/actions/docker-image
+        with:
+          package: verifier
+          platform: linux/${{ matrix.arch }}
+          outputs: type=docker
+          tags: ${{ env.IMAGE_PREFIX }}-verifier:ci-${{ github.sha }}
+          cache-scope: verifier-${{ matrix.arch }}
+      - name: Integration — compose smoke stack (${{ matrix.arch }})
+        run: ( cd packages/crawler && uv run pytest -m compose_integration --no-cov -q )
+        env:
+          IMAGE_TAG: ci-${{ github.sha }}
