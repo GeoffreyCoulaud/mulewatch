@@ -26,4 +26,4 @@ rules:
   - { name: title_review,        tier: notify,   all: [is_episode, is_video, title_hit] }
   - { name: numero_nu,           tier: notify,   all: [is_episode, is_video, segment_id_loose] }
   - { name: archive_candidate,   tier: notify,   all: [is_episode, is_archive, { any: [segment_id, title_hit, source_marker] }] }
-  - { name: keroro_large,        tier: catalog,  all: [is_keroro] }
+  - { name: keroro_large,        tier: catalog,  all: [is_keroro, { any: [is_video, is_archive] }] }

@@ -21,12 +21,11 @@ cases:
     target_id: S2E062A
     rule_name: title_confirmed
 
-  - id: segment_id_non_video_falls_back_to_catalog
-    # 062A + titre mais extension NON vidéo -> aucune règle actionnable -> keroro_large (catalog).
+  - id: segment_id_non_video_is_discarded
+    # 062A + titre MAIS extension ni vidéo ni archive -> aucune règle (gate média sur
+    # keroro_large) -> écarté, pas catalogué.
     filename: "KERORO N°062A Les demoiselles cambrioleuses.txt"
-    tier: catalog
-    target_id: S2E062A
-    rule_name: keroro_large
+    discarded: true
 
   - id: keroro_only_catalog_tiebreak_target_id
     # "Keroro" seul -> keroro_large (catalog) sur 62A ET 62B ; départage target_id -> 62A.
@@ -118,9 +117,33 @@ cases:
     target_id: S2E062A
     rule_name: keroro_large
 
-  - id: non_video_non_archive_mp3_is_catalog
-    # .mp3 -> ni is_video ni is_archive -> keroro_large (catalog), pas actionnable.
+  # --- Gate média (2026-07-02) : le catalogue permissif keroro_large exige is_video OU
+  #     is_archive. cbz/cbr sont des formats COMICS (ZIP/RAR déguisés), volontairement HORS
+  #     de is_archive -> écartés, jamais catalogués. ---
+  - id: non_video_non_archive_mp3_is_discarded
+    # .mp3 -> ni is_video ni is_archive -> écarté (gate média sur keroro_large), pas catalogué.
     filename: "Keroro N°062A Les demoiselles cambrioleuses.mp3"
+    discarded: true
+
+  - id: manga_cbz_is_discarded
+    # Format comic (.cbz = ZIP déguisé) mais PAS une archive générique -> écarté.
+    filename: "Manga FR - Sergent Keroro - 02 - (Mine YOSHIZAKI) - [Digital-1200].cbz"
+    discarded: true
+
+  - id: manga_cbr_is_discarded
+    # Format comic (.cbr = RAR déguisé) hors is_archive -> écarté.
+    filename: "Keroro vol 03 - Mine Yoshizaki.cbr"
+    discarded: true
+
+  - id: manga_pdf_is_discarded
+    # .pdf ni vidéo ni archive -> écarté.
+    filename: "Keroro Vol 30 - Mine Yoshizaki.pdf"
+    discarded: true
+
+  - id: bare_archive_zip_stays_catalog
+    # Archive GÉNÉRIQUE (.zip) sans preuve d'épisode -> keroro_large (catalog) via la
+    # branche is_archive du gate (une archive peut contenir l'épisode).
+    filename: "Keroro rediffusion.zip"
     tier: catalog
     target_id: S2E062A
     rule_name: keroro_large
