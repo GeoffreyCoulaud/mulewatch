@@ -77,9 +77,10 @@ matrices orthogonales ; pin SHA.
 ## Réglé depuis (post-merge)
 
 - **Visibilité ghcr** : packages **publics** (déjà fait par Geoffrey).
-- **Dependabot** : **activé** — `.github/dependabot.yml` (`chore(ci): enable Dependabot`, `718d8e9`),
-  écosystème `github-actions`, hebdo, **PR groupée**, préfixe `chore(ci)`. Bumpe le SHA **et** le
-  commentaire `# vX.Y.Z` des actions (workflows + composite actions), ignore les refs locales.
+- **Dependabot** : **activé** — `.github/dependabot.yml`, **3 écosystèmes** hebdo + PR groupée :
+  `github-actions` (bumpe SHA **et** commentaire `# vX.Y.Z` des workflows + composite actions ;
+  ignore les refs locales), `docker` (les `FROM` de `packages/*/Dockerfile` — pas les compose),
+  `uv` (workspace Python : `pyproject.toml` + `uv.lock` racine). Commits `718d8e9` + `84ee737`.
 
 ## PAS encore fait / à décider
 
