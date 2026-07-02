@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # --- Builder : installe emule-indexer (membre du workspace VIRTUEL) via uv ---
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-editable --package emule-indexer
 
 # --- Runtime : python slim, non-root, venv copie ---
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm@sha256:8a7e7cc04fd3e2bd787f7f24e22d5d119aa590d429b50c95dfe12b3abe52f48b
 
 # User non-root (999:999) — composera avec le durcissement compose (user:, read_only).
 RUN groupadd --system --gid 999 nonroot \
