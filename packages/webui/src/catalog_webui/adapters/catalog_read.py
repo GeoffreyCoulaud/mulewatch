@@ -1,11 +1,13 @@
 """Read-only reads of the catalog (webui spec W-D6 / §6).
 
-``CatalogReader`` exposes three reads:
+``CatalogReader`` exposes four reads:
 
 - ``target_coverage()`` — per ``target_id``, the list of ``(ed2k_hash, tier)`` from each
   file's LATEST match decision (ROW_NUMBER window PARTITION BY ed2k_hash).
 - ``list_files()`` — filtered paginated explorer (files ⨝ latest observation ⨝
   latest decision ⨝ latest verdict, optional filters + LIMIT/OFFSET).
+- ``count_files()`` — ``(matched, total)`` counts over the same filtered source, for the
+  /files summary line.
 - ``file_detail()`` — all observations + latest decision + all verdicts for a given
   hash; ``None`` if the hash is unknown.
 
@@ -49,18 +51,8 @@ WHERE (
 ORDER BY md.target_id, md.ed2k_hash
 """
 
-# Explorer: files ⨝ latest observation ⨝ latest decision ⨝ latest verdict.
-# Optional filters are added dynamically (see list_files()).
-_SQL_LIST_FILES_BASE = """\
-SELECT
-    f.ed2k_hash,
-    f.size_bytes,
-    obs.filename,
-    obs.source_count,
-    obs.observed_at AS last_seen,
-    dec.target_id,
-    dec.tier,
-    ver.verdict AS last_verdict
+# Shared source: files ⨝ latest observation ⨝ latest decision ⨝ latest verdict.
+_SQL_FILES_SOURCE = """\
 FROM files AS f
 LEFT JOIN file_observations AS obs
     ON obs.ed2k_hash = f.ed2k_hash
@@ -99,6 +91,33 @@ LEFT JOIN file_verifications AS ver
             )
     ) = 0
 """
+
+# Explorer: files + latest joins, driven by files. Optional filters added in list_files().
+_SQL_LIST_FILES_BASE = (
+    """\
+SELECT
+    f.ed2k_hash,
+    f.size_bytes,
+    obs.filename,
+    obs.source_count,
+    obs.observed_at AS last_seen,
+    dec.target_id,
+    dec.tier,
+    ver.verdict AS last_verdict
+"""
+    + _SQL_FILES_SOURCE
+)
+
+# Counter for the /files summary: (total, matched) over the same source + filters,
+# WITHOUT the matched-only clause. COUNT(dec.target_id) counts non-null = matched.
+_SQL_COUNT_FILES_BASE = (
+    """\
+SELECT
+    COUNT(*) AS total,
+    COUNT(dec.target_id) AS matched
+"""
+    + _SQL_FILES_SOURCE
+)
 
 # All observations of a file (timeline), chronological order.
 _SQL_OBSERVATIONS = """\
@@ -260,6 +279,29 @@ class CatalogReader:
             )
             for row in rows
         ]
+
+    def count_files(
+        self,
+        *,
+        target: str | None,
+        tier: str | None,
+        verdict: str | None,
+        query: str | None,
+    ) -> tuple[int, int]:
+        """Return ``(matched, total)`` file counts in the current filter scope.
+
+        ``total`` = files matching the ``target/tier/verdict/query`` filters (the
+        matched-only clause is deliberately NOT applied); ``matched`` = of those, how many
+        have a match decision. Feeds the /files summary line.
+        """
+        clauses, params = _filter_clauses(target, tier, verdict, query)
+        sql = _SQL_COUNT_FILES_BASE
+        if clauses:
+            sql += "WHERE " + " AND ".join(clauses) + "\n"
+        row = self._conn.execute(sql, params).fetchone()
+        matched: int = row["matched"]
+        total: int = row["total"]
+        return (matched, total)
 
     # ------------------------------------------------------------------
     # Detail
