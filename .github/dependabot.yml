@@ -1,0 +1,17 @@
+# Dependabot — keep third-party GitHub Actions up to date.
+# The github-actions ecosystem scans .github/workflows/*.yml AND our composite
+# action.yml files (.github/actions/*/action.yml); it bumps both the pinned commit
+# SHA and the trailing "# vX.Y.Z" comment. Local "./..." action refs are ignored.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # One grouped PR per run instead of one PR per action.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(ci)"
