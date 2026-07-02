@@ -185,6 +185,33 @@ Plusieurs causes, à vérifier dans cet ordre :
 - **Fournisseur sans port forwarding.** Le High-ID exige un provider à port forwarding
   (Proton/PIA/PrivateVPN/PerfectPrivacy) et `VPN_PORT_FORWARDING: "on"`.
 
+### Le port forwarded change toutes les ~60 s (jamais de High-ID stable, ProtonVPN + WireGuard)
+
+- **Symptôme.** Dans les logs `gluetun`, un `port forwarded is <N>` **différent à chaque
+  renouvellement** (~toutes les 45–60 s), chaque fois précédé de
+  `ERROR [port forwarding] refreshing port mapping … external port requested as X but received Y`.
+  Le port-sync ne peut jamais converger : la cible bouge plus vite qu'il ne peut aligner amuled
+  (et son `restart_min_interval_seconds` bride le rythme des restarts). Résultat : Low-ID permanent
+  **alors même que le port-sync fonctionne**.
+- **Cause.** Le renouvellement NAT-PMP (obligatoire côté Proton) transite en UDP dans le tunnel
+  **WireGuard** ; sur une clé/config Proton défaillante, la passerelle ne **préserve pas** le
+  mapping au renouvellement et réassigne un port neuf. C'est un problème **gluetun ⇄ Proton**, pas
+  du crawler (cf. [gluetun#3196](https://github.com/qdm12/gluetun/issues/3196)). `PORT_FORWARD_ONLY`
+  seul **ne suffit pas** (vérifié sur le terrain : le churn persiste sur serveurs P2P).
+- **Solution — régénérer la clé WireGuard Proton** (dashboard Proton) en cochant les bons réglages,
+  ce qui couvre les trois causes racines connues d'un coup :
+  1. **Port Forwarding activé** sur la config au moment de la génération.
+  2. **Moderate NAT désactivé** — Proton le documente comme **incompatible NAT-PMP** (cause la plus
+     fréquente).
+  3. **Clé unique à cette instance** — une même clé WireGuard réutilisée par deux clients (autre
+     gluetun, autre appareil) fait s'entre-écraser les renouvellements NAT-PMP. Une clé fraîche
+     garantit l'unicité.
+
+  Puis remplacer `WIREGUARD_PRIVATE_KEY` dans `.env` et recréer gluetun + amuled
+  (`docker compose up -d gluetun amuled`). Garder `PORT_FORWARD_ONLY: "on"` (correct et sain, juste
+  pas suffisant seul). Valider en observant `gluetun` : le port doit apparaître **une fois** puis
+  rester **silencieux** sur plusieurs cycles (> 5 min), sans `requested X but received Y`.
+
 ---
 
 ## Stockage & droits
