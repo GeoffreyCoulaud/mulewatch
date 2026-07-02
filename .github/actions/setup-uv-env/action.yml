@@ -1,9 +1,9 @@
 name: Setup uv env
-description: Installe uv (cache activé) et synchronise l'environnement de dev (uv sync --dev).
+description: Install uv (cache enabled) and sync the dev environment (uv sync --dev).
 runs:
   using: composite
   steps:
-    - uses: astral-sh/setup-uv@v5
+    - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       with:
         enable-cache: true
     - run: uv sync --dev

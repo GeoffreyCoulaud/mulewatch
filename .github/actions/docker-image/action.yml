@@ -1,30 +1,50 @@
-name: Build (and optionally push) a package image
+name: Build a package image
 description: >
-  Build l'image d'un package via buildx. Mono-arch --load (tests) ou multi-arch --push
-  (publication) selon `push`. Cache partagé type=gha (scope par package).
+  Build one package image for one platform with buildx. A thin passthrough over
+  docker/build-push-action: the caller picks the export via `outputs` (type=cacheonly,
+  type=docker for a local --load, or type=image,push-by-digest for publication). The gha
+  cache is scoped per (package, platform) via `cache-scope`.
 inputs:
   package:
-    description: Nom du package (crawler|verifier|webui).
+    description: Package name (crawler|verifier|webui).
     required: true
-  push:
-    description: "'true' = build-push multi-arch ; 'false' = build --load local."
+  platform:
+    description: Single target platform (e.g. linux/amd64 or linux/arm64).
     required: true
-  platforms:
-    description: Plateformes buildx (ex. linux/amd64 ou linux/amd64,linux/arm64).
+  outputs:
+    description: >
+      buildx outputs, passed through verbatim. Examples: 'type=cacheonly';
+      'type=docker'; 'type=image,name=<img>,push-by-digest=true,name-canonical=true,push=true'.
     required: true
   tags:
-    description: Tags d'image (multiligne).
+    description: Image tags (multiline). Optional — omit for cacheonly / push-by-digest.
+    required: false
+    default: ''
+  cache-scope:
+    description: gha cache scope, e.g. crawler-amd64.
     required: true
+  write-cache:
+    description: >
+      If 'true', also export the gha cache (cache-to). Only the build legs (the cache warmers)
+      set this. Read-only consumers (integration, release build-push) leave it false so they do
+      not re-export to a scope a build leg already wrote — a double export to the same gha scope
+      races and fails with "not_found".
+    required: false
+    default: 'false'
+outputs:
+  digest:
+    description: Image digest (set for push/registry builds; empty otherwise).
+    value: ${{ steps.build.outputs.digest }}
 runs:
   using: composite
   steps:
-    - uses: docker/build-push-action@v6
+    - id: build
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
       with:
         context: .
         file: packages/${{ inputs.package }}/Dockerfile
-        platforms: ${{ inputs.platforms }}
-        load: ${{ inputs.push == 'false' }}
-        push: ${{ inputs.push == 'true' }}
+        platforms: ${{ inputs.platform }}
+        outputs: ${{ inputs.outputs }}
         tags: ${{ inputs.tags }}
-        cache-from: type=gha,scope=${{ inputs.package }}
-        cache-to: type=gha,mode=max,scope=${{ inputs.package }}
+        cache-from: type=gha,scope=${{ inputs.cache-scope }}
+        cache-to: ${{ inputs.write-cache == 'true' && format('type=gha,mode=max,scope={0}', inputs.cache-scope) || '' }}
