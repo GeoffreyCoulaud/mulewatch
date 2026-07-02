@@ -152,6 +152,33 @@ WHERE ed2k_hash = ?
 """
 
 
+def _filter_clauses(
+    target: str | None,
+    tier: str | None,
+    verdict: str | None,
+    query: str | None,
+) -> tuple[list[str], list[str]]:
+    """Shared WHERE clauses + params for the explorer list and its counter.
+
+    The matched-only clause and LIMIT/OFFSET are list-specific and are NOT built here.
+    """
+    clauses: list[str] = []
+    params: list[str] = []
+    if target is not None:
+        clauses.append("dec.target_id = ?")
+        params.append(target)
+    if tier is not None:
+        clauses.append("dec.tier = ?")
+        params.append(tier)
+    if verdict is not None:
+        clauses.append("ver.verdict = ?")
+        params.append(verdict)
+    if query is not None:
+        clauses.append("obs.filename LIKE ?")
+        params.append(f"%{query}%")
+    return clauses, params
+
+
 # ---------------------------------------------------------------------------
 # CatalogReader
 # ---------------------------------------------------------------------------
@@ -193,6 +220,7 @@ class CatalogReader:
         verdict: str | None,
         query: str | None,
         page: int,
+        matched_only: bool = False,
     ) -> list[FileRow]:
         """Return a page of ``FileRow`` (size ``_PAGE_SIZE``) with optional filters.
 
@@ -201,23 +229,14 @@ class CatalogReader:
         - ``tier``   : filter on ``dec.tier`` (latest decision).
         - ``verdict``: filter on ``ver.verdict`` (latest verdict).
         - ``query``  : substring of ``obs.filename`` (LIKE ``%query%``).
+        - ``matched_only``: when true, keep only files with a match decision
+          (``dec.target_id IS NOT NULL``). Default false = whole catalogue.
         - ``page``   : page number (1-based).
         """
-        clauses: list[str] = []
-        params: list[str | int] = []
-
-        if target is not None:
-            clauses.append("dec.target_id = ?")
-            params.append(target)
-        if tier is not None:
-            clauses.append("dec.tier = ?")
-            params.append(tier)
-        if verdict is not None:
-            clauses.append("ver.verdict = ?")
-            params.append(verdict)
-        if query is not None:
-            clauses.append("obs.filename LIKE ?")
-            params.append(f"%{query}%")
+        clauses, str_params = _filter_clauses(target, tier, verdict, query)
+        if matched_only:
+            clauses.append("dec.target_id IS NOT NULL")
+        params: list[str | int] = [*str_params]
 
         sql = _SQL_LIST_FILES_BASE
         if clauses:

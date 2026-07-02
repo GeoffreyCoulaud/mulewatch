@@ -358,6 +358,50 @@ def test_file_detail_observations_include_media_fields_present(catalog_db: Path)
     assert obs.bitrate_kbps == 192
 
 
+def _seed_unmatched(db: Path) -> None:
+    """Add a second file (b*32) with an observation but NO match decision."""
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", ("b" * 32, 200))
+        conn.execute(
+            "INSERT INTO file_observations"
+            " (ed2k_hash, filename, size_bytes, source_count,"
+            " complete_source_count, raw_meta, keyword, observed_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "b" * 32,
+                "gallego_ep021.ogm",
+                200,
+                1,
+                0,
+                "[]",
+                "keroro",
+                "2026-06-22T09:00:00.000000+00:00",
+                "n2",
+            ),
+        )
+        conn.commit()
+
+
+def test_list_files_matched_only_excludes_unmatched(catalog_db: Path) -> None:
+    _seed(catalog_db)
+    _seed_unmatched(catalog_db)
+    reader = CatalogReader(open_ro(catalog_db))
+    rows = reader.list_files(
+        target=None, tier=None, verdict=None, query=None, page=1, matched_only=True
+    )
+    hashes = {r.ed2k_hash for r in rows}
+    assert hashes == {"a" * 32}  # only the matched file
+
+
+def test_list_files_default_includes_unmatched(catalog_db: Path) -> None:
+    _seed(catalog_db)
+    _seed_unmatched(catalog_db)
+    reader = CatalogReader(open_ro(catalog_db))
+    rows = reader.list_files(target=None, tier=None, verdict=None, query=None, page=1)
+    hashes = {r.ed2k_hash for r in rows}
+    assert hashes == {"a" * 32, "b" * 32}  # default matched_only=False → both
+
+
 def test_list_files_shows_latest_observation(catalog_db: Path) -> None:
     """Same hash with two observations → list_files returns the most recent filename."""
     h = "c" * 32
