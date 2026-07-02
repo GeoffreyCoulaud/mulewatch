@@ -410,6 +410,21 @@ async def test_targets_shortcut_returns_200(
 
 
 @pytest.mark.asyncio
+async def test_target_page_has_no_summary_line(
+    populated_app: tuple[Starlette, str],
+) -> None:
+    """/targets/{id} shares files.html, but the matched/all summary is meaningless on a
+    target-scoped page — the summary line and its toggle must not render there."""
+    app, _ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/targets/S2E062A")
+    assert resp.status_code == 200
+    assert "files-summary" not in resp.text
+    assert "Showing matched files only" not in resp.text
+    assert "Show all catalogued files" not in resp.text
+
+
+@pytest.mark.asyncio
 async def test_node_returns_200_with_node_info(
     populated_app: tuple[Starlette, str],
 ) -> None:
