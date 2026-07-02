@@ -41,9 +41,11 @@ _MISMATCH = "port_mismatch"
 class PortPreferences(Protocol):
     """Subset of ``MuleClient`` consumed by the loop (local typing, design §4.2).
 
-    The real ``AmuleEcClient`` (new get/set_listen_port, existing network_status) AND a minimal
-    fake satisfy it. Stubs on ONE line.
+    The real ``AmuleEcClient`` (connect, new get/set_listen_port, existing network_status) AND a
+    minimal fake satisfy it. Stubs on ONE line.
     """
+
+    async def connect(self) -> None: ...
 
     async def get_listen_port(self) -> int: ...
 
@@ -99,6 +101,13 @@ async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None
             # control-server not ready / PF not negotiated → we stay Low-ID, NO alert.
             await deps.clock.sleep(deps.poll_interval_seconds)
             return
+        # (Re)connect the dedicated EC client BEFORE any EC op. IDEMPOTENT (AmuleEcClient.connect
+        # is a no-op when already connected), but ESSENTIAL after a restart: our own restart() — or
+        # a VPN renegotiation — kills the connection, and the client self-heals by nulling its
+        # transport on the next failed read. Without this call the loop would stay stuck "EC client
+        # not connected" forever (the field deadlock). A failed reconnect (amuled still down) raises
+        # under ``MuleClientError`` → absorbed + backoff below, like any other EC failure.
+        await deps.ports.connect()
         current = await deps.ports.get_listen_port()
         if live == current:
             # The preference is aligned with the forwarded port — but this is NOT proof that

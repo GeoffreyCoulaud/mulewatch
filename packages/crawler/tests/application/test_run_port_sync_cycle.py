@@ -55,20 +55,38 @@ class FakePortPreferences:
         ed2k_high: bool = True,
         get_error: Exception | None = None,
         set_error: Exception | None = None,
+        connected: bool = True,
     ) -> None:
         self._current_port = current_port
         self._ed2k_high = ed2k_high
         self._get_error = get_error
         self._set_error = set_error
+        self._connected = connected
         self.set_ports: list[int] = []
         self.status_calls = 0
+        self.connect_calls = 0
+
+    def _require_connected(self) -> None:
+        # Mirrors AmuleEcClient._require_transport: every EC op fails "not connected" until a
+        # successful connect(). Models the field deadlock — a restart nulls the transport, and
+        # without a reconnect every subsequent op raises this forever.
+        if not self._connected:
+            raise EcConnectError("EC client not connected (call connect() first)")
+
+    async def connect(self) -> None:
+        # Idempotent, like AmuleEcClient.connect: a no-op when already connected, a real revival
+        # after a prior EC failure dropped the transport (self._connected False).
+        self.connect_calls += 1
+        self._connected = True
 
     async def get_listen_port(self) -> int:
+        self._require_connected()
         if self._get_error is not None:
             raise self._get_error
         return self._current_port
 
     async def set_listen_port(self, port: int) -> None:
+        self._require_connected()
         if self._set_error is not None:
             raise self._set_error
         self.set_ports.append(port)
@@ -77,6 +95,7 @@ class FakePortPreferences:
         self._current_port = port
 
     async def network_status(self) -> NetworkStatus:
+        self._require_connected()
         self.status_calls += 1
         return NetworkStatus(
             ed2k_id=0x02000001 if self._ed2k_high else 100,
@@ -330,6 +349,25 @@ async def test_application_level_ec_failure_is_also_absorbed() -> None:
     await run_port_sync_cycle(deps, _PortSyncState())  # does not raise
     assert ports.set_ports == []
     assert clock.sleeps == [_POLL]
+
+
+@pytest.mark.asyncio
+async def test_cycle_reconnects_ec_when_disconnected() -> None:
+    # Field deadlock (the port-sync we debugged): a prior restart nulled the dedicated EC
+    # transport, so the client is DISCONNECTED at the start of the cycle. Every EC op then raises
+    # "not connected" until connect() is re-issued. A correct cycle must (re)connect its client
+    # before using EC — otherwise it stays stuck forever, never re-aligning amuled's port. Here the
+    # forwarded port (51820) diverges from amuled's (4662): a healthy cycle reconnects, reads the
+    # port, and resumes the sync (SetPort + restart). A cycle that never reconnects raises on
+    # get_listen_port, is absorbed, and does NOTHING (the bug).
+    reader = FakePortForwardingReader(port=51820)
+    ports = FakePortPreferences(current_port=4662, connected=False)
+    restarter = FakeMuleRestarter()
+    deps = _deps(reader=reader, ports=ports, restarter=restarter)
+    await run_port_sync_cycle(deps, _PortSyncState())
+    assert ports.connect_calls == 1  # it reconnected before touching EC
+    assert ports.set_ports == [51820]  # and resumed the sync (proof it got past get_listen_port)
+    assert restarter.calls == 1
 
 
 # ---------------------------------------------------------------- edge-trigger
