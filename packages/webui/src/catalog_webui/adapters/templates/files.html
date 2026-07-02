@@ -3,10 +3,12 @@
 {% block content %}
 <h1>Files</h1>
 
+{% for s in summaries %}
 <p class="files-summary">
-  {{ summary.summary_text }}
-  <a href="{{ summary.toggle_url }}">{{ summary.toggle_label }}</a>
+  {{ s.summary_text }}
+  <a href="{{ s.toggle_url }}">{{ s.toggle_label }}</a>
 </p>
+{% endfor %}
 
 <table>
   <thead>

@@ -235,7 +235,7 @@ def build_app(
         return templates.TemplateResponse(
             request,
             "files.html",
-            {"rows": display_rows, "nav": nav, "summary": summary},
+            {"rows": display_rows, "nav": nav, "summaries": (summary,)},
         )
 
     async def handle_file_detail(request: Request) -> Response:
@@ -308,21 +308,16 @@ def build_app(
                 query=None,
                 page=1,
             )
-            matched, total = catalog.count_files(
-                target=target_id, tier=None, verdict=None, query=None
-            )
 
         display_rows = _to_display_rows(file_rows)
         # No pagination here (target view: we expect few) — empty nav.
         nav = PageNav(page=1, prev_url=None, next_url=None)
-        # The target filter already implies a decision, so matched == total here; the
-        # summary/toggle is still built via the shared helper so files.html (shared with
-        # /files) always has a ``summary`` in context.
-        summary = _build_summary(matched, total, False, {"target": target_id})
+        # files.html is shared with /files, whose matched/all summary line is meaningless
+        # on a target-scoped page — pass an empty tuple so it renders nothing.
         return templates.TemplateResponse(
             request,
             "files.html",
-            {"rows": display_rows, "nav": nav, "summary": summary},
+            {"rows": display_rows, "nav": nav, "summaries": ()},
         )
 
     async def handle_node(request: Request) -> Response:
