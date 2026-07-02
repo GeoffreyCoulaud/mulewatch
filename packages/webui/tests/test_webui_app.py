@@ -318,6 +318,36 @@ async def test_files_filtered_verdict_returns_200_empty(
 
 
 @pytest.mark.asyncio
+async def test_files_default_hides_unmatched(
+    app_no_decision: tuple[Starlette, str],
+) -> None:
+    """/files defaults to matched-only → an unmatched file is hidden."""
+    app, hash_ = app_no_decision
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files")
+    assert resp.status_code == 200
+    assert hash_[:8] not in resp.text
+    assert "Showing matched files only — 0 of 1 catalogued." in resp.text
+    assert "Show all catalogued files" in resp.text
+    assert "show_unmatched=1" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_files_show_unmatched_reveals_and_toggles_back(
+    app_no_decision: tuple[Starlette, str],
+) -> None:
+    """/files?show_unmatched=1 reveals the whole catalogue; toggle points back to matched-only."""
+    app, hash_ = app_no_decision
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files?show_unmatched=1")
+    assert resp.status_code == 200
+    assert hash_[:8] in resp.text
+    assert "Showing all catalogued files — 1 catalogued (0 matched)." in resp.text
+    assert "Matched only" in resp.text
+    assert 'href="/files"' in resp.text  # toggle drops the param (no filters) → bare /files
+
+
+@pytest.mark.asyncio
 async def test_file_detail_with_decision_returns_200(
     populated_app: tuple[Starlette, str],
 ) -> None:
@@ -644,6 +674,10 @@ async def test_files_page_shows_pagination_navigation(
                     "2024-01-01T00:00:00",
                     "node1",
                 ),
+            )
+            conn.execute(
+                "INSERT INTO match_decisions VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (i + 1, ed2k, "S2E062A", "catalog", "catalog", "2024-01-01T00:00:00", "node1"),
             )
         conn.commit()
     with sqlite3.connect(local_db) as conn:
