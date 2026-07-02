@@ -106,8 +106,11 @@ services:
       - clamav-db:/var/lib/clamav
     networks:
       - egress
-    cap_drop:
-      - ALL
+    # THIRD-PARTY image (official clamav). Its /init entrypoint runs as root and structurally needs
+    # CHOWN + FOWNER + SETUID + SETGID + DAC_OVERRIDE (chown the DB dir, drop privileges to the clamav
+    # user, write its log). Under our `cap_drop: ALL` floor the first chown fails (EPERM) and the
+    # container restart-loops. So we do NOT impose cap_drop on it -- same posture as amuled (third-party
+    # image, accepted residual risk, see CLAUDE.md). no-new-privileges kept (does not block the drop).
     security_opt:
       - "no-new-privileges:true"
     restart: unless-stopped

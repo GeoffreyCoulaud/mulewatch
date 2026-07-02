@@ -69,10 +69,11 @@ trafic P2P.
 
 ### Route A (recommandée) — derrière le VPN, via port forwarding
 
-> ⚠️ **Prérequis Route A** : Docker rootful natif sur Linux + familiarité avec les groupes Unix
-> (`docker`, GID, `getent`). Si vous n'êtes pas à l'aise avec ces concepts, prenez la **Route B**
-> (port-forward manuel sur votre box) — vous y perdez seulement la mise à jour automatique du port
-> si votre VPN rotate, ce qui n'arrive que rarement.
+> ⚠️ **Prérequis Route A** : Docker **rootful** — Docker Desktop (Win/macOS/Linux) **ou** Docker natif.
+> Le `docker-proxy` tourne en root (`user: "0:0"`), donc **plus besoin** du groupe Unix `docker`/GID.
+> Le mode **rootless** n'est pas supporté (socket sous `$XDG_RUNTIME_DIR`, accès par UID). Si le
+> port-sync ne vous tente pas, prenez la **Route B** (port-forward manuel sur votre box) — vous y
+> perdez seulement la mise à jour automatique du port si votre VPN rotate, ce qui n'arrive que rarement.
 
 **Comment ça marche.** gluetun sait demander un **port forwarding** à votre fournisseur VPN : le
 port joignable est celui du VPN, **tout le trafic reste derrière le tunnel**. Cette boucle
@@ -82,7 +83,7 @@ port joignable est celui du VPN, **tout le trafic reste derrière le tunnel**. C
 [gluetun]  ──── obtient le port forwardé du VPN ────►  [docker-proxy]  ──── pousse le redémarrage d'amuled ────►  [amuled]
                                                             ▲                                                          ▲
                                                   lit le socket Docker                                        écoute sur le nouveau port
-                                              (groupe Unix `docker` requis)
+                                              (socket lu en root — `user: "0:0"`)
 ```
 
 Si **un seul** maillon est mal configuré, le port-sync est désarmé silencieusement et le nœud reste

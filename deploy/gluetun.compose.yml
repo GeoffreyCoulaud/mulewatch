@@ -52,6 +52,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [ec]
+    # Root REQUIRED explicitly: the wollomatic image is built USER 65534, but the bind-mounted Docker
+    # socket appears root:root (Docker Desktop) or root:docker (native Docker) -- only root can reach
+    # it. Still confined: cap_drop ALL + read_only + no-new-privileges + allowlist restricted to a
+    # single endpoint POST /containers/amuled/restart.
+    user: "0:0"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     read_only: true

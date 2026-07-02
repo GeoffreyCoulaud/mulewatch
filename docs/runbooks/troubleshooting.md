@@ -125,6 +125,19 @@ Trois causes possibles, de la plus probable à la moins :
    [runbook d'administration](administration.md), « Analyse antivirus (clamav) »).
 3. **Accroc de droits sur la quarantaine** (voir « Droits cross-user sur la quarantaine » plus bas).
 
+### Le sidecar `freshclam` redémarre en boucle (`chown … Operation not permitted`)
+
+- **Cause.** `freshclam` utilise l'image **tierce** officielle `clamav/clamav`, dont l'entrypoint
+  `/init` tourne en root et exige structurellement plusieurs capabilities (`chown -R` de la base,
+  `install` du `/run/clamav`, drop de privilèges vers l'utilisateur `clamav`, écriture du log). Sous
+  notre plancher `cap_drop: ALL`, le premier `chown` échoue en EPERM ; l'entrypoint étant en
+  `set -e`, le conteneur meurt → `restart: unless-stopped` reboucle. C'est le symptôme des lignes
+  `chown: /var/lib/clamav/…: Operation not permitted`.
+- **Solution.** On **n'impose pas** `cap_drop: ALL` à `freshclam` (image tierce, même posture
+  qu'amuled — cf. [CLAUDE.md § Confinement](../../CLAUDE.md)). Le service garde `no-new-privileges`
+  mais **pas** de `cap_drop` (`deploy/base.compose.yml`). Le volume `clamav-db` existant n'a pas
+  besoin d'être réinitialisé : le `chown` de l'entrypoint réussira au prochain boot.
+
 ### Le fichier fini n'est pas récupéré (reste dans l'IncomingDir, non catalogué)
 
 - **Cause.** Une des 4 contraintes du mode download n'est pas respectée. Détail et rationale dans
@@ -158,13 +171,14 @@ Trois causes possibles, de la plus probable à la moins :
 
 Plusieurs causes, à vérifier dans cet ordre :
 
-- **Hôte Docker incompatible.** Le `docker-proxy` qui redémarre amuled tourne non-root et lit
-  `/var/run/docker.sock` par accès **groupe** (`660 root:docker`) : il exige donc un **Docker rootful
-  natif**. **Docker Desktop** ré-expose le socket en **`root:root`** dans le conteneur → le GID
-  `docker` de l'hôte n'y donne aucun accès (`permission denied`). En **rootless**, le socket n'est pas
-  à `/var/run/docker.sock` (mais sous `$XDG_RUNTIME_DIR`) et l'accès passe par l'UID, pas un groupe.
-  Les deux → port-sync inopérant (détails + sources :
-  [`docs/reference/2026-06-17-docker-desktop-rootless-socket.md`](reference/2026-06-17-docker-desktop-rootless-socket.md)).
+- **`docker-proxy` qui redémarre en boucle (`socket not available … connect: permission denied`).**
+  Le proxy doit tourner en **root** pour lire le socket Docker bind-monté (`root:root` sous Docker
+  Desktop, `root:docker` sous Docker natif — root est propriétaire dans les deux cas). L'image
+  `wollomatic/socket-proxy` est buildée `USER 65534`, donc le compose **doit** poser `user: "0:0"`
+  explicitement (`deploy/gluetun.compose.yml`) : sans cette ligne, le proxy tourne en `nobody` →
+  `permission denied` → boucle. Si vous voyez ce symptôme, vérifiez que `user: "0:0"` est bien
+  présent. **Rootless** reste hors de portée (socket sous `$XDG_RUNTIME_DIR`, accès par UID —
+  détails + sources : [`docs/reference/2026-06-17-docker-desktop-rootless-socket.md`](reference/2026-06-17-docker-desktop-rootless-socket.md)).
 - **Conteneur amuled mal nommé.** Le proxy n'autorise QUE `POST .../containers/amuled/restart` : le
   conteneur doit s'appeler **exactement `amuled`** (épinglé via `container_name: amuled` dans
   `deploy/gluetun.compose.yml`). Sous un autre nom, le restart fait **404** et le port-sync ne fait rien.
