@@ -1,9 +1,10 @@
-"""Port ``PortForwardingReader`` : le port forwardé VIVANT du VPN (port-sync, design §3.1).
+"""``PortForwardingReader`` port: the VPN's LIVE forwarded port (port-sync, design §3.1).
 
-Couche PORTS. Le crawler lit le port forwardé négocié par gluetun (NAT-PMP) pour aligner le
-port d'écoute d'amuled dessus (High-ID). ``int > 0`` = port vivant ; ``None`` = « pas prêt »
-(port 0 / JSON malformé / control-server injoignable) — parsing DÉFENSIF dans l'adapter, JAMAIS
-d'exception : le mode dégradé (Low-ID) est toléré. Stub sur UNE ligne (le ``def`` compte couvert).
+PORTS layer. The crawler reads the forwarded port negotiated by gluetun (NAT-PMP) to align
+amuled's listen port on it (High-ID). ``int > 0`` = live port; ``None`` = "not ready" (port 0
+/ malformed JSON / control-server unreachable) — DEFENSIVE parsing in the adapter, NEVER an
+exception: the degraded mode (Low-ID) is tolerated. Stub on ONE line (the ``def`` counts as
+covered).
 """
 
 from typing import Protocol

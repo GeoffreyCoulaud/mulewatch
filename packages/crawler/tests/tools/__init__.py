@@ -1,1 +1,1 @@
-"""Tests des outils CLI."""
+"""Tests for the CLI tools."""

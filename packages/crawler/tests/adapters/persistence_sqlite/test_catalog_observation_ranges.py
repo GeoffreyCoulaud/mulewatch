@@ -1,8 +1,8 @@
-"""catalog/0002 : table de rollup file_observation_ranges (append-only + CHECK).
+"""catalog/0002: rollup table file_observation_ranges (append-only + CHECK).
 
-Append-only IMPOSÉ PAR LA BASE (comme les tables de 0001) : UPDATE/DELETE → RAISE(ABORT) →
-sqlite3.IntegrityError. Les CHECK (observation_count > 0, first <= last, LENGTH(bucket) = 10)
-remontent aussi en sqlite3.IntegrityError. Fichier réel exigé (WAL ; open_catalog refuse :memory:).
+Append-only ENFORCED BY THE DATABASE (like the 0001 tables): UPDATE/DELETE → RAISE(ABORT) →
+sqlite3.IntegrityError. The CHECKs (observation_count > 0, first <= last, LENGTH(bucket) = 10)
+also surface as sqlite3.IntegrityError. Real file required (WAL; open_catalog refuses :memory:).
 """
 
 import sqlite3
@@ -39,12 +39,12 @@ def test_insert_is_allowed(seeded: sqlite3.Connection) -> None:
 
 
 def test_update_is_rejected(seeded: sqlite3.Connection) -> None:
-    with pytest.raises(sqlite3.IntegrityError, match="file_observation_ranges est append-only"):
+    with pytest.raises(sqlite3.IntegrityError, match="file_observation_ranges is append-only"):
         seeded.execute("UPDATE file_observation_ranges SET observation_count = 4")
 
 
 def test_delete_is_rejected(seeded: sqlite3.Connection) -> None:
-    with pytest.raises(sqlite3.IntegrityError, match="file_observation_ranges est append-only"):
+    with pytest.raises(sqlite3.IntegrityError, match="file_observation_ranges is append-only"):
         seeded.execute("DELETE FROM file_observation_ranges")
 
 

@@ -1,4 +1,4 @@
-"""Les événements sont des dataclasses gelées à champs métier — test de construction/gel."""
+"""Events are frozen dataclasses with business fields — construction/freeze test."""
 
 import dataclasses
 
@@ -17,8 +17,8 @@ def test_observation_recorded_carries_network() -> None:
 
 def test_event_is_frozen() -> None:
     event = VerificationCompleted(target_id="S2E062A", verdict="clean")
-    # Passer l'attribut via une variable pour éviter ruff B010 tout en
-    # déclenchant FrozenInstanceError au runtime (frozen=True).
+    # Pass the attribute via a variable to avoid ruff B010 while still
+    # triggering FrozenInstanceError at runtime (frozen=True).
     attr = "verdict"
     with pytest.raises(dataclasses.FrozenInstanceError):
         setattr(event, attr, "malicious")

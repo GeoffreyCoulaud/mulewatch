@@ -1,16 +1,17 @@
-"""Couture service-side de l'analyse (spec analysis §3/§6 — DA6).
+"""Service-side seam of the analysis (analysis spec §3/§6 — DA6).
 
-``verify_file`` est la couture STABLE que ``app.py`` appelle (signature inchangée) : elle vérifie
-l'EXISTENCE du fichier en quarantaine (``is_file`` — métadonnée seulement, le parent ne lit JAMAIS
-les octets, DA8), puis spawne l'enfant d'analyse jetable (``spawn.run_analysis``) qui exécute les
-checks et imprime un égress parsé défensivement (``egress.parse``). Mapping (DA6, toujours 200) :
-fichier absent / non-régulier → ``("error", {}, [])`` ; sinon le verdict réel de l'enfant
-(``clean``/``suspicious``/``malicious``, ou ``suspicious`` si l'enfant timeout/crashe/égresse mal).
+``verify_file`` is the STABLE seam that ``app.py`` calls (unchanged signature): it checks the
+EXISTENCE of the quarantined file (``is_file`` — metadata only, the parent NEVER reads the bytes,
+DA8), then spawns the disposable analysis child (``spawn.run_analysis``) which runs the checks and
+prints a defensively-parsed egress (``egress.parse``). Mapping (DA6, always 200): missing /
+non-regular file → ``("error", {}, [])``; otherwise the child's real verdict
+(``clean``/``suspicious``/``malicious``, or ``suspicious`` if the child times out/crashes/egresses
+badly).
 
-``cfg`` est REQUIS (résolu une fois au boot par ``app.build_app`` et injecté — plus de
-résolution paresseuse par requête, cf. error-boundary#0) ; ``runner`` est injectable (tests),
-son défaut est le ``ProdChildRunner`` réel. ``expected`` reste minimal et non décisif (DA2 ;
-le pipeline ne l'exploite pas en D-analysis).
+``cfg`` is REQUIRED (resolved once at boot by ``app.build_app`` and injected — no more lazy
+per-request resolution, cf. error-boundary#0); ``runner`` is injectable (tests), its default is
+the real ``ProdChildRunner``. ``expected`` stays minimal and non-decisive (DA2; the pipeline does
+not use it in D-analysis).
 """
 
 import os
@@ -27,13 +28,13 @@ _VERDICT_ERROR = "error"
 
 
 def _is_regular_file_no_follow(path: Path) -> bool:
-    """``True`` si ``path`` est un fichier RÉGULIER (PAS un symlink, ni un répertoire, ni un FIFO).
+    """``True`` if ``path`` is a REGULAR file (NOT a symlink, a directory, or a FIFO).
 
-    Sandbox-confinement#4 : ``Path.is_file()`` suit les symlinks. Un amuled compromis partageant
-    la quarantaine en RW pourrait y déposer un symlink nommé comme un hash hex valide → ``is_file``
-    rendrait True et le verifier ouvrirait le symlink en suivant la cible. On bascule sur
-    ``os.lstat + S_ISREG`` : un symlink est explicitement REJETÉ (lstat ne suit pas), et tout
-    type non régulier (FIFO, socket, périphérique, répertoire) aussi.
+    Sandbox-confinement#4: ``Path.is_file()`` follows symlinks. A compromised amuled sharing the
+    quarantine RW could drop a symlink named like a valid hex hash there → ``is_file`` would
+    return True and the verifier would open the symlink, following the target. We switch to
+    ``os.lstat + S_ISREG``: a symlink is explicitly REJECTED (lstat does not follow), and so is
+    any non-regular type (FIFO, socket, device, directory).
     """
     try:
         st = os.lstat(path)
@@ -49,11 +50,11 @@ def verify_file(
     cfg: AnalysisConfig,
     runner: ChildRunner | None = None,
 ) -> tuple[str, dict[str, object], list[object], ChildOutcome | None]:
-    """Vérifie un fichier en quarantaine. Rend ``(verdict, real_meta, checks, outcome)`` (DA6).
+    """Verify a quarantined file. Returns ``(verdict, real_meta, checks, outcome)`` (DA6).
 
-    ``outcome`` est ``None`` si verify_file court-circuite (fichier absent, symlink rejeté,
-    type non régulier — verdict ``error``, aucun child) ; sinon c'est la catégorie technique
-    d'issue du child (cf. ``spawn.run_analysis``), observée en métrique côté app (observability#2).
+    ``outcome`` is ``None`` if verify_file short-circuits (missing file, rejected symlink,
+    non-regular type — ``error`` verdict, no child); otherwise it is the child's technical
+    outcome category (cf. ``spawn.run_analysis``), observed as a metric app-side (observability#2).
     """
     child_runner = runner if runner is not None else ProdChildRunner(cfg)
     if not _is_regular_file_no_follow(quarantine_path):

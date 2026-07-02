@@ -2,7 +2,7 @@ from emule_indexer.domain.search.cycle import Rng, cycle_seed, shuffle_for_cycle
 
 
 class _ReverseRng:
-    """Faux Rng déterministe : rend les items inversés, ignore le seed (satisfait Rng)."""
+    """Deterministic fake Rng: returns the items reversed, ignores the seed (satisfies Rng)."""
 
     def __init__(self) -> None:
         self.seen_seeds: list[str] = []
@@ -40,4 +40,4 @@ def test_shuffle_for_cycle_does_not_mutate_the_input() -> None:
     rng = _ReverseRng()
     items = ["a", "b", "c"]
     shuffle_for_cycle(items, rng, "n", 0)
-    assert items == ["a", "b", "c"]  # le tuple interne protège la séquence de l'appelant
+    assert items == ["a", "b", "c"]  # the internal tuple protects the caller's sequence

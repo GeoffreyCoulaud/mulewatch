@@ -60,7 +60,7 @@ def test_write_overwrites_previous_state(
 def test_write_with_naive_datetime_is_refused(
     repository: SqliteSchedulerStateRepository,
 ) -> None:
-    # utc_iso REFUSE un datetime naïf (contrat de Clock) — la ValueError remonte.
+    # utc_iso REFUSES a naive datetime (Clock contract) — the ValueError propagates.
     with pytest.raises(ValueError, match="aware"):
         repository.write_cycle_state(1, datetime(2026, 6, 12, 9, 30, 0))
 
@@ -68,15 +68,15 @@ def test_write_with_naive_datetime_is_refused(
 def test_write_is_atomic_on_injected_failure(
     repository: SqliteSchedulerStateRepository, connection: sqlite3.Connection
 ) -> None:
-    # Trigger de TEST : fait échouer l'écriture de la 2e clé → la 1re est défaite (atomicité).
+    # TEST trigger: makes the write of the 2nd key fail → the 1st is rolled back (atomicity).
     connection.execute(
         "CREATE TRIGGER boom BEFORE INSERT ON scheduler_state"
         " WHEN NEW.key = 'last_full_cycle_at'"
-        " BEGIN SELECT RAISE(ABORT, 'panne injectée'); END"
+        " BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
     )
-    with pytest.raises(PersistenceError, match="panne injectée"):
+    with pytest.raises(PersistenceError, match="injected failure"):
         repository.write_cycle_state(7, _MOMENT)
-    assert repository.read_cycle_index() == 0  # cycle_index aussi défait
+    assert repository.read_cycle_index() == 0  # cycle_index rolled back too
 
 
 def test_load_channel_backoff_is_empty_on_a_fresh_database(
@@ -88,8 +88,8 @@ def test_load_channel_backoff_is_empty_on_a_fresh_database(
 def test_channel_backoff_round_trips_through_a_new_repo_instance(
     repository: SqliteSchedulerStateRepository, connection: sqlite3.Connection
 ) -> None:
-    # Sauvegarde → NOUVELLE instance de repo (même base) → recharge → identique : c'est la
-    # SURVIE AU REDÉMARRAGE (spec §3/§7). Une nouvelle instance n'a aucun état en mémoire.
+    # Save → NEW repo instance (same DB) → reload → identical: that's
+    # SURVIVAL ACROSS RESTART (spec §3/§7). A new instance has no in-memory state.
     repository.save_channel_backoff(_BACKOFF)
     reborn = SqliteSchedulerStateRepository(connection)
     assert reborn.load_channel_backoff() == _BACKOFF
@@ -99,7 +99,7 @@ def test_save_channel_backoff_replaces_the_whole_map(
     repository: SqliteSchedulerStateRepository,
 ) -> None:
     repository.save_channel_backoff(_BACKOFF)
-    repository.save_channel_backoff({})  # snapshot vide → remplace tout
+    repository.save_channel_backoff({})  # empty snapshot → replaces everything
     assert repository.load_channel_backoff() == {}
 
 
@@ -109,8 +109,8 @@ def test_save_channel_backoff_is_atomic_on_injected_failure(
     connection.execute(
         "CREATE TRIGGER boom BEFORE INSERT ON scheduler_state"
         " WHEN NEW.key = 'channel_backoff'"
-        " BEGIN SELECT RAISE(ABORT, 'panne injectée'); END"
+        " BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
     )
-    with pytest.raises(PersistenceError, match="panne injectée"):
+    with pytest.raises(PersistenceError, match="injected failure"):
         repository.save_channel_backoff(_BACKOFF)
     assert repository.load_channel_backoff() == {}

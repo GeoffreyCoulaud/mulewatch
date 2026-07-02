@@ -1,26 +1,26 @@
-"""Modèle de config du moteur de matching — union étiquetée de dataclasses gelées.
+"""Matching-engine config model — tagged union of frozen dataclasses.
 
-Représente la grammaire §8.3 (tokens nommés feuilles + composites, opérandes au
-point d'usage, règles). Domaine PUR : aucune I/O, aucun import de bibliothèque YAML.
-La construction depuis du YAML parsé (dict/list) est faite par ``validation.py``.
+Represents the §8.3 grammar (named leaf + composite tokens, operands at point of use,
+rules). PURE domain: no I/O, no YAML library import. Construction from parsed YAML
+(dict/list) is done by ``validation.py``.
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-# --- Défs de tokens FEUILLES (4 types, cf. spec §8.2) ---
+# --- LEAF token defs (4 types, cf. spec §8.2) ---
 
 
 @dataclass(frozen=True)
 class KeywordDef:
-    """``{ keyword: "mission titar" }`` — phrase recherchée comme sous-suite contiguë."""
+    """``{ keyword: "mission titar" }`` — phrase searched as a contiguous subsequence."""
 
     phrase: str
 
 
 @dataclass(frozen=True)
 class RegexDef:
-    """``{ regex: "...", flags: "i" }`` — pattern RE2 interpolé puis compilé par cible."""
+    """``{ regex: "...", flags: "i" }`` — RE2 pattern interpolated then compiled per target."""
 
     pattern: str
     flags: str = "i"
@@ -28,10 +28,10 @@ class RegexDef:
 
 @dataclass(frozen=True)
 class CoverageDef:
-    """``{ coverage: title, min: 0.6, fuzz: 0.85 }`` — couverture fuzzy des tokens.
+    """``{ coverage: title, min: 0.6, fuzz: 0.85 }`` — fuzzy token coverage.
 
-    ``reference`` est le mot-clé de config (``title`` = titre de la cible) ; lié à
-    ``target.title`` à la résolution. ``min``/``fuzz`` surchargeables au point d'usage.
+    ``reference`` is the config keyword (``title`` = the target's title); bound to
+    ``target.title`` at resolution. ``min``/``fuzz`` overridable at point of use.
     """
 
     reference: str
@@ -41,51 +41,50 @@ class CoverageDef:
 
 @dataclass(frozen=True)
 class AttrBetweenDef:
-    """``{ attr_between: size_mb, min: 30, max: 600 }`` — borne d'un attribut numérique."""
+    """``{ attr_between: size_mb, min: 30, max: 600 }`` — bound on a numeric attribute."""
 
     attr: str
     min: float | None = None
     max: float | None = None
 
 
-# --- Défs COMPOSITES / conditions (cf. spec §8.3 : all/any/not) ---
-# Réutilisées dans trois contextes : token composite nommé, corps de règle,
-# condition inline `{condition}`. Les opérandes mêlent noms nus, TokenRef et
-# conditions inline.
+# --- COMPOSITE defs / conditions (cf. spec §8.3: all/any/not) ---
+# Reused in three contexts: named composite token, rule body, inline condition
+# `{condition}`. Operands mix bare names, TokenRef, and inline conditions.
 
-# Alias de type PEP 695 (`type ...`), évalué paresseusement : référencer
-# TokenRef/AllDef/AnyDef/NotDef — définis plus bas et mutuellement récursifs —
-# est donc valide, et mypy --strict résout la récursion.
+# PEP 695 type alias (`type ...`), lazily evaluated: referencing
+# TokenRef/AllDef/AnyDef/NotDef — defined below and mutually recursive — is therefore
+# valid, and mypy --strict resolves the recursion.
 type Operand = str | TokenRef | AllDef | AnyDef | NotDef
 
 
 @dataclass(frozen=True)
 class AllDef:
-    """``all: [operand, ...]`` — conjonction."""
+    """``all: [operand, ...]`` — conjunction."""
 
     operands: tuple[Operand, ...]
 
 
 @dataclass(frozen=True)
 class AnyDef:
-    """``any: [operand, ...]`` — disjonction."""
+    """``any: [operand, ...]`` — disjunction."""
 
     operands: tuple[Operand, ...]
 
 
 @dataclass(frozen=True)
 class NotDef:
-    """``not: operand`` — négation d'un unique opérande."""
+    """``not: operand`` — negation of a single operand."""
 
     operand: Operand
 
 
 @dataclass(frozen=True)
 class TokenRef:
-    """Opérande au point d'usage ``{ token: name, min?, fuzz? }`` (cf. EBNF §8.3).
+    """Operand at point of use ``{ token: name, min?, fuzz? }`` (cf. EBNF §8.3).
 
-    Référence un token nommé ; ``min``/``fuzz`` non nuls surchargent les paramètres
-    d'un token ``coverage`` (et UNIQUEMENT coverage — validé au chargement).
+    References a named token; non-null ``min``/``fuzz`` override the parameters of a
+    ``coverage`` token (and ONLY coverage — validated at load time).
     """
 
     name: str
@@ -93,27 +92,27 @@ class TokenRef:
     fuzz: float | None = None
 
 
-# Union des défs de tokens nommables dans la table `tokens`.
+# Union of token defs nameable in the `tokens` table.
 TokenDef = KeywordDef | RegexDef | CoverageDef | AttrBetweenDef | AllDef | AnyDef | NotDef
 
-# Un corps de règle / opérande inline `{condition}` est une condition composite.
+# A rule body / inline operand `{condition}` is a composite condition.
 Condition = AllDef | AnyDef | NotDef
 
-# Ensemble fermé des paliers (cf. spec §8.3 EBNF : tier).
+# Closed set of tiers (cf. spec §8.3 EBNF: tier).
 TIERS: frozenset[str] = frozenset({"catalog", "notify", "download"})
 
-# Rang du palier (spec §8.5 : « palier le plus haut, download>notify>catalog »). Entier croissant
-# = palier PLUS FORT. Source de vérité partagée par ``engine.MatchingEngine`` (sélection de la
-# meilleure décision) ET ``catalog_webui.domain.coverage`` (affichage : tier le plus fort →
-# meilleure couverture). Sans cette mutualisation, le webui réinventait son propre rang avec une
-# convention divergente — un 4ᵉ palier ou un renommage aurait silencieusement faussé l'affichage.
-# Invariant testé : ``set(TIER_RANK) == TIERS``.
+# Tier rank (spec §8.5: "highest tier, download>notify>catalog"). Higher integer =
+# STRONGER tier. Source of truth shared by ``engine.MatchingEngine`` (best-decision
+# selection) AND ``catalog_webui.domain.coverage`` (display: strongest tier → best
+# coverage). Without this sharing, the webui reinvented its own rank with a divergent
+# convention — a 4th tier or a rename would have silently skewed the display.
+# Tested invariant: ``set(TIER_RANK) == TIERS``.
 TIER_RANK: dict[str, int] = {"catalog": 0, "notify": 1, "download": 2}
 
 
 @dataclass(frozen=True)
 class Rule:
-    """Règle ordonnée : ``{ name, tier, <condition> }`` (cf. spec §8.3)."""
+    """Ordered rule: ``{ name, tier, <condition> }`` (cf. spec §8.3)."""
 
     name: str
     tier: str
@@ -122,7 +121,7 @@ class Rule:
 
 @dataclass(frozen=True)
 class MatcherConfig:
-    """Config matcher validée : table de tokens nommés + règles ordonnées."""
+    """Validated matcher config: table of named tokens + ordered rules."""
 
     tokens: Mapping[str, TokenDef] = field(default_factory=dict)
     rules: tuple[Rule, ...] = ()

@@ -1,14 +1,13 @@
-"""Spawn de l'enfant d'analyse (spec analysis §4 — DA5/DA8/DA9), côté PARENT.
+"""Analysis child spawn (analysis spec §4 — DA5/DA8/DA9), PARENT side.
 
-``run_analysis`` re-exec un enfant Python jetable par fichier (PAS ``os.fork``) : argv minimal,
-cwd ``tempfile.mkdtemp()`` jetable (supprimé en ``finally`` même en cas d'exception), env EXPLICITE
-minimal (on n'hérite PAS de ``os.environ`` — secrets/VPN ; on ne passe que QUARANTINE_DIR + la
-config des checks + un PATH minimal). Le ``ChildRunner`` est INJECTABLE : l'impl PROD fait le vrai
-``subprocess.Popen`` (``close_fds=True``, ``preexec_fn=_confine`` = rlimits + setsid,
-timeout-kill du
-groupe via ``killpg``) — ces lignes système sont ``# pragma: no cover`` (couvertes par
-analysis_integration). Le mapping de l'issue (stdout/timeout/exit) est délégué à ``egress.parse``
-(défensif, DA6). Le parent ne lit JAMAIS d'octets du fichier (DA8).
+``run_analysis`` re-execs a disposable Python child per file (NOT ``os.fork``): minimal argv,
+disposable ``tempfile.mkdtemp()`` cwd (removed in ``finally`` even on exception), EXPLICIT minimal
+env (we do NOT inherit ``os.environ`` — secrets/VPN; we only pass QUARANTINE_DIR + the checks
+config + a minimal PATH). The ``ChildRunner`` is INJECTABLE: the PROD impl does the real
+``subprocess.Popen`` (``close_fds=True``, ``preexec_fn=_confine`` = rlimits + setsid, group
+timeout-kill via ``killpg``) — these system lines are ``# pragma: no cover`` (covered by
+analysis_integration). The outcome mapping (stdout/timeout/exit) is delegated to ``egress.parse``
+(defensive, DA6). The parent NEVER reads bytes of the file (DA8).
 """
 
 import contextlib
@@ -27,16 +26,16 @@ from download_verifier.config import AnalysisConfig
 
 _CHILD_MODULE = "download_verifier.analysis_child"
 _MINIMAL_PATH = "/usr/local/bin:/usr/bin:/bin"
-# Délai borné du reap post-timeout (sandbox-confinement#2) : un descendant compromis qui
-# s'échappe via ``setsid()`` peut garder stdout ouvert (l'EOF n'arrive pas) → ``communicate()``
-# bloquerait indéfiniment, gelant le worker (cf. l'event loop). On borne la fenêtre de reap
-# et on bascule sur un kill ciblé + wait borné si nécessaire. Un orphelin « godille » reste
-# possible mais ne nous bloque plus (cgroups borne son impact).
+# Bounded reap window post-timeout (sandbox-confinement#2): a compromised descendant that
+# escapes via ``setsid()`` can keep stdout open (EOF never arrives) → ``communicate()`` would
+# block indefinitely, freezing the worker (cf. the event loop). We bound the reap window and
+# switch to a targeted kill + bounded wait if needed. A runaway orphan remains possible but no
+# longer blocks us (cgroups bound its impact).
 _REAP_TIMEOUT_S = 2.0
 
 
 class ChildRunner(Protocol):
-    """Exécute l'enfant et rend ``(returncode, stdout, timed_out)``. Injecté pour les tests."""
+    """Run the child and return ``(returncode, stdout, timed_out)``. Injected for tests."""
 
     def __call__(
         self, argv: Sequence[str], *, cwd: str, env: Mapping[str, str], timeout: float
@@ -44,7 +43,7 @@ class ChildRunner(Protocol):
 
 
 class ProdChildRunner:
-    """``ChildRunner`` de PROD : vrai subprocess confiné (couvert par analysis_integration)."""
+    """PROD ``ChildRunner``: real confined subprocess (covered by analysis_integration)."""
 
     def __init__(self, cfg: AnalysisConfig) -> None:
         self._cfg = cfg
@@ -65,22 +64,22 @@ class ProdChildRunner:
         try:
             stdout, _ = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # tuer le GROUPE (enfant + petit-fils ffprobe) ; race : si l'enfant est déjà
-            # mort, getpgid lève ProcessLookupError → absorbée.
+            # kill the GROUP (child + ffprobe grandchild); race: if the child is already
+            # dead, getpgid raises ProcessLookupError → absorbed.
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            # Fermer le read-end PARENT du pipe stdout (sandbox-confinement#2) : un
-            # descendant qui a échappé via setsid garde son write-end ouvert → l'EOF
-            # n'arrive jamais → ``communicate()`` boucle. En coupant côté parent, on
-            # se libère ; le descendant écrira dans un pipe cassé (SIGPIPE/EPIPE).
+            # Close the PARENT read-end of the stdout pipe (sandbox-confinement#2): a
+            # descendant that escaped via setsid keeps its write-end open → EOF never
+            # arrives → ``communicate()`` loops. By cutting it parent-side we free
+            # ourselves; the descendant will write into a broken pipe (SIGPIPE/EPIPE).
             if proc.stdout is not None:
                 proc.stdout.close()
             try:
                 proc.wait(timeout=_REAP_TIMEOUT_S)
             except subprocess.TimeoutExpired:
-                # Dernier ressort : SIGKILL ciblé + wait borné. Si même cela échoue,
-                # l'enfant reste zombie (extrêmement improbable après killpg+kill) — on
-                # se libère quand même, cgroups borne l'orphelin éventuel.
+                # Last resort: targeted SIGKILL + bounded wait. If even that fails, the
+                # child stays a zombie (extremely unlikely after killpg+kill) — we free
+                # ourselves anyway, cgroups bound the possible orphan.
                 with contextlib.suppress(ProcessLookupError):
                     proc.kill()
                 with contextlib.suppress(subprocess.TimeoutExpired):
@@ -89,27 +88,27 @@ class ProdChildRunner:
         return proc.returncode, stdout, False
 
     def _confine(self) -> None:  # pragma: no cover
-        os.setsid()  # groupe de process dédié → on tue l'enfant ET son petit-fils ffprobe
+        os.setsid()  # dedicated process group → we kill the child AND its ffprobe grandchild
         cfg = self._cfg
         resource.setrlimit(resource.RLIMIT_CPU, (cfg.rlimit_cpu_s, cfg.rlimit_cpu_s))
         resource.setrlimit(resource.RLIMIT_AS, (cfg.rlimit_as_bytes, cfg.rlimit_as_bytes))
         resource.setrlimit(resource.RLIMIT_FSIZE, (cfg.rlimit_fsize_bytes, cfg.rlimit_fsize_bytes))
         resource.setrlimit(resource.RLIMIT_NPROC, (cfg.rlimit_nproc, cfg.rlimit_nproc))
         resource.setrlimit(resource.RLIMIT_NOFILE, (cfg.rlimit_nofile, cfg.rlimit_nofile))
-        # pas de core dump : un crash de l'enfant/ffprobe ne doit pas écrire d'octets du
-        # fichier hostile dans le cwd (DA8).
+        # no core dump: a child/ffprobe crash must not write bytes of the hostile file into
+        # the cwd (DA8).
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
 def run_analysis(
     ed2k_hash: str, cfg: AnalysisConfig, runner: ChildRunner
 ) -> tuple[str, dict[str, object], list[object], egress.ChildOutcome]:
-    """Spawne l'enfant ; rend ``(verdict, real_meta, checks, outcome)`` (DA6 + observability#2).
+    """Spawn the child; return ``(verdict, real_meta, checks, outcome)`` (DA6 + observability#2).
 
-    ``outcome`` est la CATÉGORIE TECHNIQUE de l'issue (``ok``/``timeout``/``nonzero_exit``/
-    ``egress_overflow``/``malformed``), exposée en métrique côté ``app.py`` — orthogonale au
-    verdict métier. Permet en incident de masse de voir la cause derrière une montée de
-    ``suspicious`` (sans cela, les opérateurs n'ont qu'un agrégat aveugle).
+    ``outcome`` is the outcome's TECHNICAL CATEGORY (``ok``/``timeout``/``nonzero_exit``/
+    ``egress_overflow``/``malformed``), exposed as a metric in ``app.py`` — orthogonal to the
+    business verdict. In a mass incident it lets you see the cause behind a rise in
+    ``suspicious`` (without it, operators only have a blind aggregate).
     """
     argv = [sys.executable, "-m", _CHILD_MODULE, ed2k_hash]
     scratch = tempfile.mkdtemp(prefix="analysis-")
@@ -125,7 +124,7 @@ def run_analysis(
 
 
 def _minimal_env(cfg: AnalysisConfig) -> dict[str, str]:
-    """Env EXPLICITE minimal pour l'enfant (DA8) — ne fuit JAMAIS ``os.environ``."""
+    """EXPLICIT minimal env for the child (DA8) — NEVER leaks ``os.environ``."""
     return {
         "QUARANTINE_DIR": cfg.quarantine_dir,
         "ENABLED_CHECKS": ",".join(cfg.enabled_checks),
@@ -134,7 +133,7 @@ def _minimal_env(cfg: AnalysisConfig) -> dict[str, str]:
         "CLAMAV_DB_DIR": cfg.clamav_db_dir,
         "HEADER_BYTES": str(cfg.header_bytes),
         "ANALYSIS_TIMEOUT_S": str(cfg.timeout_s),
-        # l'enfant re-résout sa config depuis l'env : on lui transmet l'état du ring noyau.
+        # the child re-resolves its config from the env: we pass it the kernel ring state.
         "SECCOMP_ENABLED": "1" if cfg.seccomp_enabled else "0",
         "PATH": _MINIMAL_PATH,
     }

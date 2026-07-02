@@ -9,9 +9,9 @@ from emule_indexer.composition.app import CrawlerApp
 
 _CONFIG = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler"
 
-# Config crawler UNIFIÉE minimale (politique + câblage observer), secret par ${...}. Le fichier
-# unifié versionné (deploy/config/crawler/crawler.yml) est créé par une tâche ultérieure ; les
-# tests qui chargent réellement la config écrivent donc leur propre fixture dans tmp_path.
+# Minimal UNIFIED crawler config (policy + observer wiring), secret via ${...}. The versioned
+# unified file (deploy/config/crawler/crawler.yml) is created by a later task; the
+# tests that actually load the config therefore write their own fixture into tmp_path.
 _UNIFIED_CONFIG = """\
 cycle_interval_seconds: 300.0
 search_poll_budget_seconds: 30.0
@@ -70,7 +70,7 @@ def _argv(config: Path) -> list[str]:
 
 
 def test_build_app_assembles_a_crawler_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Config SANS section observability → couvre la branche `observability is None` de build_app.
+    # Config WITHOUT observability section → covers build_app's `observability is None` branch.
     monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
     app = entry.build_app(_args(_write_config(tmp_path)))
     assert isinstance(app, CrawlerApp)
@@ -79,24 +79,24 @@ def test_build_app_assembles_a_crawler_app(tmp_path: Path, monkeypatch: pytest.M
 def test_build_app_applies_log_level_when_observability_configured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """La branche observability is not None de build_app appelle setLevel."""
+    """build_app's observability is not None branch calls setLevel."""
     monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
     config = _write_config(tmp_path, body=_UNIFIED_CONFIG_WITH_OBS)
     app = entry.build_app(_args(config))
     assert isinstance(app, CrawlerApp)
-    assert logging.getLogger().level == logging.DEBUG  # niveau racine appliqué (DEBUG=10)
+    assert logging.getLogger().level == logging.DEBUG  # root level applied (DEBUG=10)
 
 
 class _SpyApp:
-    """Faux app : sa coroutine ``run`` n'est jamais réellement exécutée (asyncio.run faux)."""
+    """Fake app: its ``run`` coroutine is never actually executed (fake asyncio.run)."""
 
-    async def run(self) -> None:  # pragma: no cover - jamais await (asyncio.run est faux)
+    async def run(self) -> None:  # pragma: no cover - never awaited (asyncio.run is fake)
         return None
 
 
 def test_main_returns_zero_on_clean_run(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_run(coro: object) -> None:
-        coro.close()  # type: ignore[attr-defined]  # ferme la coroutine sans la lancer
+        coro.close()  # type: ignore[attr-defined]  # close the coroutine without running it
 
     monkeypatch.setattr("emule_indexer.composition.__main__.asyncio.run", fake_run)
     monkeypatch.setattr(entry, "build_app", lambda args: _SpyApp())
@@ -106,20 +106,20 @@ def test_main_returns_zero_on_clean_run(monkeypatch: pytest.MonkeyPatch) -> None
 def test_main_renders_runtime_config_error_from_run_as_clean_message(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Le gate full-mode lève un ``ConfigError`` AU RUNTIME (health-check verifier KO) depuis
-    # ``app.run()`` — pas depuis ``build_app``. ``main`` doit le rendre avec le MÊME message propre
-    # + code de sortie 1 (et non un traceback nu).
+    # The full-mode gate raises a ``ConfigError`` AT RUNTIME (verifier health-check KO) from
+    # ``app.run()`` — not from ``build_app``. ``main`` must render it with the SAME clean message
+    # + exit code 1 (and not a bare traceback).
     from emule_indexer.adapters.config.crawler_config import ConfigError
 
     def fake_run(coro: object) -> None:
-        coro.close()  # type: ignore[attr-defined]  # ferme la coroutine sans la lancer
-        raise ConfigError("verifier injoignable au démarrage (health-check KO)")
+        coro.close()  # type: ignore[attr-defined]  # close the coroutine without running it
+        raise ConfigError("verifier unreachable at startup (health-check failed)")
 
     monkeypatch.setattr("emule_indexer.composition.__main__.asyncio.run", fake_run)
     monkeypatch.setattr(entry, "build_app", lambda args: _SpyApp())
     code = entry.main([])
     assert code == 1
-    assert "Config invalide" in capsys.readouterr().err
+    assert "Invalid config" in capsys.readouterr().err
 
 
 def test_main_refuses_to_start_on_invalid_config(
@@ -129,13 +129,13 @@ def test_main_refuses_to_start_on_invalid_config(
     bad.write_text("amules: []\ncatalog_db_path: c\nlocal_db_path: l\n", encoding="utf-8")
     code = entry.main(["--config", str(bad)])
     assert code == 1
-    assert "Config invalide" in capsys.readouterr().err
+    assert "Invalid config" in capsys.readouterr().err
 
 
 def test_main_refuses_on_missing_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     code = entry.main(["--config", str(tmp_path / "absent.yml")])
     assert code == 1
-    assert "Config invalide" in capsys.readouterr().err
+    assert "Invalid config" in capsys.readouterr().err
 
 
 def test_default_args_point_at_config_dir() -> None:
@@ -146,26 +146,26 @@ def test_default_args_point_at_config_dir() -> None:
 
 
 def test_package_main_shim_reexports_main() -> None:
-    # `python -m emule_indexer` exécute le __main__ du PAQUET : il doit exposer la MÊME
-    # fonction `main` que composition.__main__ (sinon la DoD §9.4 n'est pas tenue).
+    # `python -m emule_indexer` runs the PACKAGE's __main__: it must expose the SAME
+    # `main` function as composition.__main__ (otherwise DoD §9.4 is not met).
     from emule_indexer import __main__ as package_entry
 
     assert package_entry.main is entry.main
 
 
-# ---------------------------------------------------------------- sous-commande validate-config
+# ---------------------------------------------------------------- validate-config subcommand
 
 
 def test_bare_invocation_still_runs_the_crawler(monkeypatch: pytest.MonkeyPatch) -> None:
-    # CONTRAINTE DURE de rétro-compat : SANS sous-commande, on retombe EXACTEMENT sur le
-    # chemin run (build_app → asyncio.run). C'est ce que fait le compose.
+    # HARD backward-compat CONSTRAINT: WITHOUT a subcommand, we fall back EXACTLY onto the
+    # run path (build_app → asyncio.run). This is what compose does.
     seen: dict[str, object] = {}
 
     def fake_run(coro: object) -> None:
-        coro.close()  # type: ignore[attr-defined]  # ferme la coroutine sans la lancer
+        coro.close()  # type: ignore[attr-defined]  # close the coroutine without running it
 
     def fake_build_app(args: argparse.Namespace) -> _SpyApp:
-        seen["config"] = args.config  # prouve qu'on est passé par _parse_args
+        seen["config"] = args.config  # proves we went through _parse_args
         return _SpyApp()
 
     monkeypatch.setattr("emule_indexer.composition.__main__.asyncio.run", fake_run)
@@ -177,14 +177,14 @@ def test_bare_invocation_still_runs_the_crawler(monkeypatch: pytest.MonkeyPatch)
 def test_validate_config_does_not_start_the_app(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # validate-config ne démarre RIEN : ni build_app, ni asyncio.run.
+    # validate-config starts NOTHING: neither build_app nor asyncio.run.
     monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
 
-    def boom_run(coro: object) -> None:  # pragma: no cover - ne doit jamais être appelé
-        raise AssertionError("asyncio.run ne doit pas être appelé par validate-config")
+    def boom_run(coro: object) -> None:  # pragma: no cover - must never be called
+        raise AssertionError("asyncio.run must not be called by validate-config")
 
     def boom_build_app(args: argparse.Namespace) -> CrawlerApp:  # pragma: no cover
-        raise AssertionError("build_app ne doit pas être appelé par validate-config")
+        raise AssertionError("build_app must not be called by validate-config")
 
     monkeypatch.setattr("emule_indexer.composition.__main__.asyncio.run", boom_run)
     monkeypatch.setattr(entry, "build_app", boom_build_app)
@@ -197,11 +197,11 @@ def test_validate_config_reports_valid(
     monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
     code = entry.main(["validate-config", *_argv(_write_config(tmp_path))])
     assert code == 0
-    assert "Config valide" in capsys.readouterr().out
+    assert "Config valid" in capsys.readouterr().out
 
 
 def test_validate_config_defaults_point_at_config_dir() -> None:
-    # Les options de validate-config ont les MÊMES défauts deploy/config/crawler/*.yml que le run.
+    # validate-config's options have the SAME deploy/config/crawler/*.yml defaults as the run.
     namespace = entry._parse_validate_args([])
     assert namespace.config == Path("deploy/config/crawler/crawler.yml")
     assert namespace.targets == Path("deploy/config/crawler/targets.yml")
@@ -211,22 +211,22 @@ def test_validate_config_defaults_point_at_config_dir() -> None:
 def test_validate_config_reports_missing_env_var(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # EFFET DE BORD VOULU : la config référence ${AMULE_EC_PASSWORD} (section active : amules) ;
-    # la variable absente de l'environnement → interpolation fail-fast → code 1, message clair.
+    # INTENDED SIDE EFFECT: the config references ${AMULE_EC_PASSWORD} (active section: amules);
+    # the variable missing from the environment → fail-fast interpolation → code 1, clear message.
     monkeypatch.delenv("AMULE_EC_PASSWORD", raising=False)
     code = entry.main(["validate-config", *_argv(_write_config(tmp_path))])
     assert code == 1
-    assert "Config invalide" in capsys.readouterr().err
+    assert "Invalid config" in capsys.readouterr().err
 
 
 def test_validate_config_rejects_broken_yaml(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     broken = tmp_path / "crawler.yml"
-    broken.write_text("ports: [unclosed\n", encoding="utf-8")  # YAML syntaxiquement cassé
+    broken.write_text("ports: [unclosed\n", encoding="utf-8")  # syntactically broken YAML
     code = entry.main(["validate-config", "--config", str(broken)])
     assert code == 1
-    assert "Config invalide" in capsys.readouterr().err
+    assert "Invalid config" in capsys.readouterr().err
 
 
 def test_validate_config_rejects_config_error(
@@ -236,7 +236,7 @@ def test_validate_config_rejects_config_error(
     bad.write_text("amules: []\ncatalog_db_path: c\nlocal_db_path: l\n", encoding="utf-8")
     code = entry.main(["validate-config", "--config", str(bad)])
     assert code == 1
-    assert "Config invalide" in capsys.readouterr().err
+    assert "Invalid config" in capsys.readouterr().err
 
 
 def test_validate_config_rejects_matcher_config_error(
@@ -244,7 +244,7 @@ def test_validate_config_rejects_matcher_config_error(
 ) -> None:
     monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
     bad_matcher = tmp_path / "matcher.yaml"
-    # rules non-liste → MatcherConfigError (parse structural)
+    # rules non-list → MatcherConfigError (structural parse)
     bad_matcher.write_text("tokens: {}\nrules: {}\n", encoding="utf-8")
     argv = [
         "validate-config",
@@ -257,7 +257,7 @@ def test_validate_config_rejects_matcher_config_error(
     ]
     code = entry.main(argv)
     assert code == 1
-    assert "Config invalide" in capsys.readouterr().err
+    assert "Invalid config" in capsys.readouterr().err
 
 
 def test_validate_config_rejects_config_error_in_targets(
@@ -265,7 +265,7 @@ def test_validate_config_rejects_config_error_in_targets(
 ) -> None:
     monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
     bad_targets = tmp_path / "targets.yaml"
-    bad_targets.write_text("episodes: nope\n", encoding="utf-8")  # episodes non-liste → ConfigError
+    bad_targets.write_text("episodes: nope\n", encoding="utf-8")  # episodes non-list → ConfigError
     argv = [
         "validate-config",
         "--config",
@@ -277,4 +277,4 @@ def test_validate_config_rejects_config_error_in_targets(
     ]
     code = entry.main(argv)
     assert code == 1
-    assert "Config invalide" in capsys.readouterr().err
+    assert "Invalid config" in capsys.readouterr().err

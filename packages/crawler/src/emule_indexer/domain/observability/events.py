@@ -1,9 +1,9 @@
-"""Événements d'observabilité : faits métier PURS (spec Plan E §3-4).
+"""Observability events: PURE business facts (spec Plan E §3-4).
 
-Couche DOMAINE (pure). Une dataclass GELÉE par fait observable saillant ; union taguée
-``Event``. Champs métier UNIQUEMENT — aucune notion de log/metric/notif (c'est le rôle de
-``policy.describe``). Les faits de panne récurrents portent ``first_occurrence`` (calculé par
-l'application via ``EdgeState``) pour l'anti-spam des notifications (E-D8).
+DOMAIN layer (pure). One FROZEN dataclass per salient observable fact; tagged union
+``Event``. Business fields ONLY — no notion of log/metric/notif (that is ``policy.describe``'s
+job). Recurring failure facts carry ``first_occurrence`` (computed by the application via
+``EdgeState``) for notification anti-spam (E-D8).
 """
 
 from dataclasses import dataclass
@@ -34,8 +34,8 @@ class SearchFailed:
 
 @dataclass(frozen=True)
 class SearchTaskDropped:
-    # Toutes les instances en backoff ont refusé cette tâche pendant le cycle (spec §14) :
-    # aucun worker ne peut la traiter → on l'abandonne et on trace pour la visibilité.
+    # All instances in backoff refused this task during the cycle (spec §14):
+    # no worker can process it → we drop it and trace it for visibility.
     keyword: str
     network: str
 
@@ -101,20 +101,20 @@ class CrawlerStarted:
 
 @dataclass(frozen=True)
 class PortSyncTriggered:
-    old: int  # port d'écoute configuré avant
-    new: int  # port forwardé visé (vers lequel on aligne amuled)
+    old: int  # listen port configured before
+    new: int  # targeted forwarded port (the one we align amuled to)
 
 
 @dataclass(frozen=True)
 class HighIdRecovered:
-    port: int  # port High-ID confirmé après restart
+    port: int  # High-ID port confirmed after restart
 
 
 @dataclass(frozen=True)
 class PortMismatchUnresolved:
-    first_occurrence: bool  # edge-triggered (E-D8) — calculé via EdgeState
-    live: int  # port forwardé vivant (gluetun)
-    configured: int  # port d'écoute d'amuled (resté faux)
+    first_occurrence: bool  # edge-triggered (E-D8) — computed via EdgeState
+    live: int  # live forwarded port (gluetun)
+    configured: int  # amuled's listen port (stayed wrong)
 
 
 type Event = (

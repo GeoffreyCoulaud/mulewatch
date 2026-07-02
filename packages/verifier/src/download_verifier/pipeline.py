@@ -1,10 +1,10 @@
-"""Pipeline d'analyse PUR (spec analysis §5) : exécute les checks activés, agrège.
+"""PURE analysis pipeline (analysis spec §5): runs the enabled checks, aggregates.
 
-``run`` exécute les checks listés dans ``cfg.enabled_checks`` (dans cet ordre, en filtrant ceux
-absents du registre — un ``clamav`` non implémenté est simplement ignoré, DA4), agrège leur
-worst-status en un verdict (``clean < suspicious < malicious``), fusionne leurs ``meta`` en un
-``real_meta``, et renvoie la trace ``checks`` (``[{name, status, meta}]``). Pur : aucun I/O ici —
-``type_sniff`` reçoit l'en-tête déjà lu, ``ffprobe`` reçoit le chemin + son runner injecté.
+``run`` runs the checks listed in ``cfg.enabled_checks`` (in that order, filtering out those
+absent from the registry — an unimplemented ``clamav`` is simply ignored, DA4), aggregates their
+worst-status into a verdict (``clean < suspicious < malicious``), merges their ``meta`` into a
+``real_meta``, and returns the ``checks`` trace (``[{name, status, meta}]``). Pure: no I/O here —
+``type_sniff`` receives the already-read header, ``ffprobe`` the path + its injected runner.
 """
 
 from pathlib import Path
@@ -25,7 +25,7 @@ def run(
     clamav_runner: ClamavRunner,
     cfg: AnalysisConfig,
 ) -> tuple[str, dict[str, object], list[dict[str, object]]]:
-    """Exécute les checks activés ; rend ``(verdict, real_meta, checks)``."""
+    """Run the enabled checks; return ``(verdict, real_meta, checks)``."""
     outcomes: list[CheckOutcome] = []
     for name in cfg.enabled_checks:
         if name == "type_sniff":
@@ -34,7 +34,7 @@ def run(
             outcomes.append(ffprobe_check.probe(path, ffprobe_runner, cfg))
         elif name == "clamav":
             outcomes.append(clamav_check.scan(path, clamav_runner, cfg))
-        # tout AUTRE nom (faute de frappe) est ignoré (DA4).
+        # any OTHER name (typo) is ignored (DA4).
     verdict = worst_status([outcome.status for outcome in outcomes])
     real_meta: dict[str, object] = {}
     for outcome in outcomes:

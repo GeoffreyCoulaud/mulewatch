@@ -1,4 +1,4 @@
-"""Adapter EC (External Connections) : pilotage binaire d'amuled.
+"""EC (External Connections) adapter: binary driving of amuled.
 
-Personne d'autre que cet adapter (et le probe, frontière assumée) ne voit un opcode.
+Nobody but this adapter (and the probe, an accepted boundary) ever sees an opcode.
 """

@@ -21,10 +21,10 @@ _A = "a" * 32
 
 
 class FakeQueue:
-    """File de vérification scriptée (sous-ensemble de SqliteLocalStateRepository).
+    """Scripted verification queue (subset of SqliteLocalStateRepository).
 
-    ``claim_raises``/``complete_raises``/``fail_raises`` injectent une ``RepositoryError`` sur
-    l'étape correspondante (preuve du filet top-level + de la sémantique at-least-once).
+    ``claim_raises``/``complete_raises``/``fail_raises`` inject a ``RepositoryError`` on
+    the matching step (proof of the top-level net + the at-least-once semantics).
     """
 
     def __init__(
@@ -67,7 +67,7 @@ class FakeQueue:
 
 
 class FakeTargets:
-    """get_target_id scripté (sous-ensemble de SqliteDownloadRepository)."""
+    """Scripted get_target_id (subset of SqliteDownloadRepository)."""
 
     def __init__(self, *, mapping: dict[str, str] | None = None) -> None:
         self._mapping = mapping or {}
@@ -77,7 +77,7 @@ class FakeTargets:
 
 
 class FakeWriter:
-    """record_verification capturé (sous-ensemble de SqliteCatalogRepository)."""
+    """record_verification captured (subset of SqliteCatalogRepository)."""
 
     def __init__(self, *, fail: bool = False) -> None:
         self.records: list[tuple[str, str]] = []
@@ -91,12 +91,12 @@ class FakeWriter:
         checks: "list[object] | tuple[object, ...]",
     ) -> None:
         if self._fail:
-            raise RepositoryError("écriture verdict échouée")
+            raise RepositoryError("verdict write failed")
         self.records.append((ed2k_hash, verdict))
 
 
 class FakeVerifier:
-    """ContentVerifier scripté : verdict en conserve ou erreur transitoire injectée."""
+    """Scripted ContentVerifier: canned verdict or an injected transient error."""
 
     def __init__(
         self,
@@ -169,7 +169,7 @@ async def test_empty_queue_reclaims_then_sleeps() -> None:
     )
     await run_verification_cycle(deps)
     assert queue.reclaimed == 1
-    assert clock.sleeps == [10.0]  # file vide → dort le poll
+    assert clock.sleeps == [10.0]  # empty queue → sleeps the poll
     assert queue.completed == []
 
 
@@ -201,17 +201,17 @@ async def test_expected_is_empty_when_target_unknown() -> None:
         queue=queue,
         verifier=verifier,
         writer=FakeWriter(),
-        targets=FakeTargets(mapping={}),  # pas de target connu
+        targets=FakeTargets(mapping={}),  # no known target
     )
     await run_verification_cycle(deps)
-    assert verifier.verified == [(_A, {})]  # expected minimal vide (DÉCISION DV11)
+    assert verifier.verified == [(_A, {})]  # minimal empty expected (DECISION DV11)
     assert queue.completed == [1]
 
 
 @pytest.mark.asyncio
 async def test_error_verdict_is_recorded_and_completed_not_failed() -> None:
-    # une réponse 200 malformée arrive en VerificationResult(verdict="error") (adapter) :
-    # DÉTERMINISTE → enregistrée + complete, JAMAIS fail (pas de boucle infinie, DÉCISION DV6).
+    # a malformed 200 response arrives as VerificationResult(verdict="error") (adapter):
+    # DETERMINISTIC → recorded + complete, NEVER fail (no infinite loop, DECISION DV6).
     queue = FakeQueue(claims=[ClaimedTask(task_id=2, ed2k_hash=_A, attempts=1)])
     verifier = FakeVerifier(result=VerificationResult(verdict="error", real_meta={}, checks=()))
     writer = FakeWriter()
@@ -229,22 +229,22 @@ async def test_unavailable_verifier_fails_the_task_and_backs_off() -> None:
     writer = FakeWriter()
     clock = FakeClock()
     deps = _deps(queue=queue, verifier=verifier, writer=writer, targets=FakeTargets(), clock=clock)
-    await run_verification_cycle(deps)  # ne lève pas
-    assert writer.records == []  # pas de verdict inventé
+    await run_verification_cycle(deps)  # does not raise
+    assert writer.records == []  # no invented verdict
     assert queue.completed == []
     assert queue.failed == [3]  # lease → retry / dead-letter
-    assert clock.sleeps == [10.0]  # backoff : pas de spin sur panne transitoire du verifier
+    assert clock.sleeps == [10.0]  # backoff: no spin on a transient verifier failure
 
 
 @pytest.mark.asyncio
 async def test_record_failure_fails_the_task() -> None:
     queue = FakeQueue(claims=[ClaimedTask(task_id=4, ed2k_hash=_A, attempts=1)])
     verifier = FakeVerifier()
-    writer = FakeWriter(fail=True)  # record_verification lève RepositoryError
+    writer = FakeWriter(fail=True)  # record_verification raises RepositoryError
     deps = _deps(queue=queue, verifier=verifier, writer=writer, targets=FakeTargets())
-    await run_verification_cycle(deps)  # ne lève pas
+    await run_verification_cycle(deps)  # does not raise
     assert queue.completed == []
-    assert queue.failed == [4]  # retry (le verifier est idempotent/stateless)
+    assert queue.failed == [4]  # retry (the verifier is idempotent/stateless)
 
 
 @pytest.mark.asyncio
@@ -259,13 +259,13 @@ async def test_non_empty_queue_does_not_sleep() -> None:
         clock=clock,
     )
     await run_verification_cycle(deps)
-    assert clock.sleeps == []  # une tâche traitée → pas de sleep de poll
+    assert clock.sleeps == []  # one task processed → no poll sleep
 
 
 @pytest.mark.asyncio
 async def test_repository_error_on_claim_is_absorbed_and_sleeps() -> None:
-    # Filet ULTIME : une RepositoryError depuis claim (p.ex. SQLITE_BUSY) NE LÈVE PAS et
-    # DORT (poll_interval) pour éviter un spin serré si la DB est durablement KO.
+    # LAST-RESORT net: a RepositoryError from claim (e.g. SQLITE_BUSY) does NOT raise and
+    # SLEEPS (poll_interval) to avoid a tight spin if the DB is durably down.
     queue = FakeQueue(claim_raises=True)
     clock = FakeClock()
     deps = _deps(
@@ -275,17 +275,17 @@ async def test_repository_error_on_claim_is_absorbed_and_sleeps() -> None:
         targets=FakeTargets(),
         clock=clock,
     )
-    await run_verification_cycle(deps)  # ne lève pas
-    assert clock.sleeps == [10.0]  # chemin d'erreur → backoff (pas de spin)
+    await run_verification_cycle(deps)  # does not raise
+    assert clock.sleeps == [10.0]  # error path → backoff (no spin)
     assert queue.completed == []
     assert queue.failed == []
 
 
 @pytest.mark.asyncio
 async def test_repository_error_on_complete_fails_the_task_and_backs_off() -> None:
-    # complete lève RepositoryError APRÈS un record réussi : at-least-once → fail_verification
-    # (le lease re-vérifiera, duplicate possible que D-analysis dédupliquera). Pas de crash, et
-    # backoff : sans ce sleep, un complete durablement KO spinnerait (RPC + ligne dupliquée/cycle).
+    # complete raises RepositoryError AFTER a successful record: at-least-once → fail_verification
+    # (the lease will re-verify, a possible duplicate that D-analysis will dedupe). No crash, and
+    # backoff: without this sleep, a durably-down complete would spin (RPC + duplicate row/cycle).
     queue = FakeQueue(
         claims=[ClaimedTask(task_id=6, ed2k_hash=_A, attempts=1)], complete_raises=True
     )
@@ -294,17 +294,17 @@ async def test_repository_error_on_complete_fails_the_task_and_backs_off() -> No
     deps = _deps(
         queue=queue, verifier=FakeVerifier(), writer=writer, targets=FakeTargets(), clock=clock
     )
-    await run_verification_cycle(deps)  # ne lève pas
-    assert writer.records == [(_A, "unverified")]  # le verdict a été enregistré
+    await run_verification_cycle(deps)  # does not raise
+    assert writer.records == [(_A, "unverified")]  # the verdict was recorded
     assert queue.completed == []
     assert queue.failed == [6]  # retry via lease
-    assert clock.sleeps == [10.0]  # backoff sur le chemin record/complete (anti-spin)
+    assert clock.sleeps == [10.0]  # backoff on the record/complete path (anti-spin)
 
 
 @pytest.mark.asyncio
 async def test_repository_error_from_fail_verification_itself_is_absorbed() -> None:
-    # fail_verification lui-même lève (SQLITE_BUSY) sur le chemin verifier-injoignable :
-    # le filet top-level absorbe → pas de crash, et DORT (chemin d'erreur).
+    # fail_verification itself raises (SQLITE_BUSY) on the verifier-unreachable path:
+    # the top-level net absorbs → no crash, and SLEEPS (error path).
     queue = FakeQueue(claims=[ClaimedTask(task_id=8, ed2k_hash=_A, attempts=1)], fail_raises=True)
     clock = FakeClock()
     deps = _deps(
@@ -314,10 +314,10 @@ async def test_repository_error_from_fail_verification_itself_is_absorbed() -> N
         targets=FakeTargets(),
         clock=clock,
     )
-    await run_verification_cycle(deps)  # ne lève pas
+    await run_verification_cycle(deps)  # does not raise
     assert queue.completed == []
-    assert queue.failed == []  # fail a levé avant d'enregistrer
-    assert clock.sleeps == [10.0]  # filet top-level → backoff
+    assert queue.failed == []  # fail raised before recording
+    assert clock.sleeps == [10.0]  # top-level net → backoff
 
 
 @pytest.mark.asyncio

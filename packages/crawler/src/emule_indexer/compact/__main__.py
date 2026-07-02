@@ -1,9 +1,9 @@
-"""Point d'entrée `python -m emule_indexer.compact` : CLI safe-by-default de la compaction.
+"""Entry point `python -m emule_indexer.compact`: safe-by-default compaction CLI.
 
-`main(argv) -> int` : 0 = OK ; 2 = erreur d'usage/compaction (message clair sur stderr, jamais
-de traceback nu) ; argparse rend lui-même 2 pour une erreur de parsing. Aucune variable
-d'environnement (doctrine du repo). Safe-by-default (spec §6) : la sortie ne doit PAS exister
-(pas de --force, pas d'append) ; source absente → erreur ; keep-recent-days >= 0.
+`main(argv) -> int`: 0 = OK; 2 = usage/compaction error (clear message on stderr, never
+a bare traceback); argparse itself returns 2 for a parsing error. No environment
+variable (repo doctrine). Safe-by-default (spec §6): the output must NOT exist
+(no --force, no append); missing source → error; keep-recent-days >= 0.
 """
 
 import argparse
@@ -20,39 +20,37 @@ _LOGGER = logging.getLogger("emule_indexer.compact")
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="emule_indexer.compact",
-        description=(
-            "Compacte un catalog.db (rollup journalier des observations) vers une sortie neuve."
-        ),
+        description=("Compact a catalog.db (daily rollup of observations) into a fresh output."),
     )
-    parser.add_argument("source", type=Path, help="catalog.db à compacter.")
+    parser.add_argument("source", type=Path, help="catalog.db to compact.")
     parser.add_argument(
         "--output",
         "-o",
         required=True,
         type=Path,
-        help="Fichier de sortie NEUF (refus s'il existe ; supprimez-le pour refaire).",
+        help="FRESH output file (refused if it exists; delete it to redo).",
     )
     parser.add_argument(
         "--keep-recent-days",
         type=int,
         default=90,
-        help="Jours récents gardés bruts (défaut 90 ; 0 = compacter tout l'historique).",
+        help="Recent days kept raw (default 90; 0 = compact the whole history).",
     )
     return parser.parse_args(argv)
 
 
 def _validate(args: argparse.Namespace) -> None:
-    """Règles safe-by-default, AVANT toute ouverture/création (CompactError, message clair)."""
+    """Safe-by-default rules, BEFORE any opening/creation (CompactError, clear message)."""
     if not args.source.exists():
-        raise CompactError(f"source introuvable : {args.source}")
+        raise CompactError(f"source not found: {args.source}")
     if args.output.exists():
-        raise CompactError(f"la sortie existe déjà : {args.output} (supprimez-la pour refaire)")
+        raise CompactError(f"output already exists: {args.output} (delete it to redo)")
     if args.keep_recent_days < 0:
-        raise CompactError("--keep-recent-days doit être >= 0")
+        raise CompactError("--keep-recent-days must be >= 0")
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entrée CLI. 0 = OK, 2 = erreur d'usage/compaction (message clair sur stderr)."""
+    """CLI entry. 0 = OK, 2 = usage/compaction error (clear message on stderr)."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     try:
@@ -62,9 +60,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         compact_catalog(args.source, args.output, keep_recent_days=args.keep_recent_days)
     except CompactError as error:
-        print(f"Compaction impossible : {error}", file=sys.stderr, flush=True)
+        print(f"Compaction failed: {error}", file=sys.stderr, flush=True)
         return 2
-    _LOGGER.info("compaction terminée : %s", args.output)
+    _LOGGER.info("compaction done: %s", args.output)
     return 0
 
 

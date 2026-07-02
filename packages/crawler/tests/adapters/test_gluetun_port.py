@@ -1,7 +1,7 @@
-"""Tests de ``GluetunPortReader`` (port-sync, design §3.2). Parsing DÉFENSIF : tout échec → None.
+"""Tests for ``GluetunPortReader`` (port-sync, design §3.2). DEFENSIVE parsing: any failure → None.
 
-Idiome ``test_verifier_http.py`` : httpx ``MockTransport`` fabrique chaque réponse ; on couvre
-une branche par cas du tableau §3.2 (les deux côtés de chaque conditionnel).
+``test_verifier_http.py`` idiom: httpx ``MockTransport`` fabricates each response; we cover one
+branch per case of the §3.2 table (both sides of every conditional).
 """
 
 from collections.abc import Callable
@@ -23,7 +23,7 @@ def _reader_with_handler(
 @pytest.mark.asyncio
 async def test_live_port_is_returned() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/portforward"  # route confirmée via doc gluetun (R2)
+        assert request.url.path == "/v1/portforward"  # route confirmed via gluetun docs (R2)
         return httpx.Response(200, json={"port": 51820})
 
     reader = _reader_with_handler(handler)
@@ -35,7 +35,7 @@ async def test_live_port_is_returned() -> None:
 
 @pytest.mark.asyncio
 async def test_zero_port_is_none() -> None:
-    # {"port": 0} = PF pas encore négocié (§3.4) → None (« pas prêt », pas une erreur).
+    # {"port": 0} = PF not negotiated yet (§3.4) → None ("not ready", not an error).
     reader = _reader_with_handler(lambda r: httpx.Response(200, json={"port": 0}))
     try:
         assert await reader.forwarded_port() is None
@@ -63,7 +63,7 @@ async def test_non_integer_port_is_none() -> None:
 
 @pytest.mark.asyncio
 async def test_boolean_port_is_none() -> None:
-    # bool est un sous-type d'int en Python : True ne doit PAS passer pour un port valide.
+    # bool is a subtype of int in Python: True must NOT pass as a valid port.
     reader = _reader_with_handler(lambda r: httpx.Response(200, json={"port": True}))
     try:
         assert await reader.forwarded_port() is None

@@ -4,7 +4,7 @@ from catalog_matching.engine import MatchingEngine
 from catalog_matching.models import FileCandidate, TargetSegment
 from catalog_matching.validation import parse_matcher_config
 
-# Seed CONSTANT : chaque run est identique (zéro flakiness, cf. spec §16).
+# CONSTANT seed: every run is identical (zero flakiness, cf. spec §16).
 _SEED = 20260610
 
 _CANONICAL_RAW: dict[str, object] = {
@@ -85,7 +85,7 @@ _FILENAMES = [
 
 
 def test_property_decision_invariant_under_target_reordering() -> None:
-    # P1 : réordonner les cibles ne change JAMAIS la décision (§8.5 déterminisme).
+    # P1: reordering targets NEVER changes the decision (§8.5 determinism).
     config = parse_matcher_config(_CANONICAL_RAW)
     rng = random.Random(_SEED)
     base_targets = _targets()
@@ -93,24 +93,24 @@ def test_property_decision_invariant_under_target_reordering() -> None:
     for filename in _FILENAMES:
         candidate = FileCandidate(filename=filename)
         expected = reference_engine.evaluate(candidate)
-        for _ in range(20):  # 20 permutations seedées par fichier (déterministe)
+        for _ in range(20):  # 20 seeded permutations per file (deterministic)
             shuffled = base_targets[:]
             rng.shuffle(shuffled)
             got = MatchingEngine(config, shuffled).evaluate(candidate)
-            assert got == expected, f"décision dépend de l'ordre des cibles pour {filename!r}"
+            assert got == expected, f"decision depends on target order for {filename!r}"
 
 
 def test_property_higher_priority_rule_never_lowers_tier() -> None:
-    # P2 : ajouter une règle PLUS PRIORITAIRE (index 0) de palier >= ne baisse jamais le
-    # palier résultant (§16). On compare la config canonique à une variante où l'on
-    # PRÉPEND une règle download large ; pour tout fichier déjà décidé, le palier ne baisse pas.
+    # P2: adding a HIGHER-PRIORITY rule (index 0) with tier >= never lowers the
+    # resulting tier (§16). We compare the canonical config to a variant where we
+    # PREPEND a broad download rule; for any already-decided file, the tier does not drop.
     from catalog_matching.engine import _TIER_RANK
 
     config_base = parse_matcher_config(_CANONICAL_RAW)
     raw_boosted = {
         "tokens": dict(_CANONICAL_RAW["tokens"]),  # type: ignore[call-overload]
         "rules": [
-            # Règle download PRÉPENDUE (index 0) : tout fichier "keroro" -> download.
+            # PREPENDED download rule (index 0): any "keroro" file -> download.
             {"name": "boost_keroro_download", "tier": "download", "any": ["keroro_titar"]},
             *_CANONICAL_RAW["rules"],  # type: ignore[misc]
         ],
@@ -124,8 +124,8 @@ def test_property_higher_priority_rule_never_lowers_tier() -> None:
         base = engine_base.evaluate(candidate)
         boosted = engine_boosted.evaluate(candidate)
         if base is None:
-            continue  # rien à comparer : un fichier écarté peut le rester
-        assert boosted is not None, f"{filename!r}: décidé sans boost, écarté avec ?!"
+            continue  # nothing to compare: a discarded file may stay discarded
+        assert boosted is not None, f"{filename!r}: decided without boost, discarded with it?!"
         assert _TIER_RANK[boosted.tier] >= _TIER_RANK[base.tier], (
-            f"{filename!r}: une règle plus prioritaire a BAISSÉ le palier"
+            f"{filename!r}: a higher-priority rule LOWERED the tier"
         )

@@ -1,8 +1,8 @@
-"""Entrée du verifier : ``python -m download_verifier`` (spec verify §4 ; logging E-D2).
+"""Verifier entry point: ``python -m download_verifier`` (verify spec §4; logging E-D2).
 
-Bootstrap deux-temps : ``basicConfig(INFO)`` puis ``setLevel`` depuis le YAML d'observabilité
-(``VERIFIER_CONFIG``) avant ``uvicorn.run``. Le dossier de quarantaine vient de ``QUARANTINE_DIR``
-(lu par ``app.py`` à l'import)."""
+Two-step bootstrap: ``basicConfig(INFO)`` then ``setLevel`` from the observability YAML
+(``VERIFIER_CONFIG``) before ``uvicorn.run``. The quarantine directory comes from
+``QUARANTINE_DIR`` (read by ``app.py`` at import time)."""
 
 import logging
 import os
@@ -15,9 +15,9 @@ from download_verifier.obs_config import load_observability
 
 
 def configure_logging(env: Mapping[str, str]) -> None:
-    """Arme le logging (INFO).
+    """Arm logging (INFO).
 
-    Si ``VERIFIER_CONFIG`` est présent, applique ensuite ``log_level`` du YAML.
+    If ``VERIFIER_CONFIG`` is present, then apply the YAML's ``log_level``.
     """
     logging.basicConfig(format="%(asctime)s %(levelname)s %(name)s %(message)s")
     logging.getLogger().setLevel(logging.INFO)
@@ -28,7 +28,7 @@ def configure_logging(env: Mapping[str, str]) -> None:
 
 
 def main() -> None:
-    """Configure le logging puis sert l'app verifier (host/port depuis l'environnement)."""
+    """Configure logging then serve the verifier app (host/port from the environment)."""
     configure_logging(os.environ)
     uvicorn.run(
         "download_verifier.app:app",

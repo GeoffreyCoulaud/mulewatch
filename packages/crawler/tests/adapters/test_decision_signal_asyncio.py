@@ -18,7 +18,7 @@ async def test_signal_wakes_a_waiter() -> None:
 
 @pytest.mark.asyncio
 async def test_signal_before_wait_is_not_lost() -> None:
-    # Un nudge émis SANS waiter laisse l'événement armé : le wait suivant repart aussitôt.
+    # A nudge emitted WITHOUT a waiter leaves the event armed: the next wait returns immediately.
     hub = AsyncioDecisionSignal()
     hub.signal("S2E062A")
     await asyncio.wait_for(hub.wait("S2E062A"), timeout=1.0)  # ne bloque pas
@@ -29,7 +29,7 @@ async def test_wait_rearms_for_the_next_signal() -> None:
     hub = AsyncioDecisionSignal()
     hub.signal("h")
     await asyncio.wait_for(hub.wait("h"), timeout=1.0)
-    # Re-dort : plus de signal en attente → le wait suivant ne se résout pas tout seul.
+    # Sleeps again: no signal pending anymore → the next wait does not resolve on its own.
     second = asyncio.create_task(hub.wait("h"))
     await asyncio.sleep(0)
     assert not second.done()
@@ -42,7 +42,7 @@ async def test_subjects_are_independent() -> None:
     hub = AsyncioDecisionSignal()
     waiter_a = asyncio.create_task(hub.wait("a"))
     await asyncio.sleep(0)
-    hub.signal("b")  # autre sujet : ne réveille pas a
+    hub.signal("b")  # other subject: does not wake a
     await asyncio.sleep(0)
     assert not waiter_a.done()
     hub.signal("a")

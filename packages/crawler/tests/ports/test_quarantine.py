@@ -4,7 +4,7 @@ from emule_indexer.ports.quarantine import Quarantine
 
 
 class _StubQuarantine:
-    """Satisfait Quarantine structurellement (sans l'importer)."""
+    """Satisfies Quarantine structurally (without importing it)."""
 
     def __init__(self) -> None:
         self.promoted: list[tuple[Path, str]] = []

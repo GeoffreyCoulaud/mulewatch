@@ -6,7 +6,7 @@ from emule_indexer.ports.clock import Clock, Rng
 
 
 class _StubClock:
-    """Satisfait Clock structurellement (sans l'importer)."""
+    """Satisfies Clock structurally (without importing it)."""
 
     def now(self) -> datetime:
         return datetime(2026, 6, 12, tzinfo=UTC)
@@ -31,7 +31,7 @@ def test_clock_protocol_is_satisfied_structurally() -> None:
 @pytest.mark.asyncio
 async def test_clock_sleep_is_awaitable() -> None:
     clock: Clock = _StubClock()
-    await clock.sleep(1.0)  # ne lève pas ; rend None (contrat)
+    await clock.sleep(1.0)  # does not raise; returns None (contract)
 
 
 def test_rng_is_reexported_from_the_domain() -> None:

@@ -1,29 +1,29 @@
-"""Construction d'un lien ed2k PURE (domaine partagé crawler + webui).
+"""PURE ed2k link construction (shared crawler + webui domain).
 
-Le lien a la forme ``ed2k://|file|<nom>|<taille>|<hash>|/`` (format consommé par
-``EC_OP_ADD_LINK`` côté crawler, reproduit pour copie/partage côté webui). Le ``|`` est le
-SÉPARATEUR DE CHAMPS : un nom de fichier hostile pourrait, s'il contenait un ``|``,
-injecter un champ et casser le cadrage du lien (taille/hash décalés → lien inutilisable
-ou pointant ailleurs). On échappe donc le nom par percent-encoding UTF-8 (``urllib.parse.quote``),
-en gardant un jeu sûr lisible — l'espace devient ``%20``, le ``|`` devient ``%7C``, les
-caractères de contrôle et les non-ASCII sont neutralisés. Seuls les 5 séparateurs STRUCTURELS
-du lien (``|file|`` … ``|/``) restent des ``|``.
+The link has the form ``ed2k://|file|<name>|<size>|<hash>|/`` (format consumed by
+``EC_OP_ADD_LINK`` on the crawler side, reproduced for copy/share on the webui side). The
+``|`` is the FIELD SEPARATOR: a hostile filename could, if it contained a ``|``, inject a
+field and break the link framing (size/hash shifted → link unusable or pointing elsewhere).
+So we escape the name with UTF-8 percent-encoding (``urllib.parse.quote``), keeping a
+readable safe set — a space becomes ``%20``, the ``|`` becomes ``%7C``, control characters
+and non-ASCII are neutralized. Only the 5 STRUCTURAL separators of the link
+(``|file|`` … ``|/``) stay as ``|``.
 
-Domaine PUR : aucune I/O. Vit dans ``catalog_matching`` (paquet partagé) plutôt que dans
-``emule_indexer`` ou ``catalog_webui`` car les deux packages doivent produire le MÊME lien
-canonique pour un fichier donné (régression webui-security#0 — sans cette mutualisation,
-le webui réinventait la fonction et oubliait l'échappement).
+PURE domain: no I/O. Lives in ``catalog_matching`` (shared package) rather than in
+``emule_indexer`` or ``catalog_webui`` because both packages must produce the SAME canonical
+link for a given file (regression webui-security#0 — without this sharing, the webui
+reinvented the function and forgot the escaping).
 """
 
 from urllib.parse import quote
 
-# Jeu gardé NON échappé : lisible et sûr (pas d'espace, pas de ``|``, pas de contrôle). Le
-# reste passe en percent-encoding (l'espace → ``%20``, le canon ed2k attendu par le test).
-# ``/`` n'est PAS dans le jeu sûr (un nom n'est jamais un chemin ici).
+# Set kept UNescaped: readable and safe (no space, no ``|``, no control char). The rest
+# goes through percent-encoding (a space → ``%20``, the ed2k canon expected by the test).
+# ``/`` is NOT in the safe set (a name is never a path here).
 _SAFE_NAME_CHARS = ".()[]-_"
 
 
 def build_ed2k_link(filename: str, size_bytes: int, ed2k_hash: str) -> str:
-    """Lien ed2k pour un fichier. Le nom est échappé (``|`` → ``%7C``, etc.)."""
+    """ed2k link for a file. The name is escaped (``|`` → ``%7C``, etc.)."""
     safe_name = quote(filename, safe=_SAFE_NAME_CHARS)
     return f"ed2k://|file|{safe_name}|{size_bytes}|{ed2k_hash}|/"

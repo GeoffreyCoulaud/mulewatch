@@ -33,8 +33,8 @@ def _observation(
     codec: str | None = None,
     file_type: str | None = None,
 ) -> FileObservation:
-    # média None par défaut (EC n'expose AUCUNE métadonnée média — rapport 2026-06-11) ;
-    # raw_meta avec DOUBLON, ordre wire et non-ASCII (les trois propriétés à préserver).
+    # media None by default (EC exposes NO media metadata — report 2026-06-11);
+    # raw_meta with a DUPLICATE, wire order and non-ASCII (the three properties to preserve).
     return FileObservation(
         ed2k_hash=_HASH,
         filename=filename,
@@ -95,7 +95,7 @@ def test_raw_meta_preserves_order_duplicates_and_non_ascii(
 ) -> None:
     repository.record_observation(_observation())
     stored = connection.execute("SELECT raw_meta FROM file_observations").fetchone()[0]
-    assert "mystère" in stored  # ensure_ascii=False : l'accent est stocké TEL QUEL
+    assert "mystère" in stored  # ensure_ascii=False: the accent is stored AS IS
     assert json.loads(stored) == [["0x0308", "0"], ["0x0308", "0"], ["0x0999", "mystère"]]
 
 
@@ -103,19 +103,19 @@ def test_record_observation_twice_first_seen_wins_in_files(
     repository: SqliteCatalogRepository, connection: sqlite3.Connection
 ) -> None:
     repository.record_observation(_observation())
-    # Même hash, taille et nom DIFFÉRENTS (entrée hostile, déviation 1 spec §5).
+    # Same hash, DIFFERENT size and name (hostile input, deviation 1 spec §5).
     repository.record_observation(_observation(filename="leurre.avi", size_bytes=999))
     assert connection.execute("SELECT size_bytes FROM files").fetchall() == [(234567890,)]
     observed_sizes = connection.execute(
         "SELECT size_bytes FROM file_observations ORDER BY id"
     ).fetchall()
-    assert observed_sizes == [(234567890,), (999,)]  # l'anomalie reste VISIBLE
+    assert observed_sizes == [(234567890,), (999,)]  # the anomaly stays VISIBLE
 
 
 def test_record_observation_with_media_metadata_and_default_clock(tmp_path: Path) -> None:
     connection = open_catalog(tmp_path / "catalog.db")
     try:
-        repository = SqliteCatalogRepository(connection, _NODE)  # horloge par défaut (utc_now)
+        repository = SqliteCatalogRepository(connection, _NODE)  # default clock (utc_now)
         repository.record_observation(
             _observation(media_length_sec=1474, bitrate_kbps=1200, codec="xvid", file_type="Video")
         )
@@ -125,7 +125,7 @@ def test_record_observation_with_media_metadata_and_default_clock(tmp_path: Path
         ).fetchone()
         assert row[:4] == (1474, 1200, "xvid", "Video")
         stamped = datetime.fromisoformat(row[4])
-        assert stamped.tzinfo == UTC  # l'horloge par défaut stamppe bien de l'UTC aware
+        assert stamped.tzinfo == UTC  # the default clock does stamp aware UTC
     finally:
         connection.close()
 
@@ -133,17 +133,17 @@ def test_record_observation_with_media_metadata_and_default_clock(tmp_path: Path
 def test_record_observation_is_one_transaction(
     repository: SqliteCatalogRepository, connection: sqlite3.Connection
 ) -> None:
-    # Panne injectée ENTRE les deux INSERT : un trigger de TEST fait échouer le second.
+    # Failure injected BETWEEN the two INSERTs: a TEST trigger makes the second fail.
     connection.execute(
         "CREATE TRIGGER boom BEFORE INSERT ON file_observations"
         " WHEN NEW.filename = '__boom__'"
-        " BEGIN SELECT RAISE(ABORT, 'panne injectée'); END"
+        " BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
     )
-    with pytest.raises(PersistenceError, match="panne injectée"):
+    with pytest.raises(PersistenceError, match="injected failure"):
         repository.record_observation(_observation(filename="__boom__"))
-    # ATOMICITÉ : le INSERT OR IGNORE dans files a été défait avec la transaction.
+    # ATOMICITY: the INSERT OR IGNORE into files was rolled back with the transaction.
     assert connection.execute("SELECT count(*) FROM files").fetchone()[0] == 0
-    # Le repository reste UTILISABLE : rollback effectué, connexion hors transaction.
+    # The repository stays USABLE: rollback done, connection out of transaction.
     assert not connection.in_transaction
     repository.record_observation(_observation())
     assert connection.execute("SELECT count(*) FROM file_observations").fetchone()[0] == 1
@@ -152,12 +152,12 @@ def test_record_observation_is_one_transaction(
 def test_record_observation_rejects_non_canonical_hash(
     repository: SqliteCatalogRepository, connection: sqlite3.Connection
 ) -> None:
-    # INSERT OR IGNORE avale SILENCIEUSEMENT une violation de CHECK (comportement SQLite
-    # documenté) : sans validation Python AVANT la transaction, un hash non canonique ne
-    # survivrait que grâce au pragma foreign_keys (diagnostic opaque), et une connexion
-    # sans ce pragma commettrait une observation ORPHELINE.
+    # INSERT OR IGNORE SILENTLY swallows a CHECK violation (documented SQLite
+    # behavior): without Python validation BEFORE the transaction, a non-canonical hash
+    # would only survive thanks to the foreign_keys pragma (opaque diagnostic), and a connection
+    # without that pragma would commit an ORPHAN observation.
     upper = dataclasses.replace(_observation(), ed2k_hash=_HASH.upper())
-    with pytest.raises(PersistenceError, match="hash eD2k non canonique"):
+    with pytest.raises(PersistenceError, match="non-canonical eD2k hash"):
         repository.record_observation(upper)
     assert connection.execute("SELECT count(*) FROM files").fetchone()[0] == 0
     assert connection.execute("SELECT count(*) FROM file_observations").fetchone()[0] == 0
@@ -166,10 +166,10 @@ def test_record_observation_rejects_non_canonical_hash(
 def test_rollback_on_non_sqlite_error_keeps_connection_usable(
     repository: SqliteCatalogRepository, connection: sqlite3.Connection
 ) -> None:
-    # Un surrogate isolé fait échouer le BINDING du paramètre (UnicodeEncodeError, qui
-    # N'EST PAS une sqlite3.Error) : sans rollback sur BaseException, la connexion
-    # resterait in_transaction=True et tout appel ultérieur échouerait définitivement
-    # (« cannot start a transaction within a transaction »).
+    # An isolated surrogate makes the parameter BINDING fail (UnicodeEncodeError, which
+    # is NOT a sqlite3.Error): without a rollback on BaseException, the connection
+    # would stay in_transaction=True and every later call would fail permanently
+    # ("cannot start a transaction within a transaction").
     with pytest.raises(UnicodeEncodeError):
         repository.record_observation(_observation(filename="a\ud800"))
     assert not connection.in_transaction
@@ -180,16 +180,16 @@ def test_rollback_on_non_sqlite_error_keeps_connection_usable(
 def test_outer_transaction_survives_record_observation_failure(
     repository: SqliteCatalogRepository, connection: sqlite3.Connection
 ) -> None:
-    # Contrat transaction imbriquée : le BEGIN du repository échoue (« cannot start a
-    # transaction within a transaction ») AVANT le try → AUCUN rollback n'est tenté,
-    # la transaction EXTÉRIEURE et ses lignes en attente SURVIVENT.
+    # Nested-transaction contract: the repository's BEGIN fails ("cannot start a
+    # transaction within a transaction") BEFORE the try → NO rollback is attempted,
+    # the OUTER transaction and its pending rows SURVIVE.
     connection.execute("BEGIN")
     connection.execute(
         "INSERT INTO files (ed2k_hash, size_bytes, aich_hash) VALUES (?, 1, NULL)", (_HASH,)
     )
     with pytest.raises(PersistenceError, match="cannot start a transaction within a transaction"):
         repository.record_observation(_observation())
-    assert connection.in_transaction  # la transaction extérieure est INTACTE
+    assert connection.in_transaction  # the outer transaction is INTACT
     assert connection.execute("SELECT count(*) FROM files").fetchone()[0] == 1
     connection.execute("ROLLBACK")
     assert connection.execute("SELECT count(*) FROM files").fetchone()[0] == 0
@@ -234,7 +234,7 @@ def test_explanation_is_never_persisted(
 def test_record_decision_for_unknown_file_raises_persistence_error(
     repository: SqliteCatalogRepository,
 ) -> None:
-    # FK violée (fichier jamais observé) : sqlite3.IntegrityError ENVELOPPÉE, jamais nue.
+    # FK violated (file never observed): sqlite3.IntegrityError WRAPPED, never bare.
     with pytest.raises(PersistenceError, match="FOREIGN KEY"):
         repository.record_decision("0" * 32, _decision())
 
@@ -242,9 +242,9 @@ def test_record_decision_for_unknown_file_raises_persistence_error(
 def test_record_decision_rejects_non_canonical_hash(
     repository: SqliteCatalogRepository, connection: sqlite3.Connection
 ) -> None:
-    # Validation Python AVANT toute transaction : un hash en majuscules est rejeté
-    # avec un message clair, aucune ligne n'est écrite.
-    with pytest.raises(PersistenceError, match="hash eD2k non canonique"):
+    # Python validation BEFORE any transaction: an uppercase hash is rejected
+    # with a clear message, no row is written.
+    with pytest.raises(PersistenceError, match="non-canonical eD2k hash"):
         repository.record_decision(_HASH.upper(), _decision())
     assert connection.execute("SELECT count(*) FROM match_decisions").fetchone()[0] == 0
 
@@ -252,5 +252,5 @@ def test_record_decision_rejects_non_canonical_hash(
 def test_repository_satisfies_the_port_structurally(
     repository: SqliteCatalogRepository,
 ) -> None:
-    port: CatalogRepository = repository  # mypy prouve la satisfaction structurelle
+    port: CatalogRepository = repository  # mypy proves structural satisfaction
     port.record_observation(_observation())

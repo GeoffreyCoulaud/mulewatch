@@ -1,22 +1,22 @@
-"""``SqliteCatalogRepository`` : ``FileObservation``/``MatchDecision`` → lignes durables.
+"""``SqliteCatalogRepository``: ``FileObservation``/``MatchDecision`` → durable rows.
 
-L'adapter stamppe ce que le domaine ignore (spec data-model §3) : ``observed_at``/
-``decided_at`` (horloge injectable, ``utc_now`` par défaut) et ``node_id`` (fourni au
-constructeur — le plan C le lira du ``LocalStateRepository``). ``raw_meta`` est sérialisé
-en JSON LISTE de paires (``[["0x0308", "0"], …]``), ordre du fil et doublons préservés,
-``ensure_ascii=False``, pas de tri (spec §3). ``record_observation`` fait UNE transaction
-(spec §4) : ``INSERT OR IGNORE`` dans ``files`` (première vue gagne) puis ``INSERT`` dans
-``file_observations`` — la taille OBSERVÉE est TOUJOURS écrite dans l'observation
-(déviation 1, spec §5 : une anomalie de taille ne doit pas devenir invisible).
+The adapter stamps what the domain ignores (data-model spec §3): ``observed_at``/
+``decided_at`` (injectable clock, ``utc_now`` by default) and ``node_id`` (given at the
+constructor — plan C will read it from ``LocalStateRepository``). ``raw_meta`` is serialized
+as a JSON LIST of pairs (``[["0x0308", "0"], …]``), wire order and duplicates preserved,
+``ensure_ascii=False``, no sorting (spec §3). ``record_observation`` makes ONE transaction
+(spec §4): ``INSERT OR IGNORE`` into ``files`` (first sight wins) then ``INSERT`` into
+``file_observations`` — the OBSERVED size is ALWAYS written into the observation
+(deviation 1, spec §5: a size anomaly must not become invisible).
 
-Le canon du hash (32 hex minuscules, canon v0.5.0) est validé EN PYTHON avant la
-transaction : ``INSERT OR IGNORE`` avale silencieusement une violation de CHECK
-(comportement SQLite documenté) — sans cette garde, un hash non canonique ne serait
-arrêté que par le pragma ``foreign_keys`` (diagnostic opaque), et une connexion sans
-ce pragma commettrait une observation ORPHELINE. Le rollback attrape ``BaseException``
-(même discipline que ``connection._open``) : une panne NON-sqlite au binding (p.ex.
-``UnicodeEncodeError`` sur un surrogate isolé) ne doit pas laisser la connexion
-``in_transaction`` — sinon le repository serait définitivement cassé.
+The hash canon (32 lowercase hex, v0.5.0 canon) is validated IN PYTHON before the
+transaction: ``INSERT OR IGNORE`` silently swallows a CHECK violation (documented
+SQLite behavior) — without this guard, a non-canonical hash would only be stopped
+by the ``foreign_keys`` pragma (opaque diagnostic), and a connection without that
+pragma would commit an ORPHAN observation. The rollback catches ``BaseException``
+(same discipline as ``connection._open``): a NON-sqlite failure at binding (e.g.
+``UnicodeEncodeError`` on a lone surrogate) must not leave the connection
+``in_transaction`` — otherwise the repository would be permanently broken.
 """
 
 import json
@@ -57,10 +57,10 @@ INSERT INTO file_verifications (ed2k_hash, verdict, real_meta, checks, verified_
 VALUES (?, ?, ?, ?, ?, ?)
 """
 
-# Dernier verdict connu pour un hash (anti-redondance, spec orchestration §3). Tri par
-# (decided_at, id) DÉCROISSANT : decided_at à largeur fixe rend l'ordre lexicographique
-# chronologique ; id départage deux décisions de la même microseconde (l'INSERT le plus
-# récent a l'id le plus grand). L'index idx_match_decisions_ed2k_hash sert le filtre.
+# Last known verdict for a hash (anti-redundancy, orchestration spec §3). Sorted by
+# (decided_at, id) DESCENDING: fixed-width decided_at makes lexicographic order
+# chronological; id breaks a tie between two decisions of the same microsecond (the most
+# recent INSERT has the largest id). The idx_match_decisions_ed2k_hash index serves the filter.
 _SELECT_LAST_DECISION = """
 SELECT target_id, rule_name, tier FROM match_decisions
 WHERE ed2k_hash = ?
@@ -68,11 +68,11 @@ ORDER BY decided_at DESC, id DESC
 LIMIT 1
 """
 
-# Hash dont le DERNIER verdict est tier=download (spec download §5). Fenêtre :
-# ROW_NUMBER par hash, ordre (decided_at, id) DÉCROISSANT (le plus récent = rang 1) ; on ne
-# garde que rang 1 ET tier='download'. Tri stable par hash pour un résultat déterministe.
-# La fenêtre fait actuellement un scan complet ; un index couvrant
-# (ed2k_hash, decided_at DESC, id DESC) la servirait (prématuré à l'échelle MVP — note seule).
+# Hashes whose LATEST verdict is tier=download (download spec §5). Window:
+# ROW_NUMBER per hash, order (decided_at, id) DESCENDING (most recent = rank 1); we keep
+# only rank 1 AND tier='download'. Stable sort by hash for a deterministic result.
+# The window currently does a full scan; a covering index
+# (ed2k_hash, decided_at DESC, id DESC) would serve it (premature at MVP scale — note only).
 _SELECT_DOWNLOAD_DECISIONS = """
 SELECT ed2k_hash, target_id FROM (
     SELECT
@@ -83,7 +83,7 @@ SELECT ed2k_hash, target_id FROM (
 ORDER BY ed2k_hash
 """
 
-# Dernière observation d'un hash (nom + taille pour le lien ed2k, spec download §5).
+# Last observation of a hash (name + size for the ed2k link, download spec §5).
 _SELECT_LAST_OBSERVATION = """
 SELECT filename, size_bytes FROM file_observations
 WHERE ed2k_hash = ?
@@ -93,7 +93,7 @@ LIMIT 1
 
 
 class SqliteCatalogRepository:
-    """Implémentation SQLite du port ``CatalogRepository`` (satisfaction STRUCTURELLE)."""
+    """SQLite implementation of the ``CatalogRepository`` port (STRUCTURAL satisfaction)."""
 
     def __init__(
         self, connection: sqlite3.Connection, node_id: str, *, clock: Clock = utc_now
@@ -103,9 +103,9 @@ class SqliteCatalogRepository:
         self._clock = clock
 
     def record_observation(self, observation: FileObservation) -> None:
-        """UNE transaction : fichier (première vue gagne) + observation stampée."""
+        """ONE transaction: file (first sight wins) + stamped observation."""
         if not _CANONICAL_HASH_RE.fullmatch(observation.ed2k_hash):
-            raise PersistenceError(f"hash eD2k non canonique : {observation.ed2k_hash!r}")
+            raise PersistenceError(f"non-canonical eD2k hash: {observation.ed2k_hash!r}")
         raw_meta = json.dumps(observation.raw_meta, ensure_ascii=False)
         observed_at = utc_iso(self._clock())
         with wrap_sqlite_errors():
@@ -139,13 +139,13 @@ class SqliteCatalogRepository:
                 raise
 
     def record_decision(self, ed2k_hash: str, decision: MatchDecision) -> None:
-        """INSERT seul (autocommit) ; fichier inconnu → FK violée → ``PersistenceError``.
+        """INSERT alone (autocommit); unknown file → FK violated → ``PersistenceError``.
 
-        Seules les 3 colonnes de ``MatchDecision`` sont persistées (spec moteur) ;
-        ``explanation`` est de l'explicabilité runtime, JAMAIS une colonne.
+        Only the 3 columns of ``MatchDecision`` are persisted (engine spec);
+        ``explanation`` is runtime explainability, NEVER a column.
         """
         if not _CANONICAL_HASH_RE.fullmatch(ed2k_hash):
-            raise PersistenceError(f"hash eD2k non canonique : {ed2k_hash!r}")
+            raise PersistenceError(f"non-canonical eD2k hash: {ed2k_hash!r}")
         with wrap_sqlite_errors():
             self._connection.execute(
                 _INSERT_DECISION,
@@ -160,12 +160,12 @@ class SqliteCatalogRepository:
             )
 
     def last_decision(self, ed2k_hash: str) -> DecisionRecord | None:
-        """Dernier verdict connu pour ce hash, ou ``None`` (jamais décidé) — LECTURE.
+        """Last known verdict for this hash, or ``None`` (never decided) — READ.
 
-        Anti-redondance (spec orchestration §3) : l'application compare ce
-        ``DecisionRecord`` au verdict frais et ne ré-``record_decision`` que s'il diffère.
-        Le hash n'est PAS validé canonique ici : c'est une lecture inoffensive (un hash
-        non canonique ne matche simplement rien → ``None``).
+        Anti-redundancy (orchestration spec §3): the application compares this
+        ``DecisionRecord`` to the fresh verdict and only re-``record_decision`` if it differs.
+        The hash is NOT validated canonical here: it is a harmless read (a non-canonical
+        hash simply matches nothing → ``None``).
         """
         with wrap_sqlite_errors():
             row = self._connection.execute(_SELECT_LAST_DECISION, (ed2k_hash,)).fetchone()
@@ -174,13 +174,13 @@ class SqliteCatalogRepository:
         return DecisionRecord(target_id=row[0], rule_name=row[1], tier=row[2])
 
     def download_decisions(self) -> tuple[DownloadCandidate, ...]:
-        """Hash dont le DERNIER verdict est tier=download, à rejouer (download §5) — LECTURE."""
+        """Hashes whose LATEST verdict is tier=download, to replay (download §5) — READ."""
         with wrap_sqlite_errors():
             rows = self._connection.execute(_SELECT_DOWNLOAD_DECISIONS).fetchall()
         return tuple(DownloadCandidate(ed2k_hash=row[0], target_id=row[1]) for row in rows)
 
     def last_observation(self, ed2k_hash: str) -> ObservedFile | None:
-        """Dernière observation d'un hash (nom+taille pour le lien ed2k), ou ``None`` — LECTURE."""
+        """Last observation of a hash (name+size for the ed2k link), or ``None`` — READ."""
         with wrap_sqlite_errors():
             row = self._connection.execute(_SELECT_LAST_OBSERVATION, (ed2k_hash,)).fetchone()
         if row is None:
@@ -194,17 +194,17 @@ class SqliteCatalogRepository:
         real_meta: Mapping[str, object],
         checks: Sequence[object],
     ) -> None:
-        """INSERT seul (autocommit) d'un verdict (spec verify §5). Append-only (trigger).
+        """INSERT alone (autocommit) of a verdict (verify spec §5). Append-only (trigger).
 
-        Template ``record_decision`` : garde canonique du hash AVANT l'INSERT (un hash non
-        canonique est un bug appelant → ``PersistenceError`` clair, pas un diagnostic FK
-        opaque) ; ``real_meta``/``checks`` sérialisés JSON (``ensure_ascii=False``, le verdict
-        NO-OP les rend vides mais D-analysis les remplira) ; ``verified_at``/``node_id`` stampés
-        par l'adapter (le domaine ignore les colonnes de persistance). Fichier inconnu → FK
-        violée → ``PersistenceError`` via ``wrap_sqlite_errors``.
+        Templated on ``record_decision``: canonical hash guard BEFORE the INSERT (a
+        non-canonical hash is a caller bug → clear ``PersistenceError``, not an opaque FK
+        diagnostic); ``real_meta``/``checks`` serialized as JSON (``ensure_ascii=False``, the
+        NO-OP verdict leaves them empty but D-analysis will fill them); ``verified_at``/``node_id``
+        stamped by the adapter (the domain ignores persistence columns). Unknown file → FK
+        violated → ``PersistenceError`` via ``wrap_sqlite_errors``.
         """
         if not _CANONICAL_HASH_RE.fullmatch(ed2k_hash):
-            raise PersistenceError(f"hash eD2k non canonique : {ed2k_hash!r}")
+            raise PersistenceError(f"non-canonical eD2k hash: {ed2k_hash!r}")
         with wrap_sqlite_errors():
             self._connection.execute(
                 _INSERT_VERIFICATION,

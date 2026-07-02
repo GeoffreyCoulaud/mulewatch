@@ -1,37 +1,37 @@
-"""Check ``type_sniff`` (spec analysis §5 — DA7) : détection de DANGER ABSOLU.
+"""``type_sniff`` check (analysis spec §5 — DA7): ABSOLUTE-DANGER detection.
 
-On sniffe les premiers octets (le caller passe déjà au plus ``header_bytes``) sans jamais
-comparer à l'extension déclarée (le nom eD2k est hostile). Classement :
-- conteneur média connu → ``clean`` ;
-- exécutable / script (ELF, PE/MZ, Mach-O, shebang ``#!``) → ``malicious`` (une vidéo qui est
-  en fait un binaire est une tromperie délibérée) ;
-- archive (zip/rar/7z…) → ``suspicious`` (plausible, mais pas une vidéo) ;
-- inconnu / non concluant → ``clean`` (ffprobe tranchera).
-``sniffed_type`` (le mime détecté ou ``None``) va dans ``meta`` dans tous les cas.
+We sniff the first bytes (the caller already passes at most ``header_bytes``) without ever
+comparing against the declared extension (the eD2k name is hostile). Classification:
+- known media container → ``clean``;
+- executable / script (ELF, PE/MZ, Mach-O, ``#!`` shebang) → ``malicious`` (a video that is
+  actually a binary is a deliberate deception);
+- archive (zip/rar/7z…) → ``suspicious`` (plausible, but not a video);
+- unknown / inconclusive → ``clean`` (ffprobe will decide).
+``sniffed_type`` (the detected mime or ``None``) goes into ``meta`` in every case.
 
-Note implémentation — la détection exécutable/archive se fait EN DEUX NIVEAUX :
+Implementation note — executable/archive detection happens in TWO LEVELS:
 
-1. ``_EXECUTABLE_MAGICS`` / ``_ARCHIVE_MAGICS`` : magic bytes vérifiés AVANT puremagic.
-   Rationale empirique (puremagic 2.2.0) — ce que puremagic renvoie pour ces magics :
-   - ELF (``\\x7fELF``) → ``''`` (chaîne vide, non concluant).
-   - Mach-O toutes variantes → ``''``.
-   - Shebang ``#!`` → ``PureError`` (aucune signature).
-   - PE/MZ (``MZ``) → ``application/vnd.microsoft.portable-executable`` — un mime qui CONTIENT
-     ``executable``. ``_classify`` n'a néanmoins VOLONTAIREMENT aucune branche pour ce mime :
-     ``_EXECUTABLE_MAGICS`` est le filet explicite qui capte TOUS les exécutables en amont, on
-     ne se repose jamais sur le mime puremagic pour les classer ``malicious``.
+1. ``_EXECUTABLE_MAGICS`` / ``_ARCHIVE_MAGICS``: magic bytes checked BEFORE puremagic.
+   Empirical rationale (puremagic 2.2.0) — what puremagic returns for these magics:
+   - ELF (``\\x7fELF``) → ``''`` (empty string, inconclusive).
+   - Mach-O, all variants → ``''``.
+   - Shebang ``#!`` → ``PureError`` (no signature).
+   - PE/MZ (``MZ``) → ``application/vnd.microsoft.portable-executable`` — a mime that CONTAINS
+     ``executable``. ``_classify`` nevertheless DELIBERATELY has no branch for this mime:
+     ``_EXECUTABLE_MAGICS`` is the explicit net that catches ALL executables upstream, we never
+     rely on the puremagic mime to classify them ``malicious``.
    - ZIP (``PK\\x03\\x04``) → ``application/vnd.openxmlformats-officedocument
-     .wordprocessingml.document`` (DOCX), jamais un mime contenant ``zip`` (cf. ``_ARCHIVE_MAGICS``
-     pour le détail des variantes ZIP).
-   Tous ces cas sont donc captés ici, avant l'appel à puremagic, avec ``sniffed_type=None``.
+     .wordprocessingml.document`` (DOCX), never a mime containing ``zip`` (cf. ``_ARCHIVE_MAGICS``
+     for the detail of the ZIP variants).
+   All these cases are thus caught here, before the puremagic call, with ``sniffed_type=None``.
 
-2. ``_classify`` — sur le mime puremagic pour les cas non couverts par les magic bytes :
-   - Média : préfixe ``video/``/``audio/`` ou marqueurs spécifiques.
-   - Archive : marqueurs ``rar``, ``7z``, etc.  (RAR v4=``application/x-rar-compressed``,
+2. ``_classify`` — on the puremagic mime for the cases not covered by the magic bytes:
+   - Media: ``video/``/``audio/`` prefix or specific markers.
+   - Archive: ``rar``, ``7z``, etc. markers  (RAR v4=``application/x-rar-compressed``,
      RAR v5=``application/vnd.rar``, 7z=``application/x-7z-compressed``).
-   Aucune branche exécutable ici : aucun exécutable réaliste n'atteint ``_classify`` —
-   ELF/Mach-O/shebang/PE sont tous captés par ``_EXECUTABLE_MAGICS`` (ou PureError) en amont
-   (cf. point 1, PE/MZ). Une branche ``application/x-*executable`` y serait donc morte.
+   No executable branch here: no realistic executable reaches ``_classify`` —
+   ELF/Mach-O/shebang/PE are all caught by ``_EXECUTABLE_MAGICS`` (or PureError) upstream
+   (cf. point 1, PE/MZ). An ``application/x-*executable`` branch would therefore be dead.
 """
 
 import puremagic
@@ -39,8 +39,8 @@ from puremagic import PureError
 
 from download_verifier.checks.base import CheckOutcome, Status
 
-# Magiques d'exécutables/scripts (defense-in-depth : on ne dépend pas du seul mime puremagic,
-# le shebang en particulier n'a pas de magique binaire fiable).
+# Executable/script magics (defense-in-depth: we do not depend on the puremagic mime alone,
+# the shebang in particular has no reliable binary magic).
 _EXECUTABLE_MAGICS: tuple[bytes, ...] = (
     b"\x7fELF",  # ELF (Linux/BSD)
     b"MZ",  # PE/COFF (Windows .exe/.dll)
@@ -52,19 +52,19 @@ _EXECUTABLE_MAGICS: tuple[bytes, ...] = (
     b"#!",  # shebang (script)
 )
 
-# Archives ZIP : magic bytes vérifiés avant puremagic. Le guard est nécessaire pour les DEUX
-# variantes, mais pour DEUX raisons distinctes (empirique puremagic 2.2.0) :
-#   - PK\x03\x04 → puremagic renvoie un mime DOCX (openxmlformats), JAMAIS un mime contenant
-#     «zip» → invisible à _ARCHIVE_MARKERS, donc serait classé clean sans ce guard ;
-#   - PK\x05\x06 / PK\x07\x08 → puremagic renvoie «application/zip», mais «zip» est ABSENT de
-#     _ARCHIVE_MARKERS → seraient également classés clean sans ce guard.
+# ZIP archives: magic bytes checked before puremagic. The guard is needed for BOTH variants,
+# but for TWO distinct reasons (empirical puremagic 2.2.0):
+#   - PK\x03\x04 → puremagic returns a DOCX mime (openxmlformats), NEVER a mime containing
+#     "zip" → invisible to _ARCHIVE_MARKERS, so it would be classified clean without this guard;
+#   - PK\x05\x06 / PK\x07\x08 → puremagic returns "application/zip", but "zip" is ABSENT from
+#     _ARCHIVE_MARKERS → would also be classified clean without this guard.
 _ARCHIVE_MAGICS: tuple[bytes, ...] = (
-    b"PK\x03\x04",  # ZIP local-file-header (et formats ZIP-based : DOCX, XLSX, ODF, JAR…)
-    b"PK\x05\x06",  # ZIP vide (end-of-central-directory seul)
-    b"PK\x07\x08",  # ZIP spanned (data-descriptor)
+    b"PK\x03\x04",  # ZIP local-file-header (and ZIP-based formats: DOCX, XLSX, ODF, JAR…)
+    b"PK\x05\x06",  # empty ZIP (end-of-central-directory only)
+    b"PK\x07\x08",  # spanned ZIP (data-descriptor)
 )
 
-# Mimes/extensions d'archives détectés par puremagic (complément au niveau magic bytes).
+# Archive mimes/extensions detected by puremagic (complement to the magic-bytes level).
 _ARCHIVE_MARKERS: tuple[str, ...] = (
     "x-rar",
     "rar",
@@ -76,12 +76,12 @@ _ARCHIVE_MARKERS: tuple[str, ...] = (
     "x-xz",
 )
 
-# Mimes de conteneurs/flux média.
+# Media container/stream mimes.
 _MEDIA_PREFIXES: tuple[str, ...] = ("video/", "audio/")
-# Défense-en-profondeur : repli (substring) pour des mimes média qui ne commencent PAS par
-# «video/»/«audio/» — formats non-standard ou futures versions de puremagic (ex.
-# «application/x-matroska», «application/ogg»). NE PAS supprimer lors d'un nettoyage : ces
-# marqueurs ne sont pas redondants avec _MEDIA_PREFIXES (ils captent justement les exceptions).
+# Defense-in-depth: fallback (substring) for media mimes that do NOT start with "video/"/"audio/"
+# — non-standard formats or future puremagic versions (e.g. "application/x-matroska",
+# "application/ogg"). Do NOT remove during a cleanup: these markers are not redundant with
+# _MEDIA_PREFIXES (they catch precisely the exceptions).
 _MEDIA_MARKERS: tuple[str, ...] = (
     "matroska",
     "mp4",
@@ -94,12 +94,12 @@ _MEDIA_MARKERS: tuple[str, ...] = (
 
 
 def sniff(header: bytes) -> CheckOutcome:
-    """Sniffe ``header`` et classe son danger absolu (spec §5/DA7)."""
+    """Sniff ``header`` and classify its absolute danger (spec §5/DA7)."""
     if not header:
-        # Court-circuit input-trust#0 : ``puremagic.from_string(b"")`` lève ``PureValueError``,
-        # qui n'hérite PAS de ``PureError`` → l'except ne l'attraperait pas et un fichier de
-        # 0 octet ferait crasher le child. Aucune information à extraire d'un header vide ;
-        # ffprobe verra l'absence de média et tranchera.
+        # input-trust#0 short-circuit: ``puremagic.from_string(b"")`` raises ``PureValueError``,
+        # which does NOT inherit from ``PureError`` → the except would not catch it and a 0-byte
+        # file would crash the child. No information to extract from an empty header;
+        # ffprobe will see the absence of media and decide.
         return CheckOutcome(name="type_sniff", status="clean", meta={"sniffed_type": None})
     if header.startswith(_EXECUTABLE_MAGICS):
         return CheckOutcome(name="type_sniff", status="malicious", meta={"sniffed_type": None})

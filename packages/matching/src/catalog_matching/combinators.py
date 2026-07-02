@@ -1,7 +1,7 @@
-"""Contrat ``Matcher`` (Protocol) et combinateurs ``all``/``any``/``not`` (cf. spec §8.3).
+"""``Matcher`` contract (Protocol) and ``all``/``any``/``not`` combinators (cf. spec §8.3).
 
-Domaine pur : ces combinateurs wrappent d'autres ``Matcher`` (feuilles du Plan 2a ou
-combinateurs) et exposent la même interface ``matches(candidate) -> bool``.
+Pure domain: these combinators wrap other ``Matcher``s (Plan 2a leaves or combinators) and
+expose the same ``matches(candidate) -> bool`` interface.
 """
 
 from typing import Protocol
@@ -10,19 +10,19 @@ from catalog_matching.models import FileCandidate
 
 
 class Matcher(Protocol):
-    """Contrat structural commun aux feuilles (Plan 2a) et aux combinateurs.
+    """Structural contract shared by leaves (Plan 2a) and combinators.
 
-    Les 4 matchers feuilles (`KeywordMatcher`, `RegexMatcher`, `CoverageMatcher`,
-    `AttrBetweenMatcher`) le satisfont déjà sans modification (ils ont `matches`).
-    `CoverageMatcher.value()` n'entre PAS dans le contrat : le Plan 2c y accédera
-    spécifiquement pour l'explicabilité.
+    The 4 leaf matchers (`KeywordMatcher`, `RegexMatcher`, `CoverageMatcher`,
+    `AttrBetweenMatcher`) already satisfy it unchanged (they have `matches`).
+    `CoverageMatcher.value()` is NOT part of the contract: Plan 2c will access it
+    specifically for explainability.
     """
 
     def matches(self, candidate: FileCandidate) -> bool: ...
 
 
 class AllMatcher:
-    """Conjonction : vrai si TOUS les enfants matchent (``all([]) == True``)."""
+    """Conjunction: true if ALL children match (``all([]) == True``)."""
 
     def __init__(self, children: tuple[Matcher, ...]) -> None:
         self._children = children
@@ -32,7 +32,7 @@ class AllMatcher:
 
 
 class AnyMatcher:
-    """Disjonction : vrai si AU MOINS un enfant matche (``any([]) == False``)."""
+    """Disjunction: true if AT LEAST one child matches (``any([]) == False``)."""
 
     def __init__(self, children: tuple[Matcher, ...]) -> None:
         self._children = children
@@ -42,7 +42,7 @@ class AnyMatcher:
 
 
 class NotMatcher:
-    """Négation : vrai si l'enfant unique NE matche PAS."""
+    """Negation: true if the single child does NOT match."""
 
     def __init__(self, child: Matcher) -> None:
         self._child = child

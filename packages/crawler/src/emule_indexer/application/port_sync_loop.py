@@ -1,18 +1,18 @@
-"""La boucle port-sync UNIFIÉE (boot + mid-life) : lit le port forwardé, aligne amuled, restart.
+"""The UNIFIED port-sync loop (boot + mid-life): read the forwarded port, align amuled, restart.
 
-Couche APPLICATION (port-sync High-ID, design §4). UN seul algorithme couvre « le port est faux
-au démarrage » ET « le port est devenu faux en cours de route » (renégo VPN) : on lit le port
-forwardé vivant (gluetun), on compare au port d'écoute d'amuled (EC), et si ça diffère on
-``SetPort`` + restart le conteneur (le port n'est PAS re-bindable à chaud). Garde-fous : rate-limit
-des restarts (≤ 1 / fenêtre) ; re-check High-ID après restart SANS boucler ; alerte de repli
-edge-triggered (OPERATIONS) quand le port reste faux. Le mode dégradé (Low-ID) est toléré : tout
-parsing défensif (port 0 / control-server injoignable / EC mort) → « pas prêt », backoff.
+APPLICATION layer (High-ID port-sync, design §4). ONE algorithm covers both "the port is wrong
+at startup" AND "the port became wrong along the way" (VPN renegotiation): we read the live
+forwarded port (gluetun), compare it to amuled's listen port (EC), and if they differ we
+``SetPort`` + restart the container (the port is NOT re-bindable at runtime). Guards: restart
+rate-limit (≤ 1 / window); High-ID re-check after restart WITHOUT looping; edge-triggered
+fallback alert (OPERATIONS) when the port stays wrong. The degraded mode (Low-ID) is tolerated:
+any defensive parse (port 0 / control-server unreachable / EC dead) → "not ready", backoff.
 
-``run_port_sync_cycle`` NE LÈVE JAMAIS (filet top-level comme ``run_verification_cycle``) ; tout
-chemin re-bouclant dort ``poll_interval_seconds`` (pas de busy-spin). ``port_sync_loop`` répète
-jusqu'à l'arrêt (pattern ``verification_loop``). Comme ``VerificationTaskQueue``, on déclare des
-Protocols NARROW locaux (le vrai ``AmuleEcClient`` ET un fake minimal les satisfont) — on n'élargit
-PAS ``ports/mule_client.py``.
+``run_port_sync_cycle`` NEVER RAISES (top-level net like ``run_verification_cycle``); every
+re-looping path sleeps ``poll_interval_seconds`` (no busy-spin). ``port_sync_loop`` repeats
+until shutdown (``verification_loop`` pattern). Like ``VerificationTaskQueue``, we declare local
+NARROW Protocols (the real ``AmuleEcClient`` AND a minimal fake satisfy them) — we do NOT widen
+``ports/mule_client.py``.
 """
 
 import asyncio
@@ -39,10 +39,10 @@ _MISMATCH = "port_mismatch"
 
 
 class PortPreferences(Protocol):
-    """Sous-ensemble de ``MuleClient`` consommé par la boucle (typage local, design §4.2).
+    """Subset of ``MuleClient`` consumed by the loop (local typing, design §4.2).
 
-    Le vrai ``AmuleEcClient`` (get/set_listen_port nouvelles, network_status existante) ET un fake
-    minimal le satisfont. Stubs sur UNE ligne.
+    The real ``AmuleEcClient`` (new get/set_listen_port, existing network_status) AND a minimal
+    fake satisfy it. Stubs on ONE line.
     """
 
     async def get_listen_port(self) -> int: ...
@@ -54,69 +54,70 @@ class PortPreferences(Protocol):
 
 @dataclass
 class PortSyncDeps:
-    """Dépendances d'un cycle port-sync (la composition les assemble une fois, design §4.3)."""
+    """Dependencies of a port-sync cycle (composition assembles them once, design §4.3)."""
 
-    reader: PortForwardingReader  # lit le port forwardé vivant (gluetun)
-    ports: PortPreferences  # EC get/set/connstate (AmuleEcClient, connexion dédiée R6)
-    restarter: MuleRestarter  # restart amuled via le proxy
-    clock: Clock  # sleep/now injectés (déterminisme)
-    telemetry: Telemetry  # events d'observabilité
-    edge: EdgeState  # alerte edge-triggered (port mismatch non corrigé)
-    poll_interval_seconds: float  # cadence du poll
-    restart_min_interval_seconds: float  # rate-limit des restarts (≤ 1 / fenêtre)
+    reader: PortForwardingReader  # reads the live forwarded port (gluetun)
+    ports: PortPreferences  # EC get/set/connstate (AmuleEcClient, dedicated connection R6)
+    restarter: MuleRestarter  # restart amuled via the proxy
+    clock: Clock  # injected sleep/now (determinism)
+    telemetry: Telemetry  # observability events
+    edge: EdgeState  # edge-triggered alert (uncorrected port mismatch)
+    poll_interval_seconds: float  # poll cadence
+    restart_min_interval_seconds: float  # restart rate-limit (≤ 1 / window)
 
 
 class _PortSyncState:
-    """État inter-itérations (mutable, mono-thread sur l'event loop, NON persisté — comme
-    ``EdgeState``). Mémorise l'instant du dernier restart (rate-limit) et le port visé."""
+    """Inter-iteration state (mutable, single-threaded on the event loop, NOT persisted — like
+    ``EdgeState``). Remembers the last restart's instant (rate-limit) and the target port."""
 
     def __init__(self) -> None:
         self._last_restart: datetime | None = None
         self._last_target: int | None = None
 
     def too_soon(self, now: datetime, window_seconds: float) -> bool:
-        """``True`` si un restart a eu lieu il y a moins de ``window_seconds`` (rate-limit)."""
+        """``True`` if a restart happened less than ``window_seconds`` ago (rate-limit)."""
         if self._last_restart is None:
             return False
         return (now - self._last_restart).total_seconds() < window_seconds
 
     def record_restart(self, now: datetime, target: int) -> None:
-        """Enregistre l'instant + le port visé du restart (rate-limit + cible)."""
+        """Records the instant + target port of the restart (rate-limit + target)."""
         self._last_restart = now
         self._last_target = target
 
 
 async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None:
-    """UN cycle (design §4.4). NE LÈVE JAMAIS ; tout chemin re-bouclant dort ``poll_interval``.
+    """ONE cycle (design §4.4). NEVER RAISES; every re-looping path sleeps ``poll_interval``.
 
-    Boot vs mid-life = MÊME chemin : au 1er cycle ``current`` est le port codé en dur de l'image ;
-    si ``live`` diffère, on ``SetPort`` + restart une fois puis on re-vérifie High-ID. Aux cycles
-    suivants, idem en cas de renégo VPN. Pas de branche « première fois ».
+    Boot vs mid-life = SAME path: on the 1st cycle ``current`` is the image's hardcoded port;
+    if ``live`` differs, we ``SetPort`` + restart once then re-check High-ID. On later cycles,
+    same in case of VPN renegotiation. No "first time" branch.
     """
     try:
         live = await deps.reader.forwarded_port()
         if live is None:
-            # control-server pas prêt / PF non négocié → on reste Low-ID, PAS d'alerte.
+            # control-server not ready / PF not negotiated → we stay Low-ID, NO alert.
             await deps.clock.sleep(deps.poll_interval_seconds)
             return
         current = await deps.ports.get_listen_port()
         if live == current:
-            # La préférence est alignée sur le port forwardé — mais ce n'est PAS une preuve
-            # qu'amuled ÉCOUTE ce port : ``set_listen_port`` écrit la préférence sans rebind (le
-            # rebind exige un restart). L'EC n'expose pas le port réellement bound ; le seul signal
-            # fiable que le bon port est bindé ET joignable est le High-ID. On n'efface donc
-            # l'alerte QUE si High-ID ; sinon on backoff sans y toucher — un restart raté garde son
-            # alerte allumée au lieu d'être masqué par la préférence écrite (test-gaps#0). Low-ID
-            # toléré : pas de re-restart (le rate-limit/alerte gèrent la reprise).
+            # The preference is aligned with the forwarded port — but this is NOT proof that
+            # amuled LISTENS on that port: ``set_listen_port`` writes the preference without
+            # rebinding (the rebind requires a restart). EC does not expose the actually-bound
+            # port; the only reliable signal that the right port is bound AND reachable is the
+            # High-ID. So we clear the alert ONLY if High-ID; otherwise we backoff without
+            # touching it — a failed restart keeps its alert lit instead of being masked by the
+            # written preference (test-gaps#0). Low-ID tolerated: no re-restart (the
+            # rate-limit/alert handle recovery).
             status = await deps.ports.network_status()
             if status.ed2k_high:
                 deps.edge.leave(_MISMATCH)
             await deps.clock.sleep(deps.poll_interval_seconds)
             return
-        # --- divergence : live != current, et live > 0 garanti ---
+        # --- divergence: live != current, and live > 0 guaranteed ---
         now = deps.clock.now()
         if state.too_soon(now, deps.restart_min_interval_seconds):
-            # rate-limit : restart récent → on attend (ne pas boucler les restarts).
+            # rate-limit: recent restart → we wait (don't loop restarts).
             await deps.clock.sleep(deps.poll_interval_seconds)
             return
         await deps.ports.set_listen_port(live)
@@ -124,8 +125,8 @@ async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None
         try:
             await deps.restarter.restart()
         except RestarterError as error:
-            # restart impossible → alerte edge-triggered + backoff.
-            _logger.warning("restart d'amuled impossible (%s) — alerte + backoff", error)
+            # restart impossible → edge-triggered alert + backoff.
+            _logger.warning("amuled restart failed (%s) — alert + backoff", error)
             await deps.telemetry.emit(
                 PortMismatchUnresolved(
                     first_occurrence=deps.edge.enter(_MISMATCH), live=live, configured=current
@@ -134,9 +135,9 @@ async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None
             await deps.clock.sleep(deps.poll_interval_seconds)
             return
         state.record_restart(now, live)
-        # --- re-check High-ID après restart (DÉCISION 4) : NE PAS BOUCLER si pas High-ID ---
-        # on laisse un délai borné (amuled rebind) puis on lit le connstate ; si ed2k_high est
-        # False, on émet l'alerte et on rend — le rate-limit empêche un re-restart immédiat.
+        # --- re-check High-ID after restart (DECISION 4): DO NOT LOOP if not High-ID ---
+        # we allow a bounded delay (amuled rebind) then read the connstate; if ed2k_high is
+        # False, we emit the alert and return — the rate-limit prevents an immediate re-restart.
         await deps.clock.sleep(deps.poll_interval_seconds)
         status = await deps.ports.network_status()
         if status.ed2k_high:
@@ -149,28 +150,29 @@ async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None
                 )
             )
     except MuleClientError as error:
-        # get/set_listen_port / network_status en échec (amuled down / EC mort / EC_OP_FAILED) →
-        # toléré (le spec catche le base ``EcError`` ; côté application on catche son ANCÊTRE de
-        # port ``MuleClientError`` — qui couvre injoignable ET échec applicatif — sans importer
-        # l'adapter, règle de dépendance §4). Backoff, pas de crash (filet top-level §4.4).
-        _logger.warning("EC en échec pendant le port-sync (%s) — toléré, backoff", error)
+        # get/set_listen_port / network_status failed (amuled down / EC dead / EC_OP_FAILED) →
+        # tolerated (the spec catches the base ``EcError``; on the application side we catch its
+        # port ANCESTOR ``MuleClientError`` — which covers unreachable AND application failure —
+        # without importing the adapter, dependency rule §4). Backoff, no crash (top-level net
+        # §4.4).
+        _logger.warning("EC failed during port-sync (%s) — tolerated, backoff", error)
         await deps.clock.sleep(deps.poll_interval_seconds)
 
 
 @dataclass
 class PortSyncLoopDeps(PortSyncDeps):
-    """``PortSyncDeps`` + l'arrêt (pattern ``verification_loop``). Pas de nudge : le poll suffit."""
+    """``PortSyncDeps`` + shutdown (``verification_loop`` pattern). No nudge: the poll is enough."""
 
     shutdown: asyncio.Event
 
 
 async def port_sync_loop(deps: PortSyncLoopDeps) -> None:
-    """Répète ``run_port_sync_cycle`` jusqu'à l'arrêt (design §4.5, pattern ``verification_loop``).
+    """Repeats ``run_port_sync_cycle`` until shutdown (design §4.5, ``verification_loop`` pattern).
 
-    Câblée par ``CrawlerApp`` dans le ``TaskGroup`` ; l'annulation (arrêt) atterrit au prochain
-    ``await`` (poll/EC/sleep). ``run_port_sync_cycle`` NE LÈVE JAMAIS → cette boucle ne peut pas
-    crasher le ``TaskGroup``. Le ``if deps.shutdown.is_set(): break`` post-cycle évite un cycle de
-    plus quand l'arrêt est demandé PENDANT le cycle.
+    Wired by ``CrawlerApp`` into the ``TaskGroup``; cancellation (shutdown) lands at the next
+    ``await`` (poll/EC/sleep). ``run_port_sync_cycle`` NEVER RAISES → this loop cannot crash the
+    ``TaskGroup``. The post-cycle ``if deps.shutdown.is_set(): break`` avoids one extra cycle when
+    shutdown is requested DURING the cycle.
     """
     state = _PortSyncState()
     while not deps.shutdown.is_set():

@@ -52,7 +52,7 @@ def test_media_fields_and_raw_meta_default_to_absent() -> None:
 
 
 def test_to_candidate_converts_units_with_media_metadata() -> None:
-    # 3 Mio exactement -> size_mb == 3.0 (DÉCISION 8 : 1 Mio = 1024*1024 octets).
+    # exactly 3 MiB -> size_mb == 3.0 (DECISION 8: 1 MiB = 1024*1024 bytes).
     candidate = _full_observation().to_candidate()
     assert candidate == FileCandidate(
         filename="Keroro 062A.avi",
@@ -66,7 +66,7 @@ def test_to_candidate_maps_absent_media_metadata_to_none() -> None:
     observation = FileObservation(
         ed2k_hash="31d6cfe0d16ae931b73c59d7e0c089c0",
         filename="Keroro 062A.avi",
-        size_bytes=524288,  # 0.5 Mio
+        size_bytes=524288,  # 0.5 MiB
         source_count=1,
         complete_source_count=0,
         keyword="keroro",

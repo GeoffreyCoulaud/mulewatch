@@ -1,1 +1,1 @@
-"""Outils CLI (frontière I/O assumée : print/argparse, testés via faux clients)."""
+"""CLI tools (assumed I/O boundary: print/argparse, tested via fake clients)."""

@@ -1,17 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Fichiers — emule-indexer{% endblock %}
+{% block title %}Files — emule-indexer{% endblock %}
 {% block content %}
-<h1>Fichiers</h1>
+<h1>Files</h1>
 
 <table>
   <thead>
     <tr>
       <th>Hash</th>
-      <th>Nom</th>
-      <th>Taille</th>
+      <th>Name</th>
+      <th>Size</th>
       <th>Sources</th>
-      <th>Dernière observation</th>
-      <th>Cible</th>
+      <th>Last seen</th>
+      <th>Target</th>
       <th>Tier</th>
       <th>Verdict</th>
     </tr>
@@ -29,16 +29,16 @@
       <td>{{ row.verdict_display }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="8">Aucun fichier trouvé.</td></tr>
+    <tr><td colspan="8">No files found.</td></tr>
     {% endfor %}
   </tbody>
 </table>
 
 {% for url in (nav.prev_url,) if url %}
-<a href="{{ url }}">← Précédente</a>
+<a href="{{ url }}">← Previous</a>
 {% endfor %}
 <span>Page {{ nav.page }}</span>
 {% for url in (nav.next_url,) if url %}
-<a href="{{ url }}">Suivante →</a>
+<a href="{{ url }}">Next →</a>
 {% endfor %}
 {% endblock %}

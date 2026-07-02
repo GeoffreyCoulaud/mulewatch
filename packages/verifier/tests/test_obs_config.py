@@ -1,4 +1,4 @@
-"""Mini-loader YAML d'observabilité du verifier : log_level validé, défaut INFO, fail-fast."""
+"""Verifier observability mini YAML loader: log_level validated, default INFO, fail-fast."""
 
 from pathlib import Path
 
@@ -30,12 +30,12 @@ def test_rejects_unknown_level(tmp_path: Path) -> None:
 
 
 def test_defaults_to_info_when_yaml_is_not_dict(tmp_path: Path) -> None:
-    """Si le YAML racine n'est pas un dict (ex: scalaire null), défaut INFO."""
+    """If the root YAML is not a dict (e.g. null scalar), default INFO."""
     path = _write(tmp_path, "null\n")
     assert load_observability(path).log_level == "INFO"
 
 
 def test_defaults_to_info_when_section_is_not_dict(tmp_path: Path) -> None:
-    """Si observability est présent mais non-dict (ex: null), défaut INFO."""
+    """If observability is present but non-dict (e.g. null), default INFO."""
     path = _write(tmp_path, "observability: null\n")
     assert load_observability(path).log_level == "INFO"

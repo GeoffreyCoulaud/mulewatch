@@ -1,11 +1,11 @@
-"""Faux objets déterministes pour les tests de la couche application (spec §8).
+"""Deterministic fakes for the application-layer tests (spec §8).
 
-``FakeMuleClient`` : résultats SCRIPTÉS par appel de ``fetch_results``, pannes injectables
-(``MuleUnreachableError``/``MuleSearchFailedError``) à ``connect``/``start_search``.
-``FakeClock`` : horloge avançable (``advance`` sans I/O) + ``sleep`` qui avance SANS attente
-réelle (déterminisme). ``FakeRng`` : shuffle identité + jitter FIXE (déterminisme).
-``RecordingSignal`` : capture les sujets nudgés. Les repos sont les VRAIS repos SQLite
-(spec §8 : « vrais repos sur tmp_path ») — pas de faux ici.
+``FakeMuleClient``: results SCRIPTED per ``fetch_results`` call, injectable failures
+(``MuleUnreachableError``/``MuleSearchFailedError``) at ``connect``/``start_search``.
+``FakeClock``: advanceable clock (``advance`` without I/O) + ``sleep`` that advances WITHOUT
+a real wait (determinism). ``FakeRng``: identity shuffle + FIXED jitter (determinism).
+``RecordingSignal``: captures nudged subjects. The repos are the REAL SQLite repos
+(spec §8: "real repos on tmp_path") — no fakes here.
 """
 
 import asyncio
@@ -23,7 +23,7 @@ from emule_indexer.ports.mule_client import (
 
 
 class FakeClock:
-    """Horloge fausse avançable + sleep instantané (avance le now, déterministe)."""
+    """Advanceable fake clock + instant sleep (advances now, deterministic)."""
 
     def __init__(self, start: datetime | None = None) -> None:
         self._now = start or datetime(2026, 6, 12, tzinfo=UTC)
@@ -33,22 +33,22 @@ class FakeClock:
         return self._now
 
     def advance(self, seconds: float) -> None:
-        """Avance l'horloge SANS dormir (pour faire passer un ``retry_after`` en test)."""
+        """Advance the clock WITHOUT sleeping (to make a ``retry_after`` elapse in a test)."""
         self._now += timedelta(seconds=seconds)
 
     async def sleep(self, seconds: float) -> None:
         self.sleeps.append(seconds)
         self._now += timedelta(seconds=seconds)
-        await asyncio.sleep(0)  # cède la main sans attente réelle
+        await asyncio.sleep(0)  # yield control without a real wait
 
 
 class FakeRng:
-    """Rng faux DÉTERMINISTE : shuffle identité + jitter constant (``jitter_value``).
+    """DETERMINISTIC fake rng: identity shuffle + constant jitter (``jitter_value``).
 
-    Le shuffle conserve l'ordre (pas de dépendance au seed dans les tests). ``jitter`` rend
-    ``jitter_value`` (0.0 par défaut → backoff/pause = valeur NOMINALE exacte), mais respecte
-    le CONTRAT du port comme le vrai ``SeededRng`` : ``span <= 0`` → ``0.0`` (sinon le test
-    de pause min==max mentirait sur le comportement réel)."""
+    The shuffle preserves order (no seed dependency in the tests). ``jitter`` returns
+    ``jitter_value`` (0.0 by default → backoff/pause = exact NOMINAL value), but honors
+    the port CONTRACT like the real ``SeededRng``: ``span <= 0`` → ``0.0`` (otherwise the
+    min==max pause test would lie about real behavior)."""
 
     def __init__(self, *, jitter_value: float = 0.0) -> None:
         self._jitter_value = jitter_value
@@ -65,7 +65,7 @@ class FakeRng:
 
 
 class RecordingTelemetry:
-    """Telemetry faux : capture les événements émis (le test asserte la séquence)."""
+    """Fake telemetry: captures emitted events (the test asserts the sequence)."""
 
     def __init__(self) -> None:
         self.events: list[Event] = []
@@ -75,7 +75,7 @@ class RecordingTelemetry:
 
 
 class RecordingSignal:
-    """Hub de nudge qui ENREGISTRE les sujets signalés (le test inspecte/await)."""
+    """Nudge hub that RECORDS signalled subjects (the test inspects/awaits)."""
 
     def __init__(self) -> None:
         self.signalled: list[str] = []
@@ -92,12 +92,12 @@ class RecordingSignal:
 
 
 class FakeMuleClient:
-    """Client EC scripté (satisfait MuleClient structurellement, spec §8).
+    """Scripted EC client (satisfies MuleClient structurally, spec §8).
 
-    ``results`` : liste de tuples d'observations, un par appel de ``fetch_results``
-    (épuisée → tuple vide). ``connect_failures`` : exceptions à lever aux N premiers
-    ``connect`` (puis succès). ``search_failures`` : exceptions à lever aux N premiers
-    ``start_search`` (puis succès). ``status`` : le ``NetworkStatus`` renvoyé.
+    ``results``: list of observation tuples, one per ``fetch_results`` call
+    (exhausted → empty tuple). ``connect_failures``: exceptions to raise on the first N
+    ``connect`` calls (then success). ``search_failures``: exceptions to raise on the first N
+    ``start_search`` calls (then success). ``status``: the ``NetworkStatus`` returned.
     """
 
     def __init__(
@@ -142,21 +142,21 @@ class FakeMuleClient:
         return None
 
     async def search_progress(self) -> int | None:
-        return 100  # « terminé » : le polling s'arrête tout de suite (déterminisme)
+        return 100  # "done": polling stops immediately (determinism)
 
     async def network_status(self) -> NetworkStatus:
         return self._status
 
 
 class UnreachableStatusClient(FakeMuleClient):
-    """Variante dont ``network_status`` lève ``MuleUnreachableError`` (instance injoignable).
+    """Variant whose ``network_status`` raises ``MuleUnreachableError`` (unreachable instance).
 
-    Modélise le vrai adapter EC : un client non connecté lève ``EcConnectError`` (qui EST un
-    ``MuleUnreachableError``) au relevé de statut. Sert à couvrir la branche tolérante de
-    ``_aggregate_coverage`` (instance injoignable → non search-capable, pas de crash)."""
+    Models the real EC adapter: a non-connected client raises ``EcConnectError`` (which IS a
+    ``MuleUnreachableError``) on a status read. Serves to cover the tolerant branch of
+    ``_aggregate_coverage`` (unreachable instance → not search-capable, no crash)."""
 
     async def network_status(self) -> NetworkStatus:
-        raise MuleUnreachableError("client EC non connecté (instance injoignable)")
+        raise MuleUnreachableError("EC client not connected (instance unreachable)")
 
 
 def make_unreachable(message: str = "down") -> MuleUnreachableError:

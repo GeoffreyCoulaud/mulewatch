@@ -1,15 +1,15 @@
-"""Modèles du moteur de matching (cf. spec §7, §8)."""
+"""Matching engine models (cf. spec §7, §8)."""
 
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class FileCandidate:
-    """Un fichier observé sur le réseau, candidat au matching.
+    """A file observed on the network, candidate for matching.
 
-    ``filename`` est le basename brut observé. Les attributs optionnels sont les
-    métadonnées (auto-déclarées, donc non fiables, cf. spec §10.1) utilisées par
-    ``attr_between`` ; ``None`` = absent.
+    ``filename`` is the raw observed basename. The optional attributes are the
+    metadata (self-declared, hence unreliable, cf. spec §10.1) used by
+    ``attr_between``; ``None`` = missing.
     """
 
     filename: str
@@ -20,12 +20,12 @@ class FileCandidate:
 
 @dataclass(frozen=True)
 class TargetSegment:
-    """Un segment d'épisode cible (granularité segment, cf. spec §7).
+    """A target episode segment (segment granularity, cf. spec §7).
 
-    Fournit ``{season} {seasonal_number} {absolute_number} {segment} {title}`` à
-    l'interpolation des patterns regex. ``sole_segment`` n'est PAS lu du YAML : il est
-    dérivé par ``parse_targets`` (``True`` ssi l'épisode n'a qu'un seul segment) et
-    pilote le placeholder ``{mono_gate}`` (cf. interpolation.py).
+    Provides ``{season} {seasonal_number} {absolute_number} {segment} {title}`` to
+    the interpolation of regex patterns. ``sole_segment`` is NOT read from YAML: it is
+    derived by ``parse_targets`` (``True`` iff the episode has a single segment) and
+    drives the ``{mono_gate}`` placeholder (cf. interpolation.py).
     """
 
     season: int
@@ -38,5 +38,5 @@ class TargetSegment:
 
     @property
     def target_id(self) -> str:
-        """Identifiant stable du segment, ex. ``S2E062A``."""
+        """Stable segment identifier, e.g. ``S2E062A``."""
         return f"S{self.season}E{self.absolute_number:03d}{self.segment.upper()}"

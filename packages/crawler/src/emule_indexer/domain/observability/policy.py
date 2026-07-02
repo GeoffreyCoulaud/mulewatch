@@ -1,13 +1,13 @@
-"""Politique d'observabilité : ``describe(event) → Report`` (spec Plan E §3, E-D3).
+"""Observability policy: ``describe(event) → Report`` (spec Plan E §3, E-D3).
 
-Couche DOMAINE (pure). SEUL endroit qui décide — pour chaque événement — sévérité, message,
-métrique(s), audiences. ``describe`` est un match EXHAUSTIF (``assert_never`` → 100 % branch).
-Le domaine ne connaît ni ``logging`` ni Prometheus ni apprise : ``Severity``/``Audience``/
-``MetricName`` sont des enums DOMAINE, traduits par les adapters (E-D3).
+DOMAIN layer (pure). The ONLY place that decides — for each event — severity, message,
+metric(s), audiences. ``describe`` is an EXHAUSTIVE match (``assert_never`` → 100% branch).
+The domain knows nothing of ``logging``, Prometheus or apprise: ``Severity``/``Audience``/
+``MetricName`` are DOMAIN enums, translated by the adapters (E-D3).
 
-GOTCHA Prometheus : les noms de COUNTERS n'incluent PAS ``_total`` ici — ``prometheus_client``
-l'ajoute à l'exposition (l'inclure produirait ``…_total_total``). Gauges/histogramme : nom tel
-quel.
+Prometheus GOTCHA: COUNTER names do NOT include ``_total`` here — ``prometheus_client``
+adds it at exposition (including it would produce ``…_total_total``). Gauges/histogram: name
+as-is.
 """
 
 from dataclasses import dataclass
@@ -39,7 +39,7 @@ from emule_indexer.domain.observability.events import (
 
 
 class Severity(Enum):
-    """Sévérité DOMAINE d'un fait (traduite en niveau ``logging`` par l'adapter)."""
+    """DOMAIN severity of a fact (translated to a ``logging`` level by the adapter)."""
 
     DEBUG = auto()
     INFO = auto()
@@ -48,14 +48,14 @@ class Severity(Enum):
 
 
 class Audience(Enum):
-    """Consommateur d'une notification (E-D7) — la VALEUR est le tag apprise."""
+    """Consumer of a notification (E-D7) — the VALUE is the apprise tag."""
 
     COMMUNITY = "community"
     OPERATIONS = "operations"
 
 
 class MetricName(StrEnum):
-    """Noms de métriques. Counters SANS ``_total`` (ajouté par prometheus_client à l'expo)."""
+    """Metric names. Counters WITHOUT ``_total`` (added by prometheus_client at exposition)."""
 
     SEARCH_CYCLES = "emule_search_cycles"
     SEARCH_CYCLE_DURATION = "emule_search_cycle_duration_seconds"
@@ -84,10 +84,10 @@ MetricKind = Literal["inc", "set", "observe"]
 
 @dataclass(frozen=True)
 class MetricInstruction:
-    """Une opération de métrique : compteur ``inc`` / jauge ``set`` / histogramme ``observe``.
+    """A metric operation: counter ``inc`` / gauge ``set`` / histogram ``observe``.
 
-    ``labels`` = tuple de paires (clé, valeur) ordonnées (hashable → utilisable dans un test
-    d'égalité de ``Report``). ``value`` = quantité (défaut 1.0 pour les ``inc``).
+    ``labels`` = tuple of ordered (key, value) pairs (hashable → usable in a ``Report``
+    equality test). ``value`` = quantity (default 1.0 for ``inc``).
     """
 
     name: MetricName
@@ -98,10 +98,10 @@ class MetricInstruction:
 
 @dataclass(frozen=True)
 class Report:
-    """Comment raconter un événement : sévérité + message + métrique(s) + audiences de notif.
+    """How to report an event: severity + message + metric(s) + notif audiences.
 
-    ``metrics`` est un TUPLE (un événement peut alimenter plusieurs métriques —
-    ``SearchCycleCompleted`` = compteur + histogramme). ``audiences`` vide = aucune notif.
+    ``metrics`` is a TUPLE (one event can feed several metrics —
+    ``SearchCycleCompleted`` = counter + histogram). Empty ``audiences`` = no notif.
     """
 
     severity: Severity
@@ -125,24 +125,24 @@ _VERDICT_AUDIENCES: dict[str, frozenset[Audience]] = {
 
 
 def _verification(event: VerificationCompleted) -> Report:
-    # verdict inconnu (contrat verifier non respecté) → traité comme ``error`` (défensif, E-D13).
+    # unknown verdict (verifier contract not honored) → treated as ``error`` (defensive, E-D13).
     severity = _VERDICT_SEVERITY.get(event.verdict, Severity.WARNING)
     audiences = _VERDICT_AUDIENCES.get(event.verdict, frozenset())
     return Report(
         severity,
-        f"vérification {event.target_id} : verdict={event.verdict}",
+        f"verification {event.target_id}: verdict={event.verdict}",
         (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", event.verdict),)),),
         audiences,
     )
 
 
 def describe(event: Event) -> Report:
-    """Mappe un événement vers son ``Report`` (match EXHAUSTIF → 100 % branch)."""
+    """Map an event to its ``Report`` (EXHAUSTIVE match → 100% branch)."""
     match event:
         case SearchCycleCompleted():
             return Report(
                 Severity.INFO,
-                f"cycle {event.cycle_index} terminé ({event.duration_seconds:.1f}s)",
+                f"cycle {event.cycle_index} done ({event.duration_seconds:.1f}s)",
                 (
                     MetricInstruction(MetricName.SEARCH_CYCLES, "inc"),
                     MetricInstruction(
@@ -153,13 +153,13 @@ def describe(event: Event) -> Report:
         case SearchExecuted():
             return Report(
                 Severity.DEBUG,
-                f"recherche {event.network} : {event.n_results} résultat(s)",
+                f"search {event.network}: {event.n_results} result(s)",
                 (MetricInstruction(MetricName.SEARCHES, "inc", (("network", event.network),)),),
             )
         case InstanceUnreachable():
             return Report(
                 Severity.WARNING,
-                f"instance {event.instance} injoignable",
+                f"instance {event.instance} unreachable",
                 (
                     MetricInstruction(
                         MetricName.MULE_UNREACHABLE, "inc", (("instance", event.instance),)
@@ -169,7 +169,7 @@ def describe(event: Event) -> Report:
         case SearchFailed():
             return Report(
                 Severity.WARNING,
-                f"recherche en échec sur {event.network} (instance {event.instance})",
+                f"search failed on {event.network} (instance {event.instance})",
                 (
                     MetricInstruction(
                         MetricName.SEARCH_FAILURES, "inc", (("network", event.network),)
@@ -179,8 +179,7 @@ def describe(event: Event) -> Report:
         case SearchTaskDropped():
             return Report(
                 Severity.WARNING,
-                f"tâche '{event.keyword}'/{event.network} abandonnée "
-                "(toutes les instances en backoff)",
+                f"task '{event.keyword}'/{event.network} dropped (all instances in backoff)",
                 (
                     MetricInstruction(
                         MetricName.SEARCH_TASKS_DROPPED, "inc", (("network", event.network),)
@@ -190,40 +189,40 @@ def describe(event: Event) -> Report:
         case AllInstancesBlind():
             return Report(
                 Severity.WARNING,
-                "couverture aveugle : aucune instance search-capable",
+                "blind coverage: no search-capable instance",
                 (MetricInstruction(MetricName.SEARCH_BLIND_CYCLES, "inc"),),
                 frozenset({Audience.OPERATIONS}) if event.first_occurrence else frozenset(),
             )
         case ObservationRecorded():
             return Report(
                 Severity.DEBUG,
-                f"observation enregistrée ({event.network})",
+                f"observation recorded ({event.network})",
                 (MetricInstruction(MetricName.OBSERVATIONS, "inc", (("network", event.network),)),),
             )
         case DecisionRecorded():
             return Report(
                 Severity.INFO,
-                f"décision {event.tier} pour {event.target_id}",
+                f"decision {event.tier} for {event.target_id}",
                 (MetricInstruction(MetricName.DECISIONS, "inc", (("tier", event.tier),)),),
                 frozenset({Audience.COMMUNITY}) if event.tier == "download" else frozenset(),
             )
         case DownloadQueued():
             return Report(
                 Severity.INFO,
-                f"download mis en file : {event.target_id}",
+                f"download queued: {event.target_id}",
                 (MetricInstruction(MetricName.DOWNLOADS_QUEUED, "inc"),),
             )
         case DownloadCompleted():
             return Report(
                 Severity.INFO,
-                f"✅ téléchargement terminé : {event.target_id}",
+                f"✅ download completed: {event.target_id}",
                 (MetricInstruction(MetricName.DOWNLOADS_COMPLETED, "inc"),),
                 frozenset({Audience.COMMUNITY}),
             )
         case PromotionFailed():
             return Report(
                 Severity.WARNING,
-                f"mise en quarantaine échouée : {event.ed2k_hash}",
+                f"quarantine promotion failed: {event.ed2k_hash}",
                 (MetricInstruction(MetricName.PROMOTION_FAILURES, "inc"),),
             )
         case VerificationCompleted():
@@ -231,14 +230,14 @@ def describe(event: Event) -> Report:
         case VerifierUnavailable():
             return Report(
                 Severity.WARNING,
-                "verifier injoignable",
+                "verifier unreachable",
                 (MetricInstruction(MetricName.VERIFIER_UNAVAILABLE, "inc"),),
                 frozenset({Audience.OPERATIONS}) if event.first_occurrence else frozenset(),
             )
         case ConnectedInstancesSampled():
             return Report(
                 Severity.DEBUG,
-                f"instances connectées ({event.network}) : {event.count}",
+                f"connected instances ({event.network}): {event.count}",
                 (
                     MetricInstruction(
                         MetricName.CONNECTED_INSTANCES,
@@ -251,7 +250,7 @@ def describe(event: Event) -> Report:
         case VerificationQueueDepthSampled():
             return Report(
                 Severity.DEBUG,
-                f"file de vérification : {event.count} en attente",
+                f"verification queue: {event.count} pending",
                 (
                     MetricInstruction(
                         MetricName.VERIFICATION_QUEUE_DEPTH, "set", (), float(event.count)
@@ -261,33 +260,33 @@ def describe(event: Event) -> Report:
         case CrawlerStarted():
             return Report(
                 Severity.INFO,
-                f"🟢 instance en ligne (mode {event.mode})",
+                f"🟢 instance online (mode {event.mode})",
                 (MetricInstruction(MetricName.CRAWLER_UP, "set", (), 1.0),),
                 frozenset({Audience.COMMUNITY, Audience.OPERATIONS}),
             )
         case PortSyncTriggered():
             return Report(
                 Severity.INFO,
-                f"port-sync : {event.old} → {event.new} (restart amuled)",
+                f"port-sync: {event.old} → {event.new} (restart amuled)",
                 (MetricInstruction(MetricName.PORT_SYNC_TRIGGERED, "inc"),),
             )
         case HighIdRecovered():
             return Report(
                 Severity.INFO,
-                f"High-ID retrouvé sur le port {event.port}",
+                f"High-ID recovered on port {event.port}",
                 (MetricInstruction(MetricName.HIGH_ID_RECOVERED, "inc"),),
                 frozenset({Audience.COMMUNITY}),
             )
         case PortMismatchUnresolved():
-            # Alerte de repli (DÉCISION 5) : OPERATIONS, edge-triggered (notif à la 1re occurrence
-            # seulement) ; la métrique s'incrémente à CHAQUE occurrence (Prometheus veut l'état
-            # brut).
-            # Formulation valable que le port ait été appliqué ou non : si `configured` == `live`,
-            # le SetPort+restart a pris mais le High-ID n'est pas (encore) revenu ; sinon le port
-            # n'a pas pu être appliqué (restart impossible). Pas de « X ≠ X » trompeur.
+            # Fallback alert (DECISION 5): OPERATIONS, edge-triggered (notif on the 1st occurrence
+            # only); the metric increments on EVERY occurrence (Prometheus wants the raw state).
+            # Wording valid whether or not the port was applied: if `configured` == `live`, the
+            # SetPort+restart took but the High-ID has not (yet) come back; otherwise the port
+            # could not be applied (restart impossible). No misleading "X ≠ X".
             return Report(
                 Severity.WARNING,
-                f"High-ID non rétabli (port forwardé {event.live}, port amuled {event.configured})",
+                f"High-ID not restored "
+                f"(forwarded port {event.live}, amuled port {event.configured})",
                 (MetricInstruction(MetricName.PORT_MISMATCH, "inc"),),
                 frozenset({Audience.OPERATIONS}) if event.first_occurrence else frozenset(),
             )

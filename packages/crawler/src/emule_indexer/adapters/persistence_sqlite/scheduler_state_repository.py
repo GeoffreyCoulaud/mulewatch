@@ -1,17 +1,17 @@
-"""``SqliteSchedulerStateRepository`` : état d'ordonnancement en KV (spec orchestration §4/§7).
+"""``SqliteSchedulerStateRepository``: scheduler state as KV (orchestration spec §4/§7).
 
-Implémente STRUCTURELLEMENT le port ``SchedulerStateRepository``. Stocke trois clés dans la
-table ``scheduler_state`` de ``local.db`` : ``cycle_index`` (entier sérialisé en TEXT),
-``last_full_cycle_at`` (ISO-8601 UTC) et ``channel_backoff`` (map JSON des
-:class:`ChannelBackoff` par clé instance/instance:canal). ``write_cycle_state`` fait UN
-UPSERT atomique de l'index + horodatage sous ``BEGIN IMMEDIATE`` (l'index n'avance qu'en FIN
-de cycle, spec §7 : atomicité = un crash laisse l'ancien index, donc rejoue ce cycle).
-``save_channel_backoff`` remplace ENTIÈREMENT la map (snapshot du registre, écrit au même
-moment que ``write_cycle_state`` — voir ``run_search_cycle``). ``read_cycle_index`` rend
-``0`` si la clé est absente ; ``load_channel_backoff`` rend un dict vide.
+STRUCTURALLY implements the ``SchedulerStateRepository`` port. Stores three keys in the
+``scheduler_state`` table of ``local.db``: ``cycle_index`` (integer serialized as TEXT),
+``last_full_cycle_at`` (ISO-8601 UTC) and ``channel_backoff`` (JSON map of
+:class:`ChannelBackoff` keyed by instance/instance:channel). ``write_cycle_state`` does ONE
+atomic UPSERT of the index + timestamp under ``BEGIN IMMEDIATE`` (the index only advances at
+the END of a cycle, spec §7: atomicity = a crash keeps the old index, so it replays that cycle).
+``save_channel_backoff`` replaces the map ENTIRELY (registry snapshot, written at the same
+moment as ``write_cycle_state`` — see ``run_search_cycle``). ``read_cycle_index`` returns
+``0`` if the key is absent; ``load_channel_backoff`` returns an empty dict.
 
-``scheduler_state`` n'est PAS append-only (état mutable, pas le catalogue) : pas de
-triggers — l'UPSERT ``ON CONFLICT … DO UPDATE`` est licite.
+``scheduler_state`` is NOT append-only (mutable state, not the catalog): no
+triggers — the ``ON CONFLICT … DO UPDATE`` UPSERT is allowed.
 """
 
 import json
@@ -35,22 +35,22 @@ ON CONFLICT (key) DO UPDATE SET value = excluded.value
 
 
 class SqliteSchedulerStateRepository:
-    """Implémentation SQLite du port ``SchedulerStateRepository`` (satisfaction STRUCTURELLE)."""
+    """SQLite implementation of the ``SchedulerStateRepository`` port (STRUCTURAL satisfaction)."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
 
     def read_cycle_index(self) -> int:
-        """Index du prochain cycle, ``0`` si jamais écrit (premier démarrage)."""
+        """Index of the next cycle, ``0`` if never written (first startup)."""
         with wrap_sqlite_errors():
             row = self._connection.execute(_SELECT_CYCLE_INDEX).fetchone()
         return 0 if row is None else int(row[0])
 
     def write_cycle_state(self, cycle_index: int, last_full_cycle_at: datetime) -> None:
-        """UPSERT atomique de l'index + horodatage (FIN de cycle, spec §7).
+        """Atomic UPSERT of the index + timestamp (END of cycle, spec §7).
 
-        ``last_full_cycle_at`` est un ``datetime`` aware ; ``utc_iso`` le formate (et REFUSE
-        un naïf, contrat de ``Clock``).
+        ``last_full_cycle_at`` is an aware ``datetime``; ``utc_iso`` formats it (and REFUSES
+        a naive one, ``Clock`` contract).
         """
         stamped = utc_iso(last_full_cycle_at)
         with wrap_sqlite_errors():
@@ -65,10 +65,10 @@ class SqliteSchedulerStateRepository:
                 raise
 
     def load_channel_backoff(self) -> dict[str, ChannelBackoff]:
-        """Relit la map de backoff persistée, ``{}`` si jamais écrite (premier démarrage).
+        """Re-reads the persisted backoff map, ``{}`` if never written (first startup).
 
-        Chaque entrée JSON ``{"attempts": int, "retry_after": str}`` est reconstruite en
-        :class:`ChannelBackoff`. Lecture inoffensive : aucune transaction explicite.
+        Each JSON entry ``{"attempts": int, "retry_after": str}`` is reconstructed into a
+        :class:`ChannelBackoff`. Harmless read: no explicit transaction.
         """
         with wrap_sqlite_errors():
             row = self._connection.execute(_SELECT_BACKOFF).fetchone()
@@ -83,10 +83,10 @@ class SqliteSchedulerStateRepository:
         }
 
     def save_channel_backoff(self, backoff: dict[str, ChannelBackoff]) -> None:
-        """Remplace ENTIÈREMENT la map persistée (snapshot du registre, FIN de cycle).
+        """Replaces the persisted map ENTIRELY (registry snapshot, END of cycle).
 
-        Sérialisé en JSON trié (``sort_keys`` → diff stable, déterminisme). UPSERT atomique
-        sous ``BEGIN IMMEDIATE`` (même discipline que ``write_cycle_state``).
+        Serialized as sorted JSON (``sort_keys`` → stable diff, determinism). Atomic UPSERT
+        under ``BEGIN IMMEDIATE`` (same discipline as ``write_cycle_state``).
         """
         blob = json.dumps(
             {

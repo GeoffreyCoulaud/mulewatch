@@ -12,7 +12,7 @@ from emule_indexer.adapters.mule_ec.errors import (
 
 
 def test_protocol_version_and_flags_match_reference() -> None:
-    # docs/reference/ec-protocol.md §7 (source : ECCodes.h 2.3.3).
+    # docs/reference/ec-protocol.md §7 (source: ECCodes.h 2.3.3).
     assert codes.EC_CURRENT_PROTOCOL_VERSION == 0x0204
     assert codes.EC_FLAG_BASE == 0x20
     assert codes.EC_FLAG_ZLIB == 0x00000001
@@ -26,7 +26,7 @@ def test_auth_opcodes_and_tags_match_reference() -> None:
     assert codes.EC_OP_AUTH_OK == 0x04
     assert codes.EC_OP_AUTH_SALT == 0x4F
     assert codes.EC_OP_AUTH_PASSWD == 0x50
-    assert codes.EC_TAG_STRING == 0x0000  # porte le message d'erreur (AUTH_FAIL/FAILED)
+    assert codes.EC_TAG_STRING == 0x0000  # carries the error message (AUTH_FAIL/FAILED)
     assert codes.EC_TAG_PASSWD_HASH == 0x0001
     assert codes.EC_TAG_PROTOCOL_VERSION == 0x0002
     assert codes.EC_TAG_PASSWD_SALT == 0x000B
@@ -79,20 +79,20 @@ def test_connstate_tags_and_bits_match_reference() -> None:
 
 
 def test_preferences_opcodes_and_tags_match_reference() -> None:
-    # Port-sync (High-ID) : GET/SET preferences + sélecteur/tags de connexion.
-    # Réf. : vendor/amule/src/libs/ec/cpp/ECCodes.h (lignes citées dans le design §2).
+    # Port-sync (High-ID): GET/SET preferences + connection selector/tags.
+    # Ref.: vendor/amule/src/libs/ec/cpp/ECCodes.h (lines cited in design §2).
     assert codes.EC_OP_GET_PREFERENCES == 0x3F  # ECCodes.h:102
-    assert codes.EC_OP_SET_PREFERENCES == 0x40  # ECCodes.h:103 (= opcode de la RÉPONSE de GET)
+    assert codes.EC_OP_SET_PREFERENCES == 0x40  # ECCodes.h:103 (= opcode of the GET RESPONSE)
     assert codes.EC_TAG_SELECT_PREFS == 0x1000  # ECCodes.h:310
     assert codes.EC_TAG_PREFS_CONNECTIONS == 0x1300  # ECCodes.h:323 (parent)
-    assert codes.EC_TAG_CONN_TCP_PORT == 0x1306  # ECCodes.h:329 (enfant)
-    assert codes.EC_TAG_CONN_UDP_PORT == 0x1307  # ECCodes.h:330 (enfant)
-    assert codes.EC_PREFS_CONNECTIONS == 0x00000004  # ECCodes.h:462 (bitmask de SELECT_PREFS)
+    assert codes.EC_TAG_CONN_TCP_PORT == 0x1306  # ECCodes.h:329 (child)
+    assert codes.EC_TAG_CONN_UDP_PORT == 0x1307  # ECCodes.h:330 (child)
+    assert codes.EC_PREFS_CONNECTIONS == 0x00000004  # ECCodes.h:462 (SELECT_PREFS bitmask)
 
 
 def test_tag_types_match_reference() -> None:
-    # Réf. §3 (ECTagTypes.h).
-    assert codes.EC_TAGTYPE_UNKNOWN == 0x00  # jamais émis ; garde du codec
+    # Ref. §3 (ECTagTypes.h).
+    assert codes.EC_TAGTYPE_UNKNOWN == 0x00  # never emitted; codec guard
     assert codes.EC_TAGTYPE_CUSTOM == 0x01
     assert codes.EC_TAGTYPE_UINT8 == 0x02
     assert codes.EC_TAGTYPE_UINT16 == 0x03
@@ -109,7 +109,7 @@ def test_error_hierarchy_matches_spec_section_6() -> None:
     for subtype in (EcConnectError, EcAuthError, EcProtocolError, EcTimeoutError, EcFailureError):
         assert issubclass(subtype, EcError)
         assert issubclass(subtype, Exception)
-    # EcFailureError (échec applicatif) est DISTINCTE d'EcProtocolError (trame illisible).
+    # EcFailureError (application failure) is DISTINCT from EcProtocolError (unreadable frame).
     assert not issubclass(EcFailureError, EcProtocolError)
     with pytest.raises(EcError):
         raise EcAuthError("Invalid password")

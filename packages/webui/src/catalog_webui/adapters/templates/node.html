@@ -1,28 +1,28 @@
 {% extends "base.html" %}
-{% block title %}Nœud — emule-indexer{% endblock %}
+{% block title %}Node — emule-indexer{% endblock %}
 {% block content %}
-<h1>État du nœud</h1>
+<h1>Node status</h1>
 
 <section>
-  <h2>Identité</h2>
+  <h2>Identity</h2>
   <dl>
-    <dt>Identifiant</dt>
+    <dt>Identifier</dt>
     <dd>{{ node_state.node_id }}</dd>
-    <dt>Créé le</dt>
+    <dt>Created at</dt>
     <dd>{{ node_state.created_at }}</dd>
   </dl>
 </section>
 
 <section>
-  <h2>Téléchargements</h2>
+  <h2>Downloads</h2>
   <table>
     <thead>
       <tr>
         <th>Hash</th>
-        <th>Cible</th>
-        <th>État</th>
-        <th>Mis en file le</th>
-        <th>Terminé le</th>
+        <th>Target</th>
+        <th>State</th>
+        <th>Queued at</th>
+        <th>Completed at</th>
       </tr>
     </thead>
     <tbody>
@@ -35,21 +35,21 @@
         <td>{{ dl.completed_at }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="5">Aucun téléchargement.</td></tr>
+      <tr><td colspan="5">No downloads.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </section>
 
 <section>
-  <h2>Tâches de vérification</h2>
+  <h2>Verification tasks</h2>
   <table>
     <thead>
       <tr>
         <th>Hash</th>
-        <th>Statut</th>
-        <th>Tentatives</th>
-        <th>Mis en file le</th>
+        <th>Status</th>
+        <th>Attempts</th>
+        <th>Queued at</th>
       </tr>
     </thead>
     <tbody>
@@ -61,20 +61,20 @@
         <td>{{ vt.enqueued_at }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="4">Aucune tâche de vérification.</td></tr>
+      <tr><td colspan="4">No verification task.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </section>
 
 <section>
-  <h2>Ordonnancement</h2>
+  <h2>Scheduling</h2>
   <dl>
     {% for entry in scheduler_entries %}
     <dt>{{ entry.key }}</dt>
     <dd>{{ entry.value }}</dd>
     {% else %}
-    <dd>Aucune entrée d'ordonnancement.</dd>
+    <dd>No scheduling entry.</dd>
     {% endfor %}
   </dl>
 </section>

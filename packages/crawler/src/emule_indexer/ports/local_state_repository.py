@@ -1,9 +1,9 @@
-"""Port ``LocalStateRepository`` : identité du nœud + file de tâches (spec data-model §4/§6).
+"""``LocalStateRepository`` port: node identity + task queue (spec data-model §4/§6).
 
-Protocol SYNCHRONE (même principe que ``CatalogRepository``). ``ClaimedTask`` est le DTO
-gelé du claim (spec §4) : ``attempts`` est compté AU CLAIM (spec §6) — le consommateur
-(plan D) le verra à 1 dès la première prise. ``local.db`` n'est JAMAIS fusionné : ce port
-ne traverse pas la frontière du nœud (invariant MVP §11).
+SYNCHRONOUS Protocol (same principle as ``CatalogRepository``). ``ClaimedTask`` is the frozen
+DTO of the claim (spec §4): ``attempts`` is counted AT CLAIM (spec §6) — the consumer (plan D)
+will see it at 1 from the first take. ``local.db`` is NEVER merged: this port does not cross
+the node boundary (invariant MVP §11).
 """
 
 from dataclasses import dataclass
@@ -12,7 +12,7 @@ from typing import Protocol
 
 @dataclass(frozen=True)
 class ClaimedTask:
-    """Une tâche de vérification prise par un worker (lease posée, attempts incrémenté)."""
+    """A verification task claimed by a worker (lease set, attempts incremented)."""
 
     task_id: int
     ed2k_hash: str
@@ -20,7 +20,7 @@ class ClaimedTask:
 
 
 class LocalStateRepository(Protocol):
-    """Contrat sync de l'état local : identité stable + file FIFO idempotente (§12 MVP)."""
+    """Sync local-state contract: stable identity + idempotent FIFO queue (§12 MVP)."""
 
     def node_id(self) -> str: ...
 

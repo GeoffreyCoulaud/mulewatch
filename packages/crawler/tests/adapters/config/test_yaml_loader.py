@@ -37,12 +37,12 @@ def test_load_yaml_empty_file_raises(tmp_path: Path) -> None:
 
 
 def test_load_yaml_missing_file_raises(tmp_path: Path) -> None:
-    with pytest.raises(YamlLoadError, match="illisible"):
+    with pytest.raises(YamlLoadError, match="unreadable"):
         load_yaml(tmp_path / "does_not_exist.yaml")
 
 
 def test_load_yaml_malformed_raises(tmp_path: Path) -> None:
     path = tmp_path / "bad.yaml"
-    path.write_text("a: [1, 2\n", encoding="utf-8")  # crochet non fermé
-    with pytest.raises(YamlLoadError, match="invalide"):
+    path.write_text("a: [1, 2\n", encoding="utf-8")  # unclosed bracket
+    with pytest.raises(YamlLoadError, match="invalid"):
         load_yaml(path)

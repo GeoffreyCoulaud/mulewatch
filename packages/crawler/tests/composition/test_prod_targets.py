@@ -1,8 +1,8 @@
-"""Garde-fou data : le catalogue PROD (deploy/config/crawler/targets.yml) se charge et
-respecte les invariants attendus (180 cibles S1+S2, numérotation contiguë, 17 retrouvés).
+"""Data guardrail: the PROD catalog (deploy/config/crawler/targets.yml) loads and
+respects the expected invariants (180 S1+S2 targets, contiguous numbering, 17 recovered).
 
-Cf. spec 2026-06-30-targets-keroro-dual-numbering §6. Les 26 épisodes mono n'ont qu'une
-cible (segment A) ; les épisodes bi-segment en ont deux.
+Cf. spec 2026-06-30-targets-keroro-dual-numbering §6. The 26 mono episodes have only one
+target (segment A); the bi-segment episodes have two.
 """
 
 from pathlib import Path
@@ -12,7 +12,7 @@ from emule_indexer.adapters.config.yaml_loader import load_yaml
 
 _TARGETS = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler" / "targets.yml"
 
-# Segments retrouvés (cf. spec §6) : 17 au total.
+# Recovered segments (cf. spec §6): 17 in total.
 _FOUND = {
     "S1E001A",
     "S1E001B",
@@ -26,11 +26,11 @@ _FOUND = {
     "S1E005B",
     "S1E006A",
     "S1E006B",
-    "S1E010A",  # mono retrouvé
-    "S1E027B",  # "Station thermale à gogo !" (segment B), A perdu
-    "S1E036B",  # "La station de ski privée des Bellair" (segment B), A perdu
-    "S2E062A",  # S02E11A (absolu 62), B perdu
-    "S2E103A",  # S02E52 (absolu 103), mono retrouvé
+    "S1E010A",  # mono recovered
+    "S1E027B",  # "Station thermale à gogo !" (segment B), A lost
+    "S1E036B",  # "La station de ski privée des Bellair" (segment B), A lost
+    "S2E062A",  # S02E11A (absolute 62), B lost
+    "S2E103A",  # S02E52 (absolute 103), mono recovered
 }
 
 
@@ -52,10 +52,10 @@ def test_prod_targets_absolute_numbering_is_contiguous_1_to_103() -> None:
 
 
 def test_prod_targets_seasonal_relationship_holds() -> None:
-    # seasonal_number est load-bearing pour les formes saisonnales (S2E11A / 2x11A) et le
-    # token mono numéro-nu : on verrouille la relation absolute = offset + seasonal et la
-    # contiguïté saisonnale, pour qu'une transcription erronée d'un seasonal_number (avec un
-    # absolute valide) ne route pas silencieusement la forme saisonnale vers le mauvais épisode.
+    # seasonal_number is load-bearing for the seasonal forms (S2E11A / 2x11A) and the
+    # bare-number mono token: we lock the relation absolute = offset + seasonal and the
+    # seasonal contiguity, so that a mistranscribed seasonal_number (with a valid
+    # absolute) does not silently route the seasonal form to the wrong episode.
     targets = parse_targets(load_yaml(_TARGETS))
     for t in targets:
         offset = 0 if t.season == 1 else 51

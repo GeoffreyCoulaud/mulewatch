@@ -1,4 +1,4 @@
-"""bucketize (pur) : groupe les observations par (ed2k_hash, jour UTC), agrégat node-agnostique."""
+"""bucketize (pure): group observations by (ed2k_hash, UTC day), node-agnostic aggregate."""
 
 from emule_indexer.domain.retention.buckets import ObservationBucket, ObservationRow, bucketize
 

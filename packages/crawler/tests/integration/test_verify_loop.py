@@ -1,12 +1,12 @@
-"""E2e DE VÉRIFICATION : la boucle ↔ le VRAI service verifier (spec verify §9 — option A).
+"""VERIFICATION e2e: the loop ↔ the REAL verifier service (verify spec §9 — option A).
 
-Run dédié : ( cd packages/crawler && uv run pytest -m verify_integration --no-cov )
-Sans Docker : le service ``download_verifier`` tourne IN-PROCESS via ``httpx.ASGITransport``.
-Un fichier est PRÉ-PLACÉ en quarantaine + une tâche enfilée → ``run_verification_cycle`` (avec
-un VRAI ``HttpContentVerifier``, de VRAIS repos SQLite sur ``tmp_path``) produit une ligne
-``file_verifications`` ``suspicious`` (l'analyseur réel : 3 octets ne sont pas un média).
-Prouve le contrat de fil DTO↔réponse + l'écriture durable, sans vrai download
-(le download→verify complet = validation homelab manuelle).
+Dedicated run: ( cd packages/crawler && uv run pytest -m verify_integration --no-cov )
+Without Docker: the ``download_verifier`` service runs IN-PROCESS via ``httpx.ASGITransport``.
+A file is PRE-PLACED in quarantine + a task enqueued → ``run_verification_cycle`` (with
+a REAL ``HttpContentVerifier``, REAL SQLite repos on ``tmp_path``) produces a
+``suspicious`` ``file_verifications`` row (the real analyzer: 3 bytes are not media).
+Proves the DTO↔response wire contract + the durable write, without a real download
+(the full download→verify = manual homelab validation).
 """
 
 import sqlite3
@@ -38,7 +38,7 @@ _NODE = "11111111-2222-3333-4444-555555555555"
 
 
 class _RealClock:
-    """Horloge réelle minimale (now aware + sleep no-op) pour la boucle de l'e2e."""
+    """Minimal real clock (aware now + no-op sleep) for the e2e loop."""
 
     def now(self) -> datetime:
         return datetime.now(UTC)
@@ -67,7 +67,7 @@ async def test_verify_loop_produces_suspicious_row(
 ) -> None:
     quarantine = tmp_path / "quarantine"
     quarantine.mkdir()
-    (quarantine / _A).write_bytes(b"\x00\x01\x02")  # fichier PRÉ-PLACÉ (jamais lu par le crawler)
+    (quarantine / _A).write_bytes(b"\x00\x01\x02")  # PRE-PLACED file (never read by the crawler)
 
     catalog_repo = SqliteCatalogRepository(catalog, _NODE)
     catalog_repo.record_observation(
@@ -83,7 +83,7 @@ async def test_verify_loop_produces_suspicious_row(
     downloads_repo = SqliteDownloadRepository(local)
     downloads_repo.record_queued(_A, "S2E062A", 3)
     local_repo = SqliteLocalStateRepository(local)
-    assert local_repo.enqueue_verification(_A) is True  # tâche enfilée (le download le ferait)
+    assert local_repo.enqueue_verification(_A) is True  # task enqueued (the download would do it)
 
     verifier_config = AnalysisConfig.from_env({"QUARANTINE_DIR": str(quarantine)})
     transport = httpx.ASGITransport(app=build_app(verifier_config))
@@ -100,7 +100,7 @@ async def test_verify_loop_produces_suspicious_row(
         edge=EdgeState(),
     )
     try:
-        await run_verification_cycle(deps)  # claim → verify (RPC réel) → record → complete
+        await run_verification_cycle(deps)  # claim → verify (real RPC) → record → complete
     finally:
         await verifier.aclose()
 
@@ -108,5 +108,5 @@ async def test_verify_loop_produces_suspicious_row(
         "SELECT ed2k_hash, verdict FROM file_verifications WHERE ed2k_hash = ?", (_A,)
     ).fetchone()
     assert row == (_A, "suspicious")
-    # la tâche est complétée (plus claimable).
+    # the task is completed (no longer claimable).
     assert local_repo.claim_verification() is None

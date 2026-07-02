@@ -1,18 +1,18 @@
-"""Enfant d'analyse jetable (spec analysis §4 — DA5/DA8), côté ENFANT.
+"""Disposable analysis child (analysis spec §4 — DA5/DA8), CHILD side.
 
-``main`` : revalide le hash canonique (défense en profondeur anti-traversal, DA8), lit AU PLUS
-``cfg.header_bytes`` octets du fichier RO (PAS tout le fichier — contenu hostile potentiellement
-énorme, DA10), exécute ``pipeline.run`` (type_sniff sur l'en-tête + ffprobe/clamav sur le chemin),
-imprime
-``json.dumps({"verdict","real_meta","checks"})`` sur stdout, rend 0. Hash non canonique / argv
-absent → rend 2 sans égress. Fichier absent/illisible (disparu après le ``is_file`` du parent) →
-égress VALIDE ``suspicious`` (poison, cohérent DA6). Aucune stack en égress (best-effort).
+``main``: re-validates the canonical hash (defense-in-depth anti-traversal, DA8), reads AT MOST
+``cfg.header_bytes`` bytes of the RO file (NOT the whole file — potentially huge hostile content,
+DA10), runs ``pipeline.run`` (type_sniff on the header + ffprobe/clamav on the path), prints
+``json.dumps({"verdict","real_meta","checks"})`` on stdout, returns 0. Non-canonical hash / missing
+argv → returns 2 without egress. Missing/unreadable file (vanished after the parent's ``is_file``) →
+VALID ``suspicious`` egress (poison, consistent with DA6). No stack trace in the egress
+(best-effort).
 
-Ce module est exécuté par re-exec (``python -m download_verifier.analysis_child <hash>``) ; le
-parent (``spawn.py``) le confine (rlimits/setsid/env minimal). En PROD l'``__main__`` lit la config
-depuis l'env minimal et utilise les ``ProdFfprobeRunner``/``ProdClamavRunner`` réels. Le RING NOYAU
-(filtre seccomp-bpf, ``confine.py``) est posé APRÈS la lecture de l'en-tête RO et JUSTE AVANT
-``pipeline.run`` (le ``Confiner`` est injectable ; défaut = ``ProdConfiner`` si seccomp activé).
+This module is executed by re-exec (``python -m download_verifier.analysis_child <hash>``); the
+parent (``spawn.py``) confines it (rlimits/setsid/minimal env). In PROD the ``__main__`` reads the
+config from the minimal env and uses the real ``ProdFfprobeRunner``/``ProdClamavRunner``. The KERNEL
+RING (seccomp-bpf filter, ``confine.py``) is installed AFTER reading the RO header and JUST BEFORE
+``pipeline.run`` (the ``Confiner`` is injectable; default = ``ProdConfiner`` if seccomp enabled).
 """
 
 import errno
@@ -34,26 +34,26 @@ _CANONICAL_HASH_RE = re.compile(r"[0-9a-f]{32}\Z")
 
 
 def _default_confiner(config: AnalysisConfig) -> Confiner:
-    """Sélectionne le ``Confiner`` selon la config — RETOURNE l'instance (sans l'appeler)."""
+    """Select the ``Confiner`` per config — RETURNS the instance (without calling it)."""
     return ProdConfiner() if config.seccomp_enabled else NoopConfiner()
 
 
 def _read_header_no_follow(path: Path, header_bytes: int) -> bytes:
-    """Lit ``header_bytes`` octets du fichier en REFUSANT symlink et types non réguliers.
+    """Read ``header_bytes`` bytes of the file, REFUSING symlinks and non-regular types.
 
-    Sandbox-confinement#4 : ``O_NOFOLLOW`` rejette un symlink (lève ``ELOOP``) ; ``fstat +
-    S_ISREG`` rejette tout autre type (dir, FIFO, socket, périphérique) — la vérification se
-    fait sur le ``fd`` (pas via le chemin) donc immunisée TOCTOU. Defense-en-profondeur : un
-    amuled compromis partageant la quarantaine en RW pourrait y déposer un symlink ENTRE le
-    ``S_ISREG`` parent (``check.py``) et l'open ici. Lève ``OSError`` sur tout refus ; appelée
-    sous un ``try/except OSError`` qui map à un égress ``suspicious``.
+    Sandbox-confinement#4: ``O_NOFOLLOW`` rejects a symlink (raises ``ELOOP``); ``fstat +
+    S_ISREG`` rejects any other type (dir, FIFO, socket, device) — the check is done on the
+    ``fd`` (not via the path) so it is TOCTOU-immune. Defense-in-depth: a compromised amuled
+    sharing the quarantine RW could drop a symlink BETWEEN the parent's ``S_ISREG`` (``check.py``)
+    and the open here. Raises ``OSError`` on any refusal; called under a ``try/except OSError``
+    that maps to a ``suspicious`` egress.
     """
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise OSError(errno.EINVAL, "fichier de quarantaine non régulier")
+            raise OSError(errno.EINVAL, "non-regular quarantine file")
         with os.fdopen(fd, "rb", closefd=True) as handle:
-            fd = -1  # ownership transférée à fdopen (le ``with`` ferme via __exit__)
+            fd = -1  # ownership transferred to fdopen (the ``with`` closes via __exit__)
             return handle.read(header_bytes)
     finally:
         if fd != -1:
@@ -68,7 +68,7 @@ def main(
     cfg: AnalysisConfig | None = None,
     confiner: Confiner | None = None,
 ) -> int:
-    """Analyse ``quarantine/<argv[0]>`` et imprime l'égress JSON ; rend le code de sortie."""
+    """Analyze ``quarantine/<argv[0]>`` and print the JSON egress; return the exit code."""
     config = cfg if cfg is not None else AnalysisConfig.from_env(os.environ)
     runner = ffprobe_runner if ffprobe_runner is not None else ProdFfprobeRunner(config.timeout_s)
     clamav = clamav_runner if clamav_runner is not None else ProdClamavRunner(config.timeout_s)
@@ -81,7 +81,7 @@ def main(
     except OSError:
         _emit("suspicious", {}, [])
         return 0
-    confine()  # RING NOYAU : pose le filtre seccomp ICI (après lecture RO, avant pipeline.run, §7).
+    confine()  # KERNEL RING: install seccomp HERE (after RO read, before pipeline.run, §7).
     verdict, real_meta, checks = pipeline.run(header, path, runner, clamav, config)
     _emit(verdict, real_meta, checks)
     return 0

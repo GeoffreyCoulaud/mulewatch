@@ -11,7 +11,7 @@ from emule_indexer.ports.catalog_repository import CatalogRepository, ObservedFi
 
 
 class _StubRepository:
-    """Implémentation structurelle minimale : satisfait CatalogRepository SANS l'importer."""
+    """Minimal structural implementation: satisfies CatalogRepository WITHOUT importing it."""
 
     def __init__(self) -> None:
         self.observations: list[FileObservation] = []
@@ -45,7 +45,7 @@ class _StubRepository:
 
 def test_protocol_is_satisfied_structurally() -> None:
     stub = _StubRepository()
-    repository: CatalogRepository = stub  # mypy prouve la satisfaction structurelle
+    repository: CatalogRepository = stub  # mypy proves the structural satisfaction
     observation = FileObservation(
         ed2k_hash="31d6cfe0d16ae931b73c59d7e0c089c0",
         filename="Keroro 062A.avi",

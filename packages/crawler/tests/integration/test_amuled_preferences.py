@@ -1,18 +1,19 @@
-"""Intégration get/set du port d'écoute contre un amuled RÉEL (port-sync High-ID, design §2/§4.2).
+"""Listen-port get/set integration against a REAL amuled (High-ID port-sync, design §2/§4.2).
 
-Run dédié : uv run pytest -m ec_integration --no-cov
+Dedicated run: uv run pytest -m ec_integration --no-cov
 
-Valide EMPIRIQUEMENT contre le vrai daemon les points figés par la lecture de la source amont :
-  - **R3** : la RÉPONSE de ``GET_PREFERENCES`` porte-t-elle bien l'opcode ``EC_OP_SET_PREFERENCES``
-    (0x40, PAS 0x3F) ? Si ``get_listen_port()`` rend une valeur, c'est confirmé (le client attend
-    0x40 ; un mauvais ``expected`` lèverait ``EcProtocolError``). Sinon, ajuster l'``expected``.
-  - **R4** : ``EC_DETAIL_CMD`` (implicite, on n'émet PAS de tag de détail) suffit-il à récupérer
-    ``EC_TAG_CONN_TCP_PORT`` ? Si la lecture réussit, oui.
-  - le ROUND-TRIP set→get : ``set_listen_port(N)`` puis ``get_listen_port()`` rend ``N`` (la pref
-    est mise à jour EN MÉMOIRE ; le re-bind effectif exige un restart, non testé ici).
+EMPIRICALLY validates against the real daemon the points frozen by reading the upstream source:
+  - **R3**: does the ``GET_PREFERENCES`` RESPONSE indeed carry the ``EC_OP_SET_PREFERENCES``
+    opcode (0x40, NOT 0x3F)? If ``get_listen_port()`` returns a value, it is confirmed (the
+    client expects 0x40; a wrong ``expected`` would raise ``EcProtocolError``). Otherwise, adjust
+    the ``expected``.
+  - **R4**: is ``EC_DETAIL_CMD`` (implicit, we emit NO detail tag) enough to retrieve
+    ``EC_TAG_CONN_TCP_PORT``? If the read succeeds, yes.
+  - the set→get ROUND-TRIP: ``set_listen_port(N)`` then ``get_listen_port()`` returns ``N`` (the
+    pref is updated IN MEMORY; the actual re-bind requires a restart, not tested here).
 
-NOTE : le restart réel + le High-ID réel sont couverts par la suite e2e couche B (WT-e2e), hors
-de ce fichier (pas de proxy Docker ici).
+NOTE: the real restart + the real High-ID are covered by the layer-B e2e suite (WT-e2e), outside
+this file (no Docker proxy here).
 """
 
 from collections.abc import Iterator
@@ -26,7 +27,7 @@ from emule_indexer.adapters.mule_ec.client import AmuleEcClient
 pytestmark = pytest.mark.ec_integration
 
 _EC_PASSWORD = "indexer-ec-test"
-_IMAGE = "ngosang/amule:3.0.0-1"  # DÉCISION 10 : image Docker Hub ngosang/docker-amule
+_IMAGE = "ngosang/amule:3.0.0-1"  # DECISION 10: Docker Hub image ngosang/docker-amule
 
 
 @pytest.fixture(scope="module")
@@ -47,23 +48,23 @@ def amuled() -> Iterator[tuple[str, int]]:
 
 @pytest.mark.asyncio
 async def test_real_get_listen_port_reads_a_plausible_port(amuled: tuple[str, int]) -> None:
-    # R3 + R4 : si get_listen_port rend une valeur, l'opcode de réponse (0x40) ET le detail level
-    # (CMD implicite) sont CONFIRMÉS contre le vrai daemon. Le port par défaut de l'image est 4662.
+    # R3 + R4: if get_listen_port returns a value, the response opcode (0x40) AND the detail level
+    # (implicit CMD) are CONFIRMED against the real daemon. The image's default port is 4662.
     host, port = amuled
     client = AmuleEcClient(host, port, _EC_PASSWORD, timeout=30.0)
     await client.connect()
     try:
         listen_port = await client.get_listen_port()
-        assert 0 < listen_port < 65536  # un port d'écoute plausible (défaut image : 4662)
+        assert 0 < listen_port < 65536  # a plausible listen port (image default: 4662)
     finally:
         await client.close()
 
 
 @pytest.mark.asyncio
 async def test_real_set_then_get_round_trips_the_port(amuled: tuple[str, int]) -> None:
-    # set_listen_port(N) met à jour la pref EN MÉMOIRE ; un get ultérieur doit rendre N (preuve que
-    # SET_PREFERENCES → Apply() a bien posé EC_TAG_CONN_TCP_PORT). Le re-bind effectif (socket)
-    # exige un restart — NON testé ici (couvert par l'e2e couche B).
+    # set_listen_port(N) updates the pref IN MEMORY; a later get must return N (proof that
+    # SET_PREFERENCES → Apply() did set EC_TAG_CONN_TCP_PORT). The actual re-bind (socket)
+    # requires a restart — NOT tested here (covered by the layer-B e2e).
     host, port = amuled
     client = AmuleEcClient(host, port, _EC_PASSWORD, timeout=30.0)
     await client.connect()
@@ -72,7 +73,7 @@ async def test_real_set_then_get_round_trips_the_port(amuled: tuple[str, int]) -
         target = 51820 if original != 51820 else 51821
         await client.set_listen_port(target)
         assert await client.get_listen_port() == target
-        # courtoisie : on restaure le port d'origine (la pref est persistée par amuled).
+        # courtesy: we restore the original port (the pref is persisted by amuled).
         await client.set_listen_port(original)
     finally:
         await client.close()

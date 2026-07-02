@@ -1,23 +1,23 @@
-"""Politique d'auto-download PURE (spec download §6 — DÉCISION D4/D5).
+"""PURE auto-download policy (spec download §6 — DECISION D4/D5).
 
-Domaine PUR : aucune I/O, aucun repo, aucun ``NetworkStatus``. ``download_policy`` rend un
-``DownloadVerdict`` (enum, pas bool → explicabilité + métrique future) depuis des PRIMITIFS :
-le lookup ``target_id → status`` est fait par l'APPLICATION (depuis les ``targets`` chargées)
-et passé en booléen/chaîne, exactement comme ``effective_coverage`` reçoit des booléens (le
-domaine n'importe jamais un port).
+PURE domain: no I/O, no repo, no ``NetworkStatus``. ``download_policy`` returns a
+``DownloadVerdict`` (enum, not bool → explainability + future metric) from PRIMITIVES:
+the ``target_id → status`` lookup is done by the APPLICATION (from the loaded ``targets``)
+and passed as a bool/string, exactly as ``effective_coverage`` receives bools (the
+domain never imports a port).
 
-Ordre des gardes (spec §6) : un non-``download`` est une garde conservatrice (DÉCISION D5 :
-ne jamais télécharger — l'application ne devrait pas appeler la politique hors download, mais
-on ne crashe pas) ; une cible ``complete`` n'a plus besoin du fichier ; un hash déjà
-téléchargé est dédupliqué ; au-dessus du plafond disque applicatif on DIFFÈRE (la décision
-reste dans le journal, retentée quand de la place se libère, spec §7) ; sinon on télécharge.
+Guard order (spec §6): a non-``download`` is a conservative guard (DECISION D5:
+never download — the application should not call the policy outside download, but we do
+not crash); a ``complete`` target no longer needs the file; an already-downloaded hash
+is deduplicated; above the application disk cap we DEFER (the decision stays in the
+journal, retried when space frees up, spec §7); otherwise we download.
 """
 
 from enum import StrEnum
 
 
 class DownloadVerdict(StrEnum):
-    """Verdict de la politique d'auto-download (enum fermé, spec §6)."""
+    """Verdict of the auto-download policy (closed enum, spec §6)."""
 
     DOWNLOAD = "download"
     SKIP_COMPLETE = "skip_complete"
@@ -34,14 +34,14 @@ def download_policy(
     file_size: int,
     disk_cap: int,
 ) -> DownloadVerdict:
-    """Décide du sort d'un candidat download (spec §6). Toutes branches testées.
+    """Decide the fate of a download candidate (spec §6). All branches tested.
 
-    ``committed_bytes`` = somme des ``size_bytes`` des downloads ACTIFS (non terminaux) ;
-    ``file_size`` = taille du candidat ; ``disk_cap`` = plafond applicatif config. Le plafond
-    est un MAX inclusif : ``committed + file_size <= disk_cap`` est autorisé.
+    ``committed_bytes`` = sum of the ``size_bytes`` of ACTIVE (non-terminal) downloads;
+    ``file_size`` = the candidate's size; ``disk_cap`` = configured application cap. The cap
+    is an inclusive MAX: ``committed + file_size <= disk_cap`` is allowed.
     """
     if tier != "download":
-        return DownloadVerdict.SKIP_COMPLETE  # garde conservatrice (DÉCISION D5)
+        return DownloadVerdict.SKIP_COMPLETE  # conservative guard (DECISION D5)
     if target_status == "complete":
         return DownloadVerdict.SKIP_COMPLETE
     if already_downloaded:

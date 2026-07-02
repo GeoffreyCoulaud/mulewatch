@@ -1,18 +1,18 @@
-"""Port ``SchedulerStateRepository`` : l'état durable de l'ordonnanceur (spec §4/§7).
+"""``SchedulerStateRepository`` port: the scheduler's durable state (spec §4/§7).
 
-Couche PORTS, Protocol SYNCHRONE (même principe que ``LocalStateRepository`` : sub-ms,
-pas de ``to_thread`` en MVP). Persiste ce que la reprise après crash relit (spec §7) :
-l'INDEX de cycle (n'avance qu'en FIN de cycle → un kill au milieu rejoue les mots-clés
-restants), l'horodatage du dernier cycle complet, ET le BACKOFF par (instance, canal)
-(spec §3/§7 : il doit survivre à un redémarrage). Tout est stocké en KV dans la table
-``scheduler_state`` de ``local.db`` (jamais fusionné, invariant §11).
+PORTS layer, SYNCHRONOUS Protocol (same principle as ``LocalStateRepository``: sub-ms, no
+``to_thread`` in the MVP). Persists what crash recovery re-reads (spec §7): the cycle INDEX
+(only advances at the END of a cycle → a kill mid-way replays the remaining keywords), the
+timestamp of the last full cycle, AND the per-(instance, channel) BACKOFF (spec §3/§7: it
+must survive a restart). Everything is stored as KV in the ``scheduler_state`` table of
+``local.db`` (never merged, invariant §11).
 
-Le backoff est sérialisé en JSON sous UNE clé (``channel_backoff``) : une map
-``{ "amule-1:kad": {attempts, retry_after}, "amule-1": {...} }`` — la clé est soit
-``instance:canal`` (échec d'un canal), soit ``instance`` seule (reconnexion). ``retry_after``
-est un ISO-8601 UTC à largeur fixe (comparaison lexicographique == chronologique).
-``read_cycle_index`` rend ``0`` si jamais écrit (premier démarrage) ; ``load_channel_backoff``
-rend un dict vide.
+The backoff is serialized as JSON under ONE key (``channel_backoff``): a map
+``{ "amule-1:kad": {attempts, retry_after}, "amule-1": {...} }`` — the key is either
+``instance:channel`` (a channel failure), or ``instance`` alone (reconnection). ``retry_after``
+is a fixed-width ISO-8601 UTC (lexicographic comparison == chronological).
+``read_cycle_index`` returns ``0`` if never written (first startup); ``load_channel_backoff``
+returns an empty dict.
 """
 
 from dataclasses import dataclass
@@ -22,11 +22,11 @@ from typing import Protocol
 
 @dataclass(frozen=True)
 class ChannelBackoff:
-    """État de backoff d'une clé (instance, ou instance:canal) : compteur + échéance.
+    """Backoff state of a key (instance, or instance:channel): counter + deadline.
 
-    ``attempts`` = nombre d'échecs CONSÉCUTIFS (sert au calcul exponentiel). ``retry_after``
-    = ISO-8601 UTC à largeur fixe : tant que ``now < retry_after``, la clé est SAUTÉE. Gelé
-    et JSON-friendly (deux champs scalaires) → sérialisation triviale.
+    ``attempts`` = number of CONSECUTIVE failures (used for the exponential computation).
+    ``retry_after`` = fixed-width ISO-8601 UTC: as long as ``now < retry_after``, the key is
+    SKIPPED. Frozen and JSON-friendly (two scalar fields) → trivial serialization.
     """
 
     attempts: int
@@ -34,11 +34,12 @@ class ChannelBackoff:
 
 
 class SchedulerStateRepository(Protocol):
-    """Contrat sync de l'état d'ordonnancement (index de cycle + dernier cycle + backoff).
+    """Sync scheduling-state contract (cycle index + last cycle + backoff).
 
-    ``write_cycle_state`` reçoit un ``datetime`` AWARE (l'application passe ``clock.now()``,
-    qui ne dépend d'aucun adapter) ; le formatage ISO-8601 est interne à l'adapter SQLite.
-    ``save_channel_backoff`` remplace ENTIÈREMENT la map persistée (snapshot du registre).
+    ``write_cycle_state`` receives an AWARE ``datetime`` (the application passes
+    ``clock.now()``, which depends on no adapter); the ISO-8601 formatting is internal to the
+    SQLite adapter. ``save_channel_backoff`` ENTIRELY replaces the persisted map (registry
+    snapshot).
     """
 
     def read_cycle_index(self) -> int: ...

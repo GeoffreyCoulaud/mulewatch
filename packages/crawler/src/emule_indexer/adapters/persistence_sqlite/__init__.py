@@ -1,7 +1,7 @@
-"""Adapter persistence SQLite : les deux bases du spec MVP §11/§12 (spec data-model §4).
+"""SQLite persistence adapter: the two databases of MVP spec §11/§12 (data-model spec §4).
 
-``catalog.db`` (append-only, adressé par contenu, prêt à fusionner) et ``local.db``
-(opérationnel, jamais fusionné). ``sqlite3`` stdlib, repositories SYNCHRONES, SQL à la
-main (spec §3) ; migrations ``.sql`` embarquées dans ``migrations/`` (lues via
-``importlib.resources``), lintées par sqlfluff au gate.
+``catalog.db`` (append-only, content-addressed, ready to merge) and ``local.db``
+(operational, never merged). ``sqlite3`` stdlib, SYNCHRONOUS repositories, hand-written
+SQL (spec §3); ``.sql`` migrations embedded in ``migrations/`` (read via
+``importlib.resources``), linted by sqlfluff at the gate.
 """

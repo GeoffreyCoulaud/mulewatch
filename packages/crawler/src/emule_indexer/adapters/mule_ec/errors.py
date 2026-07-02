@@ -1,16 +1,16 @@
-"""Hiérarchie d'erreurs de l'adapter EC (cf. spec EC-adapter §6 ; orchestration §7).
+"""EC adapter error hierarchy (cf. EC-adapter spec §6; orchestration §7).
 
-L'adapter SIGNALE, il ne décide pas : pas de retry caché, pas de crash silencieux. Cette
-hiérarchie permet à l'appelant (plan C) de distinguer « amuled est down » (EcConnectError)
-de « ma config est fausse » (EcAuthError), une trame illisible (EcProtocolError) d'un échec
-applicatif proprement signalé par le daemon (EcFailureError).
+The adapter SIGNALS, it does not decide: no hidden retry, no silent crash. This
+hierarchy lets the caller (plan C) tell "amuled is down" (EcConnectError) apart
+from "my config is wrong" (EcAuthError), an unreadable frame (EcProtocolError) from an
+application failure cleanly signalled by the daemon (EcFailureError).
 
-Le CONTRAT d'erreur consommé par l'application vit dans le PORT (``ports/mule_client.py`` :
-``MuleUnreachableError``/``MuleSearchFailedError``) ; les classes EC ci-dessous en HÉRITENT
-(dépendance adapter→port, licite) pour que l'application ne dépende JAMAIS de cet adapter
-(règle de dépendance, spec orchestration §4). Le mapping : flux mort (connexion/timeout/
-trame illisible) → ``MuleUnreachableError`` ; ``EC_OP_FAILED`` → ``MuleSearchFailedError`` ;
-l'échec d'AUTH reste hors contrat de boucle (problème de config, fail-fast au démarrage).
+The error CONTRACT consumed by the application lives in the PORT (``ports/mule_client.py``:
+``MuleUnreachableError``/``MuleSearchFailedError``); the EC classes below INHERIT from it
+(adapter→port dependency, allowed) so the application NEVER depends on this adapter
+(dependency rule, orchestration spec §4). The mapping: dead stream (connection/timeout/
+unreadable frame) → ``MuleUnreachableError``; ``EC_OP_FAILED`` → ``MuleSearchFailedError``;
+AUTH failure stays outside the loop contract (config problem, fail-fast at startup).
 """
 
 from emule_indexer.ports.mule_client import (
@@ -21,24 +21,24 @@ from emule_indexer.ports.mule_client import (
 
 
 class EcError(MuleClientError):
-    """Base de toutes les erreurs de l'adapter EC (sous le contrat de port)."""
+    """Base of all EC adapter errors (under the port contract)."""
 
 
 class EcConnectError(EcError, MuleUnreachableError):
-    """TCP refusé, connexion perdue, ou opération sans connexion établie."""
+    """TCP refused, connection lost, or operation with no established connection."""
 
 
 class EcAuthError(EcError):
-    """Authentification refusée (mot de passe ou version de protocole) — pas un cas de boucle."""
+    """Authentication refused (password or protocol version) — not a loop case."""
 
 
 class EcProtocolError(EcError, MuleUnreachableError):
-    """Trame malformée ou réponse inattendue (l'entrée réseau est non fiable) → flux mort."""
+    """Malformed frame or unexpected response (network input is untrusted) → dead stream."""
 
 
 class EcTimeoutError(EcError, MuleUnreachableError):
-    """Délai dépassé (lecture réseau ou établissement de connexion) → flux mort."""
+    """Timeout (network read or connection establishment) → dead stream."""
 
 
 class EcFailureError(EcError, MuleSearchFailedError):
-    """Échec applicatif signalé par le daemon (EC_OP_FAILED) ; porte son message."""
+    """Application failure signalled by the daemon (EC_OP_FAILED); carries its message."""

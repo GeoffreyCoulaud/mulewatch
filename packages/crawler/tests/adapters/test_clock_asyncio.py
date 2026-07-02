@@ -11,7 +11,7 @@ def test_asyncio_clock_now_is_aware_utc() -> None:
 
 @pytest.mark.asyncio
 async def test_asyncio_clock_sleep_zero_returns() -> None:
-    await AsyncioClock().sleep(0.0)  # ne lève pas ; pas d'attente notable
+    await AsyncioClock().sleep(0.0)  # does not raise; no notable wait
 
 
 def test_seeded_rng_same_seed_same_order() -> None:
@@ -45,7 +45,7 @@ def test_seeded_rng_jitter_is_within_span() -> None:
 def test_seeded_rng_jitter_is_reproducible_for_a_seed() -> None:
     a = [SeededRng(jitter_seed=7).jitter(5.0) for _ in range(3)]
     b = [SeededRng(jitter_seed=7).jitter(5.0) for _ in range(3)]
-    assert a == b  # même jitter_seed → même suite de tirages
+    assert a == b  # same jitter_seed → same sequence of draws
 
 
 def test_seeded_rng_jitter_zero_or_negative_span_is_zero() -> None:

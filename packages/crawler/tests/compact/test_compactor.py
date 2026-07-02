@@ -1,4 +1,4 @@
-"""compact_catalog : reconstruction vers une sortie neuve, fenêtre alignée jour, idempotence."""
+"""compact_catalog: rebuild into a fresh output, day-aligned window, idempotence."""
 
 import sqlite3
 from collections.abc import Callable
@@ -167,7 +167,7 @@ def test_output_has_append_only_ranges(tmp_path: Path) -> None:
 def test_unattachable_source_errors(tmp_path: Path) -> None:
     bad = tmp_path / "garbage.db"
     bad.write_bytes(b"not a sqlite database header" * 8)
-    with pytest.raises(CompactError, match="impossible d'attacher"):
+    with pytest.raises(CompactError, match="cannot attach"):
         compact_catalog(
             bad, tmp_path / "out.db", keep_recent_days=90, clock=_clock("2026-06-01T00:00:00+00:00")
         )
@@ -180,7 +180,7 @@ def test_broken_schema_source_rolls_back(tmp_path: Path) -> None:
     raw.execute("CREATE TABLE files (ed2k_hash TEXT PRIMARY KEY, size_bytes INTEGER)")
     raw.commit()
     raw.close()
-    with pytest.raises(CompactError, match="échec de la compaction"):
+    with pytest.raises(CompactError, match="compaction of .* failed"):
         compact_catalog(
             broken,
             tmp_path / "out.db",

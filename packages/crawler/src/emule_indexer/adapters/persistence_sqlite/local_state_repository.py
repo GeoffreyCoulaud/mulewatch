@@ -1,15 +1,15 @@
-"""``SqliteLocalStateRepository`` : identité du nœud + file de tâches (spec §4/§6).
+"""``SqliteLocalStateRepository``: node identity + task queue (spec §4/§6).
 
-La file (spec MVP §12) : claim atomique FIFO sous ``BEGIN IMMEDIATE`` + ``RETURNING``
-(défense en profondeur — le writer unique est garanti par le déploiement, spec §3),
-lease configurable au constructeur, retries bornés → ``dead_letter`` (« poison
-probable », le plan E en fera une alerte), enqueue idempotent (l'index UNIQUE partiel
-sur les statuts actifs absorbe le doublon : ``ON CONFLICT … DO NOTHING``, vérifié
-empiriquement avec cible de conflit explicite, SQLite 3.47.1). ``done``/``dead_letter``
-restent en table (historique local, reconstructible — spec §6).
+The queue (MVP spec §12): atomic FIFO claim under ``BEGIN IMMEDIATE`` + ``RETURNING``
+(defence in depth — the single writer is guaranteed by the deployment, spec §3),
+lease configurable at the constructor, bounded retries → ``dead_letter`` ("likely
+poison", plan E will turn it into an alert), idempotent enqueue (the partial UNIQUE index
+on the active statuses absorbs the duplicate: ``ON CONFLICT … DO NOTHING``, verified
+empirically with an explicit conflict target, SQLite 3.47.1). ``done``/``dead_letter``
+stay in the table (local history, reconstructible — spec §6).
 
-``node_id`` (spec §3) : UUID généré au premier appel, persisté dans ``node_runtime``
-avec ``created_at``, stable ensuite (seed du scheduler §6 MVP + tag des observations).
+``node_id`` (spec §3): UUID generated on the first call, persisted in ``node_runtime``
+with ``created_at``, stable thereafter (scheduler seed §6 MVP + observation tag).
 """
 
 import sqlite3
@@ -74,7 +74,7 @@ _COUNT_PENDING = "SELECT COUNT(*) FROM verification_tasks WHERE status = 'pendin
 
 
 class SqliteLocalStateRepository:
-    """Implémentation SQLite du port ``LocalStateRepository`` (satisfaction STRUCTURELLE)."""
+    """SQLite implementation of the ``LocalStateRepository`` port (STRUCTURAL satisfaction)."""
 
     def __init__(
         self,
@@ -90,40 +90,40 @@ class SqliteLocalStateRepository:
         self._max_attempts = max_attempts
 
     def node_id(self) -> str:
-        """UUID créé (et persisté avec ``created_at``) au premier appel, stable ensuite."""
+        """UUID created (and persisted with ``created_at``) on the first call, stable after."""
         with wrap_sqlite_errors():
             row = self._connection.execute(_SELECT_NODE_ID).fetchone()
             if row is not None:
                 return str(row[0])
             generated = str(uuid.uuid4())
-            # Stamp calculé AVANT le BEGIN (même hygiène que claim_verification) : une
-            # horloge boguée ne doit pas lever en pleine transaction.
+            # Stamp computed BEFORE the BEGIN (same hygiene as claim_verification): a
+            # buggy clock must not raise in the middle of a transaction.
             created_at = utc_iso(self._clock())
             self._connection.execute("BEGIN IMMEDIATE")
             try:
                 self._connection.execute(_INSERT_NODE_IDENTITY, (generated, created_at))
                 self._connection.execute("COMMIT")
             except BaseException:
-                # Rollback sur BaseException (même discipline que catalog_repository) :
-                # une panne NON-sqlite ne doit pas laisser la connexion in_transaction —
-                # sinon le repository serait définitivement cassé.
+                # Rollback on BaseException (same discipline as catalog_repository):
+                # a NON-sqlite failure must not leave the connection in_transaction —
+                # otherwise the repository would be permanently broken.
                 with suppress(sqlite3.Error):
                     self._connection.execute("ROLLBACK")
                 raise
         return generated
 
     def enqueue_verification(self, ed2k_hash: str) -> bool:
-        """``True`` si une tâche a été créée ; ``False`` si une tâche ACTIVE existait déjà."""
+        """``True`` if a task was created; ``False`` if an ACTIVE task already existed."""
         with wrap_sqlite_errors():
             cursor = self._connection.execute(_ENQUEUE, (ed2k_hash, utc_iso(self._clock())))
         return cursor.rowcount == 1
 
     def claim_verification(self) -> ClaimedTask | None:
-        """Claim atomique FIFO (``BEGIN IMMEDIATE`` + ``RETURNING``) ; file vide → ``None``.
+        """Atomic FIFO claim (``BEGIN IMMEDIATE`` + ``RETURNING``); empty queue → ``None``.
 
-        FIFO = ``ORDER BY enqueued_at, id`` (l'ISO UTC à largeur fixe rend l'ordre
-        lexicographique chronologique ; ``id`` départage les égalités d'horloge).
-        ``attempts`` est compté AU CLAIM (spec §6).
+        FIFO = ``ORDER BY enqueued_at, id`` (the fixed-width UTC ISO makes lexicographic
+        order chronological; ``id`` breaks clock ties). ``attempts`` is counted AT CLAIM
+        time (spec §6).
         """
         now = self._clock()
         parameters = {"now": utc_iso(now), "lease": utc_iso(now + self._lease_duration)}
@@ -141,33 +141,29 @@ class SqliteLocalStateRepository:
         return ClaimedTask(task_id=row[0], ed2k_hash=row[1], attempts=row[2])
 
     def complete_verification(self, task_id: int) -> None:
-        """Marque ``done`` (la ligne RESTE : historique local). Exige une tâche ``in_progress``."""
+        """Marks ``done`` (the row STAYS: local history). Requires an ``in_progress`` task."""
         with wrap_sqlite_errors():
             cursor = self._connection.execute(_COMPLETE, (task_id,))
         if cursor.rowcount != 1:
-            raise PersistenceError(
-                f"tâche {task_id} introuvable en in_progress (bug du code appelant)"
-            )
+            raise PersistenceError(f"task {task_id} not found in in_progress (caller bug)")
 
     def fail_verification(self, task_id: int) -> None:
-        """Repasse en ``pending``, sauf ``attempts >= max_attempts`` → ``dead_letter`` (§12)."""
+        """Back to ``pending``, unless ``attempts >= max_attempts`` → ``dead_letter`` (§12)."""
         with wrap_sqlite_errors():
             cursor = self._connection.execute(
                 _FAIL, {"max_attempts": self._max_attempts, "task_id": task_id}
             )
         if cursor.rowcount != 1:
-            raise PersistenceError(
-                f"tâche {task_id} introuvable en in_progress (bug du code appelant)"
-            )
+            raise PersistenceError(f"task {task_id} not found in in_progress (caller bug)")
 
     def reclaim_expired(self) -> int:
-        """Repasse en ``pending`` toute ``in_progress`` dont la lease a expiré ; rend le nombre."""
+        """Returns to ``pending`` every ``in_progress`` whose lease expired; returns the count."""
         with wrap_sqlite_errors():
             cursor = self._connection.execute(_RECLAIM, (utc_iso(self._clock()),))
         return cursor.rowcount
 
     def count_pending_verifications(self) -> int:
-        """Nombre de tâches en attente (jauge d'observabilité — lecture inoffensive)."""
+        """Number of pending tasks (observability gauge — harmless read)."""
         with wrap_sqlite_errors():
             row = self._connection.execute(_COUNT_PENDING).fetchone()
         return int(row[0])

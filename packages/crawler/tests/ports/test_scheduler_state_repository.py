@@ -10,7 +10,7 @@ from emule_indexer.ports.scheduler_state_repository import (
 
 
 class _StubRepository:
-    """Satisfait SchedulerStateRepository structurellement (sans l'importer)."""
+    """Satisfies SchedulerStateRepository structurally (without importing it)."""
 
     def __init__(self) -> None:
         self.index = 0

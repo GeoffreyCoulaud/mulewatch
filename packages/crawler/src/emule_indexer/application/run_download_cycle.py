@@ -1,28 +1,28 @@
-"""La boucle de download : monitor → complétions → nouveaux candidats → sleep/nudge (§5).
+"""The download loop: monitor → completions → new candidates → sleep/nudge (§5).
 
-Couche APPLICATION. Une SEULE tâche, série, sur l'unique connexion EC download (spec §3/§5) :
-aucun entrelacement de trames. ``run_download_cycle`` exécute UNE itération (testable sans
-event d'arrêt) ; ``download_loop`` la répète puis attend ``poll_interval`` OU le nudge
-(``DecisionSignal``), jusqu'à un événement d'arrêt — câblé par ``CrawlerApp`` en D-verify.
+APPLICATION layer. A SINGLE task, serial, on the sole download EC connection (spec §3/§5):
+no frame interleaving. ``run_download_cycle`` runs ONE iteration (testable without a
+shutdown event); ``download_loop`` repeats it then waits ``poll_interval`` OR the nudge
+(``DecisionSignal``), until a shutdown event — wired by ``CrawlerApp`` in D-verify.
 
-Flux d'une itération (spec §5, DÉCISION D8) :
-  1. MONITOR : ``download_queue()`` → pour chaque entrée CONNUE de ``downloads``, réconcilie
-     ``downloading`` (QUEUED→DOWNLOADING) ; une entrée inconnue (download hors crawler) est
-     ignorée. La complétion ne se déduit PLUS des octets (cf. ``_monitor``).
-  2. COMPLÉTIONS : ``shared_files()`` → chaque hash suivi présent dans les PARTAGÉS d'amuled
-     (signal POSITIF de complétion, avec le vrai nom on-disk) → ``set_state(completed)`` →
-     ``quarantine.promote(staging_dir / nom)`` → ``enqueue_verification`` → ``quarantined``.
-     Idempotent : ``promote`` échoue → reste ``completed``, n'enfile PAS, retry au tour suivant
-     (le hash reste dans les partagés) ; déjà ``quarantined``/``failed`` → sauté.
-  3. CANDIDATS : ``catalog.download_decisions()`` (latest=download) ∖ ``downloads`` → pour
-     chacun, ``download_policy`` (statut de la cible, dédup, plafond) → si ``download`` :
-     ``build_ed2k_link`` (depuis ``last_observation``) → ``add_link`` → ``record_queued``.
-     Le plafond est recalculé EN MÉMOIRE au fil du cycle (``committed += size``).
+Flow of one iteration (spec §5, DECISION D8):
+  1. MONITOR: ``download_queue()`` → for each entry KNOWN to ``downloads``, reconciles
+     ``downloading`` (QUEUED→DOWNLOADING); an unknown entry (download outside the crawler) is
+     ignored. Completion is NO LONGER inferred from bytes (see ``_monitor``).
+  2. COMPLETIONS: ``shared_files()`` → each tracked hash present in amuled's SHARED files
+     (POSITIVE completion signal, with the real on-disk name) → ``set_state(completed)`` →
+     ``quarantine.promote(staging_dir / name)`` → ``enqueue_verification`` → ``quarantined``.
+     Idempotent: ``promote`` fails → stays ``completed``, does NOT enqueue, retry next round
+     (the hash stays in the shared files); already ``quarantined``/``failed`` → skipped.
+  3. CANDIDATES: ``catalog.download_decisions()`` (latest=download) ∖ ``downloads`` → for
+     each, ``download_policy`` (target status, dedup, cap) → if ``download``:
+     ``build_ed2k_link`` (from ``last_observation``) → ``add_link`` → ``record_queued``.
+     The cap is recomputed IN MEMORY as the cycle proceeds (``committed += size``).
 
-Erreurs (contrats Plan C, spec §9) : ``MuleUnreachableError`` (flux EC mort) → tolère, skip
-l'itération (le client se reconnecte au tour suivant ; amuled persiste les downloads).
-``RepositoryError`` → absorbée (log + continue). ``promote`` échoue → reste ``completed``.
-JAMAIS d'abandon d'un download stallé. Déterminisme : ``Clock``/``sleep`` injectés.
+Errors (Plan C contracts, spec §9): ``MuleUnreachableError`` (EC stream dead) → tolerate, skip
+the iteration (the client reconnects next round; amuled persists the downloads).
+``RepositoryError`` → absorbed (log + continue). ``promote`` fails → stays ``completed``.
+NEVER abandon a stalled download. Determinism: ``Clock``/``sleep`` injected.
 """
 
 import asyncio
@@ -54,16 +54,16 @@ from emule_indexer.ports.telemetry import Telemetry
 
 _logger = logging.getLogger("emule_indexer.application.run_download_cycle")
 
-# Sujet conventionnel du nudge de download (DÉCISION D13). D-download s'abonne à CE sujet ;
-# le câblage du signal("download") côté producteur (pipeline) atterrit en D-verify.
+# Conventional subject of the download nudge (DECISION D13). D-download subscribes to THIS
+# subject; the signal("download") wiring on the producer side (pipeline) lands in D-verify.
 DOWNLOAD_NUDGE_SUBJECT = "download"
 
 
 def _safe_basename(name: str) -> str | None:
-    """Basename confiné anti-traversal ; ``None`` si dégénéré (``""``/``.``/``..``).
+    """Traversal-safe confined basename; ``None`` if degenerate (``""``/``.``/``..``).
 
-    Le nom vient d'amuled (entrée externe — défense en profondeur, cf. CLAUDE.md « filenames
-    are hostile input ») : on confine la SOURCE de ``os.replace`` à ``staging_dir``.
+    The name comes from amuled (external input — defense in depth, cf. CLAUDE.md "filenames
+    are hostile input"): we confine the SOURCE of ``os.replace`` to ``staging_dir``.
     """
     base = Path(name).name
     if base in {"", ".", ".."}:
@@ -72,12 +72,12 @@ def _safe_basename(name: str) -> str | None:
 
 
 class DownloadRepository(Protocol):
-    """Protocol STRUCTUREL du repo downloads (typage local ; l'adapter le satisfait).
+    """STRUCTURAL Protocol of the downloads repo (local typing; the adapter satisfies it).
 
-    Protocol minimal pour que l'application ne dépende QUE de ce dont elle a besoin
-    (record_queued/set_state/is_downloaded/committed_bytes/active_states), sans importer
-    l'adapter. Le vrai ``SqliteDownloadRepository`` (et le fake de test) le satisfait
-    structurellement. Stubs sur UNE ligne (le ``def`` est couvert à la création de la classe).
+    Minimal Protocol so the application depends ONLY on what it needs
+    (record_queued/set_state/is_downloaded/committed_bytes/active_states), without importing
+    the adapter. The real ``SqliteDownloadRepository`` (and the test fake) satisfies it
+    structurally. Stubs on ONE line (the ``def`` is covered when the class is created).
     """
 
     def record_queued(self, ed2k_hash: str, target_id: str, size_bytes: int) -> bool: ...
@@ -94,12 +94,12 @@ class DownloadRepository(Protocol):
 
 
 class CatalogReader(Protocol):
-    """Protocol STRUCTUREL des LECTURES catalogue dont la boucle a besoin (DÉCISION D9).
+    """STRUCTURAL Protocol of the catalog READS the loop needs (DECISION D9).
 
-    Sous-ensemble de ``CatalogRepository`` (download_decisions + last_observation) : la boucle
-    ne dépend QUE de ce qu'elle lit, donc le fake minimal de test la satisfait sans implémenter
-    record_observation/record_decision/last_decision. Le vrai ``SqliteCatalogRepository`` le
-    satisfait aussi (il a ces deux méthodes). Stubs sur UNE ligne.
+    Subset of ``CatalogRepository`` (download_decisions + last_observation): the loop
+    depends ONLY on what it reads, so the minimal test fake satisfies it without implementing
+    record_observation/record_decision/last_decision. The real ``SqliteCatalogRepository``
+    satisfies it too (it has these two methods). Stubs on ONE line.
     """
 
     def download_decisions(self) -> tuple[DownloadCandidate, ...]: ...
@@ -108,10 +108,10 @@ class CatalogReader(Protocol):
 
 
 class VerificationQueue(Protocol):
-    """Protocol STRUCTUREL de l'enfilement de vérification (sous-ensemble de LocalStateRepository).
+    """STRUCTURAL Protocol of verification enqueuing (subset of LocalStateRepository).
 
-    La boucle ne dépend que d'``enqueue_verification`` ; le fake minimal de test n'a pas à
-    implémenter claim/complete/fail/reclaim. Le vrai ``SqliteLocalStateRepository`` le satisfait.
+    The loop depends only on ``enqueue_verification``; the minimal test fake need not
+    implement claim/complete/fail/reclaim. The real ``SqliteLocalStateRepository`` satisfies it.
     """
 
     def enqueue_verification(self, ed2k_hash: str) -> bool: ...
@@ -119,16 +119,16 @@ class VerificationQueue(Protocol):
 
 @dataclass
 class DownloadDeps:
-    """Dépendances de la boucle de download (la composition les assemble une fois).
+    """Dependencies of the download loop (composition assembles them once).
 
-    ``staging_dir`` est l'Incoming d'amuled (DÉCISION D2 : EC n'expose pas le chemin staging ;
-    la composition de D-verify le branche sur le layout amuled). Le NOM du fichier complété ne
-    vient plus de la file de download : il vient des fichiers PARTAGÉS EC (le vrai nom on-disk
-    rapporté par amuled), donc ``staging_path = staging_dir / <vrai nom>``. ``targets`` sert au
-    lookup ``target_id → status`` (politique pure). ``catalog``/``local`` sont typés aux Protocols
-    NARROW ci-dessus (``CatalogReader``/``VerificationQueue``) — la boucle ne dépend que du
-    sous-ensemble lu/écrit (cohérent avec le Protocol local ``DownloadRepository``), donc les
-    fakes minimaux de test sont acceptés.
+    ``staging_dir`` is amuled's Incoming (DECISION D2: EC does not expose the staging path;
+    D-verify composition wires it from the amuled layout). The NAME of the completed file no
+    longer comes from the download queue: it comes from the SHARED EC files (the real on-disk
+    name reported by amuled), so ``staging_path = staging_dir / <real name>``. ``targets`` serves
+    the ``target_id → status`` lookup (pure policy). ``catalog``/``local`` are typed to the NARROW
+    Protocols above (``CatalogReader``/``VerificationQueue``) — the loop depends only on the
+    subset read/written (consistent with the local ``DownloadRepository`` Protocol), so the
+    minimal test fakes are accepted.
     """
 
     client: MuleDownloadClient
@@ -145,7 +145,7 @@ class DownloadDeps:
 
 @dataclass
 class DownloadLoopDeps(DownloadDeps):
-    """``DownloadDeps`` + ce qu'il faut pour RÉPÉTER (nudge, cadence, arrêt) — DÉCISION D12."""
+    """``DownloadDeps`` + what it takes to REPEAT (nudge, cadence, shutdown) — DECISION D12."""
 
     signal: DecisionSignal
     poll_interval_seconds: float
@@ -153,8 +153,8 @@ class DownloadLoopDeps(DownloadDeps):
 
 
 def _target_status(targets: Sequence[TargetSegment], target_id: str) -> str:
-    """Statut de la cible (lookup ``target_id → status``) ; ``complete`` par défaut si la cible
-    a disparu de la config (conservateur : ne pas télécharger pour une cible inconnue)."""
+    """Target status (lookup ``target_id → status``); ``complete`` by default if the target
+    has vanished from the config (conservative: do not download for an unknown target)."""
     for target in targets:
         if target.target_id == target_id:
             return target.status
@@ -162,23 +162,23 @@ def _target_status(targets: Sequence[TargetSegment], target_id: str) -> str:
 
 
 async def _monitor(deps: DownloadDeps, states: dict[str, DownloadState]) -> None:
-    """Réconcilie ``downloads`` avec la file amuled : QUEUED→DOWNLOADING (étape 1, spec §5).
+    """Reconciles ``downloads`` with the amuled queue: QUEUED→DOWNLOADING (step 1, spec §5).
 
-    La complétion ne se déduit PLUS des octets (PS_COMPLETE est inobservable via la file — cf.
-    docs/reference/2026-06-17-amuled-completion-behavior.md) : elle vient des fichiers partagés
-    (_handle_completions). Ici on ne fait qu'acter qu'amuled tire un download mis en file.
+    Completion is NO LONGER inferred from bytes (PS_COMPLETE is unobservable via the queue — cf.
+    docs/reference/2026-06-17-amuled-completion-behavior.md): it comes from the shared files
+    (_handle_completions). Here we only record that amuled is pulling a queued download.
     """
     queue = await deps.client.download_queue()
     for entry in queue:
         current = states.get(entry.ed2k_hash)
         if current is None:
-            continue  # download hors crawler : ignoré
+            continue  # download outside the crawler: ignored
         if current in {
             DownloadState.QUARANTINED,
             DownloadState.FAILED,
             DownloadState.COMPLETED,
         }:
-            continue  # terminal / déjà complété : ne pas régresser
+            continue  # terminal / already completed: don't regress
         if current is not DownloadState.DOWNLOADING:
             deps.downloads.set_state(entry.ed2k_hash, DownloadState.DOWNLOADING)
             states[entry.ed2k_hash] = DownloadState.DOWNLOADING
@@ -191,16 +191,16 @@ async def _promote_completion(
     current: DownloadState,
     states: dict[str, DownloadState],
 ) -> None:
-    """Marque ``completed`` (stampe completed_at) puis promeut → quarantaine (étape 2, §5).
+    """Marks ``completed`` (stamps completed_at) then promotes → quarantine (step 2, §5).
 
-    Le ``staging_path`` est ``staging_dir / <vrai nom amuled>`` (résout DV10-Q2 : la dédup
-    ``nom(0)`` est gérée puisque le nom vient d'amuled). ``promote`` échoue → reste ``completed``,
-    retry au tour suivant (le hash est toujours dans les partagés — signal persistant).
+    The ``staging_path`` is ``staging_dir / <real amuled name>`` (resolves DV10-Q2: the
+    ``name(0)`` dedup is handled since the name comes from amuled). ``promote`` fails → stays
+    ``completed``, retry next round (the hash is still in the shared files — persistent signal).
     """
     safe = _safe_basename(name)
     if safe is None:
         _logger.warning(
-            "nom partagé dégénéré pour hash=%s (%r) — promotion sautée", ed2k_hash, name
+            "degenerate shared name for hash=%s (%r) — promotion skipped", ed2k_hash, name
         )
         return
     if current is not DownloadState.COMPLETED:
@@ -208,50 +208,50 @@ async def _promote_completion(
         states[ed2k_hash] = DownloadState.COMPLETED
     try:
         deps.quarantine.promote(deps.staging_dir / safe, ed2k_hash)
-    except Exception as error:  # noqa: BLE001 — toute panne FS laisse completed (retry idempotent)
+    except Exception as error:  # noqa: BLE001 — any FS failure leaves completed (idempotent retry)
         _logger.warning(
-            "quarantaine échouée pour hash=%s (%s) — reste completed, retry", ed2k_hash, error
+            "quarantine failed for hash=%s (%s) — stays completed, retry", ed2k_hash, error
         )
         await deps.telemetry.emit(PromotionFailed(ed2k_hash=ed2k_hash))
         return
     deps.local.enqueue_verification(ed2k_hash)
     deps.downloads.set_state(ed2k_hash, DownloadState.QUARANTINED)
     states[ed2k_hash] = DownloadState.QUARANTINED
-    target_id = deps.downloads.get_target_id(ed2k_hash) or "inconnu"
+    target_id = deps.downloads.get_target_id(ed2k_hash) or "unknown"
     await deps.telemetry.emit(DownloadCompleted(target_id=target_id, ed2k_hash=ed2k_hash))
-    _logger.info("hash=%s mis en quarantaine + vérification enfilée", ed2k_hash)
+    _logger.info("hash=%s quarantined + verification enqueued", ed2k_hash)
 
 
 async def _handle_completions(deps: DownloadDeps, states: dict[str, DownloadState]) -> None:
-    """Promeut chaque hash suivi qui apparaît dans les fichiers PARTAGÉS d'amuled (étape 2, §5).
+    """Promotes each tracked hash that appears in amuled's SHARED files (step 2, §5).
 
-    Présence dans les partagés = complétion POSITIVE (fichier déjà déplacé/en place, auto-partagé
-    par amuled). On promeut avec le vrai nom. Les hash terminaux (quarantined/failed) sont ignorés.
+    Presence in the shared files = POSITIVE completion (file already moved/in place, auto-shared
+    by amuled). We promote with the real name. Terminal hashes (quarantined/failed) are ignored.
 
-    Isolation PAR HASH (error-boundary#2) : une ``RepositoryError`` dans la promotion d'un hash
-    est loggée et CONTINUE avec les suivants. Sans ce filet, une panne repo sur le hash N
-    abandonnait N+1, N+2 du même cycle (signal de complétion ré-évalué au cycle suivant ; pas
-    de perte définitive, mais famine intra-cycle non souhaitable).
+    PER-HASH isolation (error-boundary#2): a ``RepositoryError`` in the promotion of one hash
+    is logged and CONTINUES with the next ones. Without this net, a repo failure on hash N
+    would abandon N+1, N+2 of the same cycle (the completion signal is re-evaluated the next
+    cycle; no permanent loss, but intra-cycle starvation is undesirable).
     """
     shared = await deps.client.shared_files()
     for entry in shared:
         current = states.get(entry.ed2k_hash)
         if current is None:
-            continue  # fichier partagé hors crawler : ignoré
+            continue  # shared file outside the crawler: ignored
         if current in {DownloadState.QUARANTINED, DownloadState.FAILED}:
-            continue  # déjà promu / échoué
+            continue  # already promoted / failed
         try:
             await _promote_completion(deps, entry.ed2k_hash, entry.name, current, states)
         except RepositoryError as error:
             _logger.error(
-                "complétion hash=%s en échec repo (%s) — hash sauté, continue",
+                "completion hash=%s repo failure (%s) — hash skipped, continues",
                 entry.ed2k_hash,
                 error,
             )
 
 
 async def _queue_new_candidates(deps: DownloadDeps) -> None:
-    """Rejoue les décisions tier=download absentes de ``downloads`` (étape 3, spec §5)."""
+    """Replays tier=download decisions missing from ``downloads`` (step 3, spec §5)."""
     committed = deps.downloads.committed_bytes()
     for candidate in deps.catalog.download_decisions():
         if deps.downloads.is_downloaded(candidate.ed2k_hash):
@@ -259,7 +259,8 @@ async def _queue_new_candidates(deps: DownloadDeps) -> None:
         observation = deps.catalog.last_observation(candidate.ed2k_hash)
         if observation is None:
             _logger.warning(
-                "candidat hash=%s sans observation — lien impossible, sauté", candidate.ed2k_hash
+                "candidate hash=%s without observation — link impossible, skipped",
+                candidate.ed2k_hash,
             )
             continue
         verdict = download_policy(
@@ -272,36 +273,36 @@ async def _queue_new_candidates(deps: DownloadDeps) -> None:
         )
         if verdict is not DownloadVerdict.DOWNLOAD:
             _logger.info(
-                "candidat hash=%s → %s (sauté/différé)", candidate.ed2k_hash, verdict.value
+                "candidate hash=%s → %s (skipped/deferred)", candidate.ed2k_hash, verdict.value
             )
             continue
-        # record_queued SEUL ici (écriture DB sync) ; le lien ed2k est bâti et émis par
-        # _add_links (I/O réseau) pour tout 'queued' — l'écriture précède le réseau, et un
-        # add_link qui lève laisse le download 'queued' en base (rattrapé au tour suivant).
+        # record_queued ONLY here (sync DB write); the ed2k link is built and emitted by
+        # _add_links (network I/O) for every 'queued' — the write precedes the network, and an
+        # add_link that raises leaves the download 'queued' in the DB (caught up next round).
         deps.downloads.record_queued(
             candidate.ed2k_hash, candidate.target_id, observation.size_bytes
         )
-        committed += observation.size_bytes  # plafond recalculé en mémoire au fil du cycle
-        _logger.info("candidat hash=%s mis en file de download", candidate.ed2k_hash)
+        committed += observation.size_bytes  # cap recomputed in memory as the cycle proceeds
+        _logger.info("candidate hash=%s queued for download", candidate.ed2k_hash)
         await deps.telemetry.emit(DownloadQueued(target_id=candidate.target_id))
 
 
 async def _add_links(deps: DownloadDeps) -> None:
-    """Émet les ``add_link`` EC pour les downloads ``queued`` sans lien encore envoyé.
+    """Emits the EC ``add_link`` calls for ``queued`` downloads with no link sent yet.
 
-    Séparé de ``_queue_new_candidates`` pour que l'écriture DB (sync) précède l'I/O réseau
-    (async) : un ``MuleUnreachableError`` à ``add_link`` laisse le download ``queued`` en base
-    (le monitor du tour suivant rattrape). On ré-émet le lien pour tout ``queued`` connu.
+    Split from ``_queue_new_candidates`` so the (sync) DB write precedes the (async) network
+    I/O: a ``MuleUnreachableError`` at ``add_link`` leaves the download ``queued`` in the DB
+    (the next round's monitor catches up). We re-emit the link for every known ``queued``.
 
-    Deux échecs d'``add_link`` à distinguer (spec §9) :
-      - ``MuleSearchFailedError`` (le daemon a répondu ``EC_OP_FAILED`` — lien explicitement
-        REJETÉ) : on marque CE hash ``failed`` (log + ``set_state``) et on ``continue`` au
-        suivant. Réessayer ne ferait que ré-émettre le même lien rejeté en boucle.
-      - ``MuleUnreachableError`` (flux EC mort) : on laisse PROPAGER — la capture de tête de
-        ``run_download_cycle`` saute toute l'itération (un daemon mort fait tout échouer).
+    Two ``add_link`` failures to distinguish (spec §9):
+      - ``MuleSearchFailedError`` (the daemon answered ``EC_OP_FAILED`` — link explicitly
+        REJECTED): we mark THIS hash ``failed`` (log + ``set_state``) and ``continue`` to the
+        next. Retrying would only re-emit the same rejected link in a loop.
+      - ``MuleUnreachableError`` (EC stream dead): we let it PROPAGATE — the top capture of
+        ``run_download_cycle`` skips the whole iteration (a dead daemon makes everything fail).
     """
-    # Re-lecture FRAÎCHE de active_states : _queue_new_candidates a écrit de nouvelles lignes
-    # QUEUED ce cycle, absentes du dict passé à _monitor/_handle_completions (figé en début).
+    # FRESH re-read of active_states: _queue_new_candidates wrote new QUEUED rows this cycle,
+    # absent from the dict passed to _monitor/_handle_completions (frozen at the start).
     states = deps.downloads.active_states()
     for ed2k_hash, state in states.items():
         if state is not DownloadState.QUEUED:
@@ -315,79 +316,79 @@ async def _add_links(deps: DownloadDeps) -> None:
         except MuleSearchFailedError as error:
             deps.downloads.set_state(ed2k_hash, DownloadState.FAILED)
             _logger.warning(
-                "add_link rejeté par amuled pour hash=%s (%s) — marqué failed", ed2k_hash, error
+                "add_link rejected by amuled for hash=%s (%s) — marked failed", ed2k_hash, error
             )
 
 
 async def run_download_cycle(deps: DownloadDeps) -> None:
-    """UNE itération de la boucle de download (spec §5). Ne lève jamais : tolère/absorbe.
+    """ONE iteration of the download loop (spec §5). Never raises: tolerates/absorbs.
 
-    Deux DOCTRINES d'erreur, distinctes (item I2 — anti-famine) :
+    Two distinct error DOCTRINES (item I2 — anti-starvation):
 
-    - ``MuleUnreachableError`` (flux EC mort, depuis ``_monitor`` ou ``_add_links``) = daemon
-      mort → ABORT de l'itération (« un daemon mort fait tout échouer », cf. ``_add_links``).
-      On saute le reste ; la prochaine itération réessaie (amuled persiste les downloads).
-    - ``RepositoryError`` (échec de persistance, AUCUN I/O client) → ISOLÉ PAR ÉTAPE : un échec
-      repo dans une étape ne doit PAS affamer les autres. Chaque étape pouvant lever
-      ``RepositoryError`` (monitor/complétions/candidats) est enveloppée séparément (log +
-      ``continue`` à l'étape suivante). ``_add_links`` relit ``active_states`` FRAÎCHEMENT, donc
-      tourne même si une étape amont a partiellement échoué. « JAMAIS d'abandon d'un download
-      stallé » : l'ordre 1→2→3→4 est préservé, chaque étape est best-effort.
+    - ``MuleUnreachableError`` (EC stream dead, from ``_monitor`` or ``_add_links``) = dead
+      daemon → ABORT the iteration ("a dead daemon makes everything fail", cf. ``_add_links``).
+      We skip the rest; the next iteration retries (amuled persists the downloads).
+    - ``RepositoryError`` (persistence failure, NO client I/O) → ISOLATED PER STEP: a repo
+      failure in one step must NOT starve the others. Each step that can raise
+      ``RepositoryError`` (monitor/completions/candidates) is wrapped separately (log +
+      ``continue`` to the next step). ``_add_links`` re-reads ``active_states`` FRESHLY, so it
+      runs even if an upstream step partially failed. "NEVER abandon a stalled download": the
+      1→2→3→4 order is preserved, each step is best-effort.
 
-    Les repos sont sync → l'annulation (arrêt) atterrit aux ``await`` réseau, jamais en écriture.
+    The repos are sync → cancellation (shutdown) lands at the network ``await``, never mid-write.
 
-    DÉCISION (audit 2026-06-23 / observability#5) : un ``MuleUnreachableError`` ici ne fait PAS
-    émettre ``InstanceUnreachable`` (contrairement à ``run_search_cycle``). La taxonomie E-D5
-    range cet événement sous RECHERCHE uniquement ; la boucle download est mono-instance et le
-    label ``instance=...`` n'aurait pas de sens (compteur partagé avec les workers de recherche).
-    L'indisponibilité est gérée par le retry du cycle suivant + le log warning. Asymétrie
-    voulue.
+    DECISION (audit 2026-06-23 / observability#5): a ``MuleUnreachableError`` here does NOT
+    emit ``InstanceUnreachable`` (unlike ``run_search_cycle``). The E-D5 taxonomy files this
+    event under SEARCH only; the download loop is single-instance and the label
+    ``instance=...`` would be meaningless (counter shared with the search workers). The
+    unavailability is handled by the next cycle's retry + the warning log. Intentional
+    asymmetry.
     """
-    # Étape 1 — MONITOR : I/O client → MuleUnreachableError = daemon mort = ABORT de l'itération.
-    # (Un RepositoryError de ``set_state`` est isolé ICI aussi : il n'affame pas les étapes 2-4.)
+    # Step 1 — MONITOR: client I/O → MuleUnreachableError = dead daemon = ABORT the iteration.
+    # (A RepositoryError from ``set_state`` is isolated HERE too: it doesn't starve steps 2-4.)
     try:
         states = deps.downloads.active_states()
         await _monitor(deps, states)
     except MuleUnreachableError as error:
-        _logger.warning("daemon download injoignable (%s) — itération sautée, retry", error)
+        _logger.warning("download daemon unreachable (%s) — iteration skipped, retry", error)
         return
     except RepositoryError as error:
-        _logger.error("monitor download en échec repo (%s) — étape sautée, continue", error)
-    # Étape 2 — COMPLÉTIONS : on RELIT ``active_states`` FRAÎCHEMENT (logic-download#2). Sans ça,
-    # un échec en étape 1 laissait ``states`` figé/vide → chaque hash partagé → ``states.get is
-    # None`` → ignoré → AUCUNE complétion promue du cycle entier. La relecture est aussi mieux
-    # alignée que ``states={}`` avec le cas nominal (états frais), au prix d'un appel repo
-    # supplémentaire (idempotent). Un échec de la relecture elle-même est attrapé en aval.
-    # Étapes 2 & 3 — AUCUN I/O client → seul RepositoryError possible, ISOLÉ par étape (I2) :
-    # un échec repo de l'une ne doit PAS empêcher l'autre de tourner.
+        _logger.error("download monitor repo failure (%s) — step skipped, continues", error)
+    # Step 2 — COMPLETIONS: we RE-READ ``active_states`` FRESHLY (logic-download#2). Without it,
+    # a failure in step 1 left ``states`` frozen/empty → every shared hash → ``states.get is
+    # None`` → ignored → NO completion promoted the entire cycle. The re-read is also better
+    # aligned than ``states={}`` with the nominal case (fresh states), at the cost of one extra
+    # repo call (idempotent). A failure of the re-read itself is caught downstream.
+    # Steps 2 & 3 — NO client I/O → only RepositoryError possible, ISOLATED per step (I2):
+    # a repo failure in one must NOT prevent the other from running.
     try:
         fresh_states = deps.downloads.active_states()
         await _handle_completions(deps, fresh_states)
     except MuleUnreachableError as error:
-        _logger.warning("daemon download injoignable (%s) — itération sautée, retry", error)
+        _logger.warning("download daemon unreachable (%s) — iteration skipped, retry", error)
         return
     except RepositoryError as error:
-        _logger.error("complétions download en échec repo (%s) — étape sautée, continue", error)
+        _logger.error("download completions repo failure (%s) — step skipped, continues", error)
     try:
         await _queue_new_candidates(deps)
     except RepositoryError as error:
-        _logger.error("candidats download en échec repo (%s) — étape sautée, continue", error)
-    # Étape 4 — ADD_LINKS : I/O client → MuleUnreachableError = daemon mort = ABORT. Relit
-    # ``active_states`` FRAÎCHEMENT, donc tourne même si l'étape 3 a partiellement échoué.
+        _logger.error("download candidates repo failure (%s) — step skipped, continues", error)
+    # Step 4 — ADD_LINKS: client I/O → MuleUnreachableError = dead daemon = ABORT. Re-reads
+    # ``active_states`` FRESHLY, so it runs even if step 3 partially failed.
     try:
         await _add_links(deps)
     except MuleUnreachableError as error:
-        _logger.warning("daemon download injoignable (%s) — itération sautée, retry", error)
+        _logger.warning("download daemon unreachable (%s) — iteration skipped, retry", error)
     except RepositoryError as error:
-        _logger.error("add_link download en échec repo (%s) — étape sautée, retry", error)
+        _logger.error("add_link download repo failure (%s) — step skipped, retry", error)
 
 
 async def _sleep_or_nudge(deps: DownloadLoopDeps) -> None:
-    """Attend ``poll_interval`` OU le nudge ``download``, au PREMIER des deux (spec §5).
+    """Waits ``poll_interval`` OR the ``download`` nudge, whichever comes FIRST (spec §5).
 
-    ``asyncio.wait(FIRST_COMPLETED)`` puis annulation du perdant : un changement de décision
-    (nudge) réveille la boucle tout de suite ; sinon le poll de repli la réveille à la cadence.
-    L'annulation d'arrêt atterrit ICI (un ``await``), jamais en pleine écriture DB (sync).
+    ``asyncio.wait(FIRST_COMPLETED)`` then cancel the loser: a decision change (nudge) wakes the
+    loop immediately; otherwise the fallback poll wakes it at the cadence.
+    Shutdown cancellation lands HERE (an ``await``), never mid DB write (sync).
     """
     sleep_task = asyncio.ensure_future(deps.clock.sleep(deps.poll_interval_seconds))
     nudge_task = asyncio.ensure_future(deps.signal.wait(DOWNLOAD_NUDGE_SUBJECT))
@@ -402,10 +403,10 @@ async def _sleep_or_nudge(deps: DownloadLoopDeps) -> None:
 
 
 async def download_loop(deps: DownloadLoopDeps) -> None:
-    """Répète ``run_download_cycle`` puis attend (poll/nudge) jusqu'à l'arrêt (DÉCISION D12).
+    """Repeats ``run_download_cycle`` then waits (poll/nudge) until shutdown (DECISION D12).
 
-    Câblée par ``CrawlerApp`` (D-verify) dans le ``TaskGroup`` ; l'annulation (arrêt) atterrit
-    au prochain ``await`` (poll EC ou attente sleep/nudge), jamais en pleine écriture DB.
+    Wired by ``CrawlerApp`` (D-verify) into the ``TaskGroup``; cancellation (shutdown) lands
+    at the next ``await`` (EC poll or sleep/nudge wait), never mid DB write.
     """
     while not deps.shutdown.is_set():
         await run_download_cycle(deps)

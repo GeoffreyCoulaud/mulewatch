@@ -9,7 +9,7 @@ from catalog_matching.models import FileCandidate
 
 
 class _Const:
-    """Matcher de test à verdict constant (satisfait le Protocol Matcher)."""
+    """Test matcher with a constant verdict (satisfies the Matcher Protocol)."""
 
     def __init__(self, verdict: bool) -> None:
         self._verdict = verdict
@@ -32,7 +32,7 @@ def test_all_false_when_one_child_false() -> None:
 
 
 def test_all_empty_is_true() -> None:
-    # all([]) == True (neutre de la conjonction).
+    # all([]) == True (identity of conjunction).
     matcher = AllMatcher(())
     assert matcher.matches(_ANY) is True
 
@@ -48,7 +48,7 @@ def test_any_false_when_all_children_false() -> None:
 
 
 def test_any_empty_is_false() -> None:
-    # any([]) == False (neutre de la disjonction).
+    # any([]) == False (identity of disjunction).
     matcher = AnyMatcher(())
     assert matcher.matches(_ANY) is False
 

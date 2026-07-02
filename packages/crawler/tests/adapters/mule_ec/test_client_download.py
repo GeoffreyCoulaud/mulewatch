@@ -18,7 +18,7 @@ _PASSWORD = "secret123"
 
 
 def _auth_replies(salt: int) -> list[bytes]:
-    """Handshake d'auth pré-encodé (même idiome que test_client.py)."""
+    """Pre-encoded auth handshake (same idiom as test_client.py)."""
     return [
         encode_packet(EcPacket(codes.EC_OP_AUTH_SALT, (uint_tag(codes.EC_TAG_PASSWD_SALT, salt),))),
         encode_packet(
@@ -28,7 +28,7 @@ def _auth_replies(salt: int) -> list[bytes]:
 
 
 class _ScriptedTransport:
-    """Faux transport : rend des réponses SCRIPTÉES, capture les paquets envoyés."""
+    """Fake transport: returns SCRIPTED replies, captures sent packets."""
 
     def __init__(self, replies: list[EcPacket]) -> None:
         self._replies = replies
@@ -47,14 +47,14 @@ class _ScriptedTransport:
 
 def _connected_client(transport: _ScriptedTransport) -> AmuleEcClient:
     client = AmuleEcClient("h", 4712, "pwd")
-    client._transport = transport  # type: ignore[assignment]  # injecté (déjà connecté)
+    client._transport = transport  # type: ignore[assignment]  # injected (already connected)
     return client
 
 
 def _partfile_entry(hash_hex: str, *, done: int, full: int) -> EcTag:
-    # Layout RÉEL (vérifié contre un amuled réel) : la valeur PROPRE du tag EC_TAG_PARTFILE est
-    # un UINT8 (index/statut interne, ex. 0x0d), PAS le hash ; le hash est l'enfant dédié
-    # EC_TAG_PARTFILE_HASH (0x031E, HASH16). size_full/size_done restent des enfants.
+    # REAL layout (verified against a real amuled): the OWN value of the EC_TAG_PARTFILE tag is
+    # a UINT8 (internal index/status, e.g. 0x0d), NOT the hash; the hash is the dedicated child
+    # EC_TAG_PARTFILE_HASH (0x031E, HASH16). size_full/size_done stay as children.
     return EcTag(
         codes.EC_TAG_PARTFILE,
         codes.EC_TAGTYPE_UINT8,
@@ -83,15 +83,15 @@ async def test_add_link_sends_the_link_and_accepts_noop() -> None:
 
 @pytest.mark.asyncio
 async def test_add_link_failure_raises_ec_failure() -> None:
-    failed = EcPacket(codes.EC_OP_FAILED, (string_tag(codes.EC_TAG_STRING, "lien invalide"),))
+    failed = EcPacket(codes.EC_OP_FAILED, (string_tag(codes.EC_TAG_STRING, "invalid link"),))
     client = _connected_client(_ScriptedTransport([failed]))
-    with pytest.raises(EcFailureError, match="lien invalide"):
+    with pytest.raises(EcFailureError, match="invalid link"):
         await client.add_link("ed2k://bad")
 
 
 @pytest.mark.asyncio
 async def test_add_link_on_a_disconnected_client_raises_connect_error() -> None:
-    client = AmuleEcClient("h", 4712, "pwd")  # jamais connecté
+    client = AmuleEcClient("h", 4712, "pwd")  # never connected
     with pytest.raises(EcConnectError):
         await client.add_link("ed2k://x")
 
@@ -118,7 +118,7 @@ async def test_download_queue_requests_at_cmd_detail() -> None:
     transport = _ScriptedTransport([EcPacket(codes.EC_OP_DLOAD_QUEUE)])
     client = _connected_client(transport)
     await client.download_queue()
-    sent = transport.sent[0]  # référence typée → aucun ignore nécessaire
+    sent = transport.sent[0]  # typed reference → no ignore needed
     assert sent.opcode == codes.EC_OP_GET_DLOAD_QUEUE
     detail = sent.find(codes.EC_TAG_DETAIL_LEVEL)
     assert detail is not None and detail.int_value() == codes.EC_DETAIL_CMD
@@ -126,9 +126,9 @@ async def test_download_queue_requests_at_cmd_detail() -> None:
 
 @pytest.mark.asyncio
 async def test_download_queue_skips_entries_without_a_usable_hash() -> None:
-    # une entrée SANS enfant EC_TAG_PARTFILE_HASH exploitable est ÉCARTÉE (tolérance aux
-    # inconnus, comme map_search_results) — jamais fatale au lot. Ici : valeur propre UINT8
-    # (l'index/statut interne) MAIS aucun enfant 0x031E → pas de hash → écartée.
+    # an entry WITHOUT a usable EC_TAG_PARTFILE_HASH child is DISCARDED (tolerance toward
+    # unknowns, like map_search_results) — never fatal to the batch. Here: UINT8 own value
+    # (the internal index/status) BUT no 0x031E child → no hash → discarded.
     pourrie = EcTag(
         codes.EC_TAG_PARTFILE,
         codes.EC_TAGTYPE_UINT8,
@@ -143,8 +143,8 @@ async def test_download_queue_skips_entries_without_a_usable_hash() -> None:
 
 @pytest.mark.asyncio
 async def test_download_queue_skips_entries_with_a_wrong_length_hash_child() -> None:
-    # un enfant 0x031E PRÉSENT mais malformé (HASH16 déclaré, longueur ≠ 16) → écartée :
-    # le hash est le SEUL identifiant stable, sans lui l'entrée est inutilisable.
+    # a 0x031E child PRESENT but malformed (HASH16 declared, length ≠ 16) → discarded:
+    # the hash is the ONLY stable identifier, without it the entry is unusable.
     bad_hash = EcTag(codes.EC_TAG_PARTFILE_HASH, codes.EC_TAGTYPE_HASH16, b"\x00" * 8, ())
     pourrie = EcTag(codes.EC_TAG_PARTFILE, codes.EC_TAGTYPE_UINT8, b"\x01", (bad_hash,))
     reply = EcPacket(codes.EC_OP_DLOAD_QUEUE, (pourrie, _partfile_entry(_HASH, done=1, full=2)))
@@ -155,7 +155,7 @@ async def test_download_queue_skips_entries_with_a_wrong_length_hash_child() -> 
 
 @pytest.mark.asyncio
 async def test_download_queue_skips_entries_with_a_wrong_type_hash_child() -> None:
-    # un enfant 0x031E PRÉSENT mais d'un type qui n'est PAS HASH16 (ex. STRING) → écartée.
+    # a 0x031E child PRESENT but of a type that is NOT HASH16 (e.g. STRING) → discarded.
     wrong_type = string_tag(codes.EC_TAG_PARTFILE_HASH, "pas-un-hash")
     pourrie = EcTag(codes.EC_TAG_PARTFILE, codes.EC_TAGTYPE_UINT8, b"\x01", (wrong_type,))
     reply = EcPacket(codes.EC_OP_DLOAD_QUEUE, (pourrie, _partfile_entry(_HASH, done=1, full=2)))
@@ -177,8 +177,8 @@ async def test_download_queue_skips_non_partfile_toplevel_tags() -> None:
 
 @pytest.mark.asyncio
 async def test_download_queue_treats_missing_size_as_zero() -> None:
-    # une entrée valide (enfant hash 0x031E présent) mais SANS tags de taille → done=0,
-    # full=0 (absence = 0, réf. EC §3) → is_complete False, ne sera jamais promue par erreur.
+    # a valid entry (0x031E hash child present) but WITHOUT size tags → done=0,
+    # full=0 (absence = 0, ref. EC §3) → is_complete False, will never be promoted by mistake.
     hash_child = EcTag(
         codes.EC_TAG_PARTFILE_HASH, codes.EC_TAGTYPE_HASH16, bytes.fromhex(_HASH), ()
     )
@@ -190,10 +190,10 @@ async def test_download_queue_treats_missing_size_as_zero() -> None:
 
 @pytest.mark.asyncio
 async def test_download_queue_survives_a_real_codec_round_trip() -> None:
-    # Round-trip RÉEL (FakeEcServer + vrais streams asyncio + vrai codec, idiome du reste du
-    # suite EC) : prouve qu'une entrée PARTFILE au layout RÉEL (valeur propre UINT8 + enfant
-    # HASH16 0x031E + enfants name/size_*) survit à encode_packet → socket → decode_payload →
-    # map. Les autres tests court-circuitent le codec en injectant EcPacket/EcTag dans _transport.
+    # REAL round-trip (FakeEcServer + real asyncio streams + real codec, idiom of the rest of
+    # the EC suite): proves that a PARTFILE entry with the REAL layout (UINT8 own value + HASH16
+    # 0x031E child + name/size_* children) survives encode_packet → socket → decode_payload →
+    # map. The other tests short-circuit the codec by injecting EcPacket/EcTag into _transport.
     entry = _partfile_entry(_HASH, done=4, full=9)
     reply = encode_packet(EcPacket(codes.EC_OP_DLOAD_QUEUE, (entry,)))
     async with FakeEcServer(_auth_replies(1) + [reply]) as server:
@@ -202,15 +202,16 @@ async def test_download_queue_survives_a_real_codec_round_trip() -> None:
         queue = await client.download_queue()
         await client.close()
     assert queue == (DownloadEntry(ed2k_hash=_HASH, size_done=4, size_full=9),)
-    request = server.received[2]  # [0]/[1] = handshake ; [2] = la requête de file
+    request = server.received[2]  # [0]/[1] = handshake; [2] = the queue request
     assert request.opcode == codes.EC_OP_GET_DLOAD_QUEUE
 
 
 @pytest.mark.asyncio
 async def test_download_queue_treats_malformed_size_as_zero() -> None:
-    # entrée valide (enfant hash 0x031E présent) avec un tag de taille PRÉSENT mais malformé
-    # (UINT32 déclaré, 1 octet) → int_value() lève EcProtocolError ; _optional_partfile_int
-    # l'avale → 0 (jamais fatal, réf. EC §3, piège 4). L'entrée n'est PAS écartée (le hash y est).
+    # valid entry (0x031E hash child present) with a size tag PRESENT but malformed
+    # (UINT32 declared, 1 byte) → int_value() raises EcProtocolError; _optional_partfile_int
+    # swallows it → 0 (never fatal, ref. EC §3, pitfall 4). The entry is NOT discarded
+    # (the hash is there).
     hash_child = EcTag(
         codes.EC_TAG_PARTFILE_HASH, codes.EC_TAGTYPE_HASH16, bytes.fromhex(_HASH), ()
     )
@@ -222,9 +223,10 @@ async def test_download_queue_treats_malformed_size_as_zero() -> None:
 
 
 def _knownfile_entry(hash_hex: str, name: str) -> EcTag:
-    # Conteneur EC_TAG_KNOWNFILE (0x0400) ; valeur propre = ECID (UINT, ignoré). Le hash est
-    # l'enfant EC_TAG_PARTFILE_HASH (HASH16), le nom l'enfant EC_TAG_PARTFILE_NAME (vrai nom
-    # on-disk côté amuled). Mêmes tags enfants que le partfile (confirmé amont, commit 5938915).
+    # EC_TAG_KNOWNFILE (0x0400) container; own value = ECID (UINT, ignored). The hash is
+    # the EC_TAG_PARTFILE_HASH child (HASH16), the name the EC_TAG_PARTFILE_NAME child (real
+    # on-disk name on the amuled side). Same child tags as the partfile (confirmed upstream,
+    # commit 5938915).
     return EcTag(
         codes.EC_TAG_KNOWNFILE,
         codes.EC_TAGTYPE_UINT8,
@@ -285,7 +287,7 @@ def test_map_shared_file_with_wrong_length_hash_is_none() -> None:
 def test_map_shared_file_with_invalid_name_tag_is_none() -> None:
     from emule_indexer.adapters.mule_ec.client import _map_shared_file
 
-    # name tag de type STRING mais SANS NUL terminal → string_value() lève EcProtocolError.
+    # name tag of STRING type but WITHOUT a terminating NUL → string_value() raises EcProtocolError.
     bad_name = EcTag(codes.EC_TAG_PARTFILE_NAME, codes.EC_TAGTYPE_STRING, b"no-nul", ())
     entry = EcTag(
         codes.EC_TAG_KNOWNFILE,
@@ -337,8 +339,8 @@ async def test_shared_files_skips_non_knownfile_top_level_tags() -> None:
 
 @pytest.mark.asyncio
 async def test_shared_files_skips_unmappable_knownfile_entries() -> None:
-    # une entrée EC_TAG_KNOWNFILE inexploitable (sans hash → _map_shared_file rend None) est
-    # ÉCARTÉE ; la suivante, valide, est conservée (tolérance aux inconnus, comme download_queue).
+    # an unusable EC_TAG_KNOWNFILE entry (no hash → _map_shared_file returns None) is
+    # DISCARDED; the next one, valid, is kept (tolerance toward unknowns, like download_queue).
     no_hash = EcTag(
         codes.EC_TAG_KNOWNFILE,
         codes.EC_TAGTYPE_UINT8,

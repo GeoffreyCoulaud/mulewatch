@@ -94,7 +94,7 @@ def test_reopen_is_idempotent_and_keeps_data(tmp_path: Path) -> None:
     first = open_catalog(path)
     first.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, 1)", (_CANONICAL_HASH,))
     first.close()
-    second = open_catalog(path)  # versions déjà appliquées : AUCUN script ne rejoue
+    second = open_catalog(path)  # versions already applied: NO script replays
     try:
         assert second.execute("PRAGMA user_version").fetchone()[0] == 2
         assert second.execute("SELECT count(*) FROM files").fetchone()[0] == 1
@@ -103,14 +103,14 @@ def test_reopen_is_idempotent_and_keeps_data(tmp_path: Path) -> None:
 
 
 def test_in_memory_database_is_refused_because_wal_is_required() -> None:
-    # :memory: répond journal_mode='memory' (vérifié empiriquement) -> refus net.
+    # :memory: reports journal_mode='memory' (empirically verified) -> flat refusal.
     with pytest.raises(PersistenceError, match="WAL"):
         open_catalog(":memory:")
 
 
 def test_unopenable_path_raises_persistence_error(tmp_path: Path) -> None:
     with pytest.raises(PersistenceError):
-        open_catalog(tmp_path)  # un répertoire n'est pas une base
+        open_catalog(tmp_path)  # a directory is not a database
 
 
 def test_database_newer_than_the_code_is_refused(tmp_path: Path) -> None:
@@ -140,7 +140,7 @@ def test_failed_script_is_rolled_back_and_version_unchanged(tmp_path: Path) -> N
             _apply_migrations(
                 connection, ((1, "CREATE TABLE survit (x INTEGER);"), (2, bad_script))
             )
-        # La migration 1 a SA transaction (appliquée) ; la 2 est ENTIÈREMENT défaite.
+        # Migration 1 has ITS OWN transaction (applied); migration 2 is ENTIRELY rolled back.
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
         assert _table_names(connection) == {"survit"}
     finally:
@@ -150,7 +150,7 @@ def test_failed_script_is_rolled_back_and_version_unchanged(tmp_path: Path) -> N
 def test_load_scripts_orders_by_name_and_skips_non_sql(tmp_path: Path) -> None:
     (tmp_path / "0002_second.sql").write_text("B", encoding="utf-8")
     (tmp_path / "0001_premier.sql").write_text("A", encoding="utf-8")
-    (tmp_path / "README.md").write_text("ignoré", encoding="utf-8")
+    (tmp_path / "README.md").write_text("ignored", encoding="utf-8")
     assert _load_scripts(tmp_path) == ((1, "A"), (2, "B"))
 
 
@@ -161,7 +161,7 @@ def test_load_scripts_rejects_a_non_numeric_prefix(tmp_path: Path) -> None:
 
 
 def test_utc_iso_is_fixed_width_and_normalizes_to_utc() -> None:
-    # Largeur fixe (microsecondes TOUJOURS écrites) => ordre lexicographique == chronologique.
+    # Fixed width (microseconds ALWAYS written) => lexicographic order == chronological.
     paris = timezone(timedelta(hours=2))
     moment = datetime(2026, 6, 11, 14, 0, 0, tzinfo=paris)
     assert utc_iso(moment) == "2026-06-11T12:00:00.000000+00:00"
@@ -193,27 +193,27 @@ def test_insert_or_replace_on_existing_hash_raises_integrity_error(tmp_path: Pat
         connection.close()
 
 
-# --- Hardening (revue adversariale post-6c389b1) ---
+# --- Hardening (adversarial review post-6c389b1) ---
 
 
 def test_load_scripts_rejects_duplicate_version_numbers(tmp_path: Path) -> None:
     (tmp_path / "0001_a.sql").write_text("A", encoding="utf-8")
     (tmp_path / "0001_b.sql").write_text("B", encoding="utf-8")
-    with pytest.raises(MigrationError, match="croissantes"):
+    with pytest.raises(MigrationError, match="increasing"):
         _load_scripts(tmp_path)
 
 
 def test_load_scripts_rejects_non_padded_prefixes_that_misorder(tmp_path: Path) -> None:
-    # Tri lexicographique : "10_b.sql" < "2_a.sql" -> versions (10, 2), non croissantes.
+    # Lexicographic sort: "10_b.sql" < "2_a.sql" -> versions (10, 2), not increasing.
     (tmp_path / "2_a.sql").write_text("A", encoding="utf-8")
     (tmp_path / "10_b.sql").write_text("B", encoding="utf-8")
-    with pytest.raises(MigrationError, match="croissantes"):
+    with pytest.raises(MigrationError, match="increasing"):
         _load_scripts(tmp_path)
 
 
 def test_stray_commit_in_a_script_is_detected_before_stamping(tmp_path: Path) -> None:
-    # Un COMMIT dans un script clot l'enveloppe du runner : detection AVANT le stamp,
-    # version inchangee, AUCUN etat partiel (le script-attaque ne fait que COMMIT).
+    # A COMMIT inside a script closes the runner's envelope: detection BEFORE the stamp,
+    # version unchanged, NO partial state (the attack script only does COMMIT).
     connection = sqlite3.connect(tmp_path / "commit.db", autocommit=True)
     try:
         with pytest.raises(MigrationError, match="migration 2"):
@@ -225,9 +225,9 @@ def test_stray_commit_in_a_script_is_detected_before_stamping(tmp_path: Path) ->
 
 
 def test_stray_commit_followed_by_a_failure_keeps_the_version_unstamped(tmp_path: Path) -> None:
-    # Variante d'attaque 2 : COMMIT parasite PUIS instruction qui echoue. Le travail
-    # commite par le COMMIT parasite est irrecuperable, mais la version ne DOIT PAS
-    # etre posee (sinon la migration serait marquee appliquee alors qu'elle a echoue).
+    # Attack variant 2: a stray COMMIT THEN a statement that fails. The work
+    # committed by the stray COMMIT is unrecoverable, but the version MUST NOT
+    # be stamped (otherwise the migration would be marked applied even though it failed).
     connection = sqlite3.connect(tmp_path / "commit2.db", autocommit=True)
     script = "CREATE TABLE t (x INTEGER);\nCOMMIT;\nINSERT INTO inexistante VALUES (1);"
     try:
@@ -241,8 +241,8 @@ def test_stray_commit_followed_by_a_failure_keeps_the_version_unstamped(tmp_path
 def test_open_closes_the_connection_on_a_non_persistence_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # FileNotFoundError n'est ni sqlite3.Error ni PersistenceError : elle doit se
-    # propager TELLE QUELLE, mais la connexion ne doit pas fuir (close inconditionnel).
+    # FileNotFoundError is neither sqlite3.Error nor PersistenceError: it must
+    # propagate AS IS, but the connection must not leak (unconditional close).
     captured: list[sqlite3.Connection] = []
     real_connect = sqlite3.connect
 

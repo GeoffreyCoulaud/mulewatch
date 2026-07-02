@@ -1,15 +1,15 @@
-"""``SqliteDownloadRepository`` : l'état des downloads (local.db, spec download §7).
+"""``SqliteDownloadRepository``: the state of downloads (local.db, download spec §7).
 
-Implémente la persistance des downloads gérés par le crawler. ``downloads`` n'est PAS
-append-only (état mutable, pas le catalogue) → UPSERT/UPDATE licites, pas de triggers. Mêmes
-disciplines que les autres repos (spec data-model §7) : timestamp stampé AVANT ``BEGIN``,
-``BEGIN IMMEDIATE`` + rollback sur ``BaseException`` (une panne NON-sqlite ne laisse pas la
-connexion ``in_transaction``), ``wrap_sqlite_errors``.
+Implements persistence of the downloads managed by the crawler. ``downloads`` is NOT
+append-only (mutable state, not the catalog) → UPSERT/UPDATE allowed, no triggers. Same
+disciplines as the other repos (data-model spec §7): timestamp stamped BEFORE ``BEGIN``,
+``BEGIN IMMEDIATE`` + rollback on ``BaseException`` (a NON-sqlite failure does not leave the
+connection ``in_transaction``), ``wrap_sqlite_errors``.
 
-``record_queued`` est dédup-safe (PK = hash, ``ON CONFLICT DO NOTHING``) ; ``set_state``
-stampe ``completed_at`` à la complétion (horloge injectée) ; ``committed_bytes`` somme les
-``size_bytes`` des états NON terminaux (plafond disque applicatif, DÉCISION D6/D7) ;
-``active_states`` rend la map hash→état (le monitor de la boucle réconcilie dessus).
+``record_queued`` is dedup-safe (PK = hash, ``ON CONFLICT DO NOTHING``); ``set_state``
+stamps ``completed_at`` on completion (injected clock); ``committed_bytes`` sums the
+``size_bytes`` of NON-terminal states (application-level disk cap, DECISION D6/D7);
+``active_states`` returns the hash→state map (the loop's monitor reconciles against it).
 """
 
 import sqlite3
@@ -35,8 +35,8 @@ _ACTIVE_STATES = "SELECT ed2k_hash, state FROM downloads"
 
 _GET_TARGET_ID = "SELECT target_id FROM downloads WHERE ed2k_hash = ?"
 
-# Le plafond ne compte que les downloads ACTIFS (états non terminaux, DÉCISION D7).
-# Les 3 terminaux listés ici DOIVENT rester synchronisés avec _TERMINAL_STATES (states.py).
+# The cap only counts ACTIVE downloads (non-terminal states, DECISION D7).
+# The 3 terminal ones listed here MUST stay synchronized with _TERMINAL_STATES (states.py).
 _COMMITTED_BYTES = (
     "SELECT COALESCE(SUM(size_bytes), 0) FROM downloads "
     "WHERE state NOT IN ('completed', 'quarantined', 'failed')"
@@ -44,14 +44,14 @@ _COMMITTED_BYTES = (
 
 
 class SqliteDownloadRepository:
-    """Implémentation SQLite de la persistance des downloads (satisfaction STRUCTURELLE)."""
+    """SQLite implementation of download persistence (STRUCTURAL satisfaction)."""
 
     def __init__(self, connection: sqlite3.Connection, *, clock: Clock = utc_now) -> None:
         self._connection = connection
         self._clock = clock
 
     def record_queued(self, ed2k_hash: str, target_id: str, size_bytes: int) -> bool:
-        """INSERT d'un download ``queued`` (dédup-safe). ``True`` si créé, ``False`` si doublon."""
+        """INSERT of a ``queued`` download (dedup-safe). ``True`` if new, ``False`` if duplicate."""
         queued_at = utc_iso(self._clock())
         with wrap_sqlite_errors():
             self._connection.execute("BEGIN IMMEDIATE")
@@ -67,11 +67,11 @@ class SqliteDownloadRepository:
         return cursor.rowcount == 1
 
     def set_state(self, ed2k_hash: str, state: DownloadState) -> None:
-        """UPDATE de l'état ; stampe ``completed_at`` si l'état est ``completed`` (horloge inj.).
+        """UPDATE the state; stamps ``completed_at`` if the state is ``completed`` (injected clock).
 
-        Exige un download existant (un hash inconnu → ``PersistenceError`` : bug du code
-        appelant). Seul ``completed`` (premier instant de complétion) est horodaté ;
-        ``quarantined``/``failed`` n'écrasent pas le ``completed_at``.
+        Requires an existing download (an unknown hash → ``PersistenceError``: caller-code bug).
+        Only ``completed`` (the first instant of completion) is timestamped;
+        ``quarantined``/``failed`` do not overwrite the ``completed_at``.
         """
         with wrap_sqlite_errors():
             if state == DownloadState.COMPLETED:
@@ -81,32 +81,32 @@ class SqliteDownloadRepository:
             else:
                 cursor = self._connection.execute(_SET_STATE, (state.value, ed2k_hash))
         if cursor.rowcount != 1:
-            raise PersistenceError(f"download {ed2k_hash} introuvable (bug du code appelant)")
+            raise PersistenceError(f"download {ed2k_hash} not found (caller bug)")
 
     def is_downloaded(self, ed2k_hash: str) -> bool:
-        """``True`` si ce hash est déjà connu de ``downloads`` (dédup, spec §6)."""
+        """``True`` if this hash is already known to ``downloads`` (dedup, spec §6)."""
         with wrap_sqlite_errors():
             row = self._connection.execute(_IS_DOWNLOADED, (ed2k_hash,)).fetchone()
         return row is not None
 
     def committed_bytes(self) -> int:
-        """Somme des ``size_bytes`` des downloads ACTIFS (plafond disque, spec §7)."""
+        """Sum of the ``size_bytes`` of ACTIVE downloads (disk cap, spec §7)."""
         with wrap_sqlite_errors():
             return int(self._connection.execute(_COMMITTED_BYTES).fetchone()[0])
 
     def active_states(self) -> dict[str, DownloadState]:
-        """Map hash→état de TOUS les downloads connus (le monitor réconcilie dessus)."""
+        """Hash→state map of ALL known downloads (the monitor reconciles against it)."""
         with wrap_sqlite_errors():
             rows = self._connection.execute(_ACTIVE_STATES).fetchall()
         return {row[0]: DownloadState(row[1]) for row in rows}
 
     def get_target_id(self, ed2k_hash: str) -> str | None:
-        """``target_id`` d'un hash téléchargé, ou ``None`` (jamais enfilé) — LECTURE.
+        """``target_id`` of a downloaded hash, or ``None`` (never queued) — READ.
 
-        La boucle de vérification (spec verify §6, DÉCISION DV11) s'en sert pour bâtir un
-        ``expected`` minimal ; le NO-OP l'ignore, D-analysis l'enrichira. ``None`` est un cas
-        normal (une tâche peut être claimée pour un hash dont la ligne download a été promue/
-        purgée — la boucle bâtit alors ``expected={}``).
+        The verification loop (verify spec §6, DECISION DV11) uses it to build a minimal
+        ``expected``; the NO-OP ignores it, D-analysis will enrich it. ``None`` is a normal
+        case (a task may be claimed for a hash whose download row has been promoted/purged
+        — the loop then builds ``expected={}``).
         """
         with wrap_sqlite_errors():
             row = self._connection.execute(_GET_TARGET_ID, (ed2k_hash,)).fetchone()

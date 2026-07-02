@@ -1,21 +1,21 @@
-"""Adapter réel du hub de nudge : un ``asyncio.Event`` par sujet (spec orchestration §3/§4).
+"""Real nudge-hub adapter: one ``asyncio.Event`` per subject (orchestration spec §3/§4).
 
-Implémente STRUCTURELLEMENT le port ``DecisionSignal``. ``signal(subject)`` réveille tout
-``wait(subject)`` en cours puis re-arme l'événement (``set`` suivi du ``clear`` par le
-waiter réveillé) : un consommateur qui dort sur le sujet repart immédiatement, puis se
-rendort sur le prochain nudge. Un ``signal`` SANS waiter est inoffensif (l'événement reste
-armé jusqu'au prochain ``wait``, qui le consomme aussitôt) — cohérent avec « un nudge perdu
-est inoffensif, le polling de repli est le filet » (spec §3).
+STRUCTURALLY implements the ``DecisionSignal`` port. ``signal(subject)`` wakes any
+in-flight ``wait(subject)`` then re-arms the event (``set`` followed by the ``clear`` by the
+woken waiter): a consumer sleeping on the subject resumes immediately, then goes back to
+sleep on the next nudge. A ``signal`` with NO waiter is harmless (the event stays armed
+until the next ``wait``, which consumes it right away) — consistent with "a lost nudge is
+harmless, the fallback polling is the safety net" (spec §3).
 
-Mono-thread/event-loop : tous les accès passent par l'event loop (les repos sont appelés
-sync sur cette même boucle, aucune course). Pas de verrou nécessaire.
+Single-thread/event-loop: all accesses go through the event loop (the repos are called
+synchronously on that same loop, no races). No lock needed.
 """
 
 import asyncio
 
 
 class AsyncioDecisionSignal:
-    """Hub de nudge in-process (un ``asyncio.Event`` par sujet, créé à la demande)."""
+    """In-process nudge hub (one ``asyncio.Event`` per subject, created on demand)."""
 
     def __init__(self) -> None:
         self._events: dict[str, asyncio.Event] = {}
@@ -24,11 +24,11 @@ class AsyncioDecisionSignal:
         return self._events.setdefault(subject, asyncio.Event())
 
     def signal(self, subject: str) -> None:
-        """Réveille les ``wait`` du sujet (synchrone : appelé post-commit, ne bloque pas)."""
+        """Wakes the subject's ``wait`` calls (synchronous: called post-commit, does not block)."""
         self._event(subject).set()
 
     async def wait(self, subject: str) -> None:
-        """Dort jusqu'au prochain ``signal`` du sujet, puis re-arme pour le suivant."""
+        """Sleeps until the subject's next ``signal``, then re-arms for the following one."""
         event = self._event(subject)
         await event.wait()
         event.clear()

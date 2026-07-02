@@ -1,34 +1,35 @@
-"""Smoke e2e de la stack docker compose ASSEMBLÉE, sans VPN (spec packaging §5 — F-D1).
+"""e2e smoke of the ASSEMBLED docker compose stack, without VPN (packaging spec §5 — F-D1).
 
-Run dédié : ( cd packages/crawler && uv run pytest -m compose_integration --no-cov )
-Docker + docker compose v2 requis. Monte verifier + crawler + amuled (gluetun retiré via
-tests/smoke/compose.yaml) et asserte le CÂBLAGE — AUCUN téléchargement réel (amuled n'a ni serveur
-eD2k ni VPN ; seul son serveur EC est sollicité) :
-  1. `docker compose build` réussit (les 2 images se construisent).
-  2. download : verifier devient healthy (/health 200) ET le crawler reste Up.
-  3. observer : crawler démarre SANS verifier et reste Up.
-  4. download fail-fast : crawler download avec verifier_url mais verifier ABSENT => exit != 0.
-Volumes éphémères : chaque scénario fait `docker compose down -v` dans un finally.
+Dedicated run: ( cd packages/crawler && uv run pytest -m compose_integration --no-cov )
+Docker + docker compose v2 required. Brings up verifier + crawler + amuled (gluetun removed via
+tests/smoke/compose.yaml) and asserts the WIRING — NO real download (amuled has neither an eD2k
+server nor a VPN; only its EC server is exercised):
+  1. `docker compose build` succeeds (the 2 images build).
+  2. download: verifier becomes healthy (/health 200) AND the crawler stays Up.
+  3. observer: crawler starts WITHOUT verifier and stays Up.
+  4. download fail-fast: download crawler with verifier_url but verifier ABSENT => exit != 0.
+Ephemeral volumes: each scenario runs `docker compose down -v` in a finally.
 
-Mécaniques arrêtées EMPIRIQUEMENT (compose v5, Docker 29) :
-  * Les chemins relatifs des fichiers compose sont résolus contre le project-directory. On le FIXE
-    explicitement à `_REPO_ROOT` via `--project-directory` (cf. `_run`) : `./tests/smoke/...`,
-    `context: .` et `./deploy/config/verifier.yml` résolvent de façon déterministe, sans dépendre
-    du défaut (cwd vs dossier du `-f`). Les `subprocess.run` tournent aussi `cwd=_REPO_ROOT`.
-  * Les DB sont écrites par le crawler (uid 999, ``read_only: true``) dans les VRAIS volumes
-    nommés ``catalog-db``/``local-db`` (montés ``/data/catalog`` + ``/data/local``). Le Dockerfile
-    crée ces points de montage possédés par ``nonroot`` => un volume nommé VIDE hérite de la
-    propriété 999:999 au premier mount, donc le crawler non-root peut y créer ses fichiers SQLite.
-    Le smoke exerce DÉLIBÉRÉMENT ce chemin de persistance réel pour attraper toute régression de
-    perms (volume nommé root-owned => ``unable to open database file``).
-  * Download : un override ré-ajoute ``depends_on: { verifier: service_healthy }`` (absent de la
-    base smoke pour que le profil ``observer`` valide) => démarrage DÉTERMINISTE après le verifier
-    sain.
-  * Observer : un override re-monte ``crawler.observer.yml`` (sans section download) et on lève
-    le profil ``observer`` (le service verifier n'y existe pas).
-  * Fail-fast : un override force ``restart: "no"`` (sinon ``unless-stopped`` boucle à l'infini) ;
-    on lève amuled+crawler SANS profil (=> verifier ABSENT) ; le crawler download health-check le
-    verifier au démarrage, échoue, et SE FIGE en ``exited`` avec un code != 0.
+Mechanics established EMPIRICALLY (compose v5, Docker 29):
+  * The compose files' relative paths are resolved against the project-directory. We PIN it
+    explicitly to `_REPO_ROOT` via `--project-directory` (cf. `_run`): `./tests/smoke/...`,
+    `context: .` and `./deploy/config/verifier.yml` resolve deterministically, without depending
+    on the default (cwd vs the `-f` file's directory). The `subprocess.run` calls also run
+    `cwd=_REPO_ROOT`.
+  * The DBs are written by the crawler (uid 999, ``read_only: true``) into the REAL named
+    volumes ``catalog-db``/``local-db`` (mounted ``/data/catalog`` + ``/data/local``). The
+    Dockerfile creates these mount points owned by ``nonroot`` => an EMPTY named volume inherits
+    999:999 ownership at first mount, so the non-root crawler can create its SQLite files there.
+    The smoke DELIBERATELY exercises this real persistence path to catch any perms regression
+    (root-owned named volume => ``unable to open database file``).
+  * Download: an override re-adds ``depends_on: { verifier: service_healthy }`` (absent from the
+    smoke base so the ``observer`` profile is valid) => DETERMINISTIC startup after the verifier
+    is healthy.
+  * Observer: an override re-mounts ``crawler.observer.yml`` (without a download section) and we
+    bring up the ``observer`` profile (the verifier service does not exist there).
+  * Fail-fast: an override forces ``restart: "no"`` (otherwise ``unless-stopped`` loops forever);
+    we bring up amuled+crawler WITHOUT a profile (=> verifier ABSENT); the download crawler
+    health-checks the verifier at startup, fails, and FREEZES in ``exited`` with a code != 0.
 """
 
 import json
@@ -46,8 +47,8 @@ pytestmark = pytest.mark.compose_integration
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _SMOKE = _REPO_ROOT / "tests/smoke/compose.yaml"
 
-# En CI, l'étape build pré-construit les images et passe IMAGE_TAG ; le smoke les consomme alors
-# SANS rebuild. En local (IMAGE_TAG absent) on rebuild via compose, comme avant.
+# In CI, the build step pre-builds the images and passes IMAGE_TAG; the smoke then consumes them
+# WITHOUT a rebuild. Locally (IMAGE_TAG absent) we rebuild via compose, as before.
 _IMAGE_TAG = os.environ.get("IMAGE_TAG")
 _USES_PREBUILT = _IMAGE_TAG is not None
 _BUILD_FLAGS: tuple[str, ...] = () if _USES_PREBUILT else ("--build",)
@@ -66,21 +67,21 @@ _CONFIG_ENV = {
     "LISTEN_PORT": "4662",
 }
 
-# Projet isolé (préfixe unique par run) pour ne JAMAIS toucher une stack réelle de l'hôte.
+# Isolated project (unique prefix per run) so we NEVER touch a real stack on the host.
 _PROJECT = f"emule_smoke_{uuid.uuid4().hex[:8]}"
 
-# gluetun est désactivé dans le smoke, mais compose interpole ses variables au PARSE : on les
-# stube pour que `config`/`build`/`up` n'échouent pas sur des variables manquantes.
+# gluetun is disabled in the smoke, but compose interpolates its variables at PARSE time: we
+# stub them so `config`/`build`/`up` do not fail on missing variables.
 _ENV_STUB = {
     "WIREGUARD_PRIVATE_KEY": "smoke-unused",
     "AMULE_EC_PASSWORD": "smoke-unused",
     "SERVER_COUNTRIES": "",
 }
 
-# Listes de volumes des overrides : on monte les configs smoke + les VRAIS volumes nommés
-# (catalog-db/local-db/quarantine). Le crawler non-root (uid 999) y crée ses bases SQLite —
-# le Dockerfile possède les points de montage en nonroot pour que les volumes vides héritent
-# de 999:999. Les chemins de bind restent relatifs au project-directory (fixé à _REPO_ROOT).
+# Volume lists for the overrides: we mount the smoke configs + the REAL named volumes
+# (catalog-db/local-db/quarantine). The non-root crawler (uid 999) creates its SQLite DBs there —
+# the Dockerfile owns the mount points as nonroot so that empty volumes inherit
+# 999:999. The bind paths stay relative to the project-directory (pinned to _REPO_ROOT).
 _DOWNLOAD_LOCAL_VOLUMES = [
     "./tests/smoke/crawler.yml:/app/config/crawler.yml:ro",
     "./tests/smoke/targets.yml:/app/config/targets.yml:ro",
@@ -100,14 +101,14 @@ _OBSERVER_LOCAL_VOLUMES = [
 
 
 def _write_override(tmp_path: Path, name: str, crawler_body: str) -> Path:
-    """Écrit un fichier d'override de scénario (YAML) sous tmp_path et renvoie son chemin."""
+    """Write a scenario override file (YAML) under tmp_path and return its path."""
     path = tmp_path / name
     path.write_text(crawler_body)
     return path
 
 
 def _run(*args: str, files: tuple[Path, ...], timeout: float) -> subprocess.CompletedProcess[str]:
-    """Lance `docker compose -p <projet> -f ... <args>` depuis le repo root (cwd)."""
+    """Run `docker compose -p <project> -f ... <args>` from the repo root (cwd)."""
     file_flags: list[str] = []
     for path in files:
         file_flags += ["-f", str(path)]
@@ -136,19 +137,19 @@ def _run(*args: str, files: tuple[Path, ...], timeout: float) -> subprocess.Comp
 
 
 def _down(files: tuple[Path, ...]) -> None:
-    """Tear-down idempotent : retire conteneurs + volumes + orphelins du projet.
+    """Idempotent tear-down: removes the project's containers + volumes + orphans.
 
-    ``--profile download`` est OBLIGATOIRE : sans profil actif, ``down`` ignore les services
-    profile-gated (compose v5) et laisserait tourner un verifier d'un scénario précédent
-    (le service verifier n'est défini que dans le profil ``download``). Le profil ``download`` est
-    un sur-ensemble (amuled+crawler+verifier), donc il nettoie aussi les scénarios
-    observer/fail-fast.
+    ``--profile download`` is MANDATORY: with no active profile, ``down`` ignores
+    profile-gated services (compose v5) and would leave a verifier from a previous scenario
+    running (the verifier service is only defined in the ``download`` profile). The ``download``
+    profile is a superset (amuled+crawler+verifier), so it also cleans up the
+    observer/fail-fast scenarios.
     """
     _run("--profile", "download", "down", "-v", "--remove-orphans", files=files, timeout=180)
 
 
 def _service_state(service: str, files: tuple[Path, ...]) -> tuple[str, int]:
-    """(State, ExitCode) du service via `ps -a --format json` (un objet JSON par ligne)."""
+    """(State, ExitCode) of the service via `ps -a --format json` (one JSON object per line)."""
     result = _run("ps", "-a", "--format", "json", service, files=files, timeout=60)
     for line in result.stdout.splitlines():
         line = line.strip()
@@ -157,25 +158,25 @@ def _service_state(service: str, files: tuple[Path, ...]) -> tuple[str, int]:
         obj = json.loads(line)
         if obj.get("Service") == service:
             return str(obj.get("State")), int(obj.get("ExitCode"))
-    raise AssertionError(f"service {service!r} introuvable dans `ps` : {result.stdout!r}")
+    raise AssertionError(f"service {service!r} not found in `ps`: {result.stdout!r}")
 
 
 def _wait_state(
     service: str, target: str, files: tuple[Path, ...], *, attempts: int = 30, delay: float = 2.0
 ) -> tuple[str, int]:
-    """Boucle jusqu'à ce que `service` atteigne `target` (ou échec après attempts)."""
+    """Loop until `service` reaches `target` (or fail after attempts)."""
     last: tuple[str, int] = ("<absent>", -1)
     for _ in range(attempts):
         last = _service_state(service, files)
         if last[0] == target:
             return last
         time.sleep(delay)
-    raise AssertionError(f"{service} n'a pas atteint {target!r} (dernier état : {last})")
+    raise AssertionError(f"{service} did not reach {target!r} (last state: {last})")
 
 
 @pytest.fixture
 def project_files() -> Iterator[tuple[Path, ...]]:
-    """Fichier compose smoke autonome + tear-down encadrant."""
+    """Standalone smoke compose file + surrounding tear-down."""
     base = (_SMOKE,)
     _down(base)
     try:
@@ -184,7 +185,7 @@ def project_files() -> Iterator[tuple[Path, ...]]:
         _down(base)
 
 
-@pytest.mark.skipif(_USES_PREBUILT, reason="images pré-buildées en CI — rien à builder")
+@pytest.mark.skipif(_USES_PREBUILT, reason="images prebuilt in CI — nothing to build")
 def test_build_succeeds(project_files: tuple[Path, ...]) -> None:
     result = _run("--profile", "download", "build", files=project_files, timeout=900)
     assert result.returncode == 0, result.stderr
@@ -211,11 +212,11 @@ def test_download_verifier_healthy_and_crawler_up(
     result = _run("--profile", "download", "up", "-d", *_BUILD_FLAGS, files=files, timeout=900)
     assert result.returncode == 0, result.stderr
 
-    # depends_on: service_healthy => le verifier est déjà sain quand le crawler démarre.
+    # depends_on: service_healthy => the verifier is already healthy when the crawler starts.
     assert _service_state("verifier", files)[0] == "running"
     assert _wait_state("crawler", "running", files)[0] == "running"
 
-    # /health via exec dans le verifier (le réseau verify-internal est interne, sans Internet).
+    # /health via exec in the verifier (the verify-internal network is internal, no Internet).
     health = _run(
         "exec",
         "-T",
@@ -243,7 +244,7 @@ def test_observer_starts_without_verifier(project_files: tuple[Path, ...], tmp_p
     result = _run("--profile", "observer", "up", "-d", *_BUILD_FLAGS, files=files, timeout=900)
     assert result.returncode == 0, result.stderr
 
-    # Le profil observer ne définit PAS le verifier ; le crawler démarre quand même et reste Up.
+    # The observer profile does NOT define the verifier; the crawler starts anyway and stays Up.
     assert _wait_state("crawler", "running", files)[0] == "running"
 
 
@@ -260,9 +261,9 @@ def test_download_without_verifier_fails_fast(
         ),
     )
     files = (*project_files, override)
-    # On lève UNIQUEMENT amuled + crawler (sans `--profile download`) => le verifier est ABSENT.
-    # Config download (verifier_url présent) => le crawler health-check le verifier au démarrage,
-    # échoue, et avec restart: "no" SE FIGE en exited (pas de boucle de redémarrage).
+    # We bring up ONLY amuled + crawler (without `--profile download`) => the verifier is ABSENT.
+    # Download config (verifier_url present) => the crawler health-checks the verifier at startup,
+    # fails, and with restart: "no" FREEZES in exited (no restart loop).
     result = _run("up", "-d", *_BUILD_FLAGS, "amuled", "crawler", files=files, timeout=900)
     assert result.returncode == 0, result.stderr
 
@@ -273,10 +274,10 @@ def test_download_without_verifier_fails_fast(
 
 @pytest.mark.parametrize("entry,profiles", _CONFIG_CASES)
 def test_entrypoint_config_renders(entry: str, profiles: tuple[str, ...]) -> None:
-    """`docker compose -f deploy/<entry>.compose.yml --profile … config` rend sans erreur.
+    """`docker compose -f deploy/<entry>.compose.yml --profile … config` renders without error.
 
-    Verrouille include + forward-refs + ancres/merge + interpolation (pas de daemon requis ;
-    les sources de bind-mount n'ont pas besoin d'exister pour `config`).
+    Locks in include + forward-refs + anchors/merge + interpolation (no daemon required;
+    the bind-mount sources need not exist for `config`).
     """
     profile_flags: list[str] = []
     for profile in profiles:
@@ -306,7 +307,7 @@ def _yaml_crawler(
     volumes: list[str],
     restart_no: bool = False,
 ) -> str:
-    """Compose un override `services.crawler` (volumes !override ; tmpfs /tmp hérité de la base)."""
+    """Compose a `services.crawler` override (volumes !override; tmpfs /tmp inherited from base)."""
     lines = ["services:", "  crawler:"]
     if restart_no:
         lines.append('    restart: !override "no"')

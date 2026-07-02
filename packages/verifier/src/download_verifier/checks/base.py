@@ -1,9 +1,8 @@
-"""Modèle de check & agrégation worst-status (spec analysis §5).
+"""Check model & worst-status aggregation (analysis spec §5).
 
-Chaque check rend un ``CheckOutcome(name, status, meta)`` avec ``status`` dans
-``clean < suspicious < malicious``. Le verdict du fichier = worst-status sur la liste des
-statuts. ``error`` n'est PAS un statut de check (c'est un résultat service-level, §6) — il
-n'apparaît jamais ici.
+Each check returns a ``CheckOutcome(name, status, meta)`` with ``status`` in
+``clean < suspicious < malicious``. The file verdict = worst-status over the list of statuses.
+``error`` is NOT a check status (it is a service-level result, §6) — it never appears here.
 """
 
 from collections.abc import Iterable, Mapping
@@ -12,14 +11,14 @@ from typing import Literal
 
 Status = Literal["clean", "suspicious", "malicious"]
 
-# Ordre de gravité : un check plus grave écrase un check moins grave (worst-status).
+# Severity order: a more severe check overrides a less severe one (worst-status).
 STATUS_RANK: dict[Status, int] = {"clean": 0, "suspicious": 1, "malicious": 2}
 _RANK_TO_STATUS: dict[int, Status] = {rank: status for status, rank in STATUS_RANK.items()}
 
 
 @dataclass(frozen=True, slots=True)
 class CheckOutcome:
-    """Résultat d'un check : son nom, son verdict de gravité, et son apport à ``real_meta``."""
+    """A check's result: its name, its severity verdict, and its contribution to ``real_meta``."""
 
     name: str
     status: Status
@@ -27,5 +26,5 @@ class CheckOutcome:
 
 
 def worst_status(statuses: Iterable[Status]) -> Status:
-    """Statut le plus grave de ``statuses`` ; liste vide → ``clean`` (rien de dangereux vu)."""
+    """Most severe status in ``statuses``; empty list → ``clean`` (nothing dangerous seen)."""
     return _RANK_TO_STATUS[max((STATUS_RANK[status] for status in statuses), default=0)]

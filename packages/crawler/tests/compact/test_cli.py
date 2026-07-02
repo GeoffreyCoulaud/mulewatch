@@ -1,4 +1,4 @@
-"""CLI compact : safe-by-default (output neuf, source présente, keep-recent-days >= 0)."""
+"""compact CLI: safe-by-default (fresh output, source present, keep-recent-days >= 0)."""
 
 from pathlib import Path
 
@@ -33,7 +33,7 @@ def _src(tmp_path: Path) -> Path:
 def test_new_output_succeeds(tmp_path: Path) -> None:
     out = tmp_path / "out.db"
     assert main([str(_src(tmp_path)), "-o", str(out)]) == 0
-    assert len(read_ranges(out)) == 1  # keep-recent-days défaut 90 ; l'obs de 2020 est vieille
+    assert len(read_ranges(out)) == 1  # keep-recent-days defaults to 90; the 2020 obs is old
 
 
 def test_existing_output_refused(tmp_path: Path) -> None:

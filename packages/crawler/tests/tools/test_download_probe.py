@@ -17,7 +17,7 @@ _STATUS = NetworkStatus(ed2k_id=1, ed2k_high=True, kad_status=KadStatus.CONNECTE
 
 
 class FakeDownloadClient:
-    """Faux MuleDownloadClient : journal d'appels + file en conserve."""
+    """Fake MuleDownloadClient: call log + canned queue."""
 
     def __init__(
         self,
@@ -76,21 +76,21 @@ def test_parser_password_falls_back_to_env(monkeypatch: pytest.MonkeyPatch) -> N
     assert args.password == "env-secret"
 
 
-# ---------------------------------------------------------------- formatage
+# ---------------------------------------------------------------- formatting
 
 
 def test_format_entry_shows_progress_and_completeness() -> None:
     line = format_entry(DownloadEntry(ed2k_hash=_HASH, size_done=5, size_full=10))
     assert _HASH in line
     assert "5/10" in line
-    assert "complet=False" in line
+    assert "complete=False" in line
 
 
 def test_format_status_renders_a_line() -> None:
-    assert "statut réseau" in format_status(_STATUS)
+    assert "network status" in format_status(_STATUS)
 
 
-# ---------------------------------------------------------------- cycle complet via main()
+# ---------------------------------------------------------------- full cycle via main()
 
 
 def test_main_success_adds_link_and_dumps_queue(capsys: pytest.CaptureFixture[str]) -> None:
@@ -103,9 +103,9 @@ def test_main_success_adds_link_and_dumps_queue(capsys: pytest.CaptureFixture[st
     assert fake.calls == ["connect", "status", "add_link", "download_queue", "close"]
     assert fake.added == ["ed2k://|file|x|1|" + _HASH + "|/"]
     out = capsys.readouterr().out
-    assert "add_link accepté" in out
-    assert "file de download : 1 entrée(s)" in out
-    assert "complet=True" in out
+    assert "add_link accepted" in out
+    assert "download queue: 1 entry(ies)" in out
+    assert "complete=True" in out
 
 
 def test_main_errors_when_password_absent(
@@ -116,8 +116,8 @@ def test_main_errors_when_password_absent(
     with pytest.raises(SystemExit) as excinfo:
         main(["--link", "ed2k://x"], client_factory=lambda args: fake)
     assert excinfo.value.code == 2
-    assert "mot de passe requis" in capsys.readouterr().err
-    assert fake.calls == []  # le client n'est jamais construit ni connecté
+    assert "password required" in capsys.readouterr().err
+    assert fake.calls == []  # the client is never built nor connected
 
 
 def test_main_returns_1_on_ec_error_and_still_closes(
@@ -126,7 +126,7 @@ def test_main_returns_1_on_ec_error_and_still_closes(
     fake = FakeDownloadClient(connect_error=EcAuthError("Invalid password"))
     code = main(["--password", "bad", "--link", "ed2k://x"], client_factory=lambda args: fake)
     assert code == 1
-    assert fake.calls == ["connect", "close"]  # close() TOUJOURS appelé (finally)
+    assert fake.calls == ["connect", "close"]  # close() ALWAYS called (finally)
     assert "Invalid password" in capsys.readouterr().err
 
 
@@ -138,11 +138,11 @@ def test_main_returns_130_on_keyboard_interrupt(capsys: pytest.CaptureFixture[st
     fake = _Interrupting()
     code = main(["--password", "pwd", "--link", "ed2k://x"], client_factory=lambda args: fake)
     assert code == 130
-    assert "interrompu" in capsys.readouterr().err
-    assert "close" in fake.calls  # close() TOUJOURS appelé (finally)
+    assert "interrupted" in capsys.readouterr().err
+    assert "close" in fake.calls  # close() ALWAYS called (finally)
 
 
-# ---------------------------------------------------------------- fabrique réelle
+# ---------------------------------------------------------------- real factory
 
 
 def test_default_client_builds_an_amule_ec_client() -> None:
@@ -150,7 +150,7 @@ def test_default_client_builds_an_amule_ec_client() -> None:
         ["--host", "homelab", "--port", "4713", "--password", "pwd", "--link", "ed2k://x"]
     )
     client = _default_client(args)
-    assert isinstance(client, AmuleEcClient)  # constructeur sans I/O : sûr en test
+    assert isinstance(client, AmuleEcClient)  # I/O-free constructor: safe in test
     assert client._host == "homelab"
     assert client._port == 4713
     assert client._password == "pwd"

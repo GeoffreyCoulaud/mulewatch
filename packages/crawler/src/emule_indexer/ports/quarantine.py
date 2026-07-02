@@ -1,11 +1,11 @@
-"""Port ``Quarantine`` : remettre un fichier complété en quarantaine (spec download §8/§10).
+"""``Quarantine`` port: move a completed file into quarantine (spec download §8/§10).
 
-Le crawler NE LIT JAMAIS le contenu d'un fichier téléchargé (§10.3 MVP : le sujet du
-catalogue est le fichier, jamais la personne ; on ne vérifie/lit qu'après une mise en
-quarantaine sûre). ``promote`` est une opération de MÉTADONNÉE seule : déplacer (rename) le
-fichier du staging vers ``quarantine/<hash>``, sans jamais l'ouvrir ni le rendre exécutable.
-Le verifier (D-verify) lira le fichier en quarantaine — pas le crawler. Le stub du Protocol
-tient sur UNE ligne (le ``def`` est couvert à la création de la classe).
+The crawler NEVER READS the content of a downloaded file (§10.3 MVP: the catalog's subject
+is the file, never the person; we only verify/read after a safe quarantine). ``promote`` is
+a METADATA-only operation: move (rename) the file from staging to ``quarantine/<hash>``,
+without ever opening it or making it executable. The verifier (D-verify) will read the
+quarantined file — not the crawler. The Protocol stub fits on ONE line (the ``def`` is
+covered at class creation).
 """
 
 from pathlib import Path
@@ -13,11 +13,11 @@ from typing import Protocol
 
 
 class Quarantine(Protocol):
-    """Contrat de mise en quarantaine (spec §8). ``promote`` ne lève qu'en cas d'échec FS.
+    """Quarantine contract (spec §8). ``promote`` only raises on an FS failure.
 
-    IDEMPOTENT : re-promouvoir un hash DÉJÀ promu (source consommée, cible en place) est un
-    succès silencieux — la boucle de download retente la séquence post-promote en sécurité après
-    un échec transitoire d'enqueue/set_state (cf. logic-download#0).
+    IDEMPOTENT: re-promoting an ALREADY-promoted hash (source consumed, target in place) is a
+    silent success — the download loop safely retries the post-promote sequence after a
+    transient enqueue/set_state failure (cf. logic-download#0).
     """
 
     def promote(self, staging_path: Path, ed2k_hash: str) -> None: ...

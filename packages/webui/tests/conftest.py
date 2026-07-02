@@ -1,4 +1,4 @@
-"""Fixtures pytest partagées pour le webui — schémas DDL sans import emule_indexer."""
+"""Shared pytest fixtures for the webui — DDL schemas without importing emule_indexer."""
 
 import sqlite3
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 # ---------------------------------------------------------------------------
-# Helpers DDL (module-level, non exportés)
+# DDL helpers (module-level, not exported)
 # ---------------------------------------------------------------------------
 
 
@@ -103,7 +103,7 @@ def _apply_local_schema(conn: sqlite3.Connection) -> None:
 
 @pytest.fixture
 def catalog_db(tmp_path: Path) -> Path:
-    """Crée une base catalog.db au schéma réaliste (WAL, vide), retourne le Path."""
+    """Create a catalog.db with the realistic schema (WAL, empty), return the Path."""
     path = tmp_path / "catalog.db"
     with sqlite3.connect(path) as conn:
         _apply_catalog_schema(conn)
@@ -113,7 +113,7 @@ def catalog_db(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def local_db(tmp_path: Path) -> Path:
-    """Crée une base local.db au schéma réaliste (WAL, vide), retourne le Path."""
+    """Create a local.db with the realistic schema (WAL, empty), return the Path."""
     path = tmp_path / "local.db"
     with sqlite3.connect(path) as conn:
         _apply_local_schema(conn)

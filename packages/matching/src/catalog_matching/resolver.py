@@ -1,10 +1,10 @@
-"""Construction par cible des arbres de matchers (cf. spec §8.5, partie construction).
+"""Per-target construction of matcher trees (cf. spec §8.5, construction part).
 
-Domaine PUR. À partir d'une :class:`MatcherConfig` VALIDÉE (DAG/profondeur/RE2 garantis
-par ``validation.validate_config``) et d'une :class:`TargetSegment`, bâtit l'arbre de
-:class:`Matcher` de chaque token nommé et de chaque règle. Les regex sont interpolées et
-compilées PAR CIBLE ; les coverage liés à ``target.title`` (avec overrides au point
-d'usage) ; keyword/attr_between sont statiques.
+PURE domain. From a VALIDATED :class:`MatcherConfig` (DAG/depth/RE2 guaranteed by
+``validation.validate_config``) and a :class:`TargetSegment`, builds the :class:`Matcher`
+tree of each named token and each rule. Regexes are interpolated and compiled PER TARGET;
+coverages bound to ``target.title`` (with overrides at point of use); keyword/attr_between
+are static.
 """
 
 from collections.abc import Mapping
@@ -40,13 +40,13 @@ from catalog_matching.matchers import (
 )
 from catalog_matching.models import TargetSegment
 
-# Mot-clé de config désignant le titre de la cible comme référence de coverage (§8.5).
+# Config keyword designating the target's title as the coverage reference (§8.5).
 _TITLE_KEYWORD = "title"
 
 
 @dataclass(frozen=True)
 class ResolvedTarget:
-    """Arbres de matchers construits pour une cible : tokens nommés + règles, par nom."""
+    """Matcher trees built for a target: named tokens + rules, by name."""
 
     target: TargetSegment
     tokens: Mapping[str, Matcher]
@@ -54,7 +54,7 @@ class ResolvedTarget:
 
 
 class MatcherResolver:
-    """Construit les arbres de :class:`Matcher` d'une config validée, par cible."""
+    """Builds the :class:`Matcher` trees of a validated config, per target."""
 
     def __init__(self, config: MatcherConfig) -> None:
         self.config = config
@@ -66,15 +66,15 @@ class MatcherResolver:
         min_override: float | None = None,
         fuzz_override: float | None = None,
     ) -> Matcher:
-        """Construit le matcher du token ``name`` pour ``target`` (overrides coverage)."""
+        """Builds the matcher of token ``name`` for ``target`` (coverage overrides)."""
         return self._build_def(self.config.tokens[name], target, min_override, fuzz_override)
 
     def resolve_rule(self, rule: Rule, target: TargetSegment) -> Matcher:
-        """Construit le matcher de la condition d'une règle pour ``target``."""
+        """Builds the matcher of a rule's condition for ``target``."""
         return self._build_def(rule.condition, target, None, None)
 
     def resolve_all(self, target: TargetSegment) -> ResolvedTarget:
-        """Construit tous les arbres (tokens + règles) pour ``target``."""
+        """Builds all the trees (tokens + rules) for ``target``."""
         tokens = {name: self.resolve_token(name, target) for name in self.config.tokens}
         rules = {rule.name: self.resolve_rule(rule, target) for rule in self.config.rules}
         return ResolvedTarget(target=target, tokens=tokens, rules=rules)
@@ -117,5 +117,5 @@ class MatcherResolver:
                 return AnyMatcher(tuple(self._build_operand(op, target) for op in operands))
             case NotDef(operand=operand):
                 return NotMatcher(self._build_operand(operand, target))
-            case _:  # pragma: no cover - exhaustif (mypy le prouve via assert_never)
+            case _:  # pragma: no cover - exhaustive (mypy proves it via assert_never)
                 assert_never(token_def)

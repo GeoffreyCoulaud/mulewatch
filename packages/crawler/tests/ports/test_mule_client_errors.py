@@ -28,7 +28,7 @@ def test_application_failure_is_search_failed_not_unreachable() -> None:
 
 
 def test_auth_error_is_not_a_loop_error() -> None:
-    # L'échec d'auth est un problème de config (fail-fast au démarrage), pas un cas de boucle.
+    # An auth failure is a config problem (fail-fast at startup), not a loop case.
     assert issubclass(EcAuthError, MuleClientError)
     assert not issubclass(EcAuthError, MuleUnreachableError)
     assert not issubclass(EcAuthError, MuleSearchFailedError)

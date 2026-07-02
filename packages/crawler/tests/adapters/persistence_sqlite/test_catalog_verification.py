@@ -51,7 +51,7 @@ def repository(connection: sqlite3.Connection) -> SqliteCatalogRepository:
 def test_record_verification_inserts_a_row(
     repository: SqliteCatalogRepository, connection: sqlite3.Connection
 ) -> None:
-    repository.record_observation(_obs(_A))  # FK : le fichier doit exister
+    repository.record_observation(_obs(_A))  # FK: the file must exist
     repository.record_verification(_A, "unverified", {"duration": 42}, ["type_sniff"])
     row = connection.execute(
         "SELECT ed2k_hash, verdict, real_meta, checks, node_id FROM file_verifications"
@@ -99,6 +99,6 @@ def test_record_verification_rejects_non_canonical_hash(
 
 
 def test_record_verification_unknown_file_raises(repository: SqliteCatalogRepository) -> None:
-    # FK violée (fichier jamais observé) → PersistenceError (wrap_sqlite_errors).
+    # FK violated (file never observed) → PersistenceError (wrap_sqlite_errors).
     with pytest.raises(PersistenceError):
         repository.record_verification("f" * 32, "unverified", {}, [])

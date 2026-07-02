@@ -1,11 +1,11 @@
-"""Lecture read-only de local.db (spec webui W-D8 §node_state).
+"""Read-only reads of local.db (webui spec W-D8 §node_state).
 
-``LocalReader`` expose une lecture :
+``LocalReader`` exposes one read:
 
-- ``node_state()`` — état complet du nœud : téléchargements, tâches de
-  vérification, scheduler KV, identité du nœud.
+- ``node_state()`` — full node state: downloads, verification tasks,
+  scheduler KV, node identity.
 
-Tout le SQL est en constantes module, paramétré (aucune interpolation de valeurs).
+All SQL lives in module constants, parameterized (no value interpolation).
 """
 
 import sqlite3
@@ -13,7 +13,7 @@ import sqlite3
 from catalog_webui.domain.views import DownloadRow, NodeState, VerifTaskRow
 
 # ---------------------------------------------------------------------------
-# Constantes SQL
+# SQL constants
 # ---------------------------------------------------------------------------
 
 _SQL_DOWNLOADS = """\
@@ -54,13 +54,13 @@ SELECT value FROM node_runtime WHERE key = ?
 
 
 class LocalReader:
-    """Accès read-only à local.db via une connexion SQLite (open_ro)."""
+    """Read-only access to local.db via a SQLite connection (open_ro)."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._conn = connection
 
     def node_state(self) -> NodeState:
-        """Retourne l'état complet du nœud lu depuis local.db."""
+        """Return the full node state read from local.db."""
         dl_rows = self._conn.execute(_SQL_DOWNLOADS).fetchall()
         vt_rows = self._conn.execute(_SQL_VERIF_TASKS).fetchall()
         sched_rows = self._conn.execute(_SQL_SCHEDULER).fetchall()

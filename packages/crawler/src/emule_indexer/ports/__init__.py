@@ -1,1 +1,1 @@
-"""Ports (Clean Architecture) : Protocols async + DTO figés, AUCUNE implémentation."""
+"""Ports (Clean Architecture): async Protocols + frozen DTOs, NO implementation."""

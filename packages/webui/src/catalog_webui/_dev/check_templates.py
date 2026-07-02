@@ -1,30 +1,30 @@
-"""Garde « templates Jinja sans logique » — approche par match de tokens.
+"""Guard "logic-free Jinja templates" — token-match approach.
 
-Règle : un template ne doit contenir que des constructions passives.
+Rule: a template may contain only passive constructs.
 
-Autorisé
+Allowed
+-------
+- Structural tags     : {% extends %} {% block %} {% endblock %} {% include %}
+                        {% for %} {% else %} {% endfor %}
+- Simple interpolation: {{ x }}  {{ x.attr }}  {{ x.attr.sub }}
+  (identifier + attribute access via `.`, no operator or call)
+
+Rejected
 --------
-- Balises de structure : {% extends %} {% block %} {% endblock %} {% include %}
-                         {% for %} {% else %} {% endfor %}
-- Interpolation simple : {{ x }}  {{ x.attr }}  {{ x.attr.sub }}
-  (identifiant + accès attribut via `.`, sans opérateur ni appel)
+- Logic tags          : {% if … %}  {% elif … %}  {% set … %}  {% macro … %}
+- Computed expressions: any {{ … }} expression containing:
+    · an arithmetic or comparison operator: + - * / % == != < >
+    · a filter                            : |
+    · a function call                     : (
 
-Rejeté
-------
-- Balises de logique     : {% if … %}  {% elif … %}  {% set … %}  {% macro … %}
-- Expressions calculées  : toute expression {{ … }} contenant :
-    · un opérateur arithmétique ou de comparaison : + - * / % == != < >
-    · un filtre                                   : |
-    · un appel de fonction                        : (
+Regexes used
+------------
+1. Forbidden tag    : ``r"\\{%-?\\s*(if|elif|set|macro)\\b"``
+   (detects ``{% if``, ``{%- if``, ``{% set``, etc.)
 
-Regex utilisées
----------------
-1. Balise interdite  : ``r"\\{%-?\\s*(if|elif|set|macro)\\b"``
-   (détecte ``{% if``, ``{%- if``, ``{% set``, etc.)
-
-2. Expression illégale : dans ``{{ … }}``, présence de l'un des chars ``+ - * / % = ! < > | (``
-   (on ne distingue pas `!=` de `!` seul — suffisant, pas de `!` légitime en Jinja).
-   Regex : ``r"\\{\\{[^}]*[+\\-*/%=!<>|(][^}]*\\}\\}"``
+2. Illegal expression: in ``{{ … }}``, presence of one of the chars ``+ - * / % = ! < > | (``
+   (we don't distinguish `!=` from a lone `!` — sufficient, no legitimate `!` in Jinja).
+   Regex: ``r"\\{\\{[^}]*[+\\-*/%=!<>|(][^}]*\\}\\}"``
 """
 
 from __future__ import annotations
@@ -33,35 +33,35 @@ import re
 import sys
 from pathlib import Path
 
-# --- Patterns interdits ---
+# --- Forbidden patterns ---
 
-# Balises {% if %} / {% elif %} / {% set %} / {% macro %}
+# {% if %} / {% elif %} / {% set %} / {% macro %} tags
 _FORBIDDEN_TAG: re.Pattern[str] = re.compile(r"\{%-?\s*(if|elif|set|macro)\b")
 
-# Expression {{ … }} contenant un opérateur ou un appel
+# {{ … }} expression containing an operator or a call
 _FORBIDDEN_EXPR: re.Pattern[str] = re.compile(r"\{\{[^}]*[+\-*/%=!<>|(][^}]*\}\}")
 
 
 def _check_file(path: Path) -> list[str]:
-    """Retourne les violations trouvées dans *path* (liste vide = conforme)."""
+    """Return the violations found in *path* (empty list = compliant)."""
     text = path.read_text(encoding="utf-8")
     violations: list[str] = []
 
     for m in _FORBIDDEN_TAG.finditer(text):
         keyword = m.group(1)
-        violations.append(f"{path.name}: balise interdite '{{% {keyword} %}}'")
+        violations.append(f"{path.name}: forbidden tag '{{% {keyword} %}}'")
 
     for m in _FORBIDDEN_EXPR.finditer(text):
         snippet = m.group(0)[:60]
-        violations.append(f"{path.name}: expression calculée '{snippet}'")
+        violations.append(f"{path.name}: computed expression '{snippet}'")
 
     return violations
 
 
 def find_logic_violations(directory: Path) -> list[str]:
-    """Scanne récursivement *directory*, retourne toutes les violations trouvées.
+    """Scan *directory* recursively, return all violations found.
 
-    Chaque entrée est de la forme ``"<fichier>: <raison>"``.
+    Each entry has the form ``"<file>: <reason>"``.
     """
     violations: list[str] = []
     for html_file in sorted(directory.rglob("*.html")):
@@ -70,7 +70,7 @@ def find_logic_violations(directory: Path) -> list[str]:
 
 
 def main() -> None:
-    """Point d'entrée CLI : ``python -m catalog_webui._dev.check_templates <directory>``."""
+    """CLI entry point: ``python -m catalog_webui._dev.check_templates <directory>``."""
     if len(sys.argv) < 2:
         sys.exit("usage: check_templates <dir>")
     directory = Path(sys.argv[1])

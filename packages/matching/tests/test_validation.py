@@ -110,12 +110,12 @@ def test_attr_between_unknown_attr_raises_and_names_it() -> None:
 
 
 def test_unknown_token_definition_shape_raises() -> None:
-    with pytest.raises(ConfigError, match="forme de token inconnue"):
+    with pytest.raises(ConfigError, match="unknown token shape"):
         parse_matcher_config({"tokens": {"x": {"frobnicate": "y"}}, "rules": []})
 
 
 def test_token_def_with_multiple_keys_raises() -> None:
-    with pytest.raises(ConfigError, match="exactement une clé"):
+    with pytest.raises(ConfigError, match="exactly one type-key"):
         parse_matcher_config({"tokens": {"x": {"keyword": "a", "regex": "b"}}, "rules": []})
 
 
@@ -140,7 +140,7 @@ def test_rule_without_condition_key_raises() -> None:
 
 
 def test_rule_with_two_condition_keys_raises() -> None:
-    with pytest.raises(ConfigError, match="une seule condition"):
+    with pytest.raises(ConfigError, match="exactly one condition"):
         parse_matcher_config(
             {
                 "tokens": {"keroro": {"keyword": "keroro"}},
@@ -150,29 +150,29 @@ def test_rule_with_two_condition_keys_raises() -> None:
 
 
 def test_rule_with_empty_all_is_rejected() -> None:
-    # config-validation#0 : AllMatcher([]).matches() == all([]) == True → une règle 'all: []'
-    # matcherait inconditionnellement TOUT fichier (ici en tier=download → auto-download).
-    # L'EBNF §8.3 exige >=1 opérande ; le fail-fast doit la rejeter au chargement.
-    with pytest.raises(ConfigError, match="au moins un opérande"):
+    # config-validation#0: AllMatcher([]).matches() == all([]) == True → a rule 'all: []'
+    # would unconditionally match EVERY file (here in tier=download → auto-download).
+    # EBNF §8.3 requires >=1 operand; fail-fast must reject it at load time.
+    with pytest.raises(ConfigError, match="at least one operand"):
         parse_matcher_config({"rules": [{"name": "pwn", "tier": "download", "all": []}]})
 
 
 def test_rule_with_empty_any_is_rejected() -> None:
-    # Même trou de fail-fast pour 'any: []' (EBNF §8.3 : >=1 opérande), config dégénérée.
-    with pytest.raises(ConfigError, match="au moins un opérande"):
+    # Same fail-fast gap for 'any: []' (EBNF §8.3: >=1 operand), degenerate config.
+    with pytest.raises(ConfigError, match="at least one operand"):
         parse_matcher_config({"rules": [{"name": "pwn", "tier": "download", "any": []}]})
 
 
 def test_coverage_min_out_of_unit_range_is_rejected() -> None:
-    # config-validation#2 : min/fuzz sont des fractions logiques [0, 1]. 'min: 5.0' (frappe pour
-    # 0.5) rendrait la règle silencieusement INERTE (value() <= 1 toujours faux → ne matche
-    # jamais) sans aucun signal au chargement → fail-fast §8.4.
+    # config-validation#2: min/fuzz are logical fractions [0, 1]. 'min: 5.0' (typo for
+    # 0.5) would make the rule silently INERT (value() <= 1 always false → never matches)
+    # with no signal at load time → fail-fast §8.4.
     with pytest.raises(ConfigError, match=r"\[0, 1\]"):
         parse_matcher_config({"tokens": {"t": {"coverage": "title", "min": 5.0}}, "rules": []})
 
 
 def test_coverage_fuzz_out_of_unit_range_is_rejected() -> None:
-    # 'fuzz: 99' (frappe pour 0.99) → ratio/100 >= fuzz toujours faux → value=0, règle muette.
+    # 'fuzz: 99' (typo for 0.99) → ratio/100 >= fuzz always false → value=0, mute rule.
     with pytest.raises(ConfigError, match=r"\[0, 1\]"):
         parse_matcher_config(
             {"tokens": {"t": {"coverage": "title", "min": 0.5, "fuzz": 99}}, "rules": []}
@@ -180,7 +180,7 @@ def test_coverage_fuzz_out_of_unit_range_is_rejected() -> None:
 
 
 def test_coverage_override_min_out_of_unit_range_is_rejected() -> None:
-    # Même borne pour un override min/fuzz sur un TokenRef (coverage).
+    # Same bound for a min/fuzz override on a TokenRef (coverage).
     with pytest.raises(ConfigError, match=r"\[0, 1\]"):
         parse_matcher_config(
             {
@@ -191,9 +191,9 @@ def test_coverage_override_min_out_of_unit_range_is_rejected() -> None:
 
 
 def test_attr_between_min_greater_than_max_is_rejected() -> None:
-    # config-validation#1 : {attr_between: size_mb, min: 600, max: 30} = plage VIDE → la règle est
-    # muette pour toujours (erreur de saisie). Les bornes OUVERTES (min seul / max seul) restent
-    # valides — c'est délibéré et testé ; seul min > max est rejeté.
+    # config-validation#1: {attr_between: size_mb, min: 600, max: 30} = EMPTY range → the rule is
+    # mute forever (input error). OPEN bounds (min only / max only) stay valid — it is
+    # deliberate and tested; only min > max is rejected.
     with pytest.raises(ConfigError, match="min.*>.*max"):
         parse_matcher_config(
             {"tokens": {"sz": {"attr_between": "size_mb", "min": 600, "max": 30}}, "rules": []}
@@ -211,7 +211,7 @@ def test_token_ref_missing_name_raises() -> None:
 
 
 def test_operand_wrong_type_raises() -> None:
-    with pytest.raises(ConfigError, match="opérande"):
+    with pytest.raises(ConfigError, match="operand"):
         parse_matcher_config(
             {
                 "tokens": {"keroro": {"keyword": "keroro"}},
@@ -241,9 +241,9 @@ def test_parse_targets_builds_segments_with_per_segment_status() -> None:
     assert a.target_id == "S2E062A"
     assert a.seasonal_number == 11
     assert a.absolute_number == 62
-    assert a.status == "found"  # status PROPRE au segment A
+    assert a.status == "found"  # status SPECIFIC to segment A
     assert b.target_id == "S2E062B"
-    assert b.status == "lost"  # défaut, B non marqué
+    assert b.status == "lost"  # default, B not marked
 
 
 def test_parse_targets_requires_seasonal_number() -> None:
@@ -300,7 +300,7 @@ def test_parse_targets_episode_without_segments() -> None:
 
 
 def test_parse_targets_duplicate_target_id_raises() -> None:
-    with pytest.raises(ConfigError, match="double"):
+    with pytest.raises(ConfigError, match="duplicate"):
         parse_targets(
             {
                 "episodes": [
@@ -354,7 +354,7 @@ def test_parse_targets_two_segments_are_not_sole() -> None:
 
 
 def test_regex_with_date_alt_placeholder_is_rejected() -> None:
-    # {date_alt} supprimé : un token l'utilisant échoue au chargement (placeholder inconnu).
+    # {date_alt} removed: a token using it fails at load time (unknown placeholder).
     with pytest.raises(ConfigError, match="date_alt"):
         parse_matcher_config({"tokens": {"air": {"regex": "{date_alt}"}}, "rules": []})
 
@@ -380,24 +380,24 @@ def test_parse_targets_missing_required_segment_field_raises() -> None:
         )
 
 
-# --- Résidus de couverture de branches ---
+# --- Branch-coverage leftovers ---
 
 
 def test_token_def_non_mapping_raises() -> None:
-    """_require_mapping lève ConfigError si la def de token n'est pas un mapping."""
+    """_require_mapping raises ConfigError if the token def is not a mapping."""
     with pytest.raises(ConfigError, match="mapping"):
         parse_matcher_config({"tokens": {"x": "not-a-dict"}, "rules": []})
 
 
 def test_composite_token_def_multiple_condition_keys_raises() -> None:
-    """_parse_condition lève si un token composite contient 2+ clés de condition."""
-    with pytest.raises(ConfigError, match="une seule condition"):
+    """_parse_condition raises if a composite token contains 2+ condition keys."""
+    with pytest.raises(ConfigError, match="exactly one condition"):
         parse_matcher_config({"tokens": {"x": {"all": ["a"], "any": ["b"]}}, "rules": []})
 
 
 def test_all_body_non_list_raises() -> None:
-    """_parse_condition lève si le corps de 'all' n'est pas une liste."""
-    with pytest.raises(ConfigError, match="liste"):
+    """_parse_condition raises if the body of 'all' is not a list."""
+    with pytest.raises(ConfigError, match="list"):
         parse_matcher_config(
             {
                 "tokens": {"keroro": {"keyword": "keroro"}},
@@ -407,13 +407,13 @@ def test_all_body_non_list_raises() -> None:
 
 
 def test_coverage_token_missing_min_raises() -> None:
-    """_parse_token_def lève si un coverage ne déclare pas 'min'."""
+    """_parse_token_def raises if a coverage does not declare 'min'."""
     with pytest.raises(ConfigError, match="min"):
         parse_matcher_config({"tokens": {"t": {"coverage": "title"}}, "rules": []})
 
 
 def test_rule_without_name_raises() -> None:
-    """_parse_rule lève si une règle n'a pas de 'name'."""
+    """_parse_rule raises if a rule has no 'name'."""
     with pytest.raises(ConfigError, match="name"):
         parse_matcher_config(
             {
@@ -424,13 +424,13 @@ def test_rule_without_name_raises() -> None:
 
 
 def test_rules_non_list_raises() -> None:
-    """parse_matcher_config lève si 'rules' n'est pas une liste."""
+    """parse_matcher_config raises if 'rules' is not a list."""
     with pytest.raises(ConfigError, match="rules"):
         parse_matcher_config({"tokens": {}, "rules": "not-a-list"})
 
 
 def test_token_ref_with_coverage_token_no_override_ok() -> None:
-    """TokenRef sur un coverage sans override min/fuzz : valide, pas d'erreur."""
+    """TokenRef on a coverage without min/fuzz override: valid, no error."""
     config = parse_matcher_config(
         {
             "tokens": {"title_hit": {"coverage": "title", "min": 0.6}},
@@ -440,7 +440,7 @@ def test_token_ref_with_coverage_token_no_override_ok() -> None:
     assert config.rules[0].name == "r"
 
 
-# --- Task 6 : graph validation (DAG, depth, RE2 compile-check) ---
+# --- Task 6: graph validation (DAG, depth, RE2 compile-check) ---
 
 
 def test_unknown_token_reference_raises_and_names_it() -> None:
@@ -508,7 +508,7 @@ def test_regex_with_known_placeholders_validates() -> None:
 
 
 def test_depth_within_bound_validates() -> None:
-    # Chaîne a -> b -> c (profondeur 3) avec max_depth=3 : OK.
+    # Chain a -> b -> c (depth 3) with max_depth=3: OK.
     config = parse_matcher_config(
         {
             "tokens": {
@@ -533,12 +533,12 @@ def test_depth_exceeded_raises() -> None:
             "rules": [],
         }
     )
-    with pytest.raises(DepthExceededError, match="profondeur"):
+    with pytest.raises(DepthExceededError, match="depth"):
         validate_config(config, max_depth=2)
 
 
 def test_default_max_depth_is_32() -> None:
-    # Une chaîne de 33 tokens dépasse le défaut 32.
+    # A chain of 33 tokens exceeds the default 32.
     tokens: dict[str, object] = {"t0": {"keyword": "x"}}
     for i in range(1, 34):
         tokens[f"t{i}"] = {"any": [f"t{i - 1}"]}
@@ -547,10 +547,10 @@ def test_default_max_depth_is_32() -> None:
 
 
 def test_deep_chain_root_first_caught_by_dfs_guard() -> None:
-    # Ordre racine-d'abord : le DFS de _check_acyclic descend toute la chaîne, donc le
-    # garde-fou len(stack)>=max_depth lève DepthExceededError avant tout RecursionError.
+    # Root-first order: _check_acyclic's DFS descends the whole chain, so the
+    # len(stack)>=max_depth guard raises DepthExceededError before any RecursionError.
     tokens: dict[str, object] = {}
-    for i in range(40, 0, -1):  # t40 (racine) défini en premier, t0 (feuille) en dernier
+    for i in range(40, 0, -1):  # t40 (root) defined first, t0 (leaf) last
         tokens[f"t{i}"] = {"any": [f"t{i - 1}"]}
     tokens["t0"] = {"keyword": "x"}
     with pytest.raises(DepthExceededError):
@@ -558,14 +558,14 @@ def test_deep_chain_root_first_caught_by_dfs_guard() -> None:
 
 
 def test_empty_config_validates() -> None:
-    # Table de tokens vide : _max_resolution_depth doit renvoyer 0 (default), pas d'erreur.
+    # Empty token table: _max_resolution_depth must return 0 (default), no error.
     config = parse_matcher_config({"tokens": {}, "rules": []})
     assert config.tokens == {}
 
 
 def test_coverage_override_forward_reference_in_composite_validates() -> None:
-    # Régression : un token composite référençant {token: cov, min: …} où cov est
-    # défini APRÈS ne doit PAS être rejeté (validation override différée au graphe).
+    # Regression: a composite token referencing {token: cov, min: …} where cov is
+    # defined AFTER must NOT be rejected (override validation deferred to the graph).
     config = parse_matcher_config(
         {
             "tokens": {

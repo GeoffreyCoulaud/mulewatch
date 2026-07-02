@@ -30,7 +30,7 @@ def test_resolve_regex_token_interpolates_per_target() -> None:
     matcher = resolver.resolve_token("seg", _TARGET)
     assert isinstance(matcher, RegexMatcher)
     assert matcher.matches(FileCandidate(filename="Keroro N°062A.avi")) is True
-    # Une autre cible (numéro 7) produit un matcher distinct qui ne matche pas 062.
+    # Another target (number 7) produces a distinct matcher that does not match 062.
     other = TargetSegment(season=2, seasonal_number=7, absolute_number=7, segment="b", title="x")
     assert (
         resolver.resolve_token("seg", other).matches(FileCandidate(filename="Keroro N°062A.avi"))
@@ -50,7 +50,7 @@ def test_resolve_coverage_binds_title() -> None:
 
 
 def test_resolve_coverage_non_title_reference_used_literally() -> None:
-    # Une référence != "title" est utilisée telle quelle comme texte de référence.
+    # A reference != "title" is used as-is as the reference text.
     resolver = _resolver_from(
         {"tokens": {"lit": {"coverage": "keroro titar", "min": 0.5}}, "rules": []}
     )
@@ -115,8 +115,8 @@ def test_resolve_rule_condition() -> None:
 
 
 def test_token_ref_override_applies_min() -> None:
-    # title significatif = {demoiselles, cambrioleuses} (2 tokens, "les" est stopword).
-    # "demoiselles" seul couvre 1/2 = 0.5 : 0.34 <= 0.5 (match) mais 0.6 > 0.5 (pas de match).
+    # significant title = {demoiselles, cambrioleuses} (2 tokens, "les" is a stopword).
+    # "demoiselles" alone covers 1/2 = 0.5: 0.34 <= 0.5 (match) but 0.6 > 0.5 (no match).
     resolver = _resolver_from(
         {
             "tokens": {"title_hit": {"coverage": "title", "min": 0.6}},
@@ -128,15 +128,15 @@ def test_token_ref_override_applies_min() -> None:
     matcher = resolver.resolve_rule(resolver.config.rules[0], _TARGET)
     candidate = FileCandidate(filename="quelque chose demoiselles xyz.avi")
     assert matcher.matches(candidate) is True
-    # Sans override (min=0.6), le même candidat NE matcherait PAS.
+    # Without override (min=0.6), the same candidate would NOT match.
     strict = resolver.resolve_token("title_hit", _TARGET)
     assert strict.matches(candidate) is False
 
 
 def test_token_ref_override_applies_fuzz() -> None:
-    # fuzz override 0.99 via {token: title_hit, fuzz: 0.99} : une faute de frappe
-    # 'demoiseles' (ratio ~0.95 vs 'demoiselles') n'est plus comptée comme couverte,
-    # donc 'cambrioleuses' seul = 1/2 = 0.5 < 0.6 -> pas de match.
+    # fuzz override 0.99 via {token: title_hit, fuzz: 0.99}: a typo 'demoiseles'
+    # (ratio ~0.95 vs 'demoiselles') is no longer counted as covered, so
+    # 'cambrioleuses' alone = 1/2 = 0.5 < 0.6 -> no match.
     resolver = _resolver_from(
         {
             "tokens": {"title_hit": {"coverage": "title", "min": 0.6}},
@@ -148,7 +148,7 @@ def test_token_ref_override_applies_fuzz() -> None:
     matcher = resolver.resolve_rule(resolver.config.rules[0], _TARGET)
     typo = FileCandidate(filename="les demoiseles cambrioleuses 062.avi")
     assert matcher.matches(typo) is False
-    # Sans override (fuzz défaut 0.85), la faute est couverte -> les 2 tokens -> match.
+    # Without override (default fuzz 0.85), the typo is covered -> both tokens -> match.
     lax = resolver.resolve_token("title_hit", _TARGET)
     assert lax.matches(typo) is True
 

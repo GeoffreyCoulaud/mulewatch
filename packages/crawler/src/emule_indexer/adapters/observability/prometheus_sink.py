@@ -1,45 +1,45 @@
-"""Sink Prometheus : applique une ``MetricInstruction`` sur un ``CollectorRegistry`` DÉDIÉ (E-D9).
+"""Prometheus sink: applies a ``MetricInstruction`` to a DEDICATED ``CollectorRegistry`` (E-D9).
 
-Couche ADAPTER (implémente ``MetricsSink``). Catalogue déclaré sur le registre INJECTÉ (jamais
-le registre global) → testable sur un registre jetable, sans état partagé. Trois maps HOMOGÈNES
-(counters/gauges/histogrammes) indexées par ``MetricName`` → ``apply`` route sur ``kind`` en 3
-branches. GOTCHA : les counters sont nommés SANS ``_total`` (ajouté par la lib à l'exposition)."""
+ADAPTER layer (implements ``MetricsSink``). Catalog declared on the INJECTED registry (never
+the global registry) → testable on a throwaway registry, no shared state. Three HOMOGENEOUS maps
+(counters/gauges/histograms) indexed by ``MetricName`` → ``apply`` routes on ``kind`` across 3
+branches. GOTCHA: counters are named WITHOUT ``_total`` (added by the lib at exposition time)."""
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
 from emule_indexer.domain.observability.policy import MetricInstruction, MetricName
 
-# (nom, doc, labels) des counters.
+# (name, doc, labels) of the counters.
 _COUNTERS: tuple[tuple[MetricName, str, tuple[str, ...]], ...] = (
-    (MetricName.SEARCH_CYCLES, "Cycles de recherche terminés", ()),
-    (MetricName.SEARCHES, "Recherches exécutées", ("network",)),
-    (MetricName.OBSERVATIONS, "Observations enregistrées", ("network",)),
-    (MetricName.SEARCH_FAILURES, "Recherches en échec", ("network",)),
-    (MetricName.SEARCH_TASKS_DROPPED, "Tâches abandonnées (toutes en backoff)", ("network",)),
-    (MetricName.MULE_UNREACHABLE, "Instances injoignables", ("instance",)),
-    (MetricName.SEARCH_BLIND_CYCLES, "Cycles à couverture aveugle", ()),
-    (MetricName.DECISIONS, "Décisions de match enregistrées", ("tier",)),
-    (MetricName.DOWNLOADS_QUEUED, "Téléchargements mis en file", ()),
-    (MetricName.DOWNLOADS_COMPLETED, "Téléchargements terminés", ()),
-    (MetricName.PROMOTION_FAILURES, "Mises en quarantaine échouées", ()),
-    (MetricName.VERIFICATIONS, "Vérifications terminées", ("verdict",)),
-    (MetricName.VERIFIER_UNAVAILABLE, "Verifier injoignable (occurrences)", ()),
-    (MetricName.PORT_SYNC_TRIGGERED, "Synchronisations de port déclenchées", ()),
-    (MetricName.HIGH_ID_RECOVERED, "High-ID retrouvés", ()),
-    (MetricName.PORT_MISMATCH, "High-ID non rétabli (occurrences)", ()),
+    (MetricName.SEARCH_CYCLES, "Search cycles completed", ()),
+    (MetricName.SEARCHES, "Searches performed", ("network",)),
+    (MetricName.OBSERVATIONS, "Observations recorded", ("network",)),
+    (MetricName.SEARCH_FAILURES, "Failed searches", ("network",)),
+    (MetricName.SEARCH_TASKS_DROPPED, "Tasks dropped (all in backoff)", ("network",)),
+    (MetricName.MULE_UNREACHABLE, "Unreachable instances", ("instance",)),
+    (MetricName.SEARCH_BLIND_CYCLES, "Blind-coverage cycles", ()),
+    (MetricName.DECISIONS, "Match decisions recorded", ("tier",)),
+    (MetricName.DOWNLOADS_QUEUED, "Downloads queued", ()),
+    (MetricName.DOWNLOADS_COMPLETED, "Downloads completed", ()),
+    (MetricName.PROMOTION_FAILURES, "Failed quarantine promotions", ()),
+    (MetricName.VERIFICATIONS, "Verifications completed", ("verdict",)),
+    (MetricName.VERIFIER_UNAVAILABLE, "Verifier unreachable (occurrences)", ()),
+    (MetricName.PORT_SYNC_TRIGGERED, "Port syncs triggered", ()),
+    (MetricName.HIGH_ID_RECOVERED, "High-IDs recovered", ()),
+    (MetricName.PORT_MISMATCH, "High-ID not restored (occurrences)", ()),
 )
 _GAUGES: tuple[tuple[MetricName, str, tuple[str, ...]], ...] = (
-    (MetricName.CONNECTED_INSTANCES, "Instances search-capable", ("network",)),
-    (MetricName.VERIFICATION_QUEUE_DEPTH, "Tâches de vérification en attente", ()),
-    (MetricName.CRAWLER_UP, "Crawler en marche (1)", ()),
+    (MetricName.CONNECTED_INSTANCES, "Search-capable instances", ("network",)),
+    (MetricName.VERIFICATION_QUEUE_DEPTH, "Pending verification tasks", ()),
+    (MetricName.CRAWLER_UP, "Crawler running (1)", ()),
 )
 _HISTOGRAMS: tuple[tuple[MetricName, str], ...] = (
-    (MetricName.SEARCH_CYCLE_DURATION, "Durée d'un cycle de recherche (s)"),
+    (MetricName.SEARCH_CYCLE_DURATION, "Search cycle duration (s)"),
 )
 
 
 class PrometheusSink:
-    """Adapter ``MetricsSink`` sur un registre dédié injecté."""
+    """``MetricsSink`` adapter over an injected dedicated registry."""
 
     def __init__(self, registry: CollectorRegistry) -> None:
         self._counters = {

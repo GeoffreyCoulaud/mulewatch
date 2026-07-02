@@ -1,9 +1,9 @@
-"""Validation au chargement (fail-fast) : schéma YAML parsé -> modèle de config.
+"""Load-time validation (fail-fast): parsed YAML schema -> config model.
 
-Domaine PUR : reçoit des structures déjà parsées (``dict``/``list``), n'importe pas
-``yaml``, ne touche pas le disque. Couvre la spec §8.4 (validation au chargement) côté
-schéma + validations locales (tier fermé, enum ``attr_between``, override coverage-only).
-La validation de graphe (DAG/profondeur) et le compile-check RE2 sont ajoutés en Task 6.
+PURE domain: receives already-parsed structures (``dict``/``list``), does not import
+``yaml``, does not touch the disk. Covers spec §8.4 (load-time validation) on the schema
+side + local validations (closed tier, ``attr_between`` enum, coverage-only override). Graph
+validation (DAG/depth) and the RE2 compile-check are added in Task 6.
 """
 
 from typing import Any
@@ -34,78 +34,78 @@ _CONDITION_KEYS = ("all", "any", "not")
 
 
 class ConfigError(Exception):
-    """Erreur fatale de configuration au chargement (schéma, tier, enum, override)."""
+    """Fatal configuration error at load time (schema, tier, enum, override)."""
 
 
 class UnknownTokenError(ConfigError):
-    """Une référence pointe vers un token absent de la table."""
+    """A reference points to a token missing from the table."""
 
 
 class CycleError(ConfigError):
-    """Le graphe de références token->token contient un cycle (le message le nomme)."""
+    """The token->token reference graph contains a cycle (the message names it)."""
 
 
 class DepthExceededError(ConfigError):
-    """La profondeur de résolution dépasse la borne (défaut 32)."""
+    """The resolution depth exceeds the bound (default 32)."""
 
 
 def _require_mapping(value: Any, what: str) -> dict[str, Any]:
     if not isinstance(value, dict):
-        raise ConfigError(f"{what} : mapping attendu, obtenu {type(value).__name__}")
+        raise ConfigError(f"{what}: mapping expected, got {type(value).__name__}")
     return value
 
 
 def _require_key(mapping: dict[str, Any], key: str, what: str) -> Any:
     if key not in mapping:
-        raise ConfigError(f"{what} : clé {key!r} manquante")
+        raise ConfigError(f"{what}: key {key!r} missing")
     return mapping[key]
 
 
 def _parse_operand(raw: Any) -> Operand:
-    """Un opérande : nom de token nu (str), ``{token: …}`` (TokenRef), ou condition inline."""
+    """An operand: bare token name (str), ``{token: …}`` (TokenRef), or inline condition."""
     if isinstance(raw, str):
         return raw
     if isinstance(raw, dict):
         if any(key in raw for key in _CONDITION_KEYS):
             return _parse_condition(raw)
-        # Traité comme un token-ref (avec ou sans la clé «token») — _parse_token_ref
-        # lèvera ConfigError si la clé «token» est absente ou invalide.
+        # Treated as a token-ref (with or without the "token" key) — _parse_token_ref
+        # will raise ConfigError if the "token" key is missing or invalid.
         return _parse_token_ref(raw)
-    raise ConfigError(f"opérande de type invalide : {type(raw).__name__} ({raw!r})")
+    raise ConfigError(f"operand of invalid type: {type(raw).__name__} ({raw!r})")
 
 
 def _require_unit_fraction(value: float, what: str) -> float:
-    """Valide qu'une fraction logique (seuil coverage/fuzz) est dans [0, 1] (fail-fast §8.4).
+    """Validates that a logical fraction (coverage/fuzz threshold) is in [0, 1] (fail-fast §8.4).
 
-    Hors de [0, 1], la règle est silencieusement inerte (seuil jamais atteint) : c'est une
-    erreur de config (typiquement un pourcentage saisi pour une fraction), rejetée au chargement.
+    Outside [0, 1], the rule is silently inert (threshold never reached): that is a config
+    error (typically a percentage entered for a fraction), rejected at load time.
     """
     if not 0.0 <= value <= 1.0:
-        raise ConfigError(f"{what} doit être dans [0, 1], obtenu {value}")
+        raise ConfigError(f"{what} must be in [0, 1], got {value}")
     return value
 
 
 def _parse_token_ref(raw: dict[str, Any]) -> TokenRef:
     name = raw.get("token")
     if not isinstance(name, str):
-        raise ConfigError(f"opérande {{token: …}} sans nom de token valide : {raw!r}")
+        raise ConfigError(f"operand {{token: …}} without a valid token name: {raw!r}")
     min_value = raw.get("min")
     fuzz_value = raw.get("fuzz")
-    # La licéité d'un override min/fuzz (coverage-only, cf. EBNF §8.3) est vérifiée au
-    # niveau du graphe (validate_config), pas ici : le parsing reste purement structurel
-    # et indépendant de l'ordre de définition des tokens (réf. en avant autorisée). Les BORNES
-    # [0, 1] sont en revanche structurelles → validées ici.
+    # The legality of a min/fuzz override (coverage-only, cf. EBNF §8.3) is checked at the
+    # graph level (validate_config), not here: parsing stays purely structural and independent
+    # of the token definition order (forward references allowed). The [0, 1] BOUNDS, on the
+    # other hand, are structural → validated here.
     return TokenRef(
         name=name,
         min=(
             None
             if min_value is None
-            else _require_unit_fraction(float(min_value), f"override 'min' de {name!r}")
+            else _require_unit_fraction(float(min_value), f"'min' override of {name!r}")
         ),
         fuzz=(
             None
             if fuzz_value is None
-            else _require_unit_fraction(float(fuzz_value), f"override 'fuzz' de {name!r}")
+            else _require_unit_fraction(float(fuzz_value), f"'fuzz' override of {name!r}")
         ),
     )
 
@@ -113,19 +113,20 @@ def _parse_token_ref(raw: dict[str, Any]) -> TokenRef:
 def _parse_condition(raw: dict[str, Any]) -> Condition:
     present = [key for key in _CONDITION_KEYS if key in raw]
     if len(present) != 1:
-        raise ConfigError(f"une seule condition (all/any/not) attendue, obtenu {present!r}")
+        raise ConfigError(f"exactly one condition (all/any/not) expected, got {present!r}")
     key = present[0]
     body = raw[key]
     if key == "not":
         return NotDef(operand=_parse_operand(body))
     if not isinstance(body, list):
-        raise ConfigError(f"'{key}:' attend une liste d'opérandes, obtenu {type(body).__name__}")
+        raise ConfigError(f"'{key}:' expects a list of operands, got {type(body).__name__}")
     if not body:
-        # EBNF §8.3 : operand (',' operand)* = au moins un opérande. Une liste vide donnerait
-        # AllMatcher([]).matches()==all([])==True (matche TOUT) ou AnyMatcher([])==False (muet) :
-        # config dégénérée, rejetée au chargement (fail-fast §8.4). all([])/any([]) reste la
-        # sémantique interne légitime des combinateurs — c'est la CONFIG vide qu'on interdit.
-        raise ConfigError(f"'{key}:' exige au moins un opérande (liste vide reçue)")
+        # EBNF §8.3: operand (',' operand)* = at least one operand. An empty list would give
+        # AllMatcher([]).matches()==all([])==True (matches EVERYTHING) or AnyMatcher([])==False
+        # (mute): degenerate config, rejected at load time (fail-fast §8.4). all([])/any([])
+        # remains the legitimate internal semantics of the combinators — it is the empty CONFIG
+        # that we forbid.
+        raise ConfigError(f"'{key}:' requires at least one operand (empty list received)")
     operands = tuple(_parse_operand(item) for item in body)
     if key == "all":
         return AllDef(operands=operands)
@@ -133,23 +134,23 @@ def _parse_condition(raw: dict[str, Any]) -> Condition:
 
 
 def _require_float(mapping: dict[str, Any], key: str) -> float | None:
-    """Lit une borne flottante optionnelle (``None`` si absente)."""
+    """Reads an optional float bound (``None`` if absent)."""
     value = mapping.get(key)
     return None if value is None else float(value)
 
 
 def _parse_token_def(raw: Any) -> TokenDef:
-    """Dispatch d'une def de token : composite (all/any/not) ou feuille (4 types).
+    """Dispatch of a token def: composite (all/any/not) or leaf (4 types).
 
-    Lit TOUTES les clés annexes de la def (``flags`` du regex, ``min``/``fuzz`` du
-    coverage, ``min``/``max`` de l'attr_between), pas seulement la clé-type.
+    Reads ALL the def's ancillary keys (``flags`` of regex, ``min``/``fuzz`` of coverage,
+    ``min``/``max`` of attr_between), not only the type-key.
     """
-    mapping = _require_mapping(raw, "définition de token")
+    mapping = _require_mapping(raw, "token definition")
     if any(key in mapping for key in _CONDITION_KEYS):
         return _parse_condition(mapping)
     leaf_keys = [k for k in ("keyword", "regex", "coverage", "attr_between") if k in mapping]
     if len(leaf_keys) > 1:
-        raise ConfigError(f"un token feuille a exactement une clé-type, obtenu {sorted(leaf_keys)}")
+        raise ConfigError(f"a leaf token has exactly one type-key, got {sorted(leaf_keys)}")
     if "keyword" in mapping:
         return KeywordDef(phrase=str(mapping["keyword"]))
     if "regex" in mapping:
@@ -158,7 +159,7 @@ def _parse_token_def(raw: Any) -> TokenDef:
     if "coverage" in mapping:
         min_value = _require_float(mapping, "min")
         if min_value is None:
-            raise ConfigError("un token coverage doit déclarer 'min'")
+            raise ConfigError("a coverage token must declare 'min'")
         fuzz_value = _require_float(mapping, "fuzz")
         fuzz = 0.85 if fuzz_value is None else _require_unit_fraction(fuzz_value, "coverage 'fuzz'")
         return CoverageDef(
@@ -170,47 +171,45 @@ def _parse_token_def(raw: Any) -> TokenDef:
         attr = str(mapping["attr_between"])
         if attr not in ATTR_NAMES:
             raise ConfigError(
-                f"attr_between inconnu : {attr!r} (attendu l'un de {sorted(ATTR_NAMES)})"
+                f"unknown attr_between: {attr!r} (expected one of {sorted(ATTR_NAMES)})"
             )
         min_bound = _require_float(mapping, "min")
         max_bound = _require_float(mapping, "max")
-        # Bornes ouvertes (min seul / max seul / aucune) légitimes ; seule une plage explicite
-        # inversée min > max est une plage VIDE (règle muette pour toujours) → fail-fast §8.4.
+        # Open bounds (min only / max only / none) are legitimate; only an explicit inverted
+        # range min > max is an EMPTY range (rule mute forever) → fail-fast §8.4.
         if min_bound is not None and max_bound is not None and min_bound > max_bound:
             raise ConfigError(
-                f"attr_between {attr!r} : min ({min_bound}) > max ({max_bound}) — plage vide"
+                f"attr_between {attr!r}: min ({min_bound}) > max ({max_bound}) — empty range"
             )
         return AttrBetweenDef(attr=attr, min=min_bound, max=max_bound)
-    raise ConfigError(f"forme de token inconnue : clés {sorted(mapping)}")
+    raise ConfigError(f"unknown token shape: keys {sorted(mapping)}")
 
 
 def _parse_rule(raw: Any) -> Rule:
-    mapping = _require_mapping(raw, "règle")
+    mapping = _require_mapping(raw, "rule")
     name = str(mapping.get("name", ""))
     if not name:
-        raise ConfigError(f"règle sans 'name' : {raw!r}")
+        raise ConfigError(f"rule without 'name': {raw!r}")
     tier = mapping.get("tier")
     if tier not in TIERS:
-        raise ConfigError(
-            f"tier inconnu pour la règle {name!r} : {tier!r} (attendu {sorted(TIERS)})"
-        )
+        raise ConfigError(f"unknown tier for rule {name!r}: {tier!r} (expected {sorted(TIERS)})")
     present = [key for key in _CONDITION_KEYS if key in mapping]
     if not present:
-        raise ConfigError(f"règle {name!r} sans condition (all/any/not)")
+        raise ConfigError(f"rule {name!r} without a condition (all/any/not)")
     if len(present) != 1:
-        raise ConfigError(f"règle {name!r} : une seule condition attendue, obtenu {present!r}")
+        raise ConfigError(f"rule {name!r}: exactly one condition expected, got {present!r}")
     return Rule(name=name, tier=str(tier), condition=_parse_condition(mapping))
 
 
 def parse_matcher_config(raw: dict[str, Any]) -> MatcherConfig:
-    """Construit un :class:`MatcherConfig` validé (schéma) depuis un dict YAML parsé."""
-    tokens_raw = _require_mapping(raw.get("tokens", {}), "section 'tokens'")
+    """Builds a validated (schema) :class:`MatcherConfig` from a parsed YAML dict."""
+    tokens_raw = _require_mapping(raw.get("tokens", {}), "'tokens' section")
     tokens: dict[str, TokenDef] = {}
     for token_name, token_raw in tokens_raw.items():
         tokens[str(token_name)] = _parse_token_def(token_raw)
     rules_raw = raw.get("rules", [])
     if not isinstance(rules_raw, list):
-        raise ConfigError(f"section 'rules' : liste attendue, obtenu {type(rules_raw).__name__}")
+        raise ConfigError(f"'rules' section: list expected, got {type(rules_raw).__name__}")
     rules = tuple(_parse_rule(rule_raw) for rule_raw in rules_raw)
     config = MatcherConfig(tokens=tokens, rules=rules)
     validate_config(config)
@@ -219,19 +218,19 @@ def parse_matcher_config(raw: dict[str, Any]) -> MatcherConfig:
 
 _DEFAULT_MAX_DEPTH = 32
 
-# Cible-sonde pour le compile-check : fournit season/seasonal_number/absolute_number/
-# segment/title afin que l'interpolation de toute RegexDef soit testable au chargement.
+# Probe target for the compile-check: provides season/seasonal_number/absolute_number/
+# segment/title so that the interpolation of any RegexDef is testable at load time.
 _PROBE_TARGET = TargetSegment(
     season=2,
     seasonal_number=11,
     absolute_number=62,
     segment="a",
-    title="sonde",
+    title="probe",
 )
 
 
 def _operand_refs(operand: Operand) -> tuple[str, ...]:
-    """Noms de tokens directement référencés par un opérande (str, TokenRef ou inline)."""
+    """Names of tokens directly referenced by an operand (str, TokenRef or inline)."""
     if isinstance(operand, str):
         return (operand,)
     if isinstance(operand, TokenRef):
@@ -246,7 +245,7 @@ def _operand_refs(operand: Operand) -> tuple[str, ...]:
 
 
 def _def_refs(token_def: TokenDef) -> tuple[str, ...]:
-    """Noms de tokens directement référencés par une def (vide pour une feuille)."""
+    """Names of tokens directly referenced by a def (empty for a leaf)."""
     if isinstance(token_def, AllDef | AnyDef):
         refs: list[str] = []
         for child in token_def.operands:
@@ -258,7 +257,7 @@ def _def_refs(token_def: TokenDef) -> tuple[str, ...]:
 
 
 def _operand_token_refs(operand: Operand) -> tuple[TokenRef, ...]:
-    """Tous les TokenRef (avec leurs overrides) atteignables depuis un opérande."""
+    """All TokenRefs (with their overrides) reachable from an operand."""
     if isinstance(operand, TokenRef):
         return (operand,)
     if isinstance(operand, NotDef):
@@ -268,11 +267,11 @@ def _operand_token_refs(operand: Operand) -> tuple[TokenRef, ...]:
         for child in operand.operands:
             refs.extend(_operand_token_refs(child))
         return tuple(refs)
-    return ()  # str (nom nu) -> aucun TokenRef
+    return ()  # str (bare name) -> no TokenRef
 
 
 def _def_token_refs(token_def: TokenDef) -> tuple[TokenRef, ...]:
-    """Tous les TokenRef d'une def composite (vide pour une feuille)."""
+    """All TokenRefs of a composite def (empty for a leaf)."""
     if isinstance(token_def, AllDef | AnyDef):
         refs: list[TokenRef] = []
         for child in token_def.operands:
@@ -284,10 +283,10 @@ def _def_token_refs(token_def: TokenDef) -> tuple[TokenRef, ...]:
 
 
 def _check_overrides_target_coverage(config: MatcherConfig) -> None:
-    """Un override min/fuzz n'est licite que sur un token coverage (cf. EBNF §8.3).
+    """A min/fuzz override is only legal on a coverage token (cf. EBNF §8.3).
 
-    Vérifié ICI (pas au parsing) pour ne pas dépendre de l'ordre de définition :
-    une référence en avant vers un token coverage doit être acceptée.
+    Checked HERE (not at parsing) so as not to depend on the definition order: a forward
+    reference to a coverage token must be accepted.
     """
     refs: list[TokenRef] = []
     for token_def in config.tokens.values():
@@ -298,30 +297,30 @@ def _check_overrides_target_coverage(config: MatcherConfig) -> None:
         if (ref.min is not None or ref.fuzz is not None) and not isinstance(
             config.tokens.get(ref.name), CoverageDef
         ):
-            raise ConfigError(f"override min/fuzz interdit sur le token non-coverage {ref.name!r}")
+            raise ConfigError(f"min/fuzz override forbidden on non-coverage token {ref.name!r}")
 
 
 def _check_references_exist(config: MatcherConfig) -> None:
-    """Toute référence (dans un token composite OU une règle) doit exister."""
+    """Every reference (in a composite token OR a rule) must exist."""
     known = set(config.tokens)
     for token_def in config.tokens.values():
         for ref in _def_refs(token_def):
             if ref not in known:
-                raise UnknownTokenError(f"référence vers un token inconnu : {ref!r}")
+                raise UnknownTokenError(f"reference to an unknown token: {ref!r}")
     for rule in config.rules:
         for ref in _operand_refs(rule.condition):
             if ref not in known:
                 raise UnknownTokenError(
-                    f"règle {rule.name!r} : référence vers un token inconnu : {ref!r}"
+                    f"rule {rule.name!r}: reference to an unknown token: {ref!r}"
                 )
 
 
 def _check_acyclic(config: MatcherConfig, max_depth: int) -> None:
-    """Détecte un cycle dans le graphe token->token et le NOMME (cf. spec §8.4).
+    """Detects a cycle in the token->token graph and NAMES it (cf. spec §8.4).
 
-    Le garde-fou ``len(stack) >= max_depth`` borne aussi la récursion : un chemin
-    plus profond que ``max_depth`` est déjà une violation de profondeur, levée
-    proprement ici (évite un ``RecursionError`` Python sur une chaîne pathologique).
+    The ``len(stack) >= max_depth`` guard also bounds the recursion: a path deeper than
+    ``max_depth`` is already a depth violation, raised cleanly here (avoids a Python
+    ``RecursionError`` on a pathological chain).
     """
     graph = {name: _def_refs(token_def) for name, token_def in config.tokens.items()}
     visiting: set[str] = set()
@@ -333,15 +332,13 @@ def _check_acyclic(config: MatcherConfig, max_depth: int) -> None:
             return
         if name in visiting:
             cycle = stack[stack.index(name) :] + [name]
-            raise CycleError(f"cycle de références : {' -> '.join(cycle)}")
+            raise CycleError(f"reference cycle: {' -> '.join(cycle)}")
         if len(stack) >= max_depth:
             tail = " -> ".join([*stack[-3:], name])
-            raise DepthExceededError(
-                f"profondeur de résolution > {max_depth} (chaîne : … -> {tail})"
-            )
+            raise DepthExceededError(f"resolution depth > {max_depth} (chain: … -> {tail})")
         visiting.add(name)
         stack.append(name)
-        for ref in graph.get(name, ()):  # ref existe (vérifié par _check_references_exist)
+        for ref in graph.get(name, ()):  # ref exists (checked by _check_references_exist)
             walk(ref)
         stack.pop()
         visiting.discard(name)
@@ -352,7 +349,7 @@ def _check_acyclic(config: MatcherConfig, max_depth: int) -> None:
 
 
 def _max_resolution_depth(config: MatcherConfig) -> int:
-    """Profondeur maximale d'un token (feuille = 1). Suppose le graphe acyclique."""
+    """Maximum depth of a token (leaf = 1). Assumes the graph is acyclic."""
     graph = {name: _def_refs(token_def) for name, token_def in config.tokens.items()}
     memo: dict[str, int] = {}
 
@@ -368,27 +365,27 @@ def _max_resolution_depth(config: MatcherConfig) -> int:
 
 
 def _check_regexes_compile(config: MatcherConfig) -> None:
-    """Chaque RegexDef s'interpole (placeholders connus) et compile sous RE2 (cf. §8.4)."""
+    """Each RegexDef interpolates (known placeholders) and compiles under RE2 (cf. §8.4)."""
     for name, token_def in config.tokens.items():
         if not isinstance(token_def, RegexDef):
             continue
         try:
             pattern = interpolate(token_def.pattern, _PROBE_TARGET)
         except InterpolationError as exc:
-            raise ConfigError(f"token {name!r} : interpolation invalide : {exc}") from exc
+            raise ConfigError(f"token {name!r}: invalid interpolation: {exc}") from exc
         if "i" in token_def.flags:
             pattern = "(?i)" + pattern
         try:
             re2.compile(pattern)
         except re2.error as exc:
-            raise ConfigError(f"token {name!r} : regex non compilable sous RE2 : {exc}") from exc
+            raise ConfigError(f"token {name!r}: regex not compilable under RE2: {exc}") from exc
 
 
 def validate_config(config: MatcherConfig, *, max_depth: int = _DEFAULT_MAX_DEPTH) -> None:
-    """Valide le graphe (références, DAG, profondeur) et les regex (cf. spec §8.4).
+    """Validates the graph (references, DAG, depth) and the regexes (cf. spec §8.4).
 
-    Lève :class:`UnknownTokenError`, :class:`CycleError`, :class:`DepthExceededError`
-    ou :class:`ConfigError` (regex/interpolation). À appeler après le parsing schéma.
+    Raises :class:`UnknownTokenError`, :class:`CycleError`, :class:`DepthExceededError`
+    or :class:`ConfigError` (regex/interpolation). To be called after schema parsing.
     """
     _check_references_exist(config)
     _check_overrides_target_coverage(config)
@@ -396,22 +393,22 @@ def validate_config(config: MatcherConfig, *, max_depth: int = _DEFAULT_MAX_DEPT
     depth = _max_resolution_depth(config)
     if depth > max_depth:
         raise DepthExceededError(
-            f"profondeur de résolution {depth} > max {max_depth} (défaut {_DEFAULT_MAX_DEPTH})"
+            f"resolution depth {depth} > max {max_depth} (default {_DEFAULT_MAX_DEPTH})"
         )
     _check_regexes_compile(config)
 
 
 def parse_targets(raw: dict[str, Any]) -> tuple[TargetSegment, ...]:
-    """Construit les :class:`TargetSegment` depuis ``targets.yaml`` parsé (cf. spec §7)."""
+    """Builds the :class:`TargetSegment`s from parsed ``targets.yaml`` (cf. spec §7)."""
     episodes = raw.get("episodes")
     if not isinstance(episodes, list):
-        raise ConfigError("section 'episodes' : liste attendue")
+        raise ConfigError("'episodes' section: list expected")
     segments: list[TargetSegment] = []
     for episode in episodes:
-        ep = _require_mapping(episode, "épisode")
-        season = int(_require_key(ep, "season", "épisode"))
-        seasonal_number = int(_require_key(ep, "seasonal_number", "épisode"))
-        absolute_number = int(_require_key(ep, "absolute_number", "épisode"))
+        ep = _require_mapping(episode, "episode")
+        season = int(_require_key(ep, "season", "episode"))
+        seasonal_number = int(_require_key(ep, "seasonal_number", "episode"))
+        absolute_number = int(_require_key(ep, "absolute_number", "episode"))
         seg_list = ep.get("segments", [])
         sole = len(seg_list) == 1
         for seg in seg_list:
@@ -432,10 +429,9 @@ def parse_targets(raw: dict[str, Any]) -> tuple[TargetSegment, ...]:
     for segment in result:
         if segment.target_id in seen:
             raise ConfigError(
-                f"target_id en double : {segment.target_id!r} — les segments cibles doivent "
-                f"être uniques (note : la lettre de segment est mise en majuscule par target_id, "
-                f"donc 'a' et 'A' collisionnent). Le moteur d'évaluation en dépend (départage "
-                f"déterministe)."
+                f"duplicate target_id: {segment.target_id!r} — target segments must be "
+                f"unique (note: the segment letter is uppercased by target_id, so 'a' and 'A' "
+                f"collide). The evaluation engine depends on it (deterministic tie-break)."
             )
         seen.add(segment.target_id)
     return result

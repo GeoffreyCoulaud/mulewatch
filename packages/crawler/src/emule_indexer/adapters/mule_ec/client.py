@@ -1,9 +1,9 @@
-"""Client EC haut niveau : auth, recherche, statut (cf. spec EC-adapter §4-§6).
+"""High-level EC client: auth, search, status (cf. EC-adapter spec §4-§6).
 
-Implémente STRUCTURELLEMENT le port ``MuleClient`` (sans l'importer — même typage
-structurel que les matchers vis-à-vis du Protocol ``Matcher``). AUCUN sleep, retry ou
-reconnexion ici : l'adapter signale, l'appelant décide (spec §3/§6). Une requête à la
-fois, réponses corrélées par ORDRE (FCFS strict, réf. §9 piège 14).
+STRUCTURALLY implements the ``MuleClient`` port (without importing it — same structural
+typing as the matchers against the ``Matcher`` Protocol). NO sleep, retry or
+reconnection here: the adapter signals, the caller decides (spec §3/§6). One request at a
+time, responses correlated by ORDER (strict FCFS, ref. §9 pitfall 14).
 """
 
 import hashlib
@@ -32,8 +32,8 @@ from emule_indexer.ports.mule_download_client import DownloadEntry, SharedFileEn
 
 _CLIENT_NAME = "emule-indexer"
 _CLIENT_VERSION = "0.5.0"
-_LOWID_THRESHOLD = 16777216  # HIGHEST_LOWID_ED2K_KAD (NetworkFunctions.h:123, réf. §6)
-_MAX_PROGRESS_PERCENT = 100  # au-delà : 0xffff (locale) / 0xfffe (Kad fini), réf. §5
+_LOWID_THRESHOLD = 16777216  # HIGHEST_LOWID_ED2K_KAD (NetworkFunctions.h:123, ref. §6)
+_MAX_PROGRESS_PERCENT = 100  # beyond that: 0xffff (local) / 0xfffe (Kad done), ref. §5
 
 _CHANNEL_TO_SEARCH_TYPE = {
     SearchChannel.GLOBAL: codes.EC_SEARCH_GLOBAL,
@@ -42,11 +42,11 @@ _CHANNEL_TO_SEARCH_TYPE = {
 
 
 def salted_password_hash(password: str, salt: int) -> bytes:
-    """Hash d'auth EC, formule EXACTE de la réf. §4 (RemoteConnect.cpp:252-253).
+    """EC auth hash, EXACT formula from ref. §4 (RemoteConnect.cpp:252-253).
 
-    ``md5( lower(md5_hex(password)) + md5_hex(format("%X", salt)) )`` → 16 octets bruts.
-    Pièges 4/5 : le sel est une valeur LOGIQUE (lue à largeur variable) formatée en hex
-    MAJUSCULE sans zéros de tête ; les deux md5-hex intermédiaires sont en minuscule.
+    ``md5( lower(md5_hex(password)) + md5_hex(format("%X", salt)) )`` → 16 raw bytes.
+    Pitfalls 4/5: the salt is a LOGICAL value (read at variable width) formatted as
+    UPPERCASE hex without leading zeros; the two intermediate md5-hex are lowercase.
     """
     salt_str = format(salt, "X")
     salt_hash = hashlib.md5(salt_str.encode("ascii")).hexdigest()
@@ -55,20 +55,20 @@ def salted_password_hash(password: str, salt: int) -> bytes:
 
 
 def _failure_message(reply: EcPacket) -> str:
-    """Message d'un AUTH_FAIL/FAILED (EC_TAG_STRING), ou un libellé sûr s'il manque."""
+    """Message from an AUTH_FAIL/FAILED (EC_TAG_STRING), or a safe label if missing."""
     tag = reply.find(codes.EC_TAG_STRING)
     if tag is None:
-        return "échec signalé par amuled (sans message)"
+        return "failure reported by amuled (no message)"
     return tag.string_value()
 
 
 class AmuleEcClient:
-    """Pilote un ``amuled`` via EC. Trois usages câblés : auth, recherche, statut (spec §3).
+    """Drives an ``amuled`` over EC. Three wired uses: auth, search, status (spec §3).
 
-    ``skipped_entries_total`` accumule les entrées de résultats écartées par le mapper
-    (futur brancheur de métrique, plan E — DÉCISION 6). C'est un compteur d'ÉVÉNEMENTS :
-    le relevé étant cumulatif, une même entrée inexploitable revue à chaque relevé compte
-    à chaque fois — ne pas le lire comme « entrées uniques perdues ».
+    ``skipped_entries_total`` accumulates result entries discarded by the mapper
+    (future metric hook, plan E — DECISION 6). It is an EVENT counter: since the
+    readout is cumulative, the same unusable entry re-seen on every readout counts
+    each time — do not read it as "unique lost entries".
     """
 
     def __init__(self, host: str, port: int, password: str, *, timeout: float = 10.0) -> None:
@@ -81,16 +81,16 @@ class AmuleEcClient:
         self.skipped_entries_total = 0
 
     async def connect(self) -> None:
-        """TCP + handshake d'auth (réf. §4). Échec → exception, SANS retry (spec §5).
+        """TCP + auth handshake (ref. §4). Failure → exception, NO retry (spec §5).
 
-        IDEMPOTENT : un second appel sur un client DÉJÀ connecté est un no-op (pas de
-        re-handshake, transport préservé). Indispensable au pool (spec orchestration §3) : le
-        composition root connecte au montage, puis le travailleur rappelle ``connect()`` dans
-        son ``_ensure_connected()`` — ce second appel reste un no-op sûr."""
+        IDEMPOTENT: a second call on an ALREADY-connected client is a no-op (no
+        re-handshake, transport preserved). Essential to the pool (orchestration spec §3): the
+        composition root connects at wiring time, then the worker re-calls ``connect()`` in
+        its ``_ensure_connected()`` — this second call stays a safe no-op."""
         if self._transport is not None:
             return
         if not self._password:
-            raise EcAuthError("mot de passe EC vide (refusé, miroir de RemoteConnect.cpp:117)")
+            raise EcAuthError("empty EC password (refused, mirrors RemoteConnect.cpp:117)")
         transport = await open_ec_transport(self._host, self._port, timeout=self._timeout)
         try:
             await self._authenticate(transport)
@@ -105,24 +105,24 @@ class AmuleEcClient:
             self._transport = None
 
     async def start_search(self, keyword: str, channel: SearchChannel) -> None:
-        """Lance une recherche (réf. §5). Efface les résultats de la précédente (côté daemon)."""
+        """Starts a search (ref. §5). Clears the previous search's results (daemon-side)."""
         search_tag = uint_tag(
             codes.EC_TAG_SEARCH_TYPE,
             _CHANNEL_TO_SEARCH_TYPE[channel],
             (
                 string_tag(codes.EC_TAG_SEARCH_NAME, keyword),
-                string_tag(codes.EC_TAG_SEARCH_FILE_TYPE, ""),  # obligatoire, "" = tous types
+                string_tag(codes.EC_TAG_SEARCH_FILE_TYPE, ""),  # mandatory, "" = all types
             ),
         )
         await self._request(EcPacket(codes.EC_OP_SEARCH_START, (search_tag,)), codes.EC_OP_STRINGS)
-        self._current_keyword = keyword  # provenance, posée APRÈS le succès
+        self._current_keyword = keyword  # provenance, set AFTER success
 
     async def fetch_results(self) -> tuple[FileObservation, ...]:
-        """Snapshot CUMULATIF des résultats accumulés par le daemon (réf. §5).
+        """CUMULATIVE snapshot of the results accumulated by the daemon (ref. §5).
 
-        Appelé avant tout ``start_search`` réussi, les observations porteraient
-        ``keyword=""`` (et, face à un vrai daemon, les résultats d'une éventuelle
-        recherche précédente) ; l'appelant est censé démarrer une recherche d'abord.
+        Called before any successful ``start_search``, the observations would carry
+        ``keyword=""`` (and, against a real daemon, the results of any previous
+        search); the caller is expected to start a search first.
         """
         reply = await self._request(
             EcPacket(codes.EC_OP_SEARCH_RESULTS), codes.EC_OP_SEARCH_RESULTS
@@ -132,12 +132,12 @@ class AmuleEcClient:
         return observations
 
     async def fetch_results_raw(self) -> EcPacket:
-        """Snapshot CUMULATIF BRUT (le ``EcPacket`` décodé, AVANT mapping) — outil de MESURE.
+        """RAW CUMULATIVE snapshot (the decoded ``EcPacket``, BEFORE mapping) — MEASUREMENT tool.
 
-        Même requête EC que ``fetch_results`` mais SANS le mapper : expose TOUS les tags du
-        résultat (mappés, écartés ou inconnus) pour mesurer le taux de remplissage empirique
-        de chaque tag (``tools/ec_probe.py --all-tags``). N'altère ni ``skipped_entries_total``
-        ni l'état du client ; ne lit jamais les octets d'un fichier.
+        Same EC request as ``fetch_results`` but WITHOUT the mapper: exposes ALL the result's
+        tags (mapped, discarded, or unknown) to measure the empirical fill rate of each tag
+        (``tools/ec_probe.py --all-tags``). Alters neither ``skipped_entries_total`` nor the
+        client's state; never reads a file's bytes.
         """
         return await self._request(EcPacket(codes.EC_OP_SEARCH_RESULTS), codes.EC_OP_SEARCH_RESULTS)
 
@@ -145,7 +145,7 @@ class AmuleEcClient:
         await self._request(EcPacket(codes.EC_OP_SEARCH_STOP), codes.EC_OP_MISC_DATA)
 
     async def search_progress(self) -> int | None:
-        """Pourcentage 0-100 si EC l'expose, sinon ``None`` (convention amulecmd, réf. §5)."""
+        """Percentage 0-100 if EC exposes it, else ``None`` (amulecmd convention, ref. §5)."""
         reply = await self._request(
             EcPacket(codes.EC_OP_SEARCH_PROGRESS), codes.EC_OP_SEARCH_PROGRESS
         )
@@ -158,7 +158,7 @@ class AmuleEcClient:
         return value
 
     async def network_status(self) -> NetworkStatus:
-        """État réseau (réf. §6) : EC_OP_GET_CONNSTATE au niveau de détail CMD."""
+        """Network status (ref. §6): EC_OP_GET_CONNSTATE at the CMD detail level."""
         request = EcPacket(
             codes.EC_OP_GET_CONNSTATE,
             (uint_tag(codes.EC_TAG_DETAIL_LEVEL, codes.EC_DETAIL_CMD),),
@@ -166,18 +166,18 @@ class AmuleEcClient:
         reply = await self._request(request, codes.EC_OP_MISC_DATA)
         connstate = reply.find(codes.EC_TAG_CONNSTATE)
         if connstate is None:
-            raise EcProtocolError("réponse GET_CONNSTATE sans EC_TAG_CONNSTATE")
+            raise EcProtocolError("GET_CONNSTATE reply without EC_TAG_CONNSTATE")
         return _parse_connstate(connstate)
 
     async def get_listen_port(self) -> int:
-        """Port d'écoute TCP eD2k courant d'amuled (port-sync High-ID, design §2.3/§4.2).
+        """amuled's current eD2k TCP listen port (port-sync High-ID, design §2.3/§4.2).
 
-        Émet ``EC_OP_GET_PREFERENCES`` + le sélecteur ``EC_TAG_SELECT_PREFS=EC_PREFS_CONNECTIONS``.
-        PIÈGE R3 (figé) : la RÉPONSE porte l'opcode ``EC_OP_SET_PREFERENCES`` (0x40), PAS 0x3F
-        (``CEC_Prefs_Packet`` réutilisé en réponse, ECSpecialMuleTags.cpp:83) → ``expected=0x40``.
-        Lit l'enfant ``EC_TAG_CONN_TCP_PORT`` sous le parent ``EC_TAG_PREFS_CONNECTIONS`` ; parent
-        ou enfant absent → ``EcProtocolError`` (réponse non conforme, captée par la boucle comme
-        « EC indisponible » → backoff). NE LIT JAMAIS d'octet de fichier.
+        Emits ``EC_OP_GET_PREFERENCES`` + the selector ``EC_TAG_SELECT_PREFS=EC_PREFS_CONNECTIONS``.
+        PITFALL R3 (settled): the REPLY carries opcode ``EC_OP_SET_PREFERENCES`` (0x40), NOT 0x3F
+        (``CEC_Prefs_Packet`` reused as the reply, ECSpecialMuleTags.cpp:83) → ``expected=0x40``.
+        Reads child ``EC_TAG_CONN_TCP_PORT`` under parent ``EC_TAG_PREFS_CONNECTIONS``; parent
+        or child missing → ``EcProtocolError`` (non-conforming reply, caught by the loop as
+        "EC unavailable" → backoff). NEVER reads a file byte.
         """
         request = EcPacket(
             codes.EC_OP_GET_PREFERENCES,
@@ -186,19 +186,19 @@ class AmuleEcClient:
         reply = await self._request(request, codes.EC_OP_SET_PREFERENCES)
         connections = reply.find(codes.EC_TAG_PREFS_CONNECTIONS)
         if connections is None:
-            raise EcProtocolError("réponse GET_PREFERENCES sans EC_TAG_PREFS_CONNECTIONS")
+            raise EcProtocolError("GET_PREFERENCES reply without EC_TAG_PREFS_CONNECTIONS")
         tcp_port = connections.find(codes.EC_TAG_CONN_TCP_PORT)
         if tcp_port is None:
-            raise EcProtocolError("EC_TAG_PREFS_CONNECTIONS sans EC_TAG_CONN_TCP_PORT")
+            raise EcProtocolError("EC_TAG_PREFS_CONNECTIONS without EC_TAG_CONN_TCP_PORT")
         return tcp_port.int_value()
 
     async def set_listen_port(self, port: int) -> None:
-        """Met à jour le port d'écoute TCP/UDP d'amuled EN MÉMOIRE (port-sync, design §4.2).
+        """Updates amuled's TCP/UDP listen port IN MEMORY (port-sync, design §4.2).
 
-        Émet ``EC_OP_SET_PREFERENCES`` portant le parent ``EC_TAG_PREFS_CONNECTIONS`` avec deux
-        enfants ``EC_TAG_CONN_TCP_PORT``/``EC_TAG_CONN_UDP_PORT`` = ``port``. Le succès est signalé
-        par ``EC_OP_NOOP`` (handler ExternalConn.cpp:2096). amuled persiste la pref (``Save()``
-        appelé dès l'``Apply()``) ; un restart du conteneur la fait re-bind. NE re-bind PAS à chaud.
+        Emits ``EC_OP_SET_PREFERENCES`` carrying the parent ``EC_TAG_PREFS_CONNECTIONS`` with two
+        children ``EC_TAG_CONN_TCP_PORT``/``EC_TAG_CONN_UDP_PORT`` = ``port``. Success is signalled
+        by ``EC_OP_NOOP`` (handler ExternalConn.cpp:2096). amuled persists the pref (``Save()``
+        called as soon as ``Apply()`` runs); a container restart re-binds it. Does NOT re-bind hot.
         """
         request = EcPacket(
             codes.EC_OP_SET_PREFERENCES,
@@ -215,12 +215,12 @@ class AmuleEcClient:
         await self._request(request, codes.EC_OP_NOOP)
 
     async def add_link(self, ed2k_link: str) -> None:
-        """Ajoute un lien ed2k à la file de download d'amuled (réf. EC, DÉCISION D1).
+        """Adds an ed2k link to amuled's download queue (ref. EC, DECISION D1).
 
-        Émet ``EC_OP_ADD_LINK`` avec un ``EC_TAG_STRING`` portant le lien ; le succès est
-        signalé par ``EC_OP_NOOP`` (et NON ``EC_OP_STRINGS`` — vérifié sur ExternalConn.cpp).
-        Un échec applicatif (``EC_OP_FAILED``) lève ``EcFailureError`` via ``_request`` ; un
-        flux mort lève ``EcConnectError``/``EcTimeoutError`` (sous ``MuleUnreachableError``).
+        Emits ``EC_OP_ADD_LINK`` with an ``EC_TAG_STRING`` carrying the link; success is
+        signalled by ``EC_OP_NOOP`` (and NOT ``EC_OP_STRINGS`` — verified on ExternalConn.cpp).
+        An application failure (``EC_OP_FAILED``) raises ``EcFailureError`` via ``_request``; a
+        dead stream raises ``EcConnectError``/``EcTimeoutError`` (under ``MuleUnreachableError``).
         """
         await self._request(
             EcPacket(codes.EC_OP_ADD_LINK, (string_tag(codes.EC_TAG_STRING, ed2k_link),)),
@@ -228,13 +228,13 @@ class AmuleEcClient:
         )
 
     async def download_queue(self) -> tuple[DownloadEntry, ...]:
-        """Snapshot de la file de download (réf. EC, DÉCISION D1/D2). NE LIT JAMAIS les octets.
+        """Snapshot of the download queue (ref. EC, DECISION D1/D2). NEVER reads the bytes.
 
-        Émet ``EC_OP_GET_DLOAD_QUEUE`` au détail CMD ; la réponse ``EC_OP_DLOAD_QUEUE``
-        contient N enfants ``EC_TAG_PARTFILE`` dont les sous-tags portent le hash (enfant
-        dédié ``EC_TAG_PARTFILE_HASH``, HASH16) et name/size_full/size_done/status. Une entrée
-        sans hash exploitable est ÉCARTÉE (tolérance aux inconnus, comme ``map_search_results``
-        — jamais fatale).
+        Emits ``EC_OP_GET_DLOAD_QUEUE`` at CMD detail; the reply ``EC_OP_DLOAD_QUEUE``
+        contains N children ``EC_TAG_PARTFILE`` whose sub-tags carry the hash (dedicated
+        child ``EC_TAG_PARTFILE_HASH``, HASH16) and name/size_full/size_done/status. An entry
+        without a usable hash is DISCARDED (tolerance to unknowns, like ``map_search_results``
+        — never fatal).
         """
         request = EcPacket(
             codes.EC_OP_GET_DLOAD_QUEUE,
@@ -251,11 +251,11 @@ class AmuleEcClient:
         return tuple(entries)
 
     async def shared_files(self) -> tuple[SharedFileEntry, ...]:
-        """Snapshot des fichiers PARTAGÉS d'amuled (réf. EC). NE LIT JAMAIS les octets.
+        """Snapshot of amuled's SHARED files (ref. EC). NEVER reads the bytes.
 
-        Émet ``EC_OP_GET_SHARED_FILES`` au détail CMD ; la réponse ``EC_OP_SHARED_FILES`` porte
-        N enfants ``EC_TAG_KNOWNFILE`` (hash + vrai nom on-disk). Une entrée sans hash/nom
-        exploitable est ÉCARTÉE (tolérance aux inconnus, comme ``download_queue``).
+        Emits ``EC_OP_GET_SHARED_FILES`` at CMD detail; the reply ``EC_OP_SHARED_FILES`` carries
+        N children ``EC_TAG_KNOWNFILE`` (hash + true on-disk name). An entry without a usable
+        hash/name is DISCARDED (tolerance to unknowns, like ``download_queue``).
         """
         request = EcPacket(
             codes.EC_OP_GET_SHARED_FILES,
@@ -277,8 +277,8 @@ class AmuleEcClient:
             (
                 string_tag(codes.EC_TAG_CLIENT_NAME, _CLIENT_NAME),
                 string_tag(codes.EC_TAG_CLIENT_VERSION, _CLIENT_VERSION),
-                # Émis en UINT16 (au plus court). AUCUN tag CAN_* (DÉCISION 2), AUCUN
-                # EC_TAG_VERSION_ID (interdit face à une release, réf. §4).
+                # Emitted as UINT16 (shortest form). NO CAN_* tag (DECISION 2), NO
+                # EC_TAG_VERSION_ID (forbidden against a release, ref. §4).
                 uint_tag(codes.EC_TAG_PROTOCOL_VERSION, codes.EC_CURRENT_PROTOCOL_VERSION),
             ),
         )
@@ -287,11 +287,11 @@ class AmuleEcClient:
         if salt_reply.opcode == codes.EC_OP_AUTH_FAIL:
             raise EcAuthError(_failure_message(salt_reply))
         if salt_reply.opcode != codes.EC_OP_AUTH_SALT:
-            raise EcProtocolError(f"opcode inattendu pendant l'auth : 0x{salt_reply.opcode:02X}")
+            raise EcProtocolError(f"unexpected opcode during auth: 0x{salt_reply.opcode:02X}")
         salt_tag = salt_reply.find(codes.EC_TAG_PASSWD_SALT)
         if salt_tag is None:
-            raise EcProtocolError("EC_OP_AUTH_SALT sans EC_TAG_PASSWD_SALT")
-        salt = salt_tag.int_value()  # largeur VARIABLE (réf. §9 piège 4)
+            raise EcProtocolError("EC_OP_AUTH_SALT without EC_TAG_PASSWD_SALT")
+        salt = salt_tag.int_value()  # VARIABLE width (ref. §9 pitfall 4)
         passwd_packet = EcPacket(
             codes.EC_OP_AUTH_PASSWD,
             (hash16_tag(codes.EC_TAG_PASSWD_HASH, salted_password_hash(self._password, salt)),),
@@ -301,26 +301,26 @@ class AmuleEcClient:
         if verdict.opcode == codes.EC_OP_AUTH_FAIL:
             raise EcAuthError(_failure_message(verdict))
         if verdict.opcode != codes.EC_OP_AUTH_OK:
-            raise EcProtocolError(f"opcode inattendu pendant l'auth : 0x{verdict.opcode:02X}")
+            raise EcProtocolError(f"unexpected opcode during auth: 0x{verdict.opcode:02X}")
 
     def _require_transport(self) -> EcTransport:
         if self._transport is None:
-            raise EcConnectError("client EC non connecté (appeler connect() d'abord)")
+            raise EcConnectError("EC client not connected (call connect() first)")
         return self._transport
 
     async def _request(self, packet: EcPacket, expected_opcode: int) -> EcPacket:
-        """Une requête → une réponse (FCFS). FAILED → EcFailureError ; autre → EcProtocolError.
+        """One request → one reply (FCFS). FAILED → EcFailureError; other → EcProtocolError.
 
-        Sur ``EcTimeoutError``/``EcConnectError``, le flux peut être désynchronisé
-        (contrat du transport) : le transport est JETÉ (fermeture best-effort) avant de
-        re-signaler — l'appel SUIVANT échoue vite et proprement avec « non connecté ».
+        On ``EcTimeoutError``/``EcConnectError``, the stream may be desynchronized
+        (transport contract): the transport is DISCARDED (best-effort close) before
+        re-signalling — the NEXT call fails fast and cleanly with "not connected".
 
-        ``EcProtocolError`` levée PAR ``transport.receive_packet()`` (header ou payload
-        illisible, avant qu'une trame complète ait été consommée) désynchronise également
-        le flux : les 8 octets de l'en-tête ont été lus, le payload non. La même politique
-        s'applique : transport JETÉ, re-raise. En revanche, un ``EcProtocolError`` levé par
-        les vérifications de l'opcode/des tags CI-DESSOUS (trame complète déjà reçue) ne
-        désynchronise pas le flux — seul le bloc try/except couvre la différence.
+        ``EcProtocolError`` raised BY ``transport.receive_packet()`` (unreadable header or
+        payload, before a complete frame has been consumed) also desynchronizes the
+        stream: the 8 header bytes were read, the payload was not. The same policy
+        applies: transport DISCARDED, re-raise. Conversely, an ``EcProtocolError`` raised by
+        the opcode/tag checks BELOW (complete frame already received) does not
+        desynchronize the stream — only the try/except block covers the difference.
         """
         transport = self._require_transport()
         try:
@@ -333,13 +333,13 @@ class AmuleEcClient:
             raise EcFailureError(_failure_message(reply))
         if reply.opcode != expected_opcode:
             raise EcProtocolError(
-                f"opcode inattendu : 0x{reply.opcode:02X} (attendu 0x{expected_opcode:02X})"
+                f"unexpected opcode: 0x{reply.opcode:02X} (expected 0x{expected_opcode:02X})"
             )
         return reply
 
 
 def _parse_connstate(connstate: EcTag) -> NetworkStatus:
-    """Décode le bitfield + sous-tags d'EC_TAG_CONNSTATE (réf. §6)."""
+    """Decodes the bitfield + sub-tags of EC_TAG_CONNSTATE (ref. §6)."""
     bits = connstate.int_value()
     if not bits & codes.CONNSTATE_KAD_RUNNING:
         kad = KadStatus.OFF
@@ -373,7 +373,7 @@ def _parse_connstate(connstate: EcTag) -> NetworkStatus:
 
 
 def _optional_partfile_int(entry: EcTag, name: int) -> int:
-    """Entier optionnel d'une entrée partfile : absence ou malformé → 0 (réf. EC §3)."""
+    """Optional integer of a partfile entry: absent or malformed → 0 (ref. EC §3)."""
     tag = entry.find(name)
     if tag is None:
         return 0
@@ -384,13 +384,13 @@ def _optional_partfile_int(entry: EcTag, name: int) -> int:
 
 
 def _map_partfile(entry: EcTag) -> DownloadEntry | None:
-    """Une entrée ``EC_TAG_PARTFILE`` → ``DownloadEntry``, ou ``None`` si le hash est inexploitable.
+    """An ``EC_TAG_PARTFILE`` entry → ``DownloadEntry``, or ``None`` if the hash is unusable.
 
-    Le hash est l'enfant dédié ``EC_TAG_PARTFILE_HASH`` (0x031E, HASH16, 16 octets) — vérifié
-    contre un amuled RÉEL : la valeur PROPRE de ``EC_TAG_PARTFILE`` est un UINT8 (index/statut
-    interne, IGNORÉ ici), PAS le hash. Les tailles sont aussi des enfants. Un enfant hash
-    absent / d'un type autre que HASH16 / ≠ 16 octets écarte l'entrée (le hash est le SEUL
-    identifiant stable — sans lui, l'entrée est inutilisable, jamais persistée).
+    The hash is the dedicated child ``EC_TAG_PARTFILE_HASH`` (0x031E, HASH16, 16 bytes) — verified
+    against a REAL amuled: the OWN value of ``EC_TAG_PARTFILE`` is a UINT8 (internal
+    index/status, IGNORED here), NOT the hash. The sizes are children too. A hash child
+    that is absent / of a type other than HASH16 / ≠ 16 bytes discards the entry (the hash is the
+    ONLY stable identifier — without it, the entry is unusable, never persisted).
     """
     hash_tag = entry.find(codes.EC_TAG_PARTFILE_HASH)
     if (
@@ -407,11 +407,11 @@ def _map_partfile(entry: EcTag) -> DownloadEntry | None:
 
 
 def _map_shared_file(entry: EcTag) -> SharedFileEntry | None:
-    """Une entrée ``EC_TAG_KNOWNFILE`` → ``SharedFileEntry``, ou ``None`` si inexploitable.
+    """An ``EC_TAG_KNOWNFILE`` entry → ``SharedFileEntry``, or ``None`` if unusable.
 
-    Hash = enfant dédié ``EC_TAG_PARTFILE_HASH`` (HASH16, 16 octets) ; nom = enfant
-    ``EC_TAG_PARTFILE_NAME`` (le VRAI nom on-disk, ``GetFileName`` côté amuled, post-cleanup/dédup).
-    Sans hash exploitable OU sans nom → écartée (tolérance aux inconnus, comme ``_map_partfile``).
+    Hash = dedicated child ``EC_TAG_PARTFILE_HASH`` (HASH16, 16 bytes); name = child
+    ``EC_TAG_PARTFILE_NAME`` (TRUE on-disk name, ``GetFileName`` amuled-side, post-cleanup/dedup).
+    No usable hash OR no name → discarded (tolerance to unknowns, like ``_map_partfile``).
     """
     hash_tag = entry.find(codes.EC_TAG_PARTFILE_HASH)
     if (

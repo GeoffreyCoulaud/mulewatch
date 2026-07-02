@@ -1,4 +1,4 @@
-"""Tests pour la garde de templates Jinja2 sans logique (token-match)."""
+"""Tests for the logic-free Jinja2 template guard (token-match)."""
 
 from pathlib import Path
 from unittest.mock import patch
@@ -9,7 +9,7 @@ from catalog_webui._dev.check_templates import find_logic_violations
 
 
 def test_clean_template_has_no_violation(tmp_path: Path) -> None:
-    """Un template conforme (extends + for + accès attribut) ne déclenche aucune violation."""
+    """A compliant template (extends + for + attribute access) triggers no violation."""
     (tmp_path / "ok.html").write_text(
         "{% extends 'base.html' %}"
         "{% block content %}"
@@ -20,15 +20,15 @@ def test_clean_template_has_no_violation(tmp_path: Path) -> None:
 
 
 def test_clean_template_with_else_has_no_violation(tmp_path: Path) -> None:
-    """{% for %}…{% else %}…{% endfor %} est autorisé."""
+    """{% for %}…{% else %}…{% endfor %} is allowed."""
     (tmp_path / "ok2.html").write_text(
-        "{% for f in files %}<li>{{ f.name }}</li>{% else %}<li>rien</li>{% endfor %}"
+        "{% for f in files %}<li>{{ f.name }}</li>{% else %}<li>nothing</li>{% endfor %}"
     )
     assert find_logic_violations(tmp_path) == []
 
 
 def test_clean_template_simple_var_has_no_violation(tmp_path: Path) -> None:
-    """{{ x }} et {{ x.attr.sub }} simples sont autorisés."""
+    """Simple {{ x }} and {{ x.attr.sub }} are allowed."""
     (tmp_path / "ok3.html").write_text("<p>{{ title }}</p><p>{{ node.status.label }}</p>")
     assert find_logic_violations(tmp_path) == []
 
@@ -54,7 +54,7 @@ def test_clean_template_simple_var_has_no_violation(tmp_path: Path) -> None:
     ],
 )
 def test_forbidden_constructs_are_flagged(tmp_path: Path, body: str, reason_fragment: str) -> None:
-    """Chaque construction interdite doit produire au moins une violation."""
+    """Each forbidden construct must produce at least one violation."""
     (tmp_path / "bad.html").write_text(body)
     violations = find_logic_violations(tmp_path)
     assert violations != [], f"expected violation for {body!r}"
@@ -64,14 +64,14 @@ def test_forbidden_constructs_are_flagged(tmp_path: Path, body: str, reason_frag
 
 
 def test_returns_filename_in_violation(tmp_path: Path) -> None:
-    """La liste de violations contient le nom du fichier."""
+    """The violations list contains the file name."""
     (tmp_path / "mytemplate.html").write_text("{% if x %}oops{% endif %}")
     violations = find_logic_violations(tmp_path)
     assert any("mytemplate.html" in v for v in violations)
 
 
 def test_scans_subdirectories(tmp_path: Path) -> None:
-    """Les sous-répertoires sont scannés récursivement."""
+    """Subdirectories are scanned recursively."""
     sub = tmp_path / "sub"
     sub.mkdir()
     (sub / "nested.html").write_text("{% if x %}oops{% endif %}")
@@ -80,20 +80,20 @@ def test_scans_subdirectories(tmp_path: Path) -> None:
 
 
 def test_ignores_non_html_files(tmp_path: Path) -> None:
-    """Les fichiers non-HTML (ex. .txt) sont ignorés."""
+    """Non-HTML files (e.g. .txt) are ignored."""
     (tmp_path / "readme.txt").write_text("{% if x %}oops{% endif %}")
     assert find_logic_violations(tmp_path) == []
 
 
 def test_empty_directory_has_no_violation(tmp_path: Path) -> None:
-    """Un répertoire vide retourne une liste vide."""
+    """An empty directory returns an empty list."""
     assert find_logic_violations(tmp_path) == []
 
 
 def test_main_exits_0_when_no_violations(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """main() sort avec code 0 s'il n'y a aucune violation."""
+    """main() exits with code 0 when there is no violation."""
     (tmp_path / "clean.html").write_text(
         "{% extends 'base.html' %}{% block content %}{% endblock %}"
     )
@@ -108,7 +108,7 @@ def test_main_exits_0_when_no_violations(
 
 
 def test_main_exits_1_when_violations(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """main() sort avec code 1 et affiche les violations s'il y en a."""
+    """main() exits with code 1 and prints the violations when there are any."""
     (tmp_path / "bad.html").write_text("{% if x %}oops{% endif %}")
     with (
         patch("sys.argv", ["check_templates", str(tmp_path)]),
@@ -123,7 +123,7 @@ def test_main_exits_1_when_violations(tmp_path: Path, capsys: pytest.CaptureFixt
 
 
 def test_main_exits_with_usage_when_no_arg(capsys: pytest.CaptureFixture[str]) -> None:
-    """main() sans argument affiche un message d'usage et sort avec un code non-0."""
+    """main() with no argument prints a usage message and exits with a non-0 code."""
     with (
         patch("sys.argv", ["check_templates"]),
         pytest.raises(SystemExit) as exc_info,

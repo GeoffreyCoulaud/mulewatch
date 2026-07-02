@@ -8,7 +8,7 @@ _HASH_HEX = _HASH.hex()
 
 
 def _entry(children: tuple[EcTag, ...]) -> EcTag:
-    # EC_TAG_SEARCHFILE : valeur propre = ECID (identifiant de session VOLATIL, piège 13).
+    # EC_TAG_SEARCHFILE: own value = ECID (VOLATILE session identifier, pitfall 13).
     return EcTag(codes.EC_TAG_SEARCHFILE, codes.EC_TAGTYPE_UINT8, b"\x07", children)
 
 
@@ -20,8 +20,8 @@ def _full_entry() -> EcTag:
             hash16_tag(codes.EC_TAG_PARTFILE_HASH, _HASH),
             uint_tag(codes.EC_TAG_PARTFILE_SOURCE_COUNT, 5),
             uint_tag(codes.EC_TAG_PARTFILE_SOURCE_COUNT_XFER, 2),
-            uint_tag(codes.EC_TAG_PARTFILE_STATUS, 0),  # non mappé → raw_meta
-            string_tag(0x0999, "mystère"),  # tag INCONNU → raw_meta, jamais une erreur
+            uint_tag(codes.EC_TAG_PARTFILE_STATUS, 0),  # not mapped → raw_meta
+            string_tag(0x0999, "mystère"),  # UNKNOWN tag → raw_meta, never an error
         )
     )
 
@@ -37,7 +37,7 @@ def test_maps_a_complete_entry_with_capture_all_raw_meta() -> None:
             source_count=5,
             complete_source_count=2,
             keyword="keroro",
-            media_length_sec=None,  # EC n'expose AUCUN tag média (réf. §5) — None attendu
+            media_length_sec=None,  # EC exposes NO media tag (ref. §5) — None expected
             bitrate_kbps=None,
             codec=None,
             file_type=None,
@@ -69,12 +69,12 @@ def test_skips_entries_missing_hash_name_or_size_without_failing_the_batch() -> 
     no_name = _entry((size, hsh))
     no_size = _entry((name, hsh))
     observations, skipped = map_search_results((no_hash, _full_entry(), no_name, no_size), "k")
-    assert skipped == 3  # le mapper COMPTE les écartés (spec §6)
-    assert len(observations) == 1  # une entrée pourrie ne fait JAMAIS échouer le lot
+    assert skipped == 3  # the mapper COUNTS the discarded ones (spec §6)
+    assert len(observations) == 1  # a corrupt entry NEVER fails the batch
 
 
 def test_skips_entry_with_malformed_mandatory_tag() -> None:
-    # Hash au mauvais type/longueur : entrée inexploitable → écartée, pas d'exception.
+    # Hash of wrong type/length: unusable entry → discarded, no exception.
     bad_hash = _entry(
         (
             string_tag(codes.EC_TAG_PARTFILE_NAME, "x.avi"),
@@ -91,12 +91,12 @@ def test_ignores_non_searchfile_top_level_tags() -> None:
     stray = string_tag(codes.EC_TAG_STRING, "bruit")
     observations, skipped = map_search_results((stray, _full_entry()), "k")
     assert len(observations) == 1
-    assert skipped == 0  # un tag de premier niveau inattendu n'est PAS une entrée écartée
+    assert skipped == 0  # an unexpected top-level tag is NOT a discarded entry
 
 
 def test_raw_meta_captures_grandchildren_depth_first_in_wire_order() -> None:
-    # Capture-all VRAI : un enfant non mappé qui porte des sous-tags ne perd pas son
-    # sous-arbre — chaque nœud devient une paire, parcours profondeur d'abord, ordre wire.
+    # TRUE capture-all: an unmapped child that carries sub-tags does not lose its
+    # subtree — each node becomes a pair, depth-first traversal, wire order.
     parent = uint_tag(0x0801, 7, children=(string_tag(0x0802, "fils"),))
     trailing = uint_tag(0x0803, 1)
     entry = _entry(
@@ -112,14 +112,14 @@ def test_raw_meta_captures_grandchildren_depth_first_in_wire_order() -> None:
     assert skipped == 0
     assert observations[0].raw_meta == (
         ("0x0801", "7"),
-        ("0x0802", "fils"),  # le petit-fils suit son parent, AVANT le frère suivant
+        ("0x0802", "fils"),  # the grandchild follows its parent, BEFORE the next sibling
         ("0x0803", "1"),
     )
 
 
 def test_search_parent_ecid_appears_nowhere_in_output() -> None:
-    # Piège 13 : EC_TAG_SEARCH_PARENT pointe l'ECID d'une AUTRE entrée — identifiant de
-    # session volatil, jamais persisté (il casserait la dédup inter-sessions du plan A).
+    # Pitfall 13: EC_TAG_SEARCH_PARENT points to the ECID of ANOTHER entry — volatile
+    # session identifier, never persisted (it would break plan A's cross-session dedup).
     entry = _entry(
         (
             string_tag(codes.EC_TAG_PARTFILE_NAME, "x.avi"),
@@ -134,8 +134,8 @@ def test_search_parent_ecid_appears_nowhere_in_output() -> None:
 
 
 def test_malformed_optional_count_is_treated_as_absent_not_fatal() -> None:
-    # Un compteur OPTIONNEL pourri ne coûte jamais l'observation (seuls hash/nom/taille
-    # sont éliminatoires) : présent-mais-malformé = absent = 0.
+    # A corrupt OPTIONAL counter never costs the observation (only hash/name/size
+    # are eliminating): present-but-malformed = absent = 0.
     entry = _entry(
         (
             string_tag(codes.EC_TAG_PARTFILE_NAME, "x.avi"),
@@ -147,12 +147,12 @@ def test_malformed_optional_count_is_treated_as_absent_not_fatal() -> None:
     observations, skipped = map_search_results((entry,), "k")
     assert skipped == 0
     assert observations[0].source_count == 0
-    assert observations[0].raw_meta == ()  # délibérément non ressuscité dans raw_meta
+    assert observations[0].raw_meta == ()  # deliberately not resurrected into raw_meta
 
 
 def test_duplicate_mapped_tag_second_occurrence_falls_into_raw_meta() -> None:
-    # Seule la PREMIÈRE occurrence d'un nom mappé est consommée (= ce que lit find()) ;
-    # un doublon hostile ne disparaît pas sans trace, il tombe dans raw_meta.
+    # Only the FIRST occurrence of a mapped name is consumed (= what find() reads);
+    # a hostile duplicate does not vanish without trace, it falls into raw_meta.
     entry = _entry(
         (
             string_tag(codes.EC_TAG_PARTFILE_NAME, "premier.avi"),
@@ -168,8 +168,8 @@ def test_duplicate_mapped_tag_second_occurrence_falls_into_raw_meta() -> None:
 
 
 def test_empty_filename_entry_is_kept() -> None:
-    # Nom vide mais hash/taille valides : l'identité est le hash, on GARDE l'observation
-    # (le matcher ne matchera simplement pas ce nom).
+    # Empty name but valid hash/size: the identity is the hash, we KEEP the observation
+    # (the matcher will simply not match this name).
     entry = _entry(
         (
             string_tag(codes.EC_TAG_PARTFILE_NAME, ""),
@@ -183,7 +183,7 @@ def test_empty_filename_entry_is_kept() -> None:
 
 
 def test_hash_is_rendered_as_lowercase_canonical_hex() -> None:
-    # Pin du casing canonique : littéral, PAS recalculé via .hex().
+    # Pins the canonical casing: literal, NOT recomputed via .hex().
     observations, _ = map_search_results((_full_entry(),), "k")
     assert observations[0].ed2k_hash == "000102030405060708090a0b0c0d0e0f"
 
@@ -194,10 +194,10 @@ def test_raw_meta_renders_ints_strings_and_falls_back_to_hex() -> None:
             string_tag(codes.EC_TAG_PARTFILE_NAME, "x.avi"),
             uint_tag(codes.EC_TAG_PARTFILE_SIZE_FULL, 1),
             hash16_tag(codes.EC_TAG_PARTFILE_HASH, _HASH),
-            uint_tag(0x0701, 65535),  # entier → décimal
-            string_tag(0x0702, "texte"),  # chaîne bien formée → texte
-            EcTag(0x0703, codes.EC_TAGTYPE_STRING, b"sans-nul"),  # STRING cassé → hex
-            EcTag(0x0704, codes.EC_TAGTYPE_UINT32, b"\x01"),  # largeur menteuse → hex
+            uint_tag(0x0701, 65535),  # integer → decimal
+            string_tag(0x0702, "texte"),  # well-formed string → text
+            EcTag(0x0703, codes.EC_TAGTYPE_STRING, b"sans-nul"),  # broken STRING → hex
+            EcTag(0x0704, codes.EC_TAGTYPE_UINT32, b"\x01"),  # lying width → hex
             EcTag(0x0705, codes.EC_TAGTYPE_CUSTOM, b"\xde\xad"),  # opaque → hex
         )
     )

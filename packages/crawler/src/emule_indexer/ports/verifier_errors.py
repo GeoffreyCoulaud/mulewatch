@@ -1,13 +1,13 @@
-"""Contrat d'erreur du verifier (spec verify §5/§8 — DÉCISION DV6).
+"""Verifier error contract (spec verify §5/§8 — DECISION DV6).
 
-Couche PORTS : le CONTRAT d'erreur transitoire que la boucle de vérification attrape vit au
-niveau du port, JAMAIS d'un adapter (règle de dépendance §4, motif ``MuleUnreachableError``).
-L'adapter http (``HttpContentVerifier``) LÈVE ``VerifierUnavailableError`` quand le service est
-injoignable (connexion refusée / timeout / 5xx) — une panne TRANSITOIRE : la boucle
-``fail_verification`` (lease → retry), n'invente AUCUN verdict. Une réponse 200 simplement
-malformée n'est PAS transitoire → l'adapter rend un ``VerificationResult(verdict="error")``.
+PORTS layer: the transient error CONTRACT the verification loop catches lives at the port
+level, NEVER at an adapter (dependency rule §4, ``MuleUnreachableError`` pattern). The http
+adapter (``HttpContentVerifier``) RAISES ``VerifierUnavailableError`` when the service is
+unreachable (connection refused / timeout / 5xx) — a TRANSIENT failure: the loop
+``fail_verification`` (lease → retry), invents NO verdict. A merely malformed 200 response is
+NOT transient → the adapter returns a ``VerificationResult(verdict="error")``.
 """
 
 
 class VerifierUnavailableError(Exception):
-    """Le service verifier est injoignable (transitoire) → retry par la boucle (spec §8)."""
+    """The verifier service is unreachable (transient) → retry by the loop (spec §8)."""

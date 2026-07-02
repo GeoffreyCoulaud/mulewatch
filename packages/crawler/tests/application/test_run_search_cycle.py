@@ -35,9 +35,9 @@ _HASH = "31d6cfe0d16ae931b73c59d7e0c089c0"
 _DL_NAME = "Keroro N°062A Les demoiselles cambrioleuses.avi"
 _KEYWORDS = ("keroro", "titar")
 
-# keyword_pause 1.0..1.0 (min == max) → pause FIXE de 1.0s (jitter span 0) : chaque pause
-# inter-mots-clés ajoute EXACTEMENT 1.0s aux clock.sleeps, ce qui rend la pause OBSERVABLE
-# et l'assertion « between not after » exacte.
+# keyword_pause 1.0..1.0 (min == max) → FIXED pause of 1.0s (jitter span 0): each
+# inter-keyword pause adds EXACTLY 1.0s to clock.sleeps, which makes the pause OBSERVABLE
+# and the "between not after" assertion exact.
 _POLICY = WorkerPolicy(
     backoff_base_seconds=2.0,
     backoff_cap_seconds=60.0,
@@ -51,7 +51,7 @@ _POLICY = WorkerPolicy(
 
 
 class _NoopRng:
-    """Rng identité : conserve l'ordre + jitter nul (déterminisme du test)."""
+    """Identity Rng: preserves order + zero jitter (test determinism)."""
 
     def shuffled(self, items: tuple[str, ...], seed: str) -> tuple[str, ...]:
         return items
@@ -111,7 +111,7 @@ async def test_single_instance_cycle_records_and_advances(
 ) -> None:
     clock = FakeClock()
     backoff = BackoffRegistry(_POLICY, clock, FakeRng())
-    client = FakeMuleClient(results=[(_obs(),)])  # le download apparaît sur le 1er fetch
+    client = FakeMuleClient(results=[(_obs(),)])  # the download appears on the 1st fetch
     worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
     scheduler_state = SqliteSchedulerStateRepository(local_connection)
     await run_search_cycle(
@@ -128,7 +128,7 @@ async def test_single_instance_cycle_records_and_advances(
         edge=EdgeState(),
     )
     assert catalog_connection.execute("SELECT count(*) FROM match_decisions").fetchone()[0] == 1
-    assert scheduler_state.read_cycle_index() == 1  # index = N+1, persisté en fin de cycle
+    assert scheduler_state.read_cycle_index() == 1  # index = N+1, persisted at cycle end
 
 
 @pytest.mark.asyncio
@@ -158,7 +158,7 @@ async def test_two_workers_drain_the_same_queue(
         edge=EdgeState(),
     )
     total_searches = len(client_a.searches) + len(client_b.searches)
-    assert total_searches >= 2  # toutes les tâches distribuées entre les deux travailleurs
+    assert total_searches >= 2  # all tasks distributed between the two workers
     assert scheduler_state.read_cycle_index() == 4
 
 
@@ -190,7 +190,7 @@ async def test_one_instance_blind_still_runs_others(
         telemetry=RecordingTelemetry(),
         edge=EdgeState(),
     )
-    assert scheduler_state.read_cycle_index() == 1  # le cycle tourne (DEGRADED), aucune exception
+    assert scheduler_state.read_cycle_index() == 1  # the cycle runs (DEGRADED), no exception
 
 
 @pytest.mark.asyncio
@@ -230,10 +230,10 @@ async def test_unreachable_status_makes_instance_not_capable_and_logs_blind(
     engine: MatchingEngine,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # network_status lève MuleUnreachableError (instance injoignable, p.ex. non connectée au
-    # moment du relevé de coverage) → l'instance est traitée NON search-capable au lieu de
-    # faire tomber tout le cycle. Une seule instance, toutes injoignables → BLIND loggé, et le
-    # cycle AVANCE quand même (résilience, spec §7).
+    # network_status raises MuleUnreachableError (instance unreachable, e.g. not connected at
+    # the moment of the coverage readout) → the instance is treated as not search-capable
+    # instead of taking down the whole cycle. A single instance, all unreachable → BLIND
+    # logged, and the cycle ADVANCES anyway (resilience, spec §7).
     clock = FakeClock()
     backoff = BackoffRegistry(_POLICY, clock, FakeRng())
     client = UnreachableStatusClient()
@@ -253,9 +253,9 @@ async def test_unreachable_status_makes_instance_not_capable_and_logs_blind(
             telemetry=RecordingTelemetry(),
             edge=EdgeState(),
         )
-    assert "injoignable" in caplog.text  # warning au relevé de statut de l'instance down
-    assert "blind" in caplog.text  # effective_coverage=BLIND (aucune instance capable)
-    assert scheduler_state.read_cycle_index() == 1  # le cycle a quand même avancé
+    assert "unreachable" in caplog.text  # warning at the status readout of the down instance
+    assert "blind" in caplog.text  # effective_coverage=BLIND (no capable instance)
+    assert scheduler_state.read_cycle_index() == 1  # the cycle advanced anyway
 
 
 @pytest.mark.asyncio
@@ -265,12 +265,13 @@ async def test_unreachable_instance_does_not_blind_a_healthy_peer(
     engine: MatchingEngine,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Une instance injoignable (status lève) + une instance saine → DEGRADED (pas BLIND) :
-    # la branche tolérante ne contamine PAS le pair sain (couvre le côté capable=True du for).
+    # An unreachable instance (status raises) + a healthy instance → DEGRADED (not BLIND):
+    # the tolerant branch does NOT contaminate the healthy peer (covers the capable=True
+    # side of the for).
     clock = FakeClock()
     backoff = BackoffRegistry(_POLICY, clock, FakeRng())
     down = UnreachableStatusClient()
-    healthy = FakeMuleClient()  # status par défaut : HighID + Kad CONNECTED → capable
+    healthy = FakeMuleClient()  # default status: HighID + Kad CONNECTED → capable
     deps = _deps(catalog, engine, clock, backoff)
     workers = [_worker("amule-1", down, deps), _worker("amule-2", healthy, deps)]
     scheduler_state = SqliteSchedulerStateRepository(local_connection)
@@ -288,7 +289,7 @@ async def test_unreachable_instance_does_not_blind_a_healthy_peer(
             telemetry=RecordingTelemetry(),
             edge=EdgeState(),
         )
-    assert "blind" not in caplog.text  # un pair reste capable → pas aveugle
+    assert "blind" not in caplog.text  # a peer stays capable → not blind
     assert scheduler_state.read_cycle_index() == 1
 
 
@@ -298,13 +299,13 @@ async def test_channel_backoff_is_persisted_at_cycle_end(
     local_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
-    # Une recherche échoue (EC_OP_FAILED) → le canal entre en backoff DANS le registre
-    # partagé ; le cycle PERSISTE le snapshot en fin de cycle (spec §3/§7). Une nouvelle
-    # instance de repo (simulant un redémarrage) relit ce backoff.
+    # A search fails (EC_OP_FAILED) → the channel enters backoff IN the shared registry;
+    # the cycle PERSISTS the snapshot at cycle end (spec §3/§7). A fresh repo instance
+    # (simulating a restart) re-reads this backoff.
     from emule_indexer.ports.mule_client import MuleSearchFailedError, SearchChannel
 
     class _AlwaysFails(FakeMuleClient):
-        """Échoue à CHAQUE recherche → les canaux RESTENT en backoff (jamais reset)."""
+        """Fails on EVERY search → the channels STAY in backoff (never reset)."""
 
         async def start_search(self, keyword: str, channel: SearchChannel) -> None:
             raise MuleSearchFailedError("EC_OP_FAILED")
@@ -328,7 +329,7 @@ async def test_channel_backoff_is_persisted_at_cycle_end(
         edge=EdgeState(),
     )
     persisted = SqliteSchedulerStateRepository(local_connection).load_channel_backoff()
-    # Les deux canaux de amule-1 sont en backoff persisté (toutes les recherches échouent).
+    # Both amule-1 channels are in persisted backoff (all searches fail).
     assert any(key.startswith("amule-1:") for key in persisted)
 
 
@@ -338,16 +339,16 @@ async def test_one_worker_pauses_between_items_not_after_the_last(
     local_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
-    # UN seul travailleur draine TOUS les items → la pause inter-mots-clés (fixe 1.0s,
-    # min==max ; search_progress=100 → aucun sleep de polling) tombe ENTRE deux items et
-    # JAMAIS après le dernier : exactement (N_items - 1) pauses de 1.0s.
+    # A SINGLE worker drains ALL items → the inter-keyword pause (fixed 1.0s, min==max;
+    # search_progress=100 → no polling sleep) falls BETWEEN two items and NEVER after the
+    # last: exactly (N_items - 1) pauses of 1.0s.
     from emule_indexer.application.run_search_cycle import _CHANNELS
     from emule_indexer.domain.search.keywords import generate_keywords
 
     n_items = len(generate_keywords(_KEYWORDS)) * len(_CHANNELS)
     clock = FakeClock()
     backoff = BackoffRegistry(_POLICY, clock, FakeRng())
-    client = FakeMuleClient()  # search_progress=100 → pas de sleep de polling
+    client = FakeMuleClient()  # search_progress=100 → no polling sleep
     worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
     scheduler_state = SqliteSchedulerStateRepository(local_connection)
     await run_search_cycle(
@@ -363,7 +364,7 @@ async def test_one_worker_pauses_between_items_not_after_the_last(
         telemetry=RecordingTelemetry(),
         edge=EdgeState(),
     )
-    assert clock.sleeps == [1.0] * (n_items - 1)  # entre chaque item, pas après le dernier
+    assert clock.sleeps == [1.0] * (n_items - 1)  # between each item, not after the last
 
 
 @pytest.mark.asyncio
@@ -372,9 +373,9 @@ async def test_drained_queue_skips_the_final_pause_with_two_workers(
     local_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
-    # Deux travailleurs PARTAGENT l'horloge fausse : la pause n'est dormie qu'entre deux
-    # items réels (le garde « queue non vide »). Le total des pauses est STRICTEMENT inférieur
-    # au nombre d'items (au moins le dernier item de chaque drain ne déclenche pas de pause).
+    # Two workers SHARE the fake clock: the pause is only slept between two real items
+    # (the "queue not empty" guard). The total of pauses is STRICTLY less than the number
+    # of items (at least the last item of each drain does not trigger a pause).
     from emule_indexer.application.run_search_cycle import _CHANNELS
     from emule_indexer.domain.search.keywords import generate_keywords
 
@@ -399,8 +400,8 @@ async def test_drained_queue_skips_the_final_pause_with_two_workers(
         telemetry=RecordingTelemetry(),
         edge=EdgeState(),
     )
-    # Toutes les pauses valent 1.0s ; il y en a STRICTEMENT moins que d'items (la dernière de
-    # chaque travailleur est sautée car la file est vidée).
+    # All pauses are 1.0s; there are STRICTLY fewer than items (the last one of each
+    # worker is skipped because the queue is drained).
     assert all(s == 1.0 for s in clock.sleeps)
     assert 0 < len(clock.sleeps) < n_items
 
@@ -411,17 +412,17 @@ async def test_worker_in_backoff_does_not_consume_peers_tasks(
     local_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
-    # Régression logic-search#0 (spec §14 « PAS DE PERTE ») : un worker dont l'instance est en
-    # backoff ne doit PAS drainer/jeter les tâches restantes. La queue est partagée → si A
-    # est en backoff et B sain, B doit traiter TOUTES les tâches (pas la moitié).
+    # Regression logic-search#0 (spec §14 "NO LOSS"): a worker whose instance is in backoff
+    # must NOT drain/discard the remaining tasks. The queue is shared → if A is in backoff
+    # and B healthy, B must process ALL tasks (not half).
     from emule_indexer.application.run_search_cycle import _CHANNELS
     from emule_indexer.domain.search.keywords import generate_keywords
 
     n_items = len(generate_keywords(_KEYWORDS)) * len(_CHANNELS)
     clock = FakeClock()
     backoff = BackoffRegistry(_POLICY, clock, FakeRng())
-    # 4 échecs cumulés → base × factor^3 = 2×8 = 16 s, retry_after très au-delà des pauses
-    # cumulées du cycle (au plus 9s avec 10 items × pause 1.0s, hors dernier).
+    # 4 accumulated failures → base × factor^3 = 2×8 = 16 s, retry_after well beyond the
+    # cycle's accumulated pauses (at most 9s with 10 items × 1.0s pause, excluding the last).
     for _ in range(4):
         backoff.record_failure("amule-1")
     client_a = FakeMuleClient()
@@ -442,8 +443,8 @@ async def test_worker_in_backoff_does_not_consume_peers_tasks(
         telemetry=RecordingTelemetry(),
         edge=EdgeState(),
     )
-    assert client_a.searches == []  # A en backoff → n'exécute aucune recherche
-    assert len(client_b.searches) == n_items  # B traite TOUTES les tâches (zéro perte)
+    assert client_a.searches == []  # A in backoff → runs no search
+    assert len(client_b.searches) == n_items  # B processes ALL tasks (zero loss)
 
 
 @pytest.mark.asyncio
@@ -452,9 +453,9 @@ async def test_all_workers_in_backoff_drop_tasks_with_telemetry(
     local_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
-    # Cas terminal : si TOUTES les instances sont en backoff, plus personne ne peut traiter →
-    # les tâches sont DROP avec une trace de télémétrie (visibilité), et le cycle se termine
-    # quand même (queue drainée, index avance).
+    # Terminal case: if ALL instances are in backoff, no one can process anymore → the
+    # tasks are DROPPED with a telemetry trace (visibility), and the cycle finishes anyway
+    # (queue drained, index advances).
     from emule_indexer.application.run_search_cycle import _CHANNELS
     from emule_indexer.domain.observability.events import SearchTaskDropped
     from emule_indexer.domain.search.keywords import generate_keywords
@@ -462,7 +463,7 @@ async def test_all_workers_in_backoff_drop_tasks_with_telemetry(
     n_items = len(generate_keywords(_KEYWORDS)) * len(_CHANNELS)
     clock = FakeClock()
     backoff = BackoffRegistry(_POLICY, clock, FakeRng())
-    # 4 échecs par instance → backoff au-delà de la durée du cycle (cf. test précédent).
+    # 4 failures per instance → backoff beyond the cycle's duration (cf. previous test).
     for _ in range(4):
         backoff.record_failure("amule-1")
         backoff.record_failure("amule-2")
@@ -488,8 +489,8 @@ async def test_all_workers_in_backoff_drop_tasks_with_telemetry(
     assert client_a.searches == []
     assert client_b.searches == []
     drops = [e for e in telemetry.events if isinstance(e, SearchTaskDropped)]
-    assert len(drops) == n_items  # une trace par tâche perdue (visibilité opérationnelle)
-    assert scheduler_state.read_cycle_index() == 1  # le cycle se termine quand même
+    assert len(drops) == n_items  # one trace per lost task (operational visibility)
+    assert scheduler_state.read_cycle_index() == 1  # the cycle finishes anyway
 
 
 @pytest.mark.asyncio
@@ -499,9 +500,9 @@ async def test_repository_error_on_write_cycle_state_is_absorbed(
     engine: MatchingEngine,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Régression error-boundary#1 : une RepositoryError sur write_cycle_state ne doit PAS
-    # propager hors de run_search_cycle (le TaskGroup superviseur annulerait les 3 autres
-    # boucles → crash de l'app). Alignée sur run_download/verify (« NE LÈVE JAMAIS »).
+    # Regression error-boundary#1: a RepositoryError on write_cycle_state must NOT
+    # propagate out of run_search_cycle (the supervisor TaskGroup would cancel the 3 other
+    # loops → app crash). Aligned with run_download/verify ("NEVER RAISES").
     from emule_indexer.ports.repository_errors import RepositoryError
     from emule_indexer.ports.scheduler_state_repository import ChannelBackoff
 
@@ -539,7 +540,7 @@ async def test_repository_error_on_write_cycle_state_is_absorbed(
             edge=EdgeState(),
         )
     assert "repo" in caplog.text.lower()
-    assert inner.read_cycle_index() == 0  # index n'a PAS avancé : rejouera le cycle
+    assert inner.read_cycle_index() == 0  # index did NOT advance: will replay the cycle
 
 
 @pytest.mark.asyncio
@@ -549,9 +550,9 @@ async def test_repository_error_on_save_channel_backoff_is_absorbed(
     engine: MatchingEngine,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Régression error-boundary#1 (symétrique) : une RepositoryError sur save_channel_backoff
-    # est absorbée de la même façon. L'index ne doit PAS avancer (atomicité §3/§7 : si l'un
-    # des deux échoue, le cycle est rejouable au prochain démarrage).
+    # Regression error-boundary#1 (symmetric): a RepositoryError on save_channel_backoff
+    # is absorbed the same way. The index must NOT advance (atomicity §3/§7: if one of the
+    # two fails, the cycle is replayable at the next startup).
     from emule_indexer.ports.repository_errors import RepositoryError
     from emule_indexer.ports.scheduler_state_repository import ChannelBackoff
 
@@ -572,7 +573,7 @@ async def test_repository_error_on_save_channel_backoff_is_absorbed(
             inner.write_cycle_state(cycle_index, last_full_cycle_at)  # type: ignore[arg-type]
 
         def save_channel_backoff(self, snapshot: dict[str, ChannelBackoff]) -> None:
-            raise RepositoryError("local.db verrouillé")
+            raise RepositoryError("local.db locked")
 
     with caplog.at_level(logging.ERROR, logger="emule_indexer.application.run_search_cycle"):
         await run_search_cycle(
@@ -600,7 +601,7 @@ async def test_emits_cycle_completed_and_connected_gauges(
     telemetry, edge = RecordingTelemetry(), EdgeState()
     clock = FakeClock()
     backoff = BackoffRegistry(_POLICY, clock, FakeRng())
-    client = FakeMuleClient()  # status par défaut: ed2k_high=True, kad CONNECTED → capable
+    client = FakeMuleClient()  # default status: ed2k_high=True, kad CONNECTED → capable
     worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
     scheduler_state = SqliteSchedulerStateRepository(local_connection)
     await run_search_cycle(
@@ -630,7 +631,7 @@ async def test_blind_coverage_is_edge_triggered(
     telemetry, edge = RecordingTelemetry(), EdgeState()
     clock = FakeClock()
     backoff = BackoffRegistry(_POLICY, clock, FakeRng())
-    client = UnreachableStatusClient()  # tous non search-capable → BLIND
+    client = UnreachableStatusClient()  # all not search-capable → BLIND
     worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
     scheduler_state = SqliteSchedulerStateRepository(local_connection)
     await run_search_cycle(
@@ -648,7 +649,7 @@ async def test_blind_coverage_is_edge_triggered(
     )
     blind = [e for e in telemetry.events if isinstance(e, AllInstancesBlind)]
     assert blind and blind[0].first_occurrence is True
-    # 2e cycle aveugle consécutif → first_occurrence False (anti-spam)
+    # 2nd consecutive blind cycle → first_occurrence False (anti-spam)
     telemetry.events.clear()
     await run_search_cycle(
         workers=[worker],

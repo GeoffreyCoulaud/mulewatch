@@ -1,8 +1,8 @@
-"""Transport EC async : framing d'UN paquet à la fois sur StreamReader/Writer (spec §4).
+"""Async EC transport: frames ONE packet at a time over a StreamReader/Writer (spec §4).
 
-Timeout sur CHAQUE lecture réseau (+ l'établissement TCP), configurable (spec §6).
-AUCUNE politique ici : pas de retry, pas de reconnexion, pas de sleep — l'adapter
-signale, l'appelant décide (spec §3/§6). FCFS strict : une réponse par requête.
+Timeout on EVERY network read (+ the TCP establishment), configurable (spec §6).
+NO policy here: no retry, no reconnection, no sleep — the adapter
+signals, the caller decides (spec §3/§6). Strict FCFS: one response per request.
 """
 
 import asyncio
@@ -16,11 +16,11 @@ from emule_indexer.adapters.mule_ec.codec import (
 )
 from emule_indexer.adapters.mule_ec.errors import EcConnectError, EcTimeoutError
 
-_HEADER_SIZE = 8  # réf. §1 (EC_HEADER_SIZE, ECSocket.h:72)
+_HEADER_SIZE = 8  # ref. §1 (EC_HEADER_SIZE, ECSocket.h:72)
 
 
 class EcTransport:
-    """Encadre l'envoi/la réception d'un paquet EC complet sur une connexion établie."""
+    """Frames sending/receiving one full EC packet over an established connection."""
 
     def __init__(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, *, timeout: float
@@ -30,18 +30,18 @@ class EcTransport:
         self._timeout = timeout
 
     async def send_packet(self, packet: EcPacket) -> None:
-        """Émet une trame complète (DÉCISION 5 : pas de timeout d'écriture)."""
+        """Emits a full frame (DECISION 5: no write timeout)."""
         try:
             self._writer.write(encode_packet(packet))
             await self._writer.drain()
         except OSError as exc:
-            raise EcConnectError(f"connexion perdue à l'écriture : {exc}") from exc
+            raise EcConnectError(f"connection lost on write: {exc}") from exc
 
     async def receive_packet(self) -> EcPacket:
-        """Lit EXACTEMENT un paquet : en-tête 8 octets, puis ``length`` octets de payload.
+        """Reads EXACTLY one packet: 8-byte header, then ``length`` payload bytes.
 
-        Après un ``EcTimeoutError``, le flux peut être désynchronisé — jeter le
-        transport et en rouvrir un (pas de re-lecture).
+        After an ``EcTimeoutError`` the stream may be desynchronized — throw the
+        transport away and open a new one (no re-read).
         """
         header = await self._read_exactly(_HEADER_SIZE)
         flags, length = decode_header(header)
@@ -49,10 +49,10 @@ class EcTransport:
         return decode_payload(flags, payload)
 
     async def close(self) -> None:
-        """Ferme la connexion. Nettoyage best-effort : une erreur de socket déjà morte
-        est avalée (déviation ASSUMÉE de la lettre de DÉCISION 5 : « signaler » vaut
-        pour les opérations, pas pour le cleanup — un OSError brut ici masquerait
-        l'erreur d'origine dans un bloc finally)."""
+        """Closes the connection. Best-effort cleanup: an error on an already-dead socket
+        is swallowed (a DELIBERATE deviation from the letter of DECISION 5: "signal" applies
+        to operations, not to cleanup — a raw OSError here would mask the
+        original error inside a finally block)."""
         self._writer.close()
         with contextlib.suppress(OSError):
             await self._writer.wait_closed()
@@ -61,17 +61,17 @@ class EcTransport:
         try:
             return await asyncio.wait_for(self._reader.readexactly(count), self._timeout)
         except TimeoutError as exc:
-            raise EcTimeoutError("délai de lecture EC dépassé") from exc
+            raise EcTimeoutError("EC read timed out") from exc
         except (asyncio.IncompleteReadError, OSError) as exc:
-            raise EcConnectError(f"connexion EC perdue : {exc}") from exc
+            raise EcConnectError(f"EC connection lost: {exc}") from exc
 
 
 async def open_ec_transport(host: str, port: int, *, timeout: float) -> EcTransport:
-    """Établit la connexion TCP vers ``host:port`` (réf. §0 : port EC par défaut 4712)."""
+    """Establishes the TCP connection to ``host:port`` (ref. §0: default EC port 4712)."""
     try:
         reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
     except TimeoutError as exc:
-        raise EcTimeoutError(f"délai de connexion à {host}:{port} dépassé") from exc
+        raise EcTimeoutError(f"connection to {host}:{port} timed out") from exc
     except OSError as exc:
-        raise EcConnectError(f"connexion à {host}:{port} impossible : {exc}") from exc
+        raise EcConnectError(f"cannot connect to {host}:{port}: {exc}") from exc
     return EcTransport(reader, writer, timeout=timeout)

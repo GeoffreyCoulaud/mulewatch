@@ -1,18 +1,18 @@
-"""Port ``MuleDownloadClient`` : les opérations de DOWNLOAD attendues d'un client eMule.
+"""``MuleDownloadClient`` port: the DOWNLOAD operations expected from an eMule client.
 
-SÉPARÉ de ``MuleClient`` (ISP, spec download §2.4/§4 — DÉCISION D3) : la recherche ne dépend
-pas des méthodes de download et inversement. La MÊME classe adapter (``AmuleEcClient``) peut
-implémenter les deux Protocols STRUCTURELLEMENT ; en exploitation, la connexion download est
-une instance DISTINCTE (sa propre connexion EC, spec §2.2). Le port n'importe QUE le domaine
-et le DTO réseau partagé ``NetworkStatus`` (déjà dans ``ports/mule_client.py`` — réutilisé,
-pas dupliqué : HighID requis pour télécharger en mode full).
+SEPARATE from ``MuleClient`` (ISP, spec download §2.4/§4 — DECISION D3): search does not
+depend on the download methods and vice versa. The SAME adapter class (``AmuleEcClient``) can
+implement both Protocols STRUCTURALLY; in production, the download connection is a SEPARATE
+instance (its own EC connection, spec §2.2). The port imports ONLY the domain and the shared
+network DTO ``NetworkStatus`` (already in ``ports/mule_client.py`` — reused, not duplicated:
+HighID required to download in full mode).
 
-``DownloadEntry`` est le DTO de port (frozen) : le crawler NE LIT JAMAIS les octets (spec
-§4) ; ``download_queue`` ne renvoie que des MÉTADONNÉES EC. La complétion se déduit de
-``size_done``/``size_full`` (DÉCISION D2 : EC n'expose pas de chemin staging portable, donc
-le DTO n'en porte pas — la localisation pour la quarantaine est dérivée d'un staging
-configuré par l'appelant). Le contrat d'ERREUR est celui du Plan C : un flux mort lève
-``MuleUnreachableError`` (``ports/mule_client.py``) — l'application le tolère (spec §9).
+``DownloadEntry`` is the port DTO (frozen): the crawler NEVER READS the bytes (spec §4);
+``download_queue`` only returns EC METADATA. Completion is inferred from
+``size_done``/``size_full`` (DECISION D2: EC exposes no portable staging path, so the DTO
+carries none — the location for quarantine is derived from a staging configured by the
+caller). The ERROR contract is Plan C's: a dead stream raises ``MuleUnreachableError``
+(``ports/mule_client.py``) — the application tolerates it (spec §9).
 """
 
 from dataclasses import dataclass
@@ -23,11 +23,11 @@ from emule_indexer.ports.mule_client import NetworkStatus
 
 @dataclass(frozen=True)
 class DownloadEntry:
-    """Une entrée de la file de download d'amuled (métadonnées EC SEULES, spec §4).
+    """An entry of amuled's download queue (EC metadata ONLY, spec §4).
 
-    ``ed2k_hash`` = clé contenu (hex minuscule 32). ``size_done``/``size_full`` = octets
-    transférés / taille totale. ``is_complete`` est vrai SEULEMENT si la taille totale est
-    connue (> 0) ET atteinte — un ``size_full == 0`` (entrée naissante) n'est jamais complet.
+    ``ed2k_hash`` = content key (lowercase hex 32). ``size_done``/``size_full`` = bytes
+    transferred / total size. ``is_complete`` is true ONLY if the total size is known (> 0)
+    AND reached — a ``size_full == 0`` (nascent entry) is never complete.
     """
 
     ed2k_hash: str
@@ -36,18 +36,18 @@ class DownloadEntry:
 
     @property
     def is_complete(self) -> bool:
-        """``True`` si le fichier est entièrement transféré côté amuled (spec §5)."""
+        """``True`` if the file is fully transferred on amuled's side (spec §5)."""
         return self.size_full > 0 and self.size_done >= self.size_full
 
 
 @dataclass(frozen=True)
 class SharedFileEntry:
-    """Une entrée de la liste des fichiers PARTAGÉS d'amuled (réponse ``EC_OP_SHARED_FILES``).
+    """An entry of amuled's SHARED files list (``EC_OP_SHARED_FILES`` response).
 
-    Un fichier téléchargé est auto-partagé par amuled à la complétion (signal POSITIF de
-    complétion, cf. design 2026-06-17). ``name`` est le VRAI nom on-disk (``GetFileName`` côté
-    amuled, post-cleanup ET post-dédup ``nom(0).ext``) ; ``ed2k_hash`` (hex minuscule 32) sert à
-    matcher un download suivi. AUCUN octet n'est lu (métadonnée EC seule, spec §4).
+    A downloaded file is auto-shared by amuled on completion (POSITIVE completion signal,
+    cf. design 2026-06-17). ``name`` is the REAL on-disk name (``GetFileName`` on amuled's
+    side, post-cleanup AND post-dedup ``name(0).ext``); ``ed2k_hash`` (lowercase hex 32) is
+    used to match a tracked download. NO byte is read (EC metadata only, spec §4).
     """
 
     ed2k_hash: str
@@ -55,11 +55,11 @@ class SharedFileEntry:
 
 
 class MuleDownloadClient(Protocol):
-    """Contrat async des opérations de download (spec §4). Actions UNITAIRES : aucun sleep/retry.
+    """Async contract of the download operations (spec §4). UNIT actions: no sleep/retry.
 
-    ``add_link`` ajoute un lien ed2k à la file de download d'amuled. ``download_queue`` rend un
-    snapshot de la file (hash + avancement). ``network_status`` est réutilisé (HighID requis
-    pour télécharger en mode full).
+    ``add_link`` adds an ed2k link to amuled's download queue. ``download_queue`` returns a
+    snapshot of the queue (hash + progress). ``network_status`` is reused (HighID required to
+    download in full mode).
     """
 
     async def connect(self) -> None: ...

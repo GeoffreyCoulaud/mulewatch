@@ -1,17 +1,17 @@
-"""Ports ``Clock`` et ``Rng`` : le temps et le hasard, injectables (spec orchestration §3).
+"""``Clock`` and ``Rng`` ports: time and randomness, injectable (spec orchestration §3).
 
-Déterminisme TOTAL (spec §3) : l'application ne lit jamais l'horloge système ni un
-``random`` global directement — elle passe par ces ports, que les tests remplacent par des
-fausses implémentations avançables/seedées (zéro flakiness, tout cycle rejouable).
+TOTAL determinism (spec §3): the application never reads the system clock nor a global
+``random`` directly — it goes through these ports, which tests replace with advanceable/
+seeded fake implementations (zero flakiness, every cycle replayable).
 
-``Clock`` porte un ``now()`` AWARE (UTC) ET un ``sleep`` ASYNC (le cycle dort entre deux
-itérations) : les deux faces du temps dont l'orchestration a besoin. Le ``sleep`` est sur
-le port pour qu'un faux puisse l'avancer SANS attente réelle.
+``Clock`` carries an AWARE ``now()`` (UTC) AND an ASYNC ``sleep`` (the cycle sleeps between
+two iterations): the two faces of time the orchestration needs. The ``sleep`` is on the
+port so a fake can advance it WITHOUT a real wait.
 
-``Rng`` est le mélangeur déterministe consommé par ``domain/search/cycle.py`` ; il est
-RÉ-EXPORTÉ ici depuis le domaine (la définition canonique du Protocol vit dans le domaine,
-là où il est consommé — règle de dépendance : le domaine n'importe jamais un port). Ce
-ré-export donne aux adapters/composition un point d'import unique « les ports du temps ».
+``Rng`` is the deterministic shuffler consumed by ``domain/search/cycle.py``; it is
+RE-EXPORTED here from the domain (the Protocol's canonical definition lives in the domain,
+where it is consumed — dependency rule: the domain never imports a port). This re-export
+gives the adapters/composition a single "the time ports" import point.
 """
 
 from datetime import datetime
@@ -23,10 +23,10 @@ __all__ = ["Clock", "Rng"]
 
 
 class Clock(Protocol):
-    """Le temps, injectable : ``now()`` aware (UTC) + ``sleep`` async (spec §3).
+    """Time, injectable: aware ``now()`` (UTC) + async ``sleep`` (spec §3).
 
-    Implémenté côté adapter par ``datetime.now(UTC)`` + ``asyncio.sleep`` ; remplacé en
-    test par une fausse horloge avançable (le ``sleep`` avance le ``now`` sans attente).
+    Implemented on the adapter side by ``datetime.now(UTC)`` + ``asyncio.sleep``; replaced
+    in tests by an advanceable fake clock (the ``sleep`` advances ``now`` without waiting).
     """
 
     def now(self) -> datetime: ...

@@ -1,10 +1,10 @@
-"""``MergeError`` : erreur d'usage ou de fusion (message clair pour le CLI, jamais nu).
+"""``MergeError``: usage or merge error (clear message for the CLI, never bare).
 
-Le merge est un outil opérateur standalone (spec fusion §2) : il ne dépend pas du contrat
-d'erreur des repositories. ``MergeError`` est sa propre exception (style ``ValueError`` :
-un message lisible que ``__main__`` rend sur ``stderr`` avec un code de sortie non nul).
+The merge is a standalone operator tool (merge spec §2): it does not depend on the
+repositories' error contract. ``MergeError`` is its own exception (``ValueError`` style:
+a readable message that ``__main__`` prints on ``stderr`` with a non-zero exit code).
 """
 
 
 class MergeError(Exception):
-    """Usage invalide ou copie qui échoue (fail-fast, message clair pour l'opérateur)."""
+    """Invalid usage or a copy that fails (fail-fast, clear message for the operator)."""

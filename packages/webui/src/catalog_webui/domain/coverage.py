@@ -1,8 +1,8 @@
-"""Dérivation pure du statut de couverture d'une cible (spec webui §5). Aucun I/O.
+"""Pure derivation of a target's coverage status (webui spec §5). No I/O.
 
-L'ordre des paliers vient de ``catalog_matching.config.TIER_RANK`` (source de vérité partagée
-avec l'engine de matching). Sans cette mutualisation, le webui réinventait sa propre table
-divergente — un 4ᵉ palier ou un renommage aurait silencieusement faussé la coverage.
+The tier order comes from ``catalog_matching.config.TIER_RANK`` (source of truth shared
+with the matching engine). Without this sharing, the webui reinvented its own divergent
+table — a 4th tier or a rename would have silently skewed the coverage.
 """
 
 from collections.abc import Sequence
@@ -12,11 +12,11 @@ from catalog_webui.domain.views import CoverageStatus
 
 
 def coverage_for(target_id: str, decisions: Sequence[tuple[str, str]]) -> CoverageStatus:
-    """``decisions`` = ``(ed2k_hash, tier)`` des derniers verdicts pour cette cible."""
+    """``decisions`` = ``(ed2k_hash, tier)`` of the latest verdicts for this target."""
     if not decisions:
         return CoverageStatus(status="none", best_tier=None, file_count=0)
-    # TIER_RANK : entier croissant = palier plus fort (download > notify > catalog) ; un tier
-    # inconnu retombe sur ``-1`` (sous le plus faible) — neutre vis-à-vis du choix.
+    # TIER_RANK: increasing integer = stronger tier (download > notify > catalog); an unknown
+    # tier falls back to ``-1`` (below the weakest) — neutral with respect to the choice.
     best = max(decisions, key=lambda d: TIER_RANK.get(d[1], -1))[1]
     status = "found" if best == "download" else "partial"
     return CoverageStatus(status=status, best_tier=best, file_count=len(decisions))

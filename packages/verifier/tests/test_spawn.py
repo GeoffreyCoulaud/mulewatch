@@ -14,7 +14,7 @@ _VALID_EGRESS = b'{"verdict": "clean", "real_meta": {"container": "mp4"}, "check
 
 
 class _RecordingRunner:
-    """ChildRunner injecté : capture argv/cwd/env/timeout, rend un (rc, stdout, timed_out) canné."""
+    """ChildRunner injected: captures argv/cwd/env/timeout, returns a canned tuple."""
 
     def __init__(self, returncode: int, stdout: bytes, timed_out: bool) -> None:
         self._result = (returncode, stdout, timed_out)
@@ -88,7 +88,7 @@ def test_cwd_is_a_real_temp_dir_during_call_and_removed_after() -> None:
     runner = _RecordingRunner(0, _VALID_EGRESS, False)
     run_analysis(_HASH, _CFG, runner)
     assert runner.cwd_existed_during_call is True
-    assert not Path(runner.cwd).exists()  # supprimé en finally
+    assert not Path(runner.cwd).exists()  # removed in finally
 
 
 def test_temp_dir_is_removed_even_when_runner_raises() -> None:
@@ -103,8 +103,8 @@ def test_temp_dir_is_removed_even_when_runner_raises() -> None:
 
     with contextlib.suppress(RuntimeError):
         run_analysis(_HASH, _CFG, _BoomRunner())
-    assert captured  # le runner a bien été appelé
-    assert not Path(captured[0]).exists()  # tmpdir nettoyé malgré l'exception
+    assert captured  # the runner was indeed called
+    assert not Path(captured[0]).exists()  # tmpdir cleaned up despite the exception
 
 
 def test_minimal_env_contains_only_whitelisted_vars() -> None:
@@ -139,5 +139,5 @@ def test_minimal_env_does_not_leak_parent_environ(monkeypatch: pytest.MonkeyPatc
 
 
 def test_prod_child_runner_constructs() -> None:
-    # le constructeur n'est pas pragma ; __call__ (vrai subprocess) l'est.
+    # the constructor is not pragma; __call__ (real subprocess) is.
     assert isinstance(ProdChildRunner(_CFG), ProdChildRunner)

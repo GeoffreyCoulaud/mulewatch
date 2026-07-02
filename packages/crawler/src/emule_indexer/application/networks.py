@@ -1,8 +1,8 @@
-"""Label réseau d'observabilité dérivé du canal de recherche (E-D6).
+"""Observability network label derived from the search channel (E-D6).
 
-``SearchChannel.GLOBAL`` = serveurs eD2k → ``"ed2k"`` ; ``SearchChannel.KAD`` → ``"kad"``. La
-source réseau d'une observation est connue PAR CONSTRUCTION (la recherche est lancée par canal),
-sans toucher la persistance."""
+``SearchChannel.GLOBAL`` = eD2k servers → ``"ed2k"``; ``SearchChannel.KAD`` → ``"kad"``. The
+network source of an observation is known BY CONSTRUCTION (the search is launched per channel),
+without touching persistence."""
 
 from emule_indexer.ports.mule_client import SearchChannel
 
@@ -13,5 +13,5 @@ _LABELS = {SearchChannel.GLOBAL: ED2K, SearchChannel.KAD: KAD}
 
 
 def network_label(channel: SearchChannel) -> str:
-    """``"ed2k"`` pour GLOBAL, ``"kad"`` pour KAD."""
+    """``"ed2k"`` for GLOBAL, ``"kad"`` for KAD."""
     return _LABELS[channel]

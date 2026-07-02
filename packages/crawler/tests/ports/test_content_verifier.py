@@ -8,7 +8,7 @@ from emule_indexer.ports.verifier_errors import VerifierUnavailableError
 
 
 class _StubVerifier:
-    """Satisfait ContentVerifier structurellement (sans l'importer)."""
+    """Satisfies ContentVerifier structurally (without importing it)."""
 
     def __init__(self) -> None:
         self.verified: list[tuple[str, Mapping[str, object]]] = []

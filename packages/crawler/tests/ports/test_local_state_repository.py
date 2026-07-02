@@ -15,7 +15,7 @@ def test_claimed_task_is_frozen_and_holds_fields() -> None:
 
 
 class _StubRepository:
-    """Implémentation structurelle minimale : satisfait LocalStateRepository SANS l'importer."""
+    """Minimal structural implementation: satisfies LocalStateRepository WITHOUT importing it."""
 
     def node_id(self) -> str:
         return "00000000-0000-0000-0000-000000000000"
@@ -40,7 +40,7 @@ class _StubRepository:
 
 
 def test_protocol_is_satisfied_structurally() -> None:
-    repository: LocalStateRepository = _StubRepository()  # mypy prouve la satisfaction
+    repository: LocalStateRepository = _StubRepository()  # mypy proves the satisfaction
     assert repository.node_id() == "00000000-0000-0000-0000-000000000000"
     assert repository.enqueue_verification("31d6cfe0d16ae931b73c59d7e0c089c0") is True
     assert repository.claim_verification() is None

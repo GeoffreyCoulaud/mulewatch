@@ -1,9 +1,9 @@
-"""Tests de l'adapter ``HttpContentVerifier`` (spec verify §5/§8 — DÉCISION DV6).
+"""Tests for the ``HttpContentVerifier`` adapter (spec verify §5/§8 — DECISION DV6).
 
-Deux familles :
-- Tests de CONTRAT (vraie app Starlette via ``ASGITransport``) : prouvent le contrat de fil
-  DTO↔réponse sans socket/Docker (DÉCISION DV4).
-- Tests fabriqués (``MockTransport``) : couvrent le parsing défensif, les erreurs réseau, etc.
+Two families:
+- CONTRACT tests (real Starlette app via ``ASGITransport``): prove the wire contract
+  DTO↔response without a socket/Docker (DECISION DV4).
+- Fabricated tests (``MockTransport``): cover defensive parsing, network errors, etc.
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -23,8 +23,8 @@ _HASH = "a" * 32
 
 
 class _FakeProdChildRunner:
-    """Faux ``ProdChildRunner`` (signature conforme au Protocol ``ChildRunner``) : rend un égress
-    canné SANS spawner de sous-process — garde le contract test dans le gate par défaut."""
+    """Fake ``ProdChildRunner`` (signature matches the ``ChildRunner`` Protocol): returns a canned
+    egress WITHOUT spawning a subprocess — keeps the contract test in the default gate."""
 
     def __init__(self, cfg: object) -> None:
         self._cfg = cfg
@@ -41,14 +41,14 @@ def _verifier_against(app: object) -> HttpContentVerifier:
     return HttpContentVerifier(client)
 
 
-# ----------------------------------------------------- test de CONTRAT (vraie app Starlette)
+# ----------------------------------------------------- CONTRACT test (real Starlette app)
 
 
 @pytest.mark.asyncio
 async def test_contract_verify_against_real_app(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Contrat de fil end-to-end (égress JSON → réponse → DTO) ; égress canné, pas de spawn réel.
+    # End-to-end wire contract (JSON egress → response → DTO); canned egress, no real spawn.
     monkeypatch.setattr(check_module, "ProdChildRunner", _FakeProdChildRunner)
     quarantine = tmp_path / "quarantine"
     quarantine.mkdir()
@@ -85,7 +85,7 @@ async def test_contract_missing_file_is_error_verdict(tmp_path: Path) -> None:
     assert result.verdict == "error"
 
 
-# ----------------------------------------------------- réponses fabriquées (MockTransport)
+# ----------------------------------------------------- fabricated responses (MockTransport)
 
 
 def _verifier_with_handler(
@@ -114,7 +114,7 @@ async def test_well_formed_200_maps_to_result() -> None:
 @pytest.mark.asyncio
 async def test_malformed_200_missing_verdict_is_error_verdict() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"real_meta": {}, "checks": []})  # pas de verdict
+        return httpx.Response(200, json={"real_meta": {}, "checks": []})  # no verdict
 
     verifier = _verifier_with_handler(handler)
     try:
@@ -166,7 +166,7 @@ async def test_verdict_not_a_string_is_error_verdict() -> None:
 
 @pytest.mark.asyncio
 async def test_non_dict_json_200_is_error_verdict() -> None:
-    """JSON valide mais non-objet (ex: liste) → verdict error."""
+    """Valid JSON but non-object (e.g. a list) → error verdict."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=[1, 2, 3])
@@ -181,7 +181,7 @@ async def test_non_dict_json_200_is_error_verdict() -> None:
 
 @pytest.mark.asyncio
 async def test_bad_real_meta_type_is_error_verdict() -> None:
-    """``real_meta`` non-dict → verdict error."""
+    """``real_meta`` non-dict → error verdict."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"verdict": "unverified", "real_meta": "bad", "checks": []})

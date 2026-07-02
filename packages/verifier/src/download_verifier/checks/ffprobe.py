@@ -1,13 +1,12 @@
-"""Check ``ffprobe`` (spec analysis §5 — DA10) : cœur de ``real_meta``.
+"""``ffprobe`` check (analysis spec §5 — DA10): the heart of ``real_meta``.
 
-``probe`` invoque ffprobe via un ``FfprobeRunner`` INJECTABLE (prod = subprocess réel ; tests =
-JSON canné) avec des flags FIGÉS, parse le JSON DÉFENSIVEMENT (``.get(...)`` partout ; les champs
-numériques de ``format`` sont des STRINGS chez ffprobe → parse en float/int dans un try/except,
-champ omis s'il manque/n'est pas parsable). Status : exit ≠ 0, JSON vide/illisible/non-objet,
-``streams`` vide/absent, ou aucun flux audio/vidéo → ``suspicious`` (prétend être un média, n'en
-est pas un) ; sinon ``clean`` + ``real_meta``. ``ffprobe`` tourne en petit-fils sous les
-rlimits/timeout/groupe de l'enfant (spec §4/§12) — un ffprobe qui boucle est tué et donne
-``suspicious``.
+``probe`` invokes ffprobe via an INJECTABLE ``FfprobeRunner`` (prod = real subprocess; tests =
+canned JSON) with FIXED flags, parses the JSON DEFENSIVELY (``.get(...)`` everywhere; ffprobe's
+``format`` numeric fields are STRINGS → parsed to float/int in a try/except, field omitted if
+missing/unparsable). Status: exit ≠ 0, empty/unreadable/non-object JSON, empty/absent
+``streams``, or no audio/video stream → ``suspicious`` (claims to be a media, is not one);
+otherwise ``clean`` + ``real_meta``. ``ffprobe`` runs as a grandchild under the child's
+rlimits/timeout/group (spec §4/§12) — an ffprobe that loops is killed and yields ``suspicious``.
 """
 
 import json
@@ -23,13 +22,13 @@ _MEDIA_STREAM_TYPES = frozenset({"video", "audio"})
 
 
 class FfprobeRunner(Protocol):
-    """Exécute ffprobe et rend ``(returncode, stdout)``. Injecté pour les tests."""
+    """Run ffprobe and return ``(returncode, stdout)``. Injected for tests."""
 
     def __call__(self, argv: Sequence[str]) -> tuple[int, bytes]: ...
 
 
 class ProdFfprobeRunner:
-    """``FfprobeRunner`` de PROD : vrai ``subprocess.run`` (couvert par analysis_integration)."""
+    """PROD ``FfprobeRunner``: real ``subprocess.run`` (covered by analysis_integration)."""
 
     def __init__(self, timeout_s: float) -> None:
         self._timeout_s = timeout_s
@@ -47,7 +46,7 @@ class ProdFfprobeRunner:
 
 
 def probe(path: Path, runner: FfprobeRunner, cfg: AnalysisConfig) -> CheckOutcome:
-    """Sonde ``path`` via ``runner`` ; rend ``CheckOutcome`` (status + ``real_meta``)."""
+    """Probe ``path`` via ``runner``; return ``CheckOutcome`` (status + ``real_meta``)."""
     argv = [
         cfg.ffprobe_path,
         "-v",
@@ -129,12 +128,12 @@ def _as_str(value: object) -> str | None:
 
 
 def _as_plain_int(value: object) -> int | None:
-    # ffprobe rend déjà ces champs (width/height/channels) comme des ints JSON.
+    # ffprobe already returns these fields (width/height/channels) as JSON ints.
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _as_int(value: object) -> int | None:
-    # ffprobe rend duration/bit_rate/size/sample_rate comme des STRINGS → parse défensif.
+    # ffprobe returns duration/bit_rate/size/sample_rate as STRINGS → defensive parse.
     if not isinstance(value, str):
         return None
     try:

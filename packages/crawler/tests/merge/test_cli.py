@@ -1,8 +1,8 @@
-"""Tests TDD du CLI ``python -m emule_indexer.merge`` (safe-by-default) — §6/§7 du design.
+"""TDD tests for the ``python -m emule_indexer.merge`` CLI (safe-by-default) — design §6/§7.
 
-On appelle ``main(argv)`` directement (rend un ``int``) ; les erreurs d'usage/merge rendent
-``2`` avec un message clair sur ``stderr`` (jamais de traceback) ; argparse rend lui-même
-``2`` (via ``SystemExit``) pour une erreur de parsing (groupe mutuellement exclusif/requis).
+We call ``main(argv)`` directly (returns an ``int``); usage/merge errors return ``2`` with a
+clear message on ``stderr`` (never a traceback); argparse itself returns ``2`` (via
+``SystemExit``) for a parsing error (mutually exclusive/required group).
 """
 
 from pathlib import Path
@@ -50,12 +50,12 @@ def test_t1_cli_output_mode_merges(tmp_path: Path) -> None:
 
 def test_t7_output_exists_without_force_errors(tmp_path: Path) -> None:
     src = _seed(tmp_path / "a.db", "a")
-    existing = _seed(tmp_path / "out.db", "b")  # la sortie existe déjà (1 fichier : HASH_B).
+    existing = _seed(tmp_path / "out.db", "b")  # output already exists (1 file: HASH_B).
 
     code = main(["--output", str(existing), str(src)])
 
     assert code == 2
-    # Pas d'écrasement : le fichier existant est inchangé (toujours son seul fichier).
+    # No overwrite: the existing file is unchanged (still its single file).
     assert count(existing, "files") == 1
 
 
@@ -66,10 +66,10 @@ def test_t8_output_exists_with_force_appends(tmp_path: Path) -> None:
     code = main(["--output", str(existing), "--force", str(src)])
 
     assert code == 0
-    # Append idempotent : la sortie contient désormais l'union (HASH_A + HASH_B).
+    # Idempotent append: the output now contains the union (HASH_A + HASH_B).
     assert count(existing, "files") == 2
 
-    # Re-merge avec --force → no-op (idempotent).
+    # Re-merge with --force → no-op (idempotent).
     code = main(["--output", str(existing), "--force", str(src)])
     assert code == 0
     assert count(existing, "files") == 2
@@ -82,10 +82,10 @@ def test_t9_into_explicit_dest_is_a_source(tmp_path: Path) -> None:
     code = main(["--into", str(src_a), str(src_a), str(src_b)])
 
     assert code == 0
-    # srcA contient désormais l'union (son propre HASH_A + HASH_B venu de srcB).
+    # srcA now contains the union (its own HASH_A + HASH_B from srcB).
     assert count(src_a, "files") == 2
 
-    # Idempotent : re-merger ne duplique rien.
+    # Idempotent: re-merging duplicates nothing.
     code = main(["--into", str(src_a), str(src_a), str(src_b)])
     assert code == 0
     assert count(src_a, "files") == 2
@@ -94,7 +94,7 @@ def test_t9_into_explicit_dest_is_a_source(tmp_path: Path) -> None:
 def test_t10_into_must_be_a_listed_source(tmp_path: Path) -> None:
     src_a = _seed(tmp_path / "a.db", "a")
     src_b = _seed(tmp_path / "b.db", "b")
-    other = _seed(tmp_path / "other.db", "a")  # existe mais N'est PAS dans la liste.
+    other = _seed(tmp_path / "other.db", "a")  # exists but is NOT in the list.
 
     code = main(["--into", str(other), str(src_a), str(src_b)])
 
@@ -105,7 +105,7 @@ def test_t11_output_and_into_mutually_exclusive(tmp_path: Path) -> None:
     src = _seed(tmp_path / "a.db", "a")
     out = tmp_path / "out.db"
 
-    # --output ET --into → erreur argparse (SystemExit code 2).
+    # --output AND --into → argparse error (SystemExit code 2).
     with pytest.raises(SystemExit) as excinfo:
         main(["--output", str(out), "--into", str(src), str(src)])
     assert excinfo.value.code == 2
@@ -114,7 +114,7 @@ def test_t11_output_and_into_mutually_exclusive(tmp_path: Path) -> None:
 def test_t11_neither_output_nor_into_required(tmp_path: Path) -> None:
     src = _seed(tmp_path / "a.db", "a")
 
-    # NI --output NI --into → erreur argparse (groupe required → SystemExit code 2).
+    # NEITHER --output NOR --into → argparse error (required group → SystemExit code 2).
     with pytest.raises(SystemExit) as excinfo:
         main([str(src)])
     assert excinfo.value.code == 2
@@ -137,5 +137,5 @@ def test_t13_missing_source_file_errors_before_output_created(tmp_path: Path) ->
     code = main(["--output", str(out), str(src), str(missing)])
 
     assert code == 2
-    # Fail-fast : la sortie n'a PAS été créée (on échoue avant d'ouvrir/créer la sortie).
+    # Fail-fast: the output was NOT created (we fail before opening/creating the output).
     assert not out.exists()

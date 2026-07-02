@@ -10,7 +10,7 @@ def test_from_env_uses_defaults_when_empty() -> None:
     assert cfg.clamscan_path == "clamscan"
     assert cfg.clamav_db_dir == "/clamav-db"
     assert cfg.timeout_s == 30.0
-    # clamav OFF par défaut → rlimits de base INCHANGÉS.
+    # clamav OFF by default → base rlimits UNCHANGED.
     assert cfg.rlimit_cpu_s == 20
     assert cfg.rlimit_as_bytes == 512 * 1024 * 1024
     assert cfg.rlimit_nproc == 64
@@ -65,9 +65,9 @@ def test_from_env_rejects_empty_enabled_checks() -> None:
 
 
 def test_from_env_rejects_unknown_check_name() -> None:
-    # config-validation#4 : une typo ('clamv', 'type-sniff') ne doit PAS être silencieusement
-    # ignorée — sinon fail-open : zéro check exécuté → verdict 'clean' pour TOUT fichier (même
-    # malveillant). Fail-fast au chargement contre l'enum fermé KNOWN_CHECKS.
+    # config-validation#4: a typo ('clamv', 'type-sniff') must NOT be silently ignored —
+    # otherwise fail-open: zero checks run → 'clean' verdict for EVERY file (even a malicious
+    # one). Fail-fast at load time against the closed enum KNOWN_CHECKS.
     with pytest.raises(ValueError, match="clamv"):
         AnalysisConfig.from_env({"ENABLED_CHECKS": "type_sniff,clamv"})
 
@@ -83,21 +83,21 @@ def test_from_env_rejects_unparsable_float() -> None:
 
 
 def test_from_env_rejects_non_positive_timeout() -> None:
-    # config-validation#3 : timeout_s <= 0 → communicate(timeout=) expire immédiatement → tout
-    # fichier 'suspicious'. Plancher fail-fast nommant la variable.
+    # config-validation#3: timeout_s <= 0 → communicate(timeout=) expires immediately → every
+    # file 'suspicious'. Fail-fast floor naming the variable.
     with pytest.raises(ValueError, match="ANALYSIS_TIMEOUT_S"):
         AnalysisConfig.from_env({"ANALYSIS_TIMEOUT_S": "0"})
 
 
 def test_from_env_rejects_infinite_cpu_rlimit() -> None:
-    # RLIMIT_CPU_S=-1 == RLIM_INFINITY : le garde CPU serait DÉSARMÉ silencieusement (pire qu'un
-    # crash). Tout rlimit doit être > 0.
+    # RLIMIT_CPU_S=-1 == RLIM_INFINITY: the CPU guard would be silently DISARMED (worse than a
+    # crash). Every rlimit must be > 0.
     with pytest.raises(ValueError, match="RLIMIT_CPU_S"):
         AnalysisConfig.from_env({"RLIMIT_CPU_S": "-1"})
 
 
 def test_from_env_rejects_zero_address_space_rlimit() -> None:
-    # RLIMIT_AS_BYTES=0 → le child ne peut pas exec (OSError au Popen, traité en transitoire).
+    # RLIMIT_AS_BYTES=0 → the child cannot exec (OSError at Popen, handled as transient).
     with pytest.raises(ValueError, match="RLIMIT_AS_BYTES"):
         AnalysisConfig.from_env({"RLIMIT_AS_BYTES": "0"})
 
@@ -114,14 +114,14 @@ def test_config_is_frozen() -> None:
 
 
 def test_clamav_enabled_raises_rlimits_to_defaults() -> None:
-    # clamav dans enabled_checks, AUCUN override explicite → défauts conditionnels relevés (§6.2).
+    # clamav in enabled_checks, NO explicit override → conditional defaults raised (§6.2).
     cfg = AnalysisConfig.from_env({"ENABLED_CHECKS": "type_sniff,ffprobe,clamav"})
     assert cfg.rlimit_as_bytes == 1536 * 1024 * 1024
     assert cfg.rlimit_cpu_s == 120
 
 
 def test_clamav_enabled_respects_clamav_override() -> None:
-    # clamav ON + overrides _CLAMAV explicites → ces valeurs custom gagnent.
+    # clamav ON + explicit _CLAMAV overrides → these custom values win.
     cfg = AnalysisConfig.from_env(
         {
             "ENABLED_CHECKS": "clamav",
@@ -134,7 +134,7 @@ def test_clamav_enabled_respects_clamav_override() -> None:
 
 
 def test_explicit_rlimit_wins_over_clamav_default() -> None:
-    # clamav ON MAIS override explicite (non suffixé) → prioritaire sur le défaut conditionnel.
+    # clamav ON BUT explicit override (non-suffixed) → takes priority over the conditional default.
     cfg = AnalysisConfig.from_env(
         {
             "ENABLED_CHECKS": "clamav",
@@ -147,17 +147,18 @@ def test_explicit_rlimit_wins_over_clamav_default() -> None:
 
 
 def test_clamav_off_keeps_baseline_rlimits() -> None:
-    # clamav absent + aucun override → baseline 512 Mio / 20 s (INCHANGÉ).
+    # clamav absent + no override → baseline 512 MiB / 20 s (UNCHANGED).
     cfg = AnalysisConfig.from_env({"ENABLED_CHECKS": "type_sniff,ffprobe"})
     assert cfg.rlimit_as_bytes == 512 * 1024 * 1024
     assert cfg.rlimit_cpu_s == 20
 
 
 def test_clamav_enabled_raises_timeout_to_default() -> None:
-    # sandbox-confinement#1 : avec clamav le budget CPU passe à 120 s ; le timeout wall-clock doit
-    # SUIVRE (sinon le scan est tué à 30 s par communicate → faux positifs sur médias sains lents).
+    # sandbox-confinement#1: with clamav the CPU budget rises to 120 s; the wall-clock timeout must
+    # FOLLOW (otherwise the scan is killed at 30 s by communicate → false positives on slow healthy
+    # media).
     cfg = AnalysisConfig.from_env({"ENABLED_CHECKS": "type_sniff,ffprobe,clamav"})
-    assert cfg.timeout_s == 150.0  # >= budget CPU clamav (120 s) + marge
+    assert cfg.timeout_s == 150.0  # >= clamav CPU budget (120 s) + margin
 
 
 def test_clamav_timeout_respects_clamav_override() -> None:
@@ -166,39 +167,39 @@ def test_clamav_timeout_respects_clamav_override() -> None:
 
 
 def test_explicit_timeout_wins_over_clamav_default() -> None:
-    # override explicite (non suffixé) prioritaire sur le défaut conditionnel (comme les rlimits).
+    # explicit override (non-suffixed) takes priority over the conditional default (like rlimits).
     cfg = AnalysisConfig.from_env({"ENABLED_CHECKS": "clamav", "ANALYSIS_TIMEOUT_S": "90"})
     assert cfg.timeout_s == 90.0
 
 
 def test_seccomp_enabled_defaults_true() -> None:
-    # ring noyau ON par défaut (prod conteneur : no_new_privs posé).
+    # kernel ring ON by default (prod container: no_new_privs set).
     assert AnalysisConfig.from_env({}).seccomp_enabled is True
 
 
 def test_seccomp_enabled_parsed_false() -> None:
-    # override dev/CI bare-metal : "0"/"false"/"no" → désactivé.
+    # bare-metal dev/CI override: "0"/"false"/"no" → disabled.
     assert AnalysisConfig.from_env({"SECCOMP_ENABLED": "0"}).seccomp_enabled is False
     assert AnalysisConfig.from_env({"SECCOMP_ENABLED": "false"}).seccomp_enabled is False
     assert AnalysisConfig.from_env({"SECCOMP_ENABLED": "no"}).seccomp_enabled is False
 
 
 def test_seccomp_enabled_parsed_true() -> None:
-    # "1"/"true"/"yes" → activé explicitement.
+    # "1"/"true"/"yes" → explicitly enabled.
     assert AnalysisConfig.from_env({"SECCOMP_ENABLED": "1"}).seccomp_enabled is True
     assert AnalysisConfig.from_env({"SECCOMP_ENABLED": "true"}).seccomp_enabled is True
     assert AnalysisConfig.from_env({"SECCOMP_ENABLED": "yes"}).seccomp_enabled is True
 
 
 def test_seccomp_enabled_invalid_raises() -> None:
-    # valeur non booléenne → ValueError (fail-fast, cohérent avec _parse_int).
+    # non-boolean value → ValueError (fail-fast, consistent with _parse_int).
     with pytest.raises(ValueError):
         AnalysisConfig.from_env({"SECCOMP_ENABLED": "maybe"})
 
 
 def test_seccomp_enabled_accepts_any_casing_and_on_off() -> None:
-    # Régression config-validation#5 : `SECCOMP_ENABLED=True` (casse Python) levait
-    # ValueError au lieu d'être accepté. Désormais strip().lower() + ``on``/``off``.
+    # config-validation#5 regression: `SECCOMP_ENABLED=True` (Python casing) used to raise
+    # ValueError instead of being accepted. Now strip().lower() + ``on``/``off``.
     for raw in ("True", "TRUE", " true ", "Yes", "ON", "1"):
         assert AnalysisConfig.from_env({"SECCOMP_ENABLED": raw}).seccomp_enabled is True
     for raw in ("False", "FALSE", "No", "OFF", "0"):
@@ -206,6 +207,6 @@ def test_seccomp_enabled_accepts_any_casing_and_on_off() -> None:
 
 
 def test_seccomp_enabled_invalid_lists_accepted_literals() -> None:
-    # Le message d'erreur doit lister les littéraux acceptés (l'opérateur sait quoi corriger).
+    # The error message must list the accepted literals (the operator knows what to fix).
     with pytest.raises(ValueError, match="true.*false"):
         AnalysisConfig.from_env({"SECCOMP_ENABLED": "maybe"})

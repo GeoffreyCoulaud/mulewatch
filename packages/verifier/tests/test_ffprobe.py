@@ -40,7 +40,7 @@ _VALID = {
 
 
 class _StubRunner:
-    """FfprobeRunner injecté : rend un (returncode, stdout) canné, capture l'argv."""
+    """FfprobeRunner injected: returns a canned (returncode, stdout), captures the argv."""
 
     def __init__(self, returncode: int, stdout: bytes) -> None:
         self._returncode = returncode
@@ -58,7 +58,7 @@ def test_prod_ffprobe_runner_constructs() -> None:
 
 
 def test_stub_runner_satisfies_protocol() -> None:
-    # mypy contrôle ici la conformité structurelle de _StubRunner au Protocol FfprobeRunner.
+    # mypy here checks _StubRunner's structural conformance to the FfprobeRunner Protocol.
     runner: FfprobeRunner = _StubRunner(0, b"")
     assert callable(runner)
 
@@ -172,14 +172,14 @@ def test_missing_format_keys_are_omitted() -> None:
 
 
 def test_non_object_json_is_suspicious() -> None:
-    # JSON valide mais pas un objet (liste) → illisible → suspicious.
+    # valid JSON but not an object (list) → unreadable → suspicious.
     outcome = probe(Path("/q/f"), _StubRunner(0, b"[1,2,3]"), _CFG)
     assert outcome.status == "suspicious"
 
 
 def test_empty_video_stream_omits_video_key() -> None:
-    # Stream vidéo sans aucun champ connu → dict vide → clé "video" omise (étiquetage honnête).
-    # Un stream audio valide garde le statut clean.
+    # Video stream with no known field → empty dict → "video" key omitted (honest labeling).
+    # A valid audio stream keeps the clean status.
     payload = {
         "streams": [
             {"codec_type": "video"},
@@ -194,8 +194,8 @@ def test_empty_video_stream_omits_video_key() -> None:
 
 
 def test_empty_audio_stream_omits_audio_key() -> None:
-    # Stream audio sans aucun champ connu → dict vide → exclu de la liste ; liste vide → clé omise.
-    # Un stream vidéo valide garde le statut clean.
+    # Audio stream with no known field → empty dict → excluded from list; empty list → key omitted.
+    # A valid video stream keeps the clean status.
     payload = {
         "streams": [
             {"codec_type": "video", "codec_name": "h264"},

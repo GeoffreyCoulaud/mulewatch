@@ -11,7 +11,7 @@ from emule_indexer.application.run_download_cycle import (
 )
 from emule_indexer.ports.catalog_repository import ObservedFile
 
-# Réutilise les fakes de test_run_download_cycle (importés explicitement).
+# Reuse the fakes from test_run_download_cycle (imported explicitly).
 from tests.application.fakes import RecordingTelemetry
 from tests.application.test_run_download_cycle import (
     _TARGETS,
@@ -25,7 +25,7 @@ from tests.application.test_run_download_cycle import (
 
 
 class RecordingSignal:
-    """Hub de nudge enregistrant + réveillant (le test EST le producteur)."""
+    """Nudge hub that records + wakes (the test IS the producer)."""
 
     def __init__(self) -> None:
         self._events: dict[str, asyncio.Event] = {}
@@ -68,7 +68,7 @@ async def test_loop_stops_when_shutdown_is_set_before_start() -> None:
     shutdown = asyncio.Event()
     shutdown.set()
     deps = _loop_deps(signal=RecordingSignal(), shutdown=shutdown)
-    await asyncio.wait_for(download_loop(deps), timeout=1.0)  # ne tourne aucun cycle
+    await asyncio.wait_for(download_loop(deps), timeout=1.0)  # runs no cycle
 
 
 @pytest.mark.asyncio
@@ -78,7 +78,7 @@ async def test_loop_runs_a_cycle_then_sleeps_then_stops() -> None:
     deps = _loop_deps(signal=signal, shutdown=shutdown)
 
     async def stop_after_first_sleep() -> None:
-        # laisse un cycle + l'entrée en attente, puis demande l'arrêt et réveille la boucle.
+        # let one cycle + the wait entry happen, then request shutdown and wake the loop.
         while not deps.clock.sleeps:  # type: ignore[attr-defined]
             await asyncio.sleep(0)
         shutdown.set()
@@ -87,7 +87,7 @@ async def test_loop_runs_a_cycle_then_sleeps_then_stops() -> None:
     await asyncio.gather(
         asyncio.wait_for(download_loop(deps), timeout=2.0), stop_after_first_sleep()
     )
-    assert deps.clock.sleeps  # type: ignore[attr-defined]  # au moins un sleep de poll
+    assert deps.clock.sleeps  # type: ignore[attr-defined]  # at least one poll sleep
 
 
 @pytest.mark.asyncio
@@ -100,16 +100,16 @@ async def test_nudge_wakes_the_loop_before_poll_expires() -> None:
         while DOWNLOAD_NUDGE_SUBJECT not in signal.waited:
             await asyncio.sleep(0)
         shutdown.set()
-        signal.signal(DOWNLOAD_NUDGE_SUBJECT)  # réveille l'attente avant les 999 s de poll
+        signal.signal(DOWNLOAD_NUDGE_SUBJECT)  # wakes the wait before the 999 s poll
 
     await asyncio.gather(asyncio.wait_for(download_loop(deps), timeout=2.0), nudge_then_stop())
     assert DOWNLOAD_NUDGE_SUBJECT in signal.waited
 
 
 class _ShutdownDuringCycleCatalog:
-    """CatalogReader qui pose ``shutdown`` au 1er ``download_decisions`` (PENDANT le cycle).
+    """CatalogReader that sets ``shutdown`` on the 1st ``download_decisions`` (DURING the cycle).
 
-    Satisfait STRUCTURELLEMENT ``CatalogReader`` (download_decisions + last_observation).
+    Structurally satisfies ``CatalogReader`` (download_decisions + last_observation).
     """
 
     def __init__(self, shutdown: asyncio.Event) -> None:
@@ -125,40 +125,40 @@ class _ShutdownDuringCycleCatalog:
 
 @pytest.mark.asyncio
 async def test_loop_breaks_when_shutdown_is_set_during_the_cycle() -> None:
-    # le `if deps.shutdown.is_set(): break` APRÈS le cycle : shutdown posé PENDANT le cycle
-    # (par le catalog) → break sans appeler _sleep_or_nudge (aucun sleep enregistré).
+    # the `if deps.shutdown.is_set(): break` AFTER the cycle: shutdown set DURING the cycle
+    # (by the catalog) → break without calling _sleep_or_nudge (no sleep recorded).
     shutdown = asyncio.Event()
     clock = FakeClock()
     deps = _loop_deps(signal=RecordingSignal(), shutdown=shutdown)
     deps.clock = clock
     deps.catalog = _ShutdownDuringCycleCatalog(shutdown)
     await asyncio.wait_for(download_loop(deps), timeout=1.0)
-    assert clock.sleeps == []  # break avant tout sleep/nudge
+    assert clock.sleeps == []  # break before any sleep/nudge
 
 
 class _BlockingClock:
-    """Clock dont ``sleep`` BLOQUE pour de bon (le nudge doit gagner et annuler le sleep).
+    """Clock whose ``sleep`` BLOCKS for good (the nudge must win and cancel the sleep).
 
-    Satisfait STRUCTURELLEMENT ``Clock`` : ``now`` aware (non utilisé par la boucle) + ``sleep``
-    qui ne se résout jamais → le nudge gagne et le sleep_task pendant est annulé.
+    Structurally satisfies ``Clock``: ``now`` aware (unused by the loop) + ``sleep`` that
+    never resolves → the nudge wins and the pending sleep_task is cancelled.
     """
 
     def now(self) -> datetime:
         return datetime(2026, 6, 13, tzinfo=UTC)
 
     async def sleep(self, seconds: float) -> None:
-        await asyncio.Event().wait()  # ne se résout JAMAIS
+        await asyncio.Event().wait()  # NEVER resolves
 
 
 @pytest.mark.asyncio
 async def test_nudge_wins_and_cancels_the_pending_sleep() -> None:
-    # _sleep_or_nudge : nudge PRÉ-armé → la branche `if not task.done(): task.cancel()` est
-    # exercée sur le sleep_task encore en cours (le _BlockingClock ne le résout jamais).
+    # _sleep_or_nudge: nudge PRE-armed → the `if not task.done(): task.cancel()` branch is
+    # exercised on the still-running sleep_task (the _BlockingClock never resolves it).
     shutdown = asyncio.Event()
     signal = RecordingSignal()
     deps = _loop_deps(signal=signal, shutdown=shutdown)
     deps.clock = _BlockingClock()
-    signal.signal(DOWNLOAD_NUDGE_SUBJECT)  # nudge déjà armé → wait() repart aussitôt
+    signal.signal(DOWNLOAD_NUDGE_SUBJECT)  # nudge already armed → wait() returns at once
 
     async def stop_when_waited() -> None:
         while DOWNLOAD_NUDGE_SUBJECT not in signal.waited:
@@ -172,16 +172,16 @@ async def test_nudge_wins_and_cancels_the_pending_sleep() -> None:
 
 @pytest.mark.asyncio
 async def test_loop_cancelled_mid_wait_propagates_cleanly() -> None:
-    # Le vrai déclencheur d'arrêt en prod : le TaskGroup de CrawlerApp annule la tâche de
-    # boucle PENDANT qu'elle dort dans _sleep_or_nudge. _BlockingClock + aucun nudge → la
-    # boucle se gare sur asyncio.wait ; l'annulation y atterrit, le finally annule les enfants,
-    # et le CancelledError se propage proprement (la boucle s'arrête, sans tâche en fuite).
-    shutdown = asyncio.Event()  # JAMAIS posé : seule l'annulation arrête la boucle
+    # The real shutdown trigger in prod: CrawlerApp's TaskGroup cancels the loop task WHILE
+    # it sleeps in _sleep_or_nudge. _BlockingClock + no nudge → the loop parks on
+    # asyncio.wait; the cancellation lands there, the finally cancels the children, and the
+    # CancelledError propagates cleanly (the loop stops, with no leaked task).
+    shutdown = asyncio.Event()  # NEVER set: only cancellation stops the loop
     signal = RecordingSignal()
     deps = _loop_deps(signal=signal, shutdown=shutdown)
     deps.clock = _BlockingClock()
     task = asyncio.ensure_future(download_loop(deps))
-    # attendre que la boucle soit garée dans _sleep_or_nudge (nudge_task a appelé wait())
+    # wait until the loop is parked in _sleep_or_nudge (nudge_task has called wait())
     while DOWNLOAD_NUDGE_SUBJECT not in signal.waited:
         await asyncio.sleep(0)
     task.cancel()

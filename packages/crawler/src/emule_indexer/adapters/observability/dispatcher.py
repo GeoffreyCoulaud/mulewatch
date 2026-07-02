@@ -1,9 +1,9 @@
-"""Dispatcher d'observabilité : route un ``Event`` vers log + métriques + notifs (E-D3/E-D13).
+"""Observability dispatcher: routes an ``Event`` to log + metrics + notifications (E-D3/E-D13).
 
-Couche ADAPTER. Implémente ``Telemetry``. ``emit`` : ``describe`` (pur) → log au niveau mappé +
-``MetricsSink.apply`` pour chaque métrique + ``Notifier.notify`` par audience, chaque notif sous
-``asyncio.wait_for(timeout)`` avec échec/timeout ABSORBÉ + loggé (un canal en panne ne casse
-JAMAIS le crawl, E-D13). Aucun état (l'edge-trigger vit dans l'application — E-D8)."""
+ADAPTER layer. Implements ``Telemetry``. ``emit``: ``describe`` (pure) → log at the mapped level +
+``MetricsSink.apply`` for each metric + ``Notifier.notify`` per audience, each notification under
+``asyncio.wait_for(timeout)`` with failure/timeout ABSORBED + logged (a broken channel NEVER
+breaks the crawl, E-D13). No state (the edge-trigger lives in the application — E-D8)."""
 
 import asyncio
 import logging
@@ -23,7 +23,7 @@ _LEVELS: dict[Severity, int] = {
 
 
 class ObservabilityDispatcher:
-    """Adapter ``Telemetry`` : un point d'émission, trois sorties (log/métrique/notif)."""
+    """``Telemetry`` adapter: one emission point, three outputs (log/metric/notification)."""
 
     def __init__(
         self, *, metrics: MetricsSink, notifier: Notifier, notify_timeout_seconds: float
@@ -43,5 +43,5 @@ class ObservabilityDispatcher:
                     self._notifier.notify(audience, report.message, report.severity),
                     timeout=self._timeout,
                 )
-            except Exception as error:  # noqa: BLE001 — une notif ne casse JAMAIS le crawl (E-D13)
-                _logger.warning("notification %s échouée (%s)", audience.value, error)
+            except Exception as error:  # noqa: BLE001 — notifications NEVER break the crawl (E-D13)
+                _logger.warning("notification %s failed (%s)", audience.value, error)

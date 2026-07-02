@@ -1,4 +1,4 @@
-"""Interpolation ${NAME} (sous-chaîne, fail-fast) — I/O env, donc dans l'adapter (spec D1/D3)."""
+"""${NAME} interpolation (substring, fail-fast) — env I/O, so in the adapter (spec D1/D3)."""
 
 import re
 from collections.abc import Mapping
@@ -9,16 +9,16 @@ _PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 def interpolate(value: str, env: Mapping[str, str], what: str) -> str:
-    """Substitue chaque ``${NAME}`` de ``value`` par ``env[NAME]``.
+    """Substitute each ``${NAME}`` in ``value`` with ``env[NAME]``.
 
-    ``what`` nomme le champ pour l'erreur. Variable absente ⇒ ``ConfigError`` (spec D1).
-    Aucun motif ⇒ ``value`` renvoyé tel quel (les ``$`` isolés ne sont pas touchés).
+    ``what`` names the field for the error. Missing variable ⇒ ``ConfigError`` (spec D1).
+    No match ⇒ ``value`` returned as-is (lone ``$`` are left untouched).
     """
 
     def _replace(match: re.Match[str]) -> str:
         name = match.group(1)
         if name not in env:
-            raise ConfigError(f"{what} : variable d'environnement {name!r} référencée mais absente")
+            raise ConfigError(f"{what}: environment variable {name!r} referenced but not set")
         return env[name]
 
     return _PATTERN.sub(_replace, value)

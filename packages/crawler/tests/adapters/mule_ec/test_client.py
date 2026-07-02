@@ -23,21 +23,21 @@ from tests.adapters.mule_ec.ec_fakes import FakeEcServer
 _PASSWORD = "secret123"
 
 
-# ---------------------------------------------------------------- formule d'auth (pure)
+# ---------------------------------------------------------------- auth formula (pure)
 
 
 def test_salted_password_hash_matches_the_reference_formula() -> None:
-    # Réf. §4 : hash = md5( lower(md5_hex(pwd)) + md5_hex(format("%X", salt)) ), 16 octets bruts.
-    # Vecteurs précalculés : md5("secret123")=5d7845ac6ee7cfffafc5fe5f35cf666d ;
+    # Ref. §4: hash = md5( lower(md5_hex(pwd)) + md5_hex(format("%X", salt)) ), 16 raw bytes.
+    # Precomputed vectors: md5("secret123")=5d7845ac6ee7cfffafc5fe5f35cf666d;
     #   salt 0x6B5E8D3A12F0C4D7 → "6B5E8D3A12F0C4D7" → md5=cd35cbb9bcdce6dc1510a4ff66e2be9a.
     assert salted_password_hash(_PASSWORD, 0x6B5E8D3A12F0C4D7) == bytes.fromhex(
         "1fd30b937affac0994f651b1b4f3aaf4"
     )
-    # Sel ÉTROIT (piège 4) : 0xAB → "AB" (majuscules, sans zéros de tête).
+    # NARROW salt (pitfall 4): 0xAB → "AB" (uppercase, no leading zeros).
     assert salted_password_hash(_PASSWORD, 0xAB) == bytes.fromhex(
         "36f8e4902449fcaa91e76f7dc1d87e9e"
     )
-    # Sel zéro : "%lX" de 0 → "0" (réf. §4).
+    # Zero salt: "%lX" of 0 → "0" (ref. §4).
     assert salted_password_hash(_PASSWORD, 0) == bytes.fromhex("29e6c939d92ec99adbe3a50970506102")
 
 
@@ -60,7 +60,7 @@ async def test_connect_performs_the_full_auth_handshake() -> None:
         await client.connect()
         await client.close()
         auth_req, auth_passwd = server.received
-        # AUTH_REQ : nom + version + version de protocole, AUCUN tag CAN_* (DÉCISION 2).
+        # AUTH_REQ: name + version + protocol version, NO CAN_* tag (DECISION 2).
         assert auth_req.opcode == codes.EC_OP_AUTH_REQ
         assert auth_req.find(codes.EC_TAG_CLIENT_NAME) is not None
         assert auth_req.find(codes.EC_TAG_CLIENT_VERSION) is not None
@@ -69,7 +69,7 @@ async def test_connect_performs_the_full_auth_handshake() -> None:
         assert protocol.int_value() == 0x0204
         assert auth_req.find(codes.EC_TAG_CAN_ZLIB) is None
         assert auth_req.find(codes.EC_TAG_CAN_UTF8_NUMBERS) is None
-        # AUTH_PASSWD : le hash salé EXACT, en HASH16.
+        # AUTH_PASSWD: the EXACT salted hash, as HASH16.
         assert auth_passwd.opcode == codes.EC_OP_AUTH_PASSWD
         passwd_hash = auth_passwd.find(codes.EC_TAG_PASSWD_HASH)
         assert passwd_hash is not None
@@ -79,7 +79,7 @@ async def test_connect_performs_the_full_auth_handshake() -> None:
 
 @pytest.mark.asyncio
 async def test_connect_reads_a_narrow_salt_generically() -> None:
-    # Réf. §9 piège 4 : le sel arrive UINT8 quand il est petit ; lecture générique exigée.
+    # Ref. §9 pitfall 4: the salt comes as UINT8 when small; generic reading required.
     async with FakeEcServer(_auth_replies(0xAB)) as server:
         client = AmuleEcClient("127.0.0.1", server.port, _PASSWORD, timeout=2.0)
         await client.connect()
@@ -104,14 +104,14 @@ async def test_connect_raises_auth_error_with_daemon_message_on_auth_fail() -> N
         client = AmuleEcClient("127.0.0.1", server.port, "mauvais", timeout=2.0)
         with pytest.raises(EcAuthError, match="Authentication failed."):
             await client.connect()
-        # Après l'échec, le client n'est PAS connecté.
+        # After the failure, the client is NOT connected.
         with pytest.raises(EcConnectError):
             await client.stop_search()
 
 
 @pytest.mark.asyncio
 async def test_connect_raises_auth_error_when_first_reply_is_auth_fail() -> None:
-    # Réf. §4 : une version de protocole refusée répond AUTH_FAIL dès la 1re réponse.
+    # Ref. §4: a refused protocol version replies AUTH_FAIL on the very first reply.
     replies = [
         encode_packet(
             EcPacket(
@@ -131,7 +131,7 @@ async def test_connect_raises_auth_error_without_message_tag() -> None:
     replies = [encode_packet(EcPacket(codes.EC_OP_AUTH_FAIL))]
     async with FakeEcServer(replies) as server:
         client = AmuleEcClient("127.0.0.1", server.port, _PASSWORD, timeout=2.0)
-        with pytest.raises(EcAuthError, match="sans message"):
+        with pytest.raises(EcAuthError, match="no message"):
             await client.connect()
 
 
@@ -146,7 +146,7 @@ async def test_connect_raises_protocol_error_on_unexpected_opcode_at_salt_step()
 
 @pytest.mark.asyncio
 async def test_connect_raises_protocol_error_when_salt_tag_is_missing() -> None:
-    replies = [encode_packet(EcPacket(codes.EC_OP_AUTH_SALT))]  # AUTH_SALT sans tag de sel
+    replies = [encode_packet(EcPacket(codes.EC_OP_AUTH_SALT))]  # AUTH_SALT with no salt tag
     async with FakeEcServer(replies) as server:
         client = AmuleEcClient("127.0.0.1", server.port, _PASSWORD, timeout=2.0)
         with pytest.raises(EcProtocolError, match="PASSWD_SALT"):
@@ -167,56 +167,56 @@ async def test_connect_raises_protocol_error_on_unexpected_verdict_opcode() -> N
 
 @pytest.mark.asyncio
 async def test_connect_refuses_empty_password_before_any_io() -> None:
-    # Miroir de RemoteConnect.cpp:117 (réf. §4) — aucun serveur nécessaire.
+    # Mirror of RemoteConnect.cpp:117 (ref. §4) — no server needed.
     client = AmuleEcClient("127.0.0.1", 1, "", timeout=2.0)
-    with pytest.raises(EcAuthError, match="vide"):
+    with pytest.raises(EcAuthError, match="empty"):
         await client.connect()
 
 
 @pytest.mark.asyncio
 async def test_connect_twice_is_idempotent_and_keeps_the_first_connection_usable() -> None:
-    # Un second connect() est un NO-OP IDEMPOTENT : il ne refait PAS le handshake (aucun
-    # octet supplémentaire émis) et ne fuit pas le premier transport. Indispensable au pool :
-    # le composition root connecte au montage, puis le travailleur rappelle connect() dans son
-    # _ensure_connected() — ce second appel doit rester un no-op sûr (spec orchestration §3).
+    # A second connect() is an IDEMPOTENT NO-OP: it does NOT redo the handshake (no
+    # extra byte emitted) and does not leak the first transport. Essential for the pool:
+    # the composition root connects at wiring time, then the worker re-calls connect() in its
+    # _ensure_connected() — this second call must stay a safe no-op (orchestration spec §3).
     stop_ok = encode_packet(EcPacket(codes.EC_OP_MISC_DATA))
-    # Le serveur ne scripte QU'UN seul handshake (+ la réponse au stop_search). Si connect()
-    # rejouait l'auth, il consommerait des octets non scriptés et lèverait → le no-op est prouvé.
+    # The server scripts ONLY ONE handshake (+ the reply to stop_search). If connect()
+    # replayed the auth, it would consume unscripted bytes and raise → the no-op is proven.
     async with FakeEcServer(_auth_replies(1) + [stop_ok]) as server:
         client = AmuleEcClient("127.0.0.1", server.port, _PASSWORD, timeout=2.0)
         await client.connect()
-        await client.connect()  # second appel : no-op idempotent (pas de re-handshake)
-        await client.stop_search()  # la première connexion fonctionne toujours
+        await client.connect()  # second call: idempotent no-op (no re-handshake)
+        await client.stop_search()  # the first connection still works
         await client.close()
 
 
 @pytest.mark.asyncio
 async def test_connect_rehandshakes_after_the_transport_is_invalidated() -> None:
-    # Reconnexion-après-coupure (spec orchestration §3) : l'idempotence de connect() est
-    # indexée sur le transport (None → re-handshake ; non-None → no-op). Quand une panne
-    # invalide le transport (_transport=None, comme dans les tests _invalidates_the_transport),
-    # le travailleur RAPPELLE connect() — qui DOIT refaire le handshake, sinon la reconnexion
-    # est silencieusement cassée. On le prouve par byte-accounting : un 2e handshake est scripté
-    # ET CONSOMMÉ (deux paires auth dans server.received), et l'op post-reconnexion réussit.
+    # Reconnect-after-drop (orchestration spec §3): connect()'s idempotence is
+    # keyed on the transport (None → re-handshake; non-None → no-op). When a failure
+    # invalidates the transport (_transport=None, as in the _invalidates_the_transport tests),
+    # the worker RE-CALLS connect() — which MUST redo the handshake, otherwise the reconnect
+    # is silently broken. We prove it by byte-accounting: a 2nd handshake is scripted
+    # AND CONSUMED (two auth pairs in server.received), and the post-reconnect op succeeds.
     bad_flags_frame = (0xFF000000).to_bytes(4, "big") + (3).to_bytes(4, "big") + b"\x01\x00\x00"
     stop_ok = encode_packet(EcPacket(codes.EC_OP_MISC_DATA))
-    # Connexion 1 : auth(1) puis une trame illisible (invalide le transport sur stop_search).
-    # Connexion 2 : auth(2) — DOIT être consommée par le re-handshake — puis stop_ok.
+    # Connection 1: auth(1) then an unreadable frame (invalidates the transport on stop_search).
+    # Connection 2: auth(2) — MUST be consumed by the re-handshake — then stop_ok.
     replies = _auth_replies(1) + [bad_flags_frame] + _auth_replies(2) + [stop_ok]
     async with FakeEcServer(replies) as server:
         client = AmuleEcClient("127.0.0.1", server.port, _PASSWORD, timeout=2.0)
         await client.connect()
         with pytest.raises(EcProtocolError):
-            await client.stop_search()  # trame illisible → transport JETÉ
-        assert client._transport is None  # invalidé (mirroir des tests sibling)
-        # connect() voit _transport=None → REFAIT le handshake (ne no-op PAS), sur une 2e
-        # connexion TCP : le 2e auth scripté est consommé.
+            await client.stop_search()  # unreadable frame → transport DISCARDED
+        assert client._transport is None  # invalidated (mirrors the sibling tests)
+        # connect() sees _transport=None → REDOES the handshake (does NOT no-op), on a 2nd
+        # TCP connection: the 2nd scripted auth is consumed.
         await client.connect()
-        assert client._transport is not None  # reconnecté
-        await client.stop_search()  # l'op post-reconnexion réussit (stop_ok)
+        assert client._transport is not None  # reconnected
+        await client.stop_search()  # the post-reconnect op succeeds (stop_ok)
         await client.close()
-    # Byte-accounting : 2 AUTH_REQ + 2 AUTH_PASSWD (deux handshakes) ont bien été reçus, preuve
-    # que le 2e connect() a réellement rejoué l'auth (et n'a pas no-opé sur un transport None).
+    # Byte-accounting: 2 AUTH_REQ + 2 AUTH_PASSWD (two handshakes) were indeed received, proof
+    # that the 2nd connect() really replayed the auth (and did not no-op on a None transport).
     auth_reqs = [packet for packet in server.received if packet.opcode == codes.EC_OP_AUTH_REQ]
     assert len(auth_reqs) == 2
 
@@ -224,7 +224,7 @@ async def test_connect_rehandshakes_after_the_transport_is_invalidated() -> None
 @pytest.mark.asyncio
 async def test_close_is_a_noop_when_never_connected_and_idempotent() -> None:
     client = AmuleEcClient("127.0.0.1", 1, _PASSWORD, timeout=2.0)
-    await client.close()  # jamais connecté : no-op
+    await client.close()  # never connected: no-op
     async with FakeEcServer(_auth_replies(7)) as server:
         client = AmuleEcClient("127.0.0.1", server.port, _PASSWORD, timeout=2.0)
         await client.connect()
@@ -232,7 +232,7 @@ async def test_close_is_a_noop_when_never_connected_and_idempotent() -> None:
         await client.close()  # idempotent
 
 
-# ---------------------------------------------------------------- cycle de recherche
+# ---------------------------------------------------------------- search cycle
 
 
 def _search_ok_reply() -> bytes:
@@ -281,13 +281,13 @@ async def test_start_search_sends_the_documented_tree_per_channel() -> None:
             assert request.opcode == codes.EC_OP_SEARCH_START
             search_tag = request.find(codes.EC_TAG_SEARCH_TYPE)
             assert search_tag is not None
-            assert search_tag.int_value() == search_type  # valeur PROPRE = type (réf. §5)
+            assert search_tag.int_value() == search_type  # OWN value = type (ref. §5)
             name = search_tag.find(codes.EC_TAG_SEARCH_NAME)
             assert name is not None
             assert name.string_value() == keyword
             file_type = search_tag.find(codes.EC_TAG_SEARCH_FILE_TYPE)
             assert file_type is not None
-            assert file_type.string_value() == ""  # obligatoire, "" = tous (réf. §5)
+            assert file_type.string_value() == ""  # mandatory, "" = all (ref. §5)
 
 
 @pytest.mark.asyncio
@@ -314,18 +314,18 @@ async def test_fetch_results_maps_keyword_provenance_and_accumulates_skips() -> 
         await client.start_search("keroro", SearchChannel.GLOBAL)
         first = await client.fetch_results()
         assert [observation.filename for observation in first] == ["a.avi"]
-        assert first[0].keyword == "keroro"  # provenance posée par le client
+        assert first[0].keyword == "keroro"  # provenance set by the client
         assert client.skipped_entries_total == 1
         second = await client.fetch_results()
         assert second == ()
-        assert client.skipped_entries_total == 2  # compteur CUMULATIF (DÉCISION 6)
+        assert client.skipped_entries_total == 2  # CUMULATIVE counter (DECISION 6)
         await client.close()
 
 
 @pytest.mark.asyncio
 async def test_fetch_results_raw_returns_the_unmapped_packet() -> None:
-    # fetch_results_raw rend l'EcPacket BRUT (tous les tags, AVANT mapping) sans toucher au
-    # compteur skipped : c'est l'entrée de l'outil de mesure --all-tags (C2).
+    # fetch_results_raw returns the RAW EcPacket (all tags, BEFORE mapping) without touching the
+    # skipped counter: it's the entry point of the --all-tags measurement tool (C2).
     entries = (_result_entry("a.avi", True), _result_entry("sans-hash.avi", False))
     replies = _auth_replies(1) + [_search_ok_reply(), _results_reply(entries)]
     async with FakeEcServer(replies) as server:
@@ -334,8 +334,8 @@ async def test_fetch_results_raw_returns_the_unmapped_packet() -> None:
         packet = await client.fetch_results_raw()
         assert packet.opcode == codes.EC_OP_SEARCH_RESULTS
         searchfiles = [tag for tag in packet.tags if tag.name == codes.EC_TAG_SEARCHFILE]
-        assert len(searchfiles) == 2  # les DEUX entrées, y compris celle sans hash
-        assert client.skipped_entries_total == 0  # le brut ne mappe pas → ne compte pas
+        assert len(searchfiles) == 2  # BOTH entries, including the one without a hash
+        assert client.skipped_entries_total == 0  # the raw path does not map → does not count
         await client.close()
 
 
@@ -344,7 +344,7 @@ async def test_stop_search_expects_misc_data_reply() -> None:
     stop_ok = encode_packet(EcPacket(codes.EC_OP_MISC_DATA))
     async with FakeEcServer(_auth_replies(1) + [stop_ok]) as server:
         client = await _connected(server)
-        await client.stop_search()  # réponse EC_OP_MISC_DATA (réf. §5) : pas d'exception
+        await client.stop_search()  # EC_OP_MISC_DATA reply (ref. §5): no exception
         assert server.received[2].opcode == codes.EC_OP_SEARCH_STOP
         await client.close()
 
@@ -354,7 +354,7 @@ async def test_unexpected_reply_opcode_raises_protocol_error() -> None:
     noop_reply = encode_packet(EcPacket(codes.EC_OP_NOOP))
     async with FakeEcServer(_auth_replies(1) + [noop_reply]) as server:
         client = await _connected(server)
-        with pytest.raises(EcProtocolError, match="attendu"):
+        with pytest.raises(EcProtocolError, match="expected"):
             await client.stop_search()
         await client.close()
 
@@ -368,11 +368,11 @@ def _progress_reply(value: int) -> bytes:
 @pytest.mark.asyncio
 async def test_search_progress_follows_the_amulecmd_convention() -> None:
     replies = _auth_replies(1) + [
-        _progress_reply(42),  # globale : pourcentage
+        _progress_reply(42),  # global: percentage
         _progress_reply(100),
-        _progress_reply(0xFFFF),  # locale : pas de mesure → None (réf. §5)
-        _progress_reply(0xFFFE),  # Kad fini → None
-        encode_packet(EcPacket(codes.EC_OP_SEARCH_PROGRESS)),  # tag absent → None
+        _progress_reply(0xFFFF),  # local: no measurement → None (ref. §5)
+        _progress_reply(0xFFFE),  # Kad done → None
+        encode_packet(EcPacket(codes.EC_OP_SEARCH_PROGRESS)),  # tag missing → None
     ]
     async with FakeEcServer(replies) as server:
         client = await _connected(server)
@@ -387,45 +387,45 @@ async def test_search_progress_follows_the_amulecmd_convention() -> None:
 @pytest.mark.asyncio
 async def test_operations_without_connect_raise_connect_error() -> None:
     client = AmuleEcClient("127.0.0.1", 1, _PASSWORD, timeout=2.0)
-    with pytest.raises(EcConnectError, match="non connecté"):
+    with pytest.raises(EcConnectError, match="not connected"):
         await client.fetch_results()
 
 
 @pytest.mark.asyncio
 async def test_request_timeout_invalidates_the_transport() -> None:
-    # Contrat du transport : après un timeout de lecture, le flux peut être désynchronisé
-    # — le client doit JETER le transport, pas relire une trame périmée (FCFS cassé sinon).
-    # Réponses épuisées après l'auth → le faux serveur se tait → timeout de lecture.
+    # Transport contract: after a read timeout, the stream may be desynchronized
+    # — the client must DISCARD the transport, not re-read a stale frame (FCFS broken otherwise).
+    # Replies exhausted after the auth → the fake server goes silent → read timeout.
     async with FakeEcServer(_auth_replies(1)) as server:
         client = AmuleEcClient("127.0.0.1", server.port, _PASSWORD, timeout=0.2)
         await client.connect()
         with pytest.raises(EcTimeoutError):
             await client.stop_search()
-        # L'appel SUIVANT échoue vite et proprement : le transport a été invalidé.
-        with pytest.raises(EcConnectError, match="non connecté"):
+        # The NEXT call fails fast and cleanly: the transport has been invalidated.
+        with pytest.raises(EcConnectError, match="not connected"):
             await client.stop_search()
-        await client.close()  # toujours idempotent après invalidation
+        await client.close()  # still idempotent after invalidation
 
 
 @pytest.mark.asyncio
 async def test_protocol_error_from_receive_packet_invalidates_the_transport() -> None:
-    # Réf. : flux potentiellement désynchronisé après une trame illisible (en-tête avec
-    # flags inconnus → decode_header lève EcProtocolError AVANT d'avoir lu le payload).
-    # Le client doit JETER le transport et signaler proprement — l'appel suivant doit
-    # échouer avec EcConnectError("non connecté"), pas tenter de lire une trame périmée.
+    # Ref.: stream potentially desynchronized after an unreadable frame (header with
+    # unknown flags → decode_header raises EcProtocolError BEFORE reading the payload).
+    # The client must DISCARD the transport and signal cleanly — the next call must
+    # fail with EcConnectError("not connected"), not try to read a stale frame.
     bad_flags_frame = (0xFF000000).to_bytes(4, "big") + (3).to_bytes(4, "big") + b"\x01\x00\x00"
     async with FakeEcServer(_auth_replies(1) + [bad_flags_frame]) as server:
         client = AmuleEcClient("127.0.0.1", server.port, _PASSWORD, timeout=2.0)
         await client.connect()
         with pytest.raises(EcProtocolError):
             await client.stop_search()
-        # Transport invalidé : l'appel suivant ne tente PAS de relire le flux désynchronisé.
-        with pytest.raises(EcConnectError, match="non connecté"):
+        # Transport invalidated: the next call does NOT try to re-read the desynchronized stream.
+        with pytest.raises(EcConnectError, match="not connected"):
             await client.stop_search()
         await client.close()
 
 
-# ---------------------------------------------------------------- statut réseau
+# ---------------------------------------------------------------- network status
 
 
 def _connstate_reply(bits: int, children: tuple[EcTag, ...] = ()) -> bytes:
@@ -448,7 +448,7 @@ async def _status_for(bits: int, children: tuple[EcTag, ...] = ()) -> NetworkSta
     async with FakeEcServer(_auth_replies(1) + [_connstate_reply(bits, children)]) as server:
         client = await _connected(server)
         status = await client.network_status()
-        # Le client a bien demandé le niveau de détail CMD (réf. §6).
+        # The client did request the CMD detail level (ref. §6).
         request = server.received[2]
         assert request.opcode == codes.EC_OP_GET_CONNSTATE
         detail = request.find(codes.EC_TAG_DETAIL_LEVEL)
@@ -460,7 +460,7 @@ async def _status_for(bits: int, children: tuple[EcTag, ...] = ()) -> NetworkSta
 
 @pytest.mark.asyncio
 async def test_network_status_connected_high_id_with_server() -> None:
-    # bits 0x15 = eD2k connecté | Kad connecté | Kad lancé ; ID 0x02000001 ≥ 16777216 → High.
+    # bits 0x15 = eD2k connected | Kad connected | Kad started; ID 0x02000001 ≥ 16777216 → High.
     status = await _status_for(
         0x15,
         (
@@ -478,13 +478,13 @@ async def test_network_status_connected_high_id_with_server() -> None:
 
 @pytest.mark.asyncio
 async def test_network_status_low_id() -> None:
-    # LowID si < 16777216 (HIGHEST_LOWID_ED2K_KAD, réf. §6).
+    # LowID if < 16777216 (HIGHEST_LOWID_ED2K_KAD, ref. §6).
     status = await _status_for(
         0x01, (_server_tag(with_name=True), uint_tag(codes.EC_TAG_ED2K_ID, 100))
     )
     assert status.ed2k_id == 100
     assert status.ed2k_high is False
-    assert status.kad_status is KadStatus.OFF  # ni 0x10 → Kad arrêté
+    assert status.kad_status is KadStatus.OFF  # no 0x10 → Kad stopped
 
 
 @pytest.mark.asyncio
@@ -499,14 +499,14 @@ async def test_network_status_kad_running_not_connected_and_no_ed2k() -> None:
 
 @pytest.mark.asyncio
 async def test_network_status_kad_firewalled() -> None:
-    # 0x10|0x04|0x08 = connecté mais firewalled (réf. §6).
+    # 0x10|0x04|0x08 = connected but firewalled (ref. §6).
     status = await _status_for(0x1C)
     assert status.kad_status is KadStatus.FIREWALLED
 
 
 @pytest.mark.asyncio
 async def test_network_status_tolerates_connected_ed2k_without_id_or_server_tags() -> None:
-    # Défensif : bit eD2k posé mais sous-tags absents → None partout, pas d'exception.
+    # Defensive: eD2k bit set but sub-tags missing → None everywhere, no exception.
     status = await _status_for(0x01)
     assert status.ed2k_id is None
     assert status.ed2k_high is False

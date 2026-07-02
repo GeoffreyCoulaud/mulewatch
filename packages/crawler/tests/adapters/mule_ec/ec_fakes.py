@@ -1,11 +1,11 @@
-"""Faux serveur EC en mémoire (streams asyncio) pour les tests transport/client.
+"""In-memory fake EC server (asyncio streams) for the transport/client tests.
 
-Rejoue des réponses PRÉ-ENCODÉES, une par requête reçue (FCFS strict, réf. §9 piège 14).
-``replies`` épuisées → le serveur SE TAIT (utile pour tester le timeout de lecture).
-``close_after=N`` → ferme la connexion après N requêtes lues (0 = dès l'accept).
-``abort=True`` → RST après la première requête lue (SO_LINGER(1,0) + close : c'est le
-seul moyen déterministe d'émettre un RST quand le buffer de réception est déjà vidé —
-``transport.abort()`` n'enverrait qu'un FIN dans ce cas).
+Replays PRE-ENCODED replies, one per received request (strict FCFS, ref. §9 pitfall 14).
+``replies`` exhausted → the server GOES SILENT (useful for testing the read timeout).
+``close_after=N`` → closes the connection after N requests read (0 = right at accept).
+``abort=True`` → RST after the first request read (SO_LINGER(1,0) + close: this is the
+only deterministic way to emit a RST when the receive buffer is already drained —
+``transport.abort()`` would only send a FIN in that case).
 """
 
 import asyncio
@@ -46,10 +46,10 @@ class FakeEcServer:
                 if self._abort:
                     sock = writer.get_extra_info("socket")
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
-                    writer.close()  # RST → le client voit ConnectionResetError
+                    writer.close()  # RST → the client sees ConnectionResetError
                     return
                 if not self.replies:
-                    await self._release.wait()  # se taire jusqu'au teardown
+                    await self._release.wait()  # stay silent until teardown
                     break
                 writer.write(self.replies.pop(0))
                 await writer.drain()

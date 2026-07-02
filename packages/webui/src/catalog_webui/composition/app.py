@@ -1,8 +1,7 @@
-"""Fabrique de l'application Starlette (spec webui — Task 11).
+"""Starlette application factory (webui spec — Task 11).
 
-``build_app`` câble les adaptateurs (SQLite, YAML, templates) et enregistre
-toutes les routes. Les handlers sont des fermetures capturant les dépendances
-— pas de ``app.state``.
+``build_app`` wires the adapters (SQLite, YAML, templates) and registers all
+routes. The handlers are closures capturing the dependencies — no ``app.state``.
 """
 
 import contextlib
@@ -39,9 +38,9 @@ from catalog_webui.domain.views import (
 
 
 def _to_display_rows(file_rows: Iterable[FileRow]) -> list[FileRowDisplay]:
-    """Convertit les lignes catalogue en view-models ``FileRowDisplay``. Dédup partagée par
-    ``handle_files`` et ``handle_target`` (code-smell#3 — sans ça, toute évolution de colonne
-    devait être faite à deux endroits)."""
+    """Convert catalog rows into ``FileRowDisplay`` view-models. Shared dedup between
+    ``handle_files`` and ``handle_target`` (code-smell#3 — without it, any column change
+    had to be made in two places)."""
     return [
         FileRowDisplay(
             ed2k_hash=row.ed2k_hash,
@@ -60,9 +59,9 @@ def _to_display_rows(file_rows: Iterable[FileRow]) -> list[FileRowDisplay]:
 
 
 def _normalize(raw: str | None) -> str | None:
-    """Normalise un param de query : whitespace strippé, vide ⇒ ``None``. Sans ça, un select
-    HTML à option vide envoie ``?target=`` → ``""`` → ``dec.target_id = ''`` ne matche RIEN
-    → 0 résultats sans message (webui-security#0/filtres)."""
+    """Normalize a query param: whitespace stripped, empty ⇒ ``None``. Without it, an HTML
+    select with an empty option sends ``?target=`` → ``""`` → ``dec.target_id = ''`` matches
+    NOTHING → 0 results with no message (webui-security#0/filters)."""
     if raw is None:
         return None
     stripped = raw.strip()
@@ -70,9 +69,9 @@ def _normalize(raw: str | None) -> str | None:
 
 
 def _page_nav(page: int, n_rows: int, base_path: str, query: dict[str, str]) -> PageNav:
-    """Précalcule les liens prev/next pour une page (W-D8 : view-model, pas de logique
-    template). On n'a pas le compte total → ``next`` est rendu quand la page est PLEINE
-    (heuristique standard ; au pire un clic next renvoie une page vide)."""
+    """Precompute the prev/next links for a page (W-D8: view-model, no template logic).
+    We don't have the total count → ``next`` is rendered when the page is FULL (standard
+    heuristic; at worst a next click returns an empty page)."""
     prev_url: str | None = None
     next_url: str | None = None
     if page > 1:
@@ -87,13 +86,13 @@ def _page_nav(page: int, n_rows: int, base_path: str, query: dict[str, str]) -> 
 
 
 class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """En-têtes de sécurité defense-en-profondeur (webui-security#3).
+    """Defense-in-depth security headers (webui-security#3).
 
-    L'autoescape Jinja2 neutralise déjà XSS et le bind 127.0.0.1 limite l'exposition par
-    défaut. CSP ``default-src 'self'`` empêche un fragment injecté de charger un asset
-    externe (filet sous l'autoescape). ``X-Content-Type-Options: nosniff`` empêche un
-    navigateur de re-deviner le type MIME. ``Referrer-Policy: no-referrer`` évite de fuiter
-    le hash eD2k à un éventuel asset tiers (paranoïa cohérente avec l'esprit du projet).
+    Jinja2 autoescape already neutralizes XSS and the 127.0.0.1 bind limits exposure by
+    default. CSP ``default-src 'self'`` prevents an injected fragment from loading an
+    external asset (a net under autoescape). ``X-Content-Type-Options: nosniff`` prevents a
+    browser from re-guessing the MIME type. ``Referrer-Policy: no-referrer`` avoids leaking
+    the eD2k hash to any third-party asset (paranoia consistent with the project's spirit).
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -116,13 +115,13 @@ def build_app(
     templates_dir: Path,
     static_dir: Path,
 ) -> Starlette:
-    """Construit et retourne l'application Starlette câblée."""
+    """Build and return the wired Starlette application."""
 
     templates = Jinja2Templates(directory=templates_dir)
     target_segments = load_targets(targets)
     explainer = MatchingExplainer(matcher_yaml=matcher, targets_yaml=targets)
 
-    # Titre par target_id (accès rapide)
+    # Title by target_id (quick access)
     _title_by_id = {seg.target_id: seg.title for seg in target_segments}
 
     # ------------------------------------------------------------------
@@ -161,8 +160,8 @@ def build_app(
         )
 
     async def handle_files(request: Request) -> Response:
-        # Filtres : ``param.strip() or None`` (webui-security#0) — un select à option vide
-        # envoyait ``?target=`` (chaîne vide) qui matchait 0 résultat sans message.
+        # Filters: ``param.strip() or None`` (webui-security#0) — a select with an empty option
+        # sent ``?target=`` (empty string) that matched 0 results with no message.
         target_param = _normalize(request.query_params.get("target"))
         tier_param = _normalize(request.query_params.get("tier"))
         verdict_param = _normalize(request.query_params.get("verdict"))
@@ -172,8 +171,8 @@ def build_app(
             page = int(page_raw)
         except ValueError:
             page = 1
-        # ``max(1, ...)`` (webui-security#2) — sans ça ``?page=0`` produisait OFFSET=-50 que
-        # SQLite traite comme 0 → page=0 et page=1 rendaient la même page silencieusement.
+        # ``max(1, ...)`` (webui-security#2) — without it ``?page=0`` produced OFFSET=-50 which
+        # SQLite treats as 0 → page=0 and page=1 silently rendered the same page.
         page = max(1, page)
 
         with contextlib.closing(open_ro(catalog_db)) as catalog_conn:
@@ -187,8 +186,8 @@ def build_app(
             )
 
         display_rows = _to_display_rows(file_rows)
-        # Liens prev/next précalculés (webui-security#1 — sans cela, au-delà de 50 fichiers les
-        # résultats étaient inaccessibles sauf à forger ``?page=N`` à la main).
+        # Precomputed prev/next links (webui-security#1 — without this, beyond 50 files the
+        # results were inaccessible short of hand-forging ``?page=N``).
         nav_query = {
             k: v
             for k, v in {
@@ -216,14 +215,14 @@ def build_app(
         if detail is None:
             return templates.TemplateResponse(request, "404.html", {}, status_code=404)
 
-        # Précalcul du lien eD2k depuis la dernière observation
+        # Precompute the eD2k link from the latest observation
         last_obs = detail.observations[-1] if detail.observations else None
         if last_obs is not None:
             link = build_ed2k_link(last_obs.filename, last_obs.size_bytes, detail.ed2k_hash)
         else:
             link = ""
 
-        # Explication depuis la config courante
+        # Explanation from the current config
         explanation_target_id: str | None = None
         explanation_rules_fired: tuple[str, ...] = ()
         explanation_tokens_matched: tuple[str, ...] = ()
@@ -241,7 +240,7 @@ def build_app(
                 explanation_target_id = explanation.target_id
                 explanation_rules_fired = explanation.rules_fired
                 explanation_tokens_matched = explanation.tokens_matched
-                explanation_notes = ("Évalué contre la configuration actuelle",)
+                explanation_notes = ("Evaluated against the current configuration",)
 
         decisions = (detail.decision,) if detail.decision is not None else ()
 
@@ -278,7 +277,7 @@ def build_app(
             )
 
         display_rows = _to_display_rows(file_rows)
-        # Pas de pagination ici (vue cible : on en attend peu) — nav vide.
+        # No pagination here (target view: we expect few) — empty nav.
         nav = PageNav(page=1, prev_url=None, next_url=None)
         return templates.TemplateResponse(
             request,

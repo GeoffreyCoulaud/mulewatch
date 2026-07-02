@@ -1,4 +1,4 @@
-"""Tests read-only du local.db via LocalReader (Task 8 — W-D8 §node_state)."""
+"""Read-only tests of local.db via LocalReader (Task 8 — W-D8 §node_state)."""
 
 import sqlite3
 from pathlib import Path
@@ -12,20 +12,20 @@ from catalog_webui.domain.views import DownloadRow, NodeState, VerifTaskRow
 
 
 def _open_local(path: Path) -> sqlite3.Connection:
-    """Ouvre local.db en mode lecture seule (row_factory activé)."""
+    """Open local.db in read-only mode (row_factory enabled)."""
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 # ---------------------------------------------------------------------------
-# DB peuplée
+# Populated DB
 # ---------------------------------------------------------------------------
 
 
 def test_node_state_populated(local_db: Path) -> None:
-    """DB peuplée : downloads, verification_tasks, scheduler_state, node_runtime."""
-    # --- peuplement ---
+    """Populated DB: downloads, verification_tasks, scheduler_state, node_runtime."""
+    # --- populate ---
     with sqlite3.connect(local_db) as w:
         w.execute(
             "INSERT INTO downloads VALUES (?,?,?,?,?,?)",
@@ -54,7 +54,7 @@ def test_node_state_populated(local_db: Path) -> None:
     state = LocalReader(conn).node_state()
     conn.close()
 
-    # téléchargements
+    # downloads
     assert len(state.downloads) == 1
     dl = state.downloads[0]
     assert isinstance(dl, DownloadRow)
@@ -65,7 +65,7 @@ def test_node_state_populated(local_db: Path) -> None:
     assert dl.completed_at is None
     assert dl.size_bytes == 1024
 
-    # tâches de vérification
+    # verification tasks
     assert len(state.verification_tasks) == 1
     vt = state.verification_tasks[0]
     assert isinstance(vt, VerifTaskRow)
@@ -84,12 +84,12 @@ def test_node_state_populated(local_db: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# DB vide (mode observer) — couvre les branches None
+# Empty DB (observer mode) — covers the None branches
 # ---------------------------------------------------------------------------
 
 
 def test_node_state_empty_db(local_db: Path) -> None:
-    """DB vide (mode observer) : tout est vide / None — aucune erreur."""
+    """Empty DB (observer mode): everything empty / None — no error."""
     conn = _open_local(local_db)
     state = LocalReader(conn).node_state()
     conn.close()

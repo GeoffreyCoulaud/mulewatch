@@ -64,13 +64,13 @@ def test_executable_header_makes_verdict_malicious() -> None:
         _CLEAN_CLAMAV,
         _BASE,
     )
-    assert verdict == "malicious"  # type_sniff malicious écrase ffprobe clean
+    assert verdict == "malicious"  # type_sniff malicious overrides ffprobe clean
     statuses = {c["name"]: c["status"] for c in checks}
     assert statuses["type_sniff"] == "malicious"
 
 
 def test_non_media_makes_verdict_suspicious() -> None:
-    # en-tête texte (type_sniff clean) + ffprobe échoue (suspicious) → worst = suspicious.
+    # text header (type_sniff clean) + ffprobe fails (suspicious) → worst = suspicious.
     verdict, _real_meta, _checks = pipeline.run(
         b"plain text not a media\n",
         Path("/q/f"),
@@ -85,18 +85,18 @@ def test_enabled_checks_selects_only_type_sniff() -> None:
     verdict, real_meta, checks = pipeline.run(
         b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
         Path("/q/f"),
-        _StubFfprobe(1, b""),  # ffprobe échouerait, mais il est DÉSACTIVÉ
+        _StubFfprobe(1, b""),  # ffprobe would fail, but it is DISABLED
         _CLEAN_CLAMAV,
         _cfg(("type_sniff",)),
     )
     assert verdict == "clean"
     assert [c["name"] for c in checks] == ["type_sniff"]
-    assert "container" not in real_meta  # ffprobe n'a pas tourné
+    assert "container" not in real_meta  # ffprobe did not run
 
 
 def test_enabled_checks_selects_only_ffprobe() -> None:
     verdict, real_meta, checks = pipeline.run(
-        b"\x7fELF" + b"\x00" * 64,  # serait malicious, mais type_sniff est DÉSACTIVÉ
+        b"\x7fELF" + b"\x00" * 64,  # would be malicious, but type_sniff is DISABLED
         Path("/q/f"),
         _StubFfprobe(0, _VALID_MEDIA),
         _CLEAN_CLAMAV,
@@ -108,10 +108,10 @@ def test_enabled_checks_selects_only_ffprobe() -> None:
 
 
 def test_unknown_check_name_is_ignored() -> None:
-    # Défense en profondeur (DA4) : from_env REJETTE désormais un nom inconnu au chargement
-    # (config-validation#4) — donc on contourne from_env via dataclasses.replace pour vérifier
-    # que MÊME si un « clamavv » atteignait le pipeline, il serait ignoré (pas de crash, pas de
-    # check fantôme).
+    # Defense-in-depth (DA4): from_env now REJECTS an unknown name at load time
+    # (config-validation#4) — so we bypass from_env via dataclasses.replace to verify that
+    # EVEN if a "clamavv" reached the pipeline, it would be ignored (no crash, no phantom
+    # check).
     verdict, _real_meta, checks = pipeline.run(
         b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
         Path("/q/f"),
@@ -124,7 +124,7 @@ def test_unknown_check_name_is_ignored() -> None:
 
 
 def test_clamav_malicious_overrides_clean_media() -> None:
-    # média clean (type_sniff clean + ffprobe clean) MAIS clamav matche une signature → malicious.
+    # clean media (type_sniff clean + ffprobe clean) BUT clamav matches a signature → malicious.
     verdict, _real_meta, checks = pipeline.run(
         b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
         Path("/q/f"),
@@ -151,7 +151,7 @@ def test_clamav_clean_keeps_clean() -> None:
 
 
 def test_clamav_suspicious_aggregates() -> None:
-    # ffprobe clean + clamav erreur (rc 2 → suspicious) → worst = suspicious.
+    # ffprobe clean + clamav error (rc 2 → suspicious) → worst = suspicious.
     verdict, _real_meta, _checks = pipeline.run(
         b"\x1a\x45\xdf\xa3" + b"\x00" * 64,
         Path("/q/f"),
@@ -164,9 +164,9 @@ def test_clamav_suspicious_aggregates() -> None:
 
 def test_enabled_checks_selects_only_clamav() -> None:
     verdict, _real_meta, checks = pipeline.run(
-        b"\x7fELF" + b"\x00" * 64,  # serait malicious, mais type_sniff est DÉSACTIVÉ
+        b"\x7fELF" + b"\x00" * 64,  # would be malicious, but type_sniff is DISABLED
         Path("/q/f"),
-        _StubFfprobe(1, b""),  # échouerait, mais ffprobe est DÉSACTIVÉ
+        _StubFfprobe(1, b""),  # would fail, but ffprobe is DISABLED
         _CLEAN_CLAMAV,
         _cfg(("clamav",)),
     )

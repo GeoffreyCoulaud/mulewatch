@@ -1,1 +1,1 @@
-"""Adapters de configuration : lecture des fichiers YAML (tokens/règles, targets)."""
+"""Config adapters: reading the YAML files (tokens/rules, targets)."""

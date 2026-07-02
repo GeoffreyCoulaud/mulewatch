@@ -1,4 +1,4 @@
-"""Notifier apprise : add(url, tag) au montage, préfixe node_id, route par tag, mappe NotifyType."""
+"""Apprise notifier: add(url, tag) at setup, prefixes node_id, routes by tag, maps NotifyType."""
 
 import apprise
 import pytest
@@ -35,10 +35,10 @@ def test_targets_added_with_tags() -> None:
 @pytest.mark.asyncio
 async def test_notify_prefixes_node_id_and_routes_tag() -> None:
     fake = _FakeApprise()
-    await _notifier(fake).notify(Audience.COMMUNITY, "épisode trouvé", Severity.INFO)
+    await _notifier(fake).notify(Audience.COMMUNITY, "episode found", Severity.INFO)
     call = fake.sent[-1]
     assert call["tag"] == "community"
-    assert call["body"] == "[titar-node-1] épisode trouvé"
+    assert call["body"] == "[titar-node-1] episode found"
     assert call["notify_type"] == apprise.NotifyType.INFO
 
 
@@ -51,6 +51,6 @@ async def test_severity_maps_to_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_default_apprise_obj_is_built_from_targets() -> None:
-    # Sans apprise_obj injecté, le notifier construit un vrai Apprise (aucune URL → no-op safe).
+    # Without an injected apprise_obj, the notifier builds a real Apprise (no URL → safe no-op).
     notifier = AppriseNotifier((), node_id="n")
-    await notifier.notify(Audience.COMMUNITY, "x", Severity.INFO)  # ne lève pas
+    await notifier.notify(Audience.COMMUNITY, "x", Severity.INFO)  # does not raise

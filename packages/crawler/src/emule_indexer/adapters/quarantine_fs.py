@@ -1,15 +1,15 @@
-"""Adapter ``Quarantine`` sur le système de fichiers (spec download §8 — DÉCISION D10).
+"""Filesystem ``Quarantine`` adapter (download spec §8 — DECISION D10).
 
-``promote`` fait un ``os.replace`` (rename ATOMIQUE même-FS) du fichier de staging vers
-``quarantine_dir / <hash>`` : opération de métadonnée seule, le contenu n'est JAMAIS ouvert,
-lu, ni rendu exécutable (le rename ne touche pas les permissions). Un échec (FS plein,
-cross-device → ``OSError`` ; source ET cible absentes → ``FileNotFoundError``) PROPAGE : la
-boucle de download laisse alors le download en ``completed`` et retentera (spec §9). Mais
-re-promouvoir un hash DÉJÀ promu (source consommée par ``os.replace``, cible en place) est un
-no-op idempotent — la séquence post-promote (enqueue/set_state) peut donc être rejouée sans
-risque après un échec transitoire (cf. logic-download#0). Le staging et la quarantaine DOIVENT
-être sur le même système de fichiers (sinon ``os.replace`` lève — contrainte de déploiement,
-vérifiée au câblage de D-verify).
+``promote`` does an ``os.replace`` (ATOMIC same-FS rename) of the staging file into
+``quarantine_dir / <hash>``: metadata-only operation, the content is NEVER opened,
+read, nor made executable (the rename does not touch permissions). A failure (FS full,
+cross-device → ``OSError``; source AND target missing → ``FileNotFoundError``) PROPAGATES: the
+download loop then leaves the download in ``completed`` and will retry (spec §9). But
+re-promoting an ALREADY-promoted hash (source consumed by ``os.replace``, target in place) is an
+idempotent no-op — so the post-promote sequence (enqueue/set_state) can be replayed without
+risk after a transient failure (cf. logic-download#0). Staging and quarantine MUST
+be on the same filesystem (otherwise ``os.replace`` raises — deployment constraint,
+verified when wiring D-verify).
 """
 
 import os
@@ -17,32 +17,33 @@ from pathlib import Path
 
 
 class FilesystemQuarantine:
-    """Mise en quarantaine par rename atomique (satisfaction STRUCTURELLE du port)."""
+    """Quarantining via atomic rename (STRUCTURAL port satisfaction)."""
 
     def __init__(self, quarantine_dir: Path) -> None:
         self._quarantine_dir = quarantine_dir
 
     def promote(self, staging_path: Path, ed2k_hash: str) -> None:
-        """Rename atomique ``staging_path`` → ``quarantine_dir/<hash>`` (spec §8).
+        """Atomic rename ``staging_path`` → ``quarantine_dir/<hash>`` (spec §8).
 
-        ``os.replace`` est atomique sur le même FS ; il écrase une cible existante (un
-        re-promote idempotent du même hash est sûr) et ne modifie pas les permissions (jamais
+        ``os.replace`` is atomic on the same FS; it overwrites an existing target (an
+        idempotent re-promote of the same hash is safe) and does not change permissions (never
         +x).
 
-        IDEMPOTENT face à une source DÉJÀ CONSOMMÉE : ``os.replace`` détruit la source, donc si
-        une étape post-promote (enqueue/set_state) échoue et que la boucle retente, ``promote``
-        est rappelé avec la source absente alors que ``quarantine/<hash>`` est déjà en place. Ce
-        cas est un SUCCÈS (le fichier EST promu), pas un échec → no-op (sinon le fichier reste
-        bloqué en ``completed`` pour toujours, jamais vérifié — cf. logic-download#0). Une source
-        absente SANS cible (jamais promu) lève bien ``FileNotFoundError`` ; la boucle retentera.
+        IDEMPOTENT against an ALREADY-CONSUMED source: ``os.replace`` destroys the source, so if
+        a post-promote step (enqueue/set_state) fails and the loop retries, ``promote``
+        is called again with the source missing while ``quarantine/<hash>`` is already in place.
+        This case is a SUCCESS (the file IS promoted), not a failure → no-op (otherwise the file
+        stays stuck in ``completed`` forever, never verified — cf. logic-download#0). A source
+        missing WITHOUT a target (never promoted) does raise ``FileNotFoundError``; the loop
+        will retry.
         """
-        # ed2k_hash : toujours 32 caractères [0-9a-f] (garanti en amont — _map_partfile .hex(),
-        # _CANONICAL_HASH_RE, et la contrainte CHECK SQLite) → aucun '/'/'..' possible, pas de
-        # traversée de chemin hors quarantine_dir.
+        # ed2k_hash: always 32 [0-9a-f] characters (guaranteed upstream — _map_partfile .hex(),
+        # _CANONICAL_HASH_RE, and the SQLite CHECK constraint) → no '/' or '..' possible, no path
+        # traversal outside quarantine_dir.
         target = self._quarantine_dir / ed2k_hash
         try:
             os.replace(staging_path, target)
         except FileNotFoundError:
             if target.exists():
-                return  # déjà promu (source consommée par une promotion antérieure) : idempotent
-            raise  # jamais promu (source ET cible absentes) : vraie panne, la boucle retentera
+                return  # already promoted (source consumed by an earlier promotion): idempotent
+            raise  # never promoted (source AND target missing): real failure, the loop retries

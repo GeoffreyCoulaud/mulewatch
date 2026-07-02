@@ -1,11 +1,11 @@
-"""Moteur d'ÉVALUATION du matching (cf. spec §8.5, partie évaluation).
+"""Matching EVALUATION engine (cf. spec §8.5, evaluation part).
 
-Domaine PUR. Prend une :class:`MatcherConfig` déjà validée (Plan 2b) et des
-:class:`TargetSegment`, pré-résout les arbres de matchers par cible une fois à la
-construction (via :class:`MatcherResolver`), puis rend une décision EN MÉMOIRE pour un
-:class:`FileCandidate`. AUCUNE I/O, AUCUN logging, AUCUNE DB : l'« explicabilité loggée
-en DEBUG » de §8.5 = le moteur RETOURNE un résultat explicable ; le logging est l'affaire
-d'un adapter d'un plan ultérieur.
+PURE domain. Takes an already-validated :class:`MatcherConfig` (Plan 2b) and some
+:class:`TargetSegment`s, pre-resolves the per-target matcher trees once at construction
+(via :class:`MatcherResolver`), then produces an IN-MEMORY decision for a
+:class:`FileCandidate`. NO I/O, NO logging, NO DB: the "explainability logged at DEBUG" of
+§8.5 = the engine RETURNS an explainable result; logging is the job of an adapter in a
+later plan.
 """
 
 from collections.abc import Sequence
@@ -19,14 +19,14 @@ from catalog_matching.resolver import MatcherResolver, ResolvedTarget
 
 @dataclass(frozen=True)
 class Explanation:
-    """Pourquoi cette décision (cf. spec §8.5 : tokens/règles déclenchés + value coverage).
+    """Why this decision (cf. spec §8.5: fired tokens/rules + coverage value).
 
-    Concerne la SEULE cible gagnante. ``rules_fired`` : noms des règles vraies pour cette
-    cible, dans l'ordre de la config (la 1re est la gagnante). ``tokens_matched`` : noms
-    des tokens nommés de la config qui matchent (triés). ``coverage_values`` : pour CHAQUE
-    token coverage de la config (qu'il ait matché ou non), ``(nom, value(candidate))``
-    triés — le score aide à déboguer un seuil même sous la barre. Tuples (et non dicts)
-    pour rester GELÉ/hashable et déterministe.
+    Concerns the SINGLE winning target. ``rules_fired``: names of the rules true for this
+    target, in config order (the 1st is the winner). ``tokens_matched``: names of the
+    config's named tokens that match (sorted). ``coverage_values``: for EACH coverage token
+    of the config (whether it matched or not), ``(name, value(candidate))`` sorted — the
+    score helps debug a threshold even below the bar. Tuples (not dicts) to stay
+    FROZEN/hashable and deterministic.
     """
 
     target_id: str
@@ -37,12 +37,12 @@ class Explanation:
 
 @dataclass(frozen=True)
 class MatchDecision:
-    """Décision fichier (cf. spec §8.5). Porte les 3 colonnes de match_decisions (§11).
+    """File decision (cf. spec §8.5). Carries the 3 match_decisions columns (§11).
 
-    ``target_id``/``rule_name``/``tier`` = exactement les colonnes que ``match_decisions``
-    persistera (§11). ``decided_at``/``node_id``/``ed2k_hash`` ne sont PAS ici : ce sont
-    des colonnes de persistance (horloge + identité + clé contenu) injectées par l'adapter
-    DB d'un plan ultérieur. ``explanation`` embarque l'explicabilité (§8.5).
+    ``target_id``/``rule_name``/``tier`` = exactly the columns that ``match_decisions``
+    will persist (§11). ``decided_at``/``node_id``/``ed2k_hash`` are NOT here: they are
+    persistence columns (clock + identity + content key) injected by the DB adapter of a
+    later plan. ``explanation`` carries the explainability (§8.5).
     """
 
     target_id: str
@@ -53,13 +53,13 @@ class MatchDecision:
 
 @dataclass(frozen=True)
 class DecisionRecord:
-    """Les 3 colonnes COMPARABLES d'une décision persistée, sans l'explicabilité runtime.
+    """The 3 COMPARABLE columns of a persisted decision, without the runtime explainability.
 
-    C'est exactement ce que ``match_decisions`` stocke (§11) — ``target_id``/``rule_name``/
-    ``tier`` — relu pour l'anti-redondance (spec orchestration §3 : ne ré-``record_decision``
-    que si le verdict CHANGE). Volontairement distinct de :class:`MatchDecision` : la lecture
-    ne peut pas reconstruire l'``explanation`` (non persistée), et deux ``DecisionRecord``
-    s'égalent ssi leurs trois champs s'égalent (dataclass gelé → ``==`` champ par champ).
+    This is exactly what ``match_decisions`` stores (§11) — ``target_id``/``rule_name``/
+    ``tier`` — read back for anti-redundancy (orchestration spec §3: only re-``record_decision``
+    if the verdict CHANGES). Deliberately distinct from :class:`MatchDecision`: the read
+    cannot reconstruct the ``explanation`` (not persisted), and two ``DecisionRecord``s are
+    equal iff their three fields are equal (frozen dataclass → field-by-field ``==``).
     """
 
     target_id: str
@@ -68,10 +68,10 @@ class DecisionRecord:
 
 
 def to_record(decision: MatchDecision) -> DecisionRecord:
-    """Projette une :class:`MatchDecision` (qui vient de tomber) sur sa forme comparable.
+    """Projects a :class:`MatchDecision` (just reached) onto its comparable form.
 
-    Permet à l'application de comparer le verdict FRAIS au dernier ``DecisionRecord`` connu
-    sans manipuler l'``explanation`` (spec orchestration §3, anti-redondance).
+    Lets the application compare the FRESH verdict against the last known ``DecisionRecord``
+    without handling the ``explanation`` (orchestration spec §3, anti-redundancy).
     """
     return DecisionRecord(
         target_id=decision.target_id, rule_name=decision.rule_name, tier=decision.tier
@@ -80,22 +80,22 @@ def to_record(decision: MatchDecision) -> DecisionRecord:
 
 @dataclass(frozen=True)
 class DownloadCandidate:
-    """Forme de LECTURE d'une décision tier=download : ``ed2k_hash`` + ``target_id``.
+    """READ form of a tier=download decision: ``ed2k_hash`` + ``target_id``.
 
-    C'est ce que ``CatalogRepository.download_decisions`` rend (spec download §5) : les hash
-    dont le DERNIER verdict est tier=download, à rejouer par la boucle de download. Distinct
-    de :class:`MatchDecision`/:class:`DecisionRecord` : la boucle de download n'a besoin que
-    du hash (clé contenu) et du ``target_id`` (pour le lookup de statut de la cible). Gelé →
-    comparaison par valeur triviale en test.
+    This is what ``CatalogRepository.download_decisions`` returns (download spec §5): the
+    hashes whose LATEST verdict is tier=download, to be replayed by the download loop.
+    Distinct from :class:`MatchDecision`/:class:`DecisionRecord`: the download loop only
+    needs the hash (content key) and the ``target_id`` (for the target status lookup).
+    Frozen → trivial value comparison in tests.
     """
 
     ed2k_hash: str
     target_id: str
 
 
-# Re-export du rang des paliers (source de vérité ``catalog_matching.config.TIER_RANK``,
-# partagée avec ``catalog_webui.domain.coverage``). Le nom interne reste ``_TIER_RANK`` pour ne
-# pas casser les imports historiques côté tests internes.
+# Re-export of the tier rank (source of truth ``catalog_matching.config.TIER_RANK``, shared
+# with ``catalog_webui.domain.coverage``). The internal name stays ``_TIER_RANK`` so as not
+# to break historical imports on the internal-test side.
 _TIER_RANK = TIER_RANK
 
 
@@ -104,11 +104,11 @@ def _first_matching_rule(
     resolved: ResolvedTarget,
     candidate: FileCandidate,
 ) -> tuple[int, str, str] | None:
-    """1re règle vraie pour (candidate, cible résolue) → ``(index, nom, tier)`` (§8.5).
+    """1st rule true for (candidate, resolved target) → ``(index, name, tier)`` (§8.5).
 
-    Parcourt ``config.rules`` DANS L'ORDRE (l'index = la position = la priorité) ; pour
-    chaque règle, évalue l'arbre déjà construit ``resolved.rules[rule.name]``. Renvoie le
-    1er match ; ``None`` si aucune règle ne matche (la cible ne contribue rien).
+    Walks ``config.rules`` IN ORDER (index = position = priority); for each rule, evaluates
+    the already-built tree ``resolved.rules[rule.name]``. Returns the 1st match; ``None`` if
+    no rule matches (the target contributes nothing).
     """
     for index, rule in enumerate(config.rules):
         if resolved.rules[rule.name].matches(candidate):
@@ -121,11 +121,11 @@ def _explain(
     resolved: ResolvedTarget,
     candidate: FileCandidate,
 ) -> Explanation:
-    """Construit l'explication de la cible résolue ``resolved`` (cf. spec §8.5).
+    """Builds the explanation of the resolved target ``resolved`` (cf. spec §8.5).
 
-    ``rules_fired`` : règles vraies dans l'ordre de la config. ``tokens_matched`` : tokens
-    nommés qui matchent (triés). ``coverage_values`` : ``(nom, value)`` des tokens coverage
-    (triés). Lit ``CoverageMatcher.value()`` (hors Protocol) via ``isinstance``.
+    ``rules_fired``: rules true in config order. ``tokens_matched``: named tokens that match
+    (sorted). ``coverage_values``: ``(name, value)`` of the coverage tokens (sorted). Reads
+    ``CoverageMatcher.value()`` (outside the Protocol) via ``isinstance``.
     """
     rules_fired = tuple(
         rule.name for rule in config.rules if resolved.rules[rule.name].matches(candidate)
@@ -147,12 +147,12 @@ def _explain(
 
 
 class MatchingEngine:
-    """Façade pure du moteur d'évaluation (cf. spec §8.5). Pré-résout les cibles une fois.
+    """Pure facade of the evaluation engine (cf. spec §8.5). Pre-resolves targets once.
 
-    Brute-force §8.5 : chaque fichier est évalué contre TOUTES les cibles (aucune
-    heuristique d'entonnoir). Les arbres de matchers (regex interpolées+compilées par
-    cible) sont construits UNE FOIS à la construction. ``max_filename_length`` borne la
-    longueur du nom avant matching (§8.5/§14) : un nom plus long est écarté (``None``).
+    Brute-force §8.5: each file is evaluated against ALL targets (no funnel heuristic). The
+    matcher trees (regexes interpolated+compiled per target) are built ONCE at construction.
+    ``max_filename_length`` bounds the filename length before matching (§8.5/§14): a longer
+    name is discarded (``None``).
     """
 
     def __init__(
@@ -173,10 +173,10 @@ class MatchingEngine:
         }
 
     def explain(self, candidate: FileCandidate, target_id: str) -> Explanation | None:
-        """Explique le match de ``candidate`` contre la cible ``target_id`` (config courante).
+        """Explains the match of ``candidate`` against target ``target_id`` (current config).
 
-        ``None`` si ``target_id`` est inconnu de la config. Sinon une ``Explanation`` (vide si
-        aucune règle ne se déclenche). Réutilise l'arbre de matchers résolu par cible.
+        ``None`` if ``target_id`` is unknown to the config. Otherwise an ``Explanation``
+        (empty if no rule fires). Reuses the per-target resolved matcher tree.
         """
         resolved = self._resolved_by_target.get(target_id)
         if resolved is None:
@@ -184,15 +184,15 @@ class MatchingEngine:
         return _explain(self._config, resolved, candidate)
 
     def evaluate(self, candidate: FileCandidate) -> MatchDecision | None:
-        """Décision fichier déterministe (cf. spec §8.5) ou ``None`` (fichier écarté).
+        """Deterministic file decision (cf. spec §8.5) or ``None`` (file discarded).
 
-        Bornage de longueur d'abord. Puis, par cible, 1re règle vraie ; décision = palier
-        le plus haut, départage déterministe par index de règle puis ``target_id``. Aucune
-        règle vraie nulle part → ``None``.
+        Length bounding first. Then, per target, 1st true rule; decision = highest tier,
+        deterministic tie-break by rule index then ``target_id``. No true rule anywhere →
+        ``None``.
         """
         if len(candidate.filename) > self._max_filename_length:
             return None
-        best: tuple[int, int, str] | None = None  # (-rang_palier, index_règle, target_id)
+        best: tuple[int, int, str] | None = None  # (-tier_rank, rule_index, target_id)
         best_resolved: ResolvedTarget | None = None
         best_rule_name = ""
         best_tier = ""
@@ -201,10 +201,10 @@ class MatchingEngine:
             if outcome is None:
                 continue
             index, rule_name, tier = outcome
-            # Clé de tri : palier le plus HAUT (-rang), puis index de règle le plus PETIT,
-            # puis target_id le plus PETIT. target_id étant UNIQUE (garanti fail-fast par
-            # parse_targets), la clé est un ordre total strict -> gagnant unique, indépendant
-            # de l'ordre des cibles (cf. propriété P1).
+            # Sort key: HIGHEST tier (-rank), then SMALLEST rule index, then SMALLEST
+            # target_id. Since target_id is UNIQUE (fail-fast guaranteed by parse_targets),
+            # the key is a strict total order -> unique winner, independent of target order
+            # (cf. property P1).
             key = (-_TIER_RANK[tier], index, resolved.target.target_id)
             if best is None or key < best:
                 best = key

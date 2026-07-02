@@ -1,21 +1,21 @@
-"""Backoff exponentiel plafonné, math PURE (spec orchestration §3/§4 ; spec MVP §6/§14).
+"""Capped exponential backoff, PURE math (spec orchestration §3/§4; spec MVP §6/§14).
 
-Domaine PUR : aucune I/O, aucun ``random`` global, aucune horloge. ``backoff_delay``
-calcule le délai NOMINAL (exponentiel borné par ``cap``) ; le JITTER est appliqué par
-l'appelant (il a besoin du port ``Rng``/d'un tirage) — séparer le calcul déterministe du
-tirage garde ce module trivialement testable et le jitter rejouable. Utilisé par
-``application/search_worker.py`` pour le backoff PAR (instance, canal) (spec §3).
+PURE domain: no I/O, no global ``random``, no clock. ``backoff_delay`` computes the
+NOMINAL delay (exponential bounded by ``cap``); the JITTER is applied by the caller (it
+needs the ``Rng`` port / a draw) — separating the deterministic computation from the draw
+keeps this module trivially testable and the jitter replayable. Used by
+``application/search_worker.py`` for the PER (instance, channel) backoff (spec §3).
 """
 
 
 def backoff_delay(attempt: int, *, base: float, cap: float, factor: float) -> float:
-    """Délai de backoff pour la ``attempt``-ième tentative consécutive en échec (≥ 1).
+    """Backoff delay for the ``attempt``-th consecutive failed attempt (≥ 1).
 
-    ``attempt = 1`` → ``base`` ; chaque échec supplémentaire multiplie par ``factor`` ;
-    le résultat est plafonné à ``cap`` (spec MVP §6 : « backoff exponentiel »). Un
-    ``attempt`` à 0 ou négatif est traité comme la première tentative (``base``) — un
-    appelant ne doit jamais demander un délai pour « zéro échec », mais on ne crashe pas
-    sur une entrée hors-borne (résilience, spec §14).
+    ``attempt = 1`` → ``base``; each additional failure multiplies by ``factor``; the
+    result is capped at ``cap`` (spec MVP §6: "exponential backoff"). An ``attempt`` of 0
+    or negative is treated as the first attempt (``base``) — a caller must never request a
+    delay for "zero failures", but we do not crash on an out-of-bounds input (resilience,
+    spec §14).
     """
     if attempt <= 1:
         return min(base, cap)

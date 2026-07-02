@@ -1,6 +1,6 @@
-"""Ports d'observabilité (spec Plan E §3). ``Telemetry`` (façade émise par l'application) +
-sinks ``MetricsSink``/``Notifier`` (branchés dans le dispatcher). Protocols structurels —
-les adapters réels ET les fakes de test les satisfont sans héritage. Stubs sur UNE ligne."""
+"""Observability ports (spec Plan E §3). ``Telemetry`` (facade emitted by the application) +
+sinks ``MetricsSink``/``Notifier`` (wired into the dispatcher). Structural Protocols —
+the real adapters AND the test fakes satisfy them without inheritance. Stubs on ONE line."""
 
 from typing import Protocol, runtime_checkable
 

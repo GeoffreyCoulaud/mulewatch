@@ -1,23 +1,23 @@
-"""``merge_catalogs`` : fusion idempotente de N ``catalog.db`` en une sortie unique.
+"""``merge_catalogs``: idempotent merge of N ``catalog.db`` into a single output.
 
-Mécanisme (spec fusion §3/§4) : la sortie est créée/ouverte via ``open_catalog`` (schéma
-+ triggers append-only, migration ``0001`` — AUCUN DDL dupliqué). Pour chaque source : on
-l'``ATTACH`` (hors transaction — SQLite refuse d'attacher dans une transaction ouverte),
-puis DANS UNE transaction explicite (``BEGIN``…``COMMIT``, ``ROLLBACK`` best-effort sur
-erreur) on copie les 7 tables dans l'**ordre FK** (identités d'abord), puis ``COMMIT`` et
-``DETACH`` (hors transaction). Une source à moitié copiée n'est jamais commitée.
+Mechanism (merge spec §3/§4): the output is created/opened via ``open_catalog`` (schema
++ append-only triggers, migration ``0001`` — NO duplicated DDL). For each source: we
+``ATTACH`` it (outside a transaction — SQLite refuses to attach inside an open transaction),
+then INSIDE an explicit transaction (``BEGIN``…``COMMIT``, best-effort ``ROLLBACK`` on
+error) we copy the 7 tables in **FK order** (identities first), then ``COMMIT`` and
+``DETACH`` (outside a transaction). A half-copied source is never committed.
 
-Idempotence (spec §4) :
-- ``files``/``sources`` (PK de contenu globale) → ``INSERT OR IGNORE`` (première vue
-  gagne) ; JAMAIS ``OR REPLACE`` (= DELETE + INSERT → heurte le trigger append-only).
-- les 5 journaux (``id`` LOCAL, sans sens global) → colonnes explicites SANS ``id`` (la
-  base réattribue l'``id``) + dédup par **clé naturelle complète** via ``WHERE NOT EXISTS``,
-  comparaisons à l'opérateur ``IS`` (et non ``=``) car des colonnes sont nullable
-  (``NULL = NULL`` est faux en SQL → ré-insertion → non idempotent ; ``NULL IS NULL`` est
-  vrai). Re-merger = no-op (chaque ligne source a déjà son jumeau exact).
+Idempotence (spec §4):
+- ``files``/``sources`` (global content PK) → ``INSERT OR IGNORE`` (first sighting
+  wins); NEVER ``OR REPLACE`` (= DELETE + INSERT → collides with the append-only trigger).
+- the 5 journals (LOCAL ``id``, no global meaning) → explicit columns WITHOUT ``id`` (the
+  DB reassigns the ``id``) + dedup by **full natural key** via ``WHERE NOT EXISTS``,
+  comparisons with the ``IS`` operator (not ``=``) because some columns are nullable
+  (``NULL = NULL`` is false in SQL → re-insertion → not idempotent; ``NULL IS NULL`` is
+  true). Re-merging = no-op (each source row already has its exact twin).
 
-Le SQL est en **constantes Python** (cohérent avec ``catalog_repository.py`` ; pas de
-nouveau ``.sql`` à linter par sqlfluff). On n'écrit JAMAIS dans la source (que des SELECT).
+The SQL lives in **Python constants** (consistent with ``catalog_repository.py``; no
+new ``.sql`` for sqlfluff to lint). We NEVER write to the source (only SELECTs).
 """
 
 import sqlite3
@@ -28,11 +28,11 @@ from pathlib import Path
 from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
 from emule_indexer.merge.errors import MergeError
 
-# Alias d'attache de la source courante (une seule à la fois → on reste à 1 base attachée
-# quel que soit N, bien sous le plafond SQLITE_MAX_ATTACHED de 10, spec §8).
+# Attach alias of the current source (one at a time → we stay at 1 attached DB
+# whatever N, well under the SQLITE_MAX_ATTACHED cap of 10, spec §8).
 _SRC = "src"
 
-# --- Tables d'identité-contenu : INSERT OR IGNORE, colonnes explicites (pas de SELECT *). ---
+# --- Content-identity tables: INSERT OR IGNORE, explicit columns (no SELECT *). ---
 
 _COPY_FILES = (
     f"INSERT OR IGNORE INTO main.files (ed2k_hash, size_bytes, aich_hash) "
@@ -46,19 +46,19 @@ _COPY_SOURCES = (
 
 
 def _copy_journal(table: str, columns: Sequence[str]) -> str:
-    """SQL d'une copie de journal : colonnes explicites (sans ``id``) + dédup ``IS``.
+    """SQL for one journal copy: explicit columns (without ``id``) + ``IS`` dedup.
 
-    La clé naturelle = TOUTES les colonnes du journal sauf ``id``. Deux niveaux de dédup,
-    tous deux à la granularité « clé naturelle complète » (§4.2) :
+    The natural key = ALL journal columns except ``id``. Two dedup levels,
+    both at the "full natural key" granularity (§4.2):
 
-    - ``SELECT DISTINCT`` collapse les doublons **internes à la source** en un seul passage
-      (le ``WHERE NOT EXISTS`` ne les verrait pas : au moment du SELECT, ``main`` est encore
-      vide pour cette source, donc deux lignes jumelles internes passeraient toutes les
-      deux). ``DISTINCT`` traite ``NULL`` comme égal à ``NULL`` (cohérent avec ``IS``) et ne
-      collapse JAMAIS deux lignes légitimement distinctes (elles diffèrent sur ≥ 1 colonne).
-      C'est la normalisation des doublons « at-least-once » d'un seul catalogue (§1/§8).
-    - ``WHERE NOT EXISTS`` (comparaisons ``IS``, NULL-safe) dédupe contre la **destination**
-      (cross-source et re-merge). Re-merge ⇒ 0 insertion.
+    - ``SELECT DISTINCT`` collapses the **source-internal** duplicates in a single pass
+      (``WHERE NOT EXISTS`` would not see them: at SELECT time, ``main`` is still
+      empty for this source, so two internal twin rows would both pass). ``DISTINCT``
+      treats ``NULL`` as equal to ``NULL`` (consistent with ``IS``) and NEVER
+      collapses two legitimately distinct rows (they differ on ≥ 1 column).
+      This is the "at-least-once" duplicate normalization of a single catalog (§1/§8).
+    - ``WHERE NOT EXISTS`` (``IS`` comparisons, NULL-safe) dedups against the **destination**
+      (cross-source and re-merge). Re-merge ⇒ 0 insertions.
     """
     projection = ", ".join(columns)
     not_exists = "\n      AND ".join(f"d.{column} IS s.{column}" for column in columns)
@@ -141,8 +141,8 @@ _COPY_FILE_OBSERVATION_RANGES = _copy_journal(
     ),
 )
 
-# Ordre FK IMPÉRATIF (spec §4.3) : identités (files, sources) AVANT les journaux qui les
-# référencent. On exécute ces 7 copies pour UNE source dans UNE transaction.
+# MANDATORY FK order (spec §4.3): identities (files, sources) BEFORE the journals that
+# reference them. We run these 7 copies for ONE source in ONE transaction.
 _COPY_STATEMENTS = (
     _COPY_FILES,
     _COPY_SOURCES,
@@ -155,18 +155,18 @@ _COPY_STATEMENTS = (
 
 
 def merge_catalogs(output: Path, sources: Sequence[Path], *, dest_is_source: bool = False) -> None:
-    """Fusionne ``sources`` dans ``output`` (créé/ouvert via ``open_catalog``), idempotent.
+    """Merges ``sources`` into ``output`` (created/opened via ``open_catalog``), idempotent.
 
-    ``output`` est ouvert via ``open_catalog`` : s'il est neuf, la migration ``0001`` pose
-    le schéma + les triggers ; s'il existe déjà comme ``catalog.db`` valide, aucune
-    migration n'est rejouée et le merge AJOUTE dedans (jamais de truncate).
+    ``output`` is opened via ``open_catalog``: if it's new, the ``0001`` migration lays
+    down the schema + the triggers; if it already exists as a valid ``catalog.db``, no
+    migration is replayed and the merge APPENDS into it (never a truncate).
 
-    ``dest_is_source`` (mode ``--into``) : la sortie est elle-même l'une des ``sources`` ;
-    on ne se ré-attache pas à soi-même (l'idempotence garantit qu'on ne s'y duplique rien),
-    on saute donc la source dont le chemin résout vers ``output``.
+    ``dest_is_source`` (``--into`` mode): the output is itself one of the ``sources``;
+    we do not re-attach to ourselves (idempotence guarantees we duplicate nothing there),
+    so we skip the source whose path resolves to ``output``.
 
-    Toute ``sqlite3.Error`` (source corrompue, schéma incompatible, FK…) est enveloppée en
-    ``MergeError`` (fail-fast, message clair). Le ``ROLLBACK`` est best-effort.
+    Any ``sqlite3.Error`` (corrupt source, incompatible schema, FK…) is wrapped in
+    ``MergeError`` (fail-fast, clear message). The ``ROLLBACK`` is best-effort.
     """
     connection = open_catalog(output)
     try:
@@ -180,19 +180,19 @@ def merge_catalogs(output: Path, sources: Sequence[Path], *, dest_is_source: boo
 
 
 def _merge_one(connection: sqlite3.Connection, source: Path) -> None:
-    """Attache ``source``, copie ses 7 tables dans UNE transaction, détache.
+    """Attaches ``source``, copies its 7 tables in ONE transaction, detaches.
 
-    ``ATTACH``/``DETACH`` sont HORS transaction (SQLite refuse d'attacher dans une
-    transaction ouverte). La copie est enveloppée par ``BEGIN``/``COMMIT`` ; une erreur
-    déclenche un ``ROLLBACK`` best-effort puis un ``DETACH`` best-effort, et remonte en
-    ``MergeError`` — la sortie ne garde aucune copie partielle de cette source.
+    ``ATTACH``/``DETACH`` are OUTSIDE a transaction (SQLite refuses to attach inside an
+    open transaction). The copy is wrapped by ``BEGIN``/``COMMIT``; an error
+    triggers a best-effort ``ROLLBACK`` then a best-effort ``DETACH``, and propagates as
+    ``MergeError`` — the output keeps no partial copy of this source.
     """
     try:
-        # Chemin RÉSOLU (cohérent avec le skip --into qui compare ``Path.resolve()``) :
-        # évite un self-attach si la même base est passée sous deux formes de chemin.
+        # RESOLVED path (consistent with the --into skip that compares ``Path.resolve()``):
+        # avoids a self-attach if the same DB is passed under two path forms.
         connection.execute(f"ATTACH DATABASE ? AS {_SRC}", (str(Path(source).resolve()),))
     except sqlite3.Error as error:
-        raise MergeError(f"impossible d'attacher la source {source} : {error}") from error
+        raise MergeError(f"cannot attach source {source}: {error}") from error
     try:
         connection.execute("BEGIN")
         try:
@@ -202,7 +202,7 @@ def _merge_one(connection: sqlite3.Connection, source: Path) -> None:
         except sqlite3.Error as error:
             with suppress(sqlite3.Error):
                 connection.execute("ROLLBACK")
-            raise MergeError(f"échec de la copie de {source} : {error}") from error
+            raise MergeError(f"copy of {source} failed: {error}") from error
     finally:
         with suppress(sqlite3.Error):
             connection.execute(f"DETACH DATABASE {_SRC}")

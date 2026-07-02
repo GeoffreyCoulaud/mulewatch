@@ -34,9 +34,9 @@ def test_nominal_lost_target_downloads() -> None:
 
 
 def test_non_download_tier_is_a_conservative_guard() -> None:
-    # DÉCISION D5 : garde conservatrice (« ne pas télécharger ») — jamais déclenchée en prod
-    # (l'application ne passe que des décisions tier=download), mais un appelant hors contrat
-    # ne crashe pas et ne télécharge rien.
+    # DECISION D5: conservative guard ("do not download") — never triggered in prod
+    # (the application only passes tier=download decisions), but an out-of-contract caller
+    # does not crash and downloads nothing.
     assert _verdict(tier="catalog") is DownloadVerdict.SKIP_COMPLETE
     assert _verdict(tier="notify") is DownloadVerdict.SKIP_COMPLETE
 
@@ -55,7 +55,7 @@ def test_already_downloaded_is_deduped() -> None:
 
 
 def test_dedup_takes_precedence_over_disk_cap() -> None:
-    # déjà téléchargé ET au-dessus du plafond → on rend SKIP_DEDUP (rien à re-télécharger).
+    # already downloaded AND above the cap → we return SKIP_DEDUP (nothing to re-download).
     assert (
         _verdict(already_downloaded=True, committed_bytes=950, file_size=100, disk_cap=1000)
         is DownloadVerdict.SKIP_DEDUP
@@ -69,7 +69,7 @@ def test_over_disk_cap_defers() -> None:
 
 
 def test_exactly_at_disk_cap_is_allowed() -> None:
-    # committed + size == cap : autorisé (le plafond est un MAX, pas un seuil strict en-dessous).
+    # committed + size == cap: allowed (the cap is a MAX, not a strictly-below threshold).
     assert _verdict(committed_bytes=900, file_size=100, disk_cap=1000) is DownloadVerdict.DOWNLOAD
 
 
@@ -80,16 +80,16 @@ def test_one_byte_over_disk_cap_defers() -> None:
 
 
 def test_complete_takes_precedence_over_dedup() -> None:
-    # cible complète : on saute pour COMPLETE même si déjà téléchargé (le statut prime l'ordre).
+    # complete target: we skip for COMPLETE even if already downloaded (status wins the order).
     assert (
         _verdict(target_status="complete", already_downloaded=True) is DownloadVerdict.SKIP_COMPLETE
     )
 
 
 def test_found_target_still_downloads_a_new_file() -> None:
-    # Invariant produit (spec search-simplification, Lot C) : un épisode déjà "found" se
-    # re-télécharge quand un NOUVEAU fichier le matche (redondance d'archivage voulue).
-    # Seul target_status == "complete" skippe ; "found" ne l'est jamais en PROD.
+    # Product invariant (spec search-simplification, Batch C): an already-"found" episode is
+    # re-downloaded when a NEW file matches it (intended archival redundancy).
+    # Only target_status == "complete" skips; "found" never does in PROD.
     verdict = download_policy(
         tier="download",
         target_status="found",

@@ -1,7 +1,7 @@
-"""Tests TDD du cœur ``merge_catalogs`` (ATTACH + INSERT…SELECT idempotent) — §7 du design.
+"""TDD tests for the ``merge_catalogs`` core (ATTACH + idempotent INSERT…SELECT) — design §7.
 
-Tout est testé sans Docker : on fabrique N ``catalog.db`` réels (helpers), on merge, on
-asserte contenu + cardinalité + ``id`` réassignés + idempotence.
+Everything is tested without Docker: we build N real ``catalog.db`` files (helpers), merge,
+and assert content + cardinality + reassigned ``id`` + idempotence.
 """
 
 import sqlite3
@@ -26,7 +26,7 @@ from .helpers import (
 
 
 def _file_observation(ed2k_hash: str, *, node_id: str, observed_at: str) -> dict[str, object]:
-    """Une observation complète (colonnes nullable laissées à None volontairement)."""
+    """A complete observation (nullable columns deliberately left None)."""
     return {
         "ed2k_hash": ed2k_hash,
         "filename": "keroro.avi",
@@ -45,7 +45,7 @@ def _file_observation(ed2k_hash: str, *, node_id: str, observed_at: str) -> dict
 
 
 def _full_catalog(letter: str, *, node_id: str) -> dict[str, list[dict[str, object]]]:
-    """Un catalogue cohérent : 1 fichier, 1 source, et 1 ligne dans chacun des 4 journaux."""
+    """A consistent catalog: 1 file, 1 source, and 1 row in each of the 4 journals."""
     ed2k = hash_for(letter)
     user = f"user-{letter}"
     return {
@@ -98,11 +98,11 @@ def test_t1_merge_two_distinct_catalogs(tmp_path: Path) -> None:
     src_c = make_catalog(tmp_path / "c.db", _full_catalog("c", node_id="node-c"))
     out = tmp_path / "out.db"
 
-    # N=3 prouve aussi qu'on attache une source à la fois (jamais > 1 base attachée).
+    # N=3 also proves we attach one source at a time (never > 1 attached DB).
     merge_catalogs(out, [src_a, src_b, src_c])
 
-    # Cardinalité de chaque table = somme (contenus disjoints) ; FK satisfaites (sinon le
-    # COMMIT aurait levé). Toutes les lignes des 3 sources sont présentes en sortie.
+    # Each table's cardinality = sum (disjoint contents); FKs satisfied (otherwise the
+    # COMMIT would have raised). All rows from the 3 sources are present in the output.
     for table in _ALL_TABLES:
         assert count(out, table) == 3
         expected = sorted(
@@ -114,7 +114,7 @@ def test_t1_merge_two_distinct_catalogs(tmp_path: Path) -> None:
 
 
 def test_t2_merge_overlapping_identity_files_or_ignore(tmp_path: Path) -> None:
-    # Les deux sources partagent le MÊME ed2k_hash et le MÊME user_hash (identité-contenu).
+    # Both sources share the SAME ed2k_hash and the SAME user_hash (content-identity).
     src_a = make_catalog(
         tmp_path / "a.db",
         {
@@ -133,7 +133,7 @@ def test_t2_merge_overlapping_identity_files_or_ignore(tmp_path: Path) -> None:
 
     merge_catalogs(out, [src_a, src_b])
 
-    # INSERT OR IGNORE : la PK déjà présente est ignorée → une seule ligne chacune.
+    # INSERT OR IGNORE: the already-present PK is ignored → a single row each.
     assert count(out, "files") == 1
     assert count(out, "sources") == 1
 
@@ -146,7 +146,7 @@ def test_t3_re_merge_is_idempotent(tmp_path: Path) -> None:
     merge_catalogs(out, [src_a, src_b])
     first_pass = {table: rows_without_id(out, table) for table in _ALL_TABLES}
 
-    # Re-merge des mêmes sources dans la même sortie → WHERE NOT EXISTS faux partout → no-op.
+    # Re-merge same sources into same output → WHERE NOT EXISTS false everywhere → no-op.
     merge_catalogs(out, [src_a, src_b])
 
     for table in _ALL_TABLES:
@@ -154,7 +154,7 @@ def test_t3_re_merge_is_idempotent(tmp_path: Path) -> None:
 
 
 def test_t4_journal_dedup_identical_rows_including_nulls(tmp_path: Path) -> None:
-    # Observation BIT-POUR-BIT identique (mêmes NULL sur media_length_sec/bitrate/codec/file_type).
+    # BIT-FOR-BIT identical observation (same NULLs on media_length_sec/bitrate/codec/file_type).
     obs = _file_observation(HASH_A, node_id="node", observed_at="t1")
     src_a = make_catalog(
         tmp_path / "a.db",
@@ -168,13 +168,13 @@ def test_t4_journal_dedup_identical_rows_including_nulls(tmp_path: Path) -> None
 
     merge_catalogs(out, [src_a, src_b])
 
-    # Sans l'opérateur IS, NULL=NULL serait faux → 2 lignes. Avec IS → une seule.
+    # Without the IS operator, NULL=NULL would be false → 2 rows. With IS → a single one.
     assert count(out, "file_observations") == 1
 
 
 def test_t4_journal_distinct_observed_at_keeps_both(tmp_path: Path) -> None:
-    # Même fichier, même nœud, deux INSTANTS → deux observations RÉELLES, clés naturelles
-    # distinctes → les deux conservées (non-destructeur).
+    # Same file, same node, two INSTANTS → two REAL observations, distinct natural keys
+    # → both kept (non-destructive).
     src_a = make_catalog(
         tmp_path / "a.db",
         {
@@ -197,7 +197,7 @@ def test_t4_journal_distinct_observed_at_keeps_both(tmp_path: Path) -> None:
 
 
 def test_t5_journal_drops_local_id(tmp_path: Path) -> None:
-    # Chaque source a une observation DISTINCTE qui (par autoincrément) porte id=1.
+    # Each source has a DISTINCT observation that (by autoincrement) carries id=1.
     src_a = make_catalog(
         tmp_path / "a.db",
         {
@@ -218,13 +218,13 @@ def test_t5_journal_drops_local_id(tmp_path: Path) -> None:
 
     merge_catalogs(out, [src_a, src_b])
 
-    # On ne copie PAS id : la base réassigne 1 et 2, pas une collision.
+    # We do NOT copy id: the DB reassigns 1 and 2, not a collision.
     assert ids(out, "file_observations") == [1, 2]
 
 
 def test_t6_fk_order_inserts_identity_first(tmp_path: Path) -> None:
-    # Une source dont des journaux référencent files/sources. Si l'ordre d'insertion était
-    # inversé (journaux avant identités), la FK lèverait — le merge réussit donc l'ordre tient.
+    # A source whose journals reference files/sources. If the insertion order were reversed
+    # (journals before identities), the FK would raise — the merge succeeds so the order holds.
     src = make_catalog(tmp_path / "a.db", _full_catalog("a", node_id="node-a"))
     out = tmp_path / "out.db"
 
@@ -237,7 +237,7 @@ def test_t6_fk_order_inserts_identity_first(tmp_path: Path) -> None:
 
 
 def test_t14_aich_first_wins_a_then_b(tmp_path: Path) -> None:
-    # srcA : aich=NULL ; srcB : aich renseigné ; merge A→B → la ligne garde aich=NULL.
+    # srcA: aich=NULL; srcB: aich set; merge A→B → the row keeps aich=NULL.
     src_a = make_catalog(
         tmp_path / "a.db", {"files": [{"ed2k_hash": HASH_A, "size_bytes": 100, "aich_hash": None}]}
     )
@@ -252,7 +252,7 @@ def test_t14_aich_first_wins_a_then_b(tmp_path: Path) -> None:
 
 
 def test_t14_aich_first_wins_b_then_a(tmp_path: Path) -> None:
-    # Ordre inverse B→A → la ligne garde aich='X' (premier arrivé gagne, ride §6 figée).
+    # Reverse order B→A → the row keeps aich='X' (first-come wins, §6 rule frozen).
     src_a = make_catalog(
         tmp_path / "a.db", {"files": [{"ed2k_hash": HASH_A, "size_bytes": 100, "aich_hash": None}]}
     )
@@ -273,17 +273,17 @@ def test_t15_append_only_triggers_present_on_output(tmp_path: Path) -> None:
 
     connection = open_catalog(out)
     try:
-        with pytest.raises(sqlite3.IntegrityError, match="files est append-only"):
+        with pytest.raises(sqlite3.IntegrityError, match="files is append-only"):
             connection.execute("UPDATE files SET size_bytes = 2")
-        with pytest.raises(sqlite3.IntegrityError, match="files est append-only"):
+        with pytest.raises(sqlite3.IntegrityError, match="files is append-only"):
             connection.execute("DELETE FROM files")
     finally:
         connection.close()
 
 
 def test_t16_merger_wraps_source_copy_in_a_transaction(tmp_path: Path) -> None:
-    # Une source au schéma cassé (DB SQLite vide, sans les tables) → la copie échoue à
-    # mi-parcours → ROLLBACK : la sortie ne garde PAS de copie partielle de cette source.
+    # A source with a broken schema (empty SQLite DB, no tables) → the copy fails
+    # midway → ROLLBACK: the output keeps NO partial copy of this source.
     good = make_catalog(tmp_path / "good.db", _full_catalog("a", node_id="node-a"))
 
     broken = tmp_path / "broken.db"
@@ -295,24 +295,24 @@ def test_t16_merger_wraps_source_copy_in_a_transaction(tmp_path: Path) -> None:
     raw.close()
 
     out = tmp_path / "out.db"
-    merge_catalogs(out, [good])  # la bonne source d'abord, dans son propre merge réussi.
+    merge_catalogs(out, [good])  # the good source first, in its own successful merge.
 
-    with pytest.raises(MergeError, match="échec de la copie"):
+    with pytest.raises(MergeError, match="copy of .* failed"):
         merge_catalogs(out, [broken], dest_is_source=False)
 
-    # files (1ʳᵉ table) a pu être copié AVANT l'échec sur file_observations (table absente) ;
-    # le ROLLBACK doit l'avoir annulé → la sortie n'a toujours QUE le contenu de `good`.
+    # files (1st table) may have been copied BEFORE the failure on file_observations (missing
+    # table); the ROLLBACK must have undone it → the output still has ONLY the content of `good`.
     assert rows_without_id(out, "files") == [(HASH_A, 100, None)]
 
 
 def test_t16_unattachable_source_errors(tmp_path: Path) -> None:
-    # Une source qui n'est PAS une base SQLite (fichier exists mais en-tête invalide) →
-    # l'ATTACH lui-même lève → MergeError clair (branche d'attache, distincte de la copie).
+    # A source that is NOT a SQLite database (file exists but header invalid) →
+    # the ATTACH itself raises → clear MergeError (attach branch, distinct from the copy).
     not_a_db = tmp_path / "garbage.db"
     not_a_db.write_bytes(b"not a sqlite database header" * 8)
     out = tmp_path / "out.db"
 
-    with pytest.raises(MergeError, match="impossible d'attacher"):
+    with pytest.raises(MergeError, match="cannot attach"):
         merge_catalogs(out, [not_a_db])
 
 
@@ -327,13 +327,13 @@ def test_t17_single_source_merge(tmp_path: Path) -> None:
 
 
 def test_t18_dedups_identical_rows_internal_to_one_source(tmp_path: Path) -> None:
-    # UNE seule source contenant DEUX lignes de journal bit-pour-bit identiques (clé
-    # naturelle identique, id différent par autoincrément, COLONNES NULL incluses) PLUS une
-    # ligne légitimement distincte (un seul champ diffère). La fusion N=1 doit NORMALISER :
-    # collapser les doublons internes (promesse §1/§8 — dédup at-least-once d'un seul
-    # catalogue) sans jamais perdre la ligne distincte.
+    # A SINGLE source containing TWO bit-for-bit identical journal rows (same natural
+    # key, different id by autoincrement, NULL COLUMNS included) PLUS a legitimately
+    # distinct row (a single field differs). The N=1 merge must NORMALIZE: collapse the
+    # internal duplicates (§1/§8 promise — at-least-once dedup of a single catalog) without
+    # ever losing the distinct row.
     identical = _file_observation(HASH_A, node_id="node", observed_at="t1")
-    distinct = _file_observation(HASH_A, node_id="node", observed_at="t2")  # observed_at diffère
+    distinct = _file_observation(HASH_A, node_id="node", observed_at="t2")  # observed_at differs
     src = make_catalog(
         tmp_path / "a.db",
         {
@@ -341,13 +341,13 @@ def test_t18_dedups_identical_rows_internal_to_one_source(tmp_path: Path) -> Non
             "file_observations": [identical, dict(identical), distinct],
         },
     )
-    # La source contient bien 3 lignes (dont 2 jumelles) AVANT merge.
+    # The source indeed contains 3 rows (2 of them twins) BEFORE merge.
     assert count(src, "file_observations") == 3
     out = tmp_path / "out.db"
 
     merge_catalogs(out, [src])
 
-    # Doublon interne collapsé (2 jumelles → 1) ; ligne distincte préservée → 2 lignes.
+    # Internal duplicate collapsed (2 twins → 1); distinct row preserved → 2 rows.
     assert count(out, "file_observations") == 2
     assert rows_without_id(out, "file_observations") == sorted(
         [
@@ -357,7 +357,7 @@ def test_t18_dedups_identical_rows_internal_to_one_source(tmp_path: Path) -> Non
         key=lambda row: tuple(str(value) for value in row),
     )
 
-    # Re-merge = no-op (idempotent même après normalisation).
+    # Re-merge = no-op (idempotent even after normalization).
     merge_catalogs(out, [src])
     assert count(out, "file_observations") == 2
 
@@ -378,7 +378,7 @@ def test_merge_unions_observation_ranges_and_is_idempotent(tmp_path: Path) -> No
         "complete_source_count_max": 1,
         "complete_source_count_sum": 1,
     }
-    row_b = {**row_a, "node_ids": '["n2"]', "source_count_sum": 6}  # autre nœud → ligne distincte
+    row_b = {**row_a, "node_ids": '["n2"]', "source_count_sum": 6}  # other node → distinct row
     src1 = make_catalog(
         tmp_path / "s1.db",
         {
@@ -395,6 +395,6 @@ def test_merge_unions_observation_ranges_and_is_idempotent(tmp_path: Path) -> No
     )
     out = tmp_path / "out.db"
     merge_catalogs(out, [src1, src2])
-    assert count(out, "file_observation_ranges") == 2  # union (deux node_ids distincts)
+    assert count(out, "file_observation_ranges") == 2  # union (two distinct node_ids)
     merge_catalogs(out, [src1, src2], dest_is_source=False)  # re-merge → no-op
     assert count(out, "file_observation_ranges") == 2

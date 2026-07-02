@@ -1,9 +1,9 @@
-"""Connexion SQLite STRICTEMENT en lecture seule (spec webui W-D2 / §16).
+"""STRICTLY read-only SQLite connection (webui spec W-D2 / §16).
 
-``open_ro`` ouvre la base en ``mode=ro`` (URI) et pose ``PRAGMA query_only=ON`` : double
-garde, jamais d'écriture. On NE pose PAS ``journal_mode=WAL`` (ce serait une écriture) ;
-la base est en WAL côté crawler (writer unique), le lecteur en hérite. ``row_factory`` =
-``sqlite3.Row`` pour un accès par nom de colonne dans les adapters de lecture.
+``open_ro`` opens the database in ``mode=ro`` (URI) and sets ``PRAGMA query_only=ON``: a
+double guard, never a write. We do NOT set ``journal_mode=WAL`` (that would be a write);
+the database is in WAL on the crawler side (single writer), the reader inherits it.
+``row_factory`` = ``sqlite3.Row`` for access by column name in the read adapters.
 """
 
 import sqlite3
@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 def open_ro(path: Path) -> sqlite3.Connection:
-    """Ouvre ``path`` en lecture seule (``mode=ro`` + ``query_only``)."""
+    """Open ``path`` read-only (``mode=ro`` + ``query_only``)."""
     connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only=ON")

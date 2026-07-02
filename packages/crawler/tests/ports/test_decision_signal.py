@@ -2,7 +2,7 @@ from emule_indexer.ports.decision_signal import DecisionSignal
 
 
 class _StubSignal:
-    """Satisfait DecisionSignal structurellement (sans l'importer)."""
+    """Satisfies DecisionSignal structurally (without importing it)."""
 
     def __init__(self) -> None:
         self.signalled: list[str] = []

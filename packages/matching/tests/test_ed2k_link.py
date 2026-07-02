@@ -9,11 +9,11 @@ def test_simple_name_builds_canonical_link() -> None:
 
 
 def test_pipe_in_name_is_escaped() -> None:
-    # le '|' est le séparateur de champs du lien : il DOIT être échappé (%7C) sinon le
-    # cadrage casse (un nom hostile ne doit jamais injecter un champ).
+    # the '|' is the link's field separator: it MUST be escaped (%7C) otherwise the
+    # framing breaks (a hostile name must never inject a field).
     link = build_ed2k_link("weird|name.avi", 99, _HASH)
     assert "%7C" in link
-    assert link.count("|") == 5  # uniquement les 5 séparateurs structurels du lien
+    assert link.count("|") == 5  # only the 5 structural separators of the link
 
 
 def test_non_ascii_name_is_utf8_percent_encoded() -> None:

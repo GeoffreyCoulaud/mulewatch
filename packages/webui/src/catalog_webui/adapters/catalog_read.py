@@ -1,15 +1,15 @@
-"""Lecture read-only du catalogue (spec webui W-D6 / §6).
+"""Read-only reads of the catalog (webui spec W-D6 / §6).
 
-``CatalogReader`` expose trois lectures :
+``CatalogReader`` exposes three reads:
 
-- ``target_coverage()`` — par ``target_id``, liste ``(ed2k_hash, tier)`` de la DERNIÈRE
-  décision de matching de chaque fichier (fenêtre ROW_NUMBER PARTITION BY ed2k_hash).
-- ``list_files()`` — explorateur filtré paginé (fichiers ⨝ dernière observation ⨝
-  dernière décision ⨝ dernier verdict, filtres optionnels + LIMIT/OFFSET).
-- ``file_detail()`` — toutes les observations + dernière décision + tous les verdicts
-  d'un hash donné ; ``None`` si le hash est inconnu.
+- ``target_coverage()`` — per ``target_id``, the list of ``(ed2k_hash, tier)`` from each
+  file's LATEST match decision (ROW_NUMBER window PARTITION BY ed2k_hash).
+- ``list_files()`` — filtered paginated explorer (files ⨝ latest observation ⨝
+  latest decision ⨝ latest verdict, optional filters + LIMIT/OFFSET).
+- ``file_detail()`` — all observations + latest decision + all verdicts for a given
+  hash; ``None`` if the hash is unknown.
 
-Tout le SQL est en constantes module, paramétré (aucune interpolation de valeurs).
+All SQL lives in module constants, parameterized (no value interpolation).
 """
 
 import sqlite3
@@ -23,13 +23,13 @@ from catalog_webui.domain.views import (
 )
 
 # ---------------------------------------------------------------------------
-# Constantes
+# Constants
 # ---------------------------------------------------------------------------
 
 PAGE_SIZE = 50
-_PAGE_SIZE = PAGE_SIZE  # alias historique (interne) — la valeur publique sert au handler
+_PAGE_SIZE = PAGE_SIZE  # historical alias (internal) — the public value is used by the handler
 
-# Dernière décision par fichier via fenêtre ROW_NUMBER.
+# Latest decision per file via ROW_NUMBER window.
 _SQL_COVERAGE = """\
 SELECT
     md.ed2k_hash,
@@ -49,8 +49,8 @@ WHERE (
 ORDER BY md.target_id, md.ed2k_hash
 """
 
-# Explorateur : fichiers ⨝ dernière observation ⨝ dernière décision ⨝ dernier verdict.
-# Les filtres optionnels sont ajoutés dynamiquement (voir list_files()).
+# Explorer: files ⨝ latest observation ⨝ latest decision ⨝ latest verdict.
+# Optional filters are added dynamically (see list_files()).
 _SQL_LIST_FILES_BASE = """\
 SELECT
     f.ed2k_hash,
@@ -100,7 +100,7 @@ LEFT JOIN file_verifications AS ver
     ) = 0
 """
 
-# Toutes les observations d'un fichier (timeline), ordre chronologique.
+# All observations of a file (timeline), chronological order.
 _SQL_OBSERVATIONS = """\
 SELECT
     id,
@@ -118,7 +118,7 @@ WHERE ed2k_hash = ?
 ORDER BY observed_at ASC, id ASC
 """
 
-# Dernière décision d'un fichier.
+# Latest decision of a file.
 _SQL_LAST_DECISION = """\
 SELECT
     target_id,
@@ -132,7 +132,7 @@ ORDER BY decided_at DESC, id DESC
 LIMIT 1
 """
 
-# Tous les verdicts d'un fichier, ordre chronologique.
+# All verdicts of a file, chronological order.
 _SQL_VERIFICATIONS = """\
 SELECT
     id,
@@ -144,7 +144,7 @@ WHERE ed2k_hash = ?
 ORDER BY verified_at ASC, id ASC
 """
 
-# Lookup de base sur files (pour file_detail).
+# Basic lookup on files (for file_detail).
 _SQL_FILE = """\
 SELECT ed2k_hash, size_bytes, aich_hash
 FROM files
@@ -158,18 +158,18 @@ WHERE ed2k_hash = ?
 
 
 class CatalogReader:
-    """Accès read-only au catalogue via une connexion SQLite (open_ro)."""
+    """Read-only access to the catalog via a SQLite connection (open_ro)."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._conn = connection
 
     # ------------------------------------------------------------------
-    # Couverture
+    # Coverage
     # ------------------------------------------------------------------
 
     def target_coverage(self) -> dict[str, list[tuple[str, str]]]:
-        """Retourne pour chaque ``target_id`` la liste ``(ed2k_hash, tier)``
-        de la DERNIÈRE décision de matching de chaque fichier.
+        """Return, for each ``target_id``, the list of ``(ed2k_hash, tier)``
+        from each file's LATEST match decision.
         """
         rows = self._conn.execute(_SQL_COVERAGE).fetchall()
         result: dict[str, list[tuple[str, str]]] = {}
@@ -182,7 +182,7 @@ class CatalogReader:
         return result
 
     # ------------------------------------------------------------------
-    # Explorateur filtré paginé
+    # Filtered paginated explorer
     # ------------------------------------------------------------------
 
     def list_files(
@@ -194,14 +194,14 @@ class CatalogReader:
         query: str | None,
         page: int,
     ) -> list[FileRow]:
-        """Retourne une page de ``FileRow`` (taille ``_PAGE_SIZE``) avec filtres optionnels.
+        """Return a page of ``FileRow`` (size ``_PAGE_SIZE``) with optional filters.
 
-        Filtres :
-        - ``target`` : filtre sur ``dec.target_id`` (dernière décision).
-        - ``tier``   : filtre sur ``dec.tier`` (dernière décision).
-        - ``verdict``: filtre sur ``ver.verdict`` (dernier verdict).
-        - ``query``  : sous-chaîne de ``obs.filename`` (LIKE ``%query%``).
-        - ``page``   : numéro de page (1-based).
+        Filters:
+        - ``target`` : filter on ``dec.target_id`` (latest decision).
+        - ``tier``   : filter on ``dec.tier`` (latest decision).
+        - ``verdict``: filter on ``ver.verdict`` (latest verdict).
+        - ``query``  : substring of ``obs.filename`` (LIKE ``%query%``).
+        - ``page``   : page number (1-based).
         """
         clauses: list[str] = []
         params: list[str | int] = []
@@ -243,11 +243,11 @@ class CatalogReader:
         ]
 
     # ------------------------------------------------------------------
-    # Détail
+    # Detail
     # ------------------------------------------------------------------
 
     def file_detail(self, ed2k_hash: str) -> FileDetail | None:
-        """Retourne le détail complet d'un fichier, ou ``None`` si inconnu."""
+        """Return the full detail of a file, or ``None`` if unknown."""
         file_row = self._conn.execute(_SQL_FILE, (ed2k_hash,)).fetchone()
         if file_row is None:
             return None

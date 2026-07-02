@@ -1,5 +1,5 @@
-"""View-models PRÉCALCULÉS (spec webui W-D8) : les templates n'itèrent et n'interpolent
-que ces champs — aucune logique côté template."""
+"""PRECOMPUTED view-models (webui spec W-D8): the templates only iterate and interpolate
+these fields — no template-side logic."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -13,48 +13,48 @@ class CoverageStatus:
 
 
 # ---------------------------------------------------------------------------
-# Dashboard — couverture par cible
+# Dashboard — coverage per target
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class TargetCoverageRow:
-    """Ligne du tableau de bord : couverture d'une cible."""
+    """Dashboard row: a target's coverage."""
 
     target_id: str
     title: str
     status: str  # "found" | "partial" | "none"
-    best_tier_display: str  # best_tier ou "—"
+    best_tier_display: str  # best_tier or "—"
     file_count: int
 
 
 # ---------------------------------------------------------------------------
-# Explorateur de fichiers
+# File explorer
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class FileRow:
-    """Vue résumée d'un fichier pour l'explorateur (liste paginée)."""
+    """Summary view of a file for the explorer (paginated list)."""
 
     ed2k_hash: str
     size_bytes: int
-    filename: str  # dernier nom observé
-    source_count: int  # compteur de sources (dernière observation)
-    last_seen: str  # observed_at de la dernière observation (ISO-8601 UTC)
-    target_id: str | None  # dernière décision
-    tier: str | None  # tier de la dernière décision
-    last_verdict: str | None  # dernier verdict de vérification
+    filename: str  # latest observed name
+    source_count: int  # source count (latest observation)
+    last_seen: str  # observed_at of the latest observation (ISO-8601 UTC)
+    target_id: str | None  # latest decision
+    tier: str | None  # tier of the latest decision
+    last_verdict: str | None  # latest verification verdict
 
 
 # ---------------------------------------------------------------------------
-# Détail d'un fichier
+# File detail
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class ObservationRow:
-    """Une entrée de la timeline des observations."""
+    """One entry in the observations timeline."""
 
     id: int
     filename: str
@@ -70,7 +70,7 @@ class ObservationRow:
 
 @dataclass(frozen=True)
 class DecisionView:
-    """Dernière décision de matching pour un fichier."""
+    """Latest match decision for a file."""
 
     target_id: str
     rule_name: str
@@ -81,7 +81,7 @@ class DecisionView:
 
 @dataclass(frozen=True)
 class VerificationRow:
-    """Un résultat de vérification."""
+    """A verification result."""
 
     id: int
     verdict: str
@@ -91,24 +91,24 @@ class VerificationRow:
 
 @dataclass(frozen=True)
 class FileDetail:
-    """Vue complète d'un fichier : timeline + décision + verdicts."""
+    """Full view of a file: timeline + decision + verdicts."""
 
     ed2k_hash: str
     size_bytes: int
     aich_hash: str | None
     observations: tuple[ObservationRow, ...]
-    decision: DecisionView | None  # None si aucune décision
+    decision: DecisionView | None  # None if no decision
     verifications: tuple[VerificationRow, ...]
 
 
 # ---------------------------------------------------------------------------
-# État du nœud (local.db)
+# Node state (local.db)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class DownloadRow:
-    """Un téléchargement actif ou terminé (table downloads)."""
+    """An active or completed download (downloads table)."""
 
     ed2k_hash: str
     target_id: str
@@ -120,7 +120,7 @@ class DownloadRow:
 
 @dataclass(frozen=True)
 class VerifTaskRow:
-    """Une tâche de vérification (table verification_tasks)."""
+    """A verification task (verification_tasks table)."""
 
     ed2k_hash: str
     status: str
@@ -131,7 +131,7 @@ class VerifTaskRow:
 
 @dataclass(frozen=True)
 class SchedulerEntry:
-    """Une paire clé/valeur du scheduler (précalculée pour le template)."""
+    """A scheduler key/value pair (precomputed for the template)."""
 
     key: str
     value: str
@@ -139,23 +139,23 @@ class SchedulerEntry:
 
 @dataclass(frozen=True)
 class NodeState:
-    """État complet du nœud : téléchargements, vérifications, scheduler, identité."""
+    """Full node state: downloads, verifications, scheduler, identity."""
 
     downloads: tuple[DownloadRow, ...]
     verification_tasks: tuple[VerifTaskRow, ...]
-    scheduler: Mapping[str, str]  # toutes les paires de scheduler_state
-    node_id: str | None  # None si absent de node_runtime
-    created_at: str | None  # None si absent de node_runtime
+    scheduler: Mapping[str, str]  # all scheduler_state pairs
+    node_id: str | None  # None if absent from node_runtime
+    created_at: str | None  # None if absent from node_runtime
 
 
 # ---------------------------------------------------------------------------
-# Explorateur de fichiers — ligne d'affichage (précalculée)
+# File explorer — display row (precomputed)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class FileRowDisplay:
-    """Ligne de la liste paginée des fichiers : tous les champs précalculés."""
+    """Row of the paginated file list: all fields precomputed."""
 
     ed2k_hash: str
     short_hash: str
@@ -163,17 +163,17 @@ class FileRowDisplay:
     size_bytes: int
     source_count: int
     last_seen: str
-    target_id_display: str  # target_id ou "—"
-    tier_display: str  # tier ou "—"
-    verdict_display: str  # last_verdict ou "—"
+    target_id_display: str  # target_id or "—"
+    tier_display: str  # tier or "—"
+    verdict_display: str  # last_verdict or "—"
     ed2k_link: str
 
 
 @dataclass(frozen=True)
 class PageNav:
-    """Navigation paginée d'une liste — précalculée côté handler (spec W-D8 : aucune logique
-    dans le template). ``prev_url``/``next_url`` à ``None`` quand l'extrémité est atteinte ;
-    le template itère ``(url,) if url`` pour rendre le lien quand il existe.
+    """Paginated navigation of a list — precomputed handler-side (spec W-D8: no logic in the
+    template). ``prev_url``/``next_url`` are ``None`` when the end is reached; the template
+    iterates ``(url,) if url`` to render the link when it exists.
     """
 
     page: int
@@ -182,29 +182,29 @@ class PageNav:
 
 
 # ---------------------------------------------------------------------------
-# Détail fichier — vue d'affichage (précalculée)
+# File detail — display view (precomputed)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class FileDetailDisplay:
-    """Vue complète d'un fichier : tous les champs précalculés pour le template.
+    """Full view of a file: all fields precomputed for the template.
 
-    ``decisions`` est un tuple de 0 ou 1 élément pour permettre l'itération
-    ``{% for d in file.decisions %}`` dans le template (le garde interdit {% if %}).
-    ``explanation_notes`` est vide si aucune explication, contenant un seul élément
-    (la note textuelle) sinon — permet l'itération conditionnelle sans {% if %}.
+    ``decisions`` is a tuple of 0 or 1 element to allow the iteration
+    ``{% for d in file.decisions %}`` in the template (the guard forbids {% if %}).
+    ``explanation_notes`` is empty if there is no explanation, containing a single element
+    (the text note) otherwise — allows conditional iteration without {% if %}.
     """
 
     ed2k_hash: str
     size_bytes: int
-    aich_hash_display: str  # aich_hash ou "—"
+    aich_hash_display: str  # aich_hash or "—"
     observations: tuple[ObservationRow, ...]
-    decisions: tuple[DecisionView, ...]  # 0 ou 1 élément — pour l'itération template
+    decisions: tuple[DecisionView, ...]  # 0 or 1 element — for template iteration
     verifications: tuple[VerificationRow, ...]
-    ed2k_link: str  # précalculé depuis la dernière observation
-    # Champs d'explication (None si aucune explication disponible)
+    ed2k_link: str  # precomputed from the latest observation
+    # Explanation fields (None if no explanation available)
     explanation_target_id: str | None
     explanation_rules_fired: tuple[str, ...]
     explanation_tokens_matched: tuple[str, ...]
-    explanation_notes: tuple[str, ...]  # 0 ou 1 élément — la note textuelle elle-même
+    explanation_notes: tuple[str, ...]  # 0 or 1 element — the text note itself

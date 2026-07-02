@@ -1,16 +1,16 @@
-"""Normalisation des chaînes pour le matching (cf. spec §8.1)."""
+"""String normalization for matching (cf. spec §8.1)."""
 
 import unicodedata
 
-# Ligatures françaises (œ, æ) non décomposées par NFKD et non repliées en ASCII
-# par casefold. Table volontairement limitée au corpus FR/DE ciblé (§8.1) — ce
-# n'est PAS la liste exhaustive des lettres Unicode dans ce cas (p. ex. ĳ, ĸ
-# survivent aussi).
+# French ligatures (œ, æ) are not decomposed by NFKD and not folded to ASCII by
+# casefold. Table deliberately limited to the targeted FR/DE corpus (§8.1) — this
+# is NOT the exhaustive list of Unicode letters in this situation (e.g. ĳ, ĸ
+# survive too).
 _LIGATURES = {"œ": "oe", "æ": "ae"}
 
 
 def _common_fold(value: str) -> str:
-    """Repli commun : NFKD -> retrait des diacritiques combinants -> casefold -> ligatures."""
+    """Common fold: NFKD -> strip combining diacritics -> casefold -> ligatures."""
     decomposed = unicodedata.normalize("NFKD", value)
     without_marks = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
     folded = without_marks.casefold()
@@ -20,18 +20,18 @@ def _common_fold(value: str) -> str:
 
 
 def fold(value: str) -> str:
-    """Repli commun seul : ponctuation et chiffres PRÉSERVÉS (cf. spec §8.1).
+    """Common fold alone: punctuation and digits PRESERVED (cf. spec §8.1).
 
-    Utilisé par les tokens ``regex`` (ainsi ``teletoon``/``fevrier`` matchent sans
-    classes d'accents, et ``°`` reste pour ``n°062a``).
+    Used by ``regex`` tokens (so ``teletoon``/``fevrier`` match without accent
+    classes, and ``°`` stays for ``n°062a``).
     """
     return _common_fold(value)
 
 
 def normalize(value: str) -> str:
-    """Replie une chaîne pour le matching keyword/coverage (cf. spec §8.1).
+    """Fold a string for keyword/coverage matching (cf. spec §8.1).
 
-    ``fold`` -> non-alphanumériques convertis en espaces -> espaces compactés -> trim.
+    ``fold`` -> non-alphanumerics turned into spaces -> spaces collapsed -> trim.
     """
     folded = fold(value)
     cleaned = "".join(ch if ch.isalnum() else " " for ch in folded)
@@ -39,5 +39,5 @@ def normalize(value: str) -> str:
 
 
 def tokenize(value: str) -> list[str]:
-    """Tokens significatifs d'une chaîne, après normalisation."""
+    """Significant tokens of a string, after normalization."""
     return normalize(value).split()

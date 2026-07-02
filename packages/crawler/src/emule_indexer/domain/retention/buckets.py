@@ -1,11 +1,11 @@
-"""Bucketing journalier des observations pour la compaction (spec compaction §4).
+"""Daily bucketing of observations for compaction (spec compaction §4).
 
-Domaine PUR (aucune I/O). Groupe des observations par (ed2k_hash, jour UTC) et calcule les
-agrégats node-agnostiques d'un bucket. Le jour UTC est la TRANCHE observed_at[:10]
-("YYYY-MM-DD") — observed_at est ISO-8601 UTC à largeur fixe (connection.utc_iso), donc aucun
-calcul de fuseau. filenames/node_ids sont des tableaux JSON CANONIQUES (distincts, triés) :
-deux ensembles égaux ont le même texte → la dédup append-only/merge par égalité de ligne marche.
-La moyenne se dérive de *_sum / observation_count (non stockée).
+PURE domain (no I/O). Groups observations by (ed2k_hash, UTC day) and computes a bucket's
+node-agnostic aggregates. The UTC day is the SLICE observed_at[:10] ("YYYY-MM-DD") —
+observed_at is fixed-width ISO-8601 UTC (connection.utc_iso), so no timezone math.
+filenames/node_ids are CANONICAL JSON arrays (distinct, sorted): two equal sets have the same
+text → append-only/merge dedup by row equality works. The mean is derived from
+*_sum / observation_count (not stored).
 """
 
 import json
@@ -16,7 +16,7 @@ from itertools import groupby
 
 @dataclass(frozen=True)
 class ObservationRow:
-    """Une observation brute lue pour la compaction (champs nécessaires au bucketing)."""
+    """A raw observation read for compaction (fields needed for bucketing)."""
 
     ed2k_hash: str
     node_id: str
@@ -28,7 +28,7 @@ class ObservationRow:
 
 @dataclass(frozen=True)
 class ObservationBucket:
-    """Un bucket (ed2k_hash, jour) : les 13 colonnes de file_observation_ranges hormis id."""
+    """A bucket (ed2k_hash, day): the 13 columns of file_observation_ranges except id."""
 
     ed2k_hash: str
     bucket: str
@@ -46,16 +46,16 @@ class ObservationBucket:
 
 
 def _json_sorted_set(values: Sequence[str]) -> str:
-    """Tableau JSON canonique des valeurs distinctes triées (texte stable pour la dédup)."""
+    """Canonical JSON array of distinct sorted values (stable text for dedup)."""
     return json.dumps(sorted(set(values)))
 
 
 def bucketize(observations: Sequence[ObservationRow]) -> list[ObservationBucket]:
-    """Groupe `observations` par (ed2k_hash, jour UTC) → un ObservationBucket par groupe.
+    """Group `observations` by (ed2k_hash, UTC day) → one ObservationBucket per group.
 
-    L'entrée DOIT être triée par (ed2k_hash, observed_at, id) — l'orchestration (compactor) le
-    garantit par SQL. Chaque groupe (même hash, même jour) est alors contigu (jours croissants).
-    Node-agnostique : toutes les observations d'un (hash, jour), tous nœuds confondus, → UN bucket.
+    The input MUST be sorted by (ed2k_hash, observed_at, id) — the orchestration (compactor)
+    guarantees it via SQL. Each group (same hash, same day) is then contiguous (increasing days).
+    Node-agnostic: all observations of a (hash, day), across all nodes, → ONE bucket.
     """
     buckets: list[ObservationBucket] = []
     for (ed2k_hash, day), group_iter in groupby(

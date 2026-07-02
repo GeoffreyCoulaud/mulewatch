@@ -35,13 +35,13 @@ def test_interpolate_unknown_placeholder_raises() -> None:
 
 
 def test_interpolate_former_number_placeholder_is_now_unknown() -> None:
-    # {number} a été renommé {absolute_number} : désormais inconnu (fail-fast).
+    # {number} was renamed {absolute_number}: now unknown (fail-fast).
     with pytest.raises(InterpolationError, match="number"):
         interpolate(r"{number}", _target())
 
 
 def test_interpolate_leaves_regex_quantifier_braces_untouched() -> None:
-    # Un quantificateur RE2 {2,4} n'est PAS un placeholder et reste intact.
+    # An RE2 quantifier {2,4} is NOT a placeholder and stays intact.
     assert interpolate(r"keroro\d{2,4}{absolute_number}", _target()) == r"keroro\d{2,4}62"
 
 

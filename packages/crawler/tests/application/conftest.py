@@ -1,4 +1,4 @@
-"""Fixtures partagées des tests application : moteur réel + repos SQLite réels (spec §8)."""
+"""Shared fixtures for the application tests: real engine + real SQLite repos (spec §8)."""
 
 import sqlite3
 from collections.abc import Iterator
@@ -13,8 +13,8 @@ from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteC
 from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-# Matcher : source de vérité unique = config de déploiement. Targets : sous-ensemble §7 du
-# golden corpus (fixture matching, distinct du catalogue prod complet).
+# Matcher: single source of truth = deployment config. Targets: the §7 subset of the golden
+# corpus (matching fixture, distinct from the full prod catalog).
 _MATCHER = _REPO_ROOT / "deploy" / "config" / "crawler" / "matcher.yml"
 _FIXTURES = _REPO_ROOT / "packages" / "matching" / "tests" / "fixtures"
 _NODE = "11111111-2222-3333-4444-555555555555"
@@ -22,7 +22,7 @@ _NODE = "11111111-2222-3333-4444-555555555555"
 
 @pytest.fixture
 def engine() -> MatchingEngine:
-    """Moteur RÉEL : matcher de déploiement + targets du golden corpus (fixtures partagées)."""
+    """REAL engine: deployment matcher + golden-corpus targets (shared fixtures)."""
     config = parse_matcher_config(load_yaml(_MATCHER))
     targets = parse_targets(load_yaml(_FIXTURES / "golden_targets.yaml"))
     return MatchingEngine(config, targets)

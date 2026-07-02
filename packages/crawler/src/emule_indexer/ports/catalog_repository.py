@@ -1,12 +1,11 @@
-"""Port ``CatalogRepository`` : la mémoire durable du catalogue (spec data-model §4).
+"""``CatalogRepository`` port: the catalog's durable memory (spec data-model §4).
 
-Protocol SYNCHRONE (spec §3 : une écriture locale est sub-milliseconde ; si le plan C
-veut s'isoler, il enveloppera dans ``asyncio.to_thread`` sans toucher cette couche).
-Le port n'importe QUE le domaine. Les stubs tiennent sur UNE ligne (le ``def`` s'exécute
-à la création de la classe : couvert). L'adapter stamppe ``observed_at``/``decided_at``/
-``node_id`` — c'est pour ça que ``record_decision`` reçoit le hash À CÔTÉ de la décision
-(``MatchDecision`` ne porte pas la clé contenu, par principe : domaine sans colonnes de
-persistance).
+SYNCHRONOUS Protocol (spec §3: a local write is sub-millisecond; if plan C wants to
+isolate itself, it will wrap it in ``asyncio.to_thread`` without touching this layer).
+The port imports ONLY the domain. Stubs fit on ONE line (the ``def`` runs at class
+creation: covered). The adapter stamps ``observed_at``/``decided_at``/``node_id`` — that
+is why ``record_decision`` receives the hash ALONGSIDE the decision (``MatchDecision`` does
+not carry the content key, by principle: a domain without persistence columns).
 """
 
 from collections.abc import Mapping, Sequence
@@ -19,11 +18,11 @@ from emule_indexer.domain.observation import FileObservation
 
 @dataclass(frozen=True)
 class ObservedFile:
-    """Forme de LECTURE minimale d'une observation : nom + taille (pour bâtir un lien ed2k).
+    """Minimal READ shape of an observation: name + size (to build an ed2k link).
 
-    La boucle de download (spec §5) lit la DERNIÈRE observation d'un hash pour reconstruire
-    son lien ed2k (``build_ed2k_link(filename, size_bytes, hash)``). On ne rend que les deux
-    champs nécessaires — pas tout ``FileObservation`` (le reste est inutile au download).
+    The download loop (spec §5) reads the LATEST observation of a hash to rebuild its ed2k
+    link (``build_ed2k_link(filename, size_bytes, hash)``). We return only the two required
+    fields — not the whole ``FileObservation`` (the rest is useless for download).
     """
 
     filename: str
@@ -31,16 +30,16 @@ class ObservedFile:
 
 
 class CatalogRepository(Protocol):
-    """Contrat sync d'écriture du catalogue (append-only ; l'adapter signale, il ne décide pas).
+    """Sync catalog write contract (append-only; the adapter reports, it does not decide).
 
-    ``last_decision`` (anti-redondance, spec orchestration §3) rend un :class:`DecisionRecord`.
-    ``download_decisions`` (spec download §5) rend les :class:`DownloadCandidate` dont le
-    DERNIER verdict est tier=download (à rejouer par la boucle de download). ``last_observation``
-    rend l':class:`ObservedFile` la plus récente d'un hash (nom+taille pour le lien ed2k), ou
-    ``None``. Ces trois lectures sont inoffensives (aucune écriture).
-    ``record_verification`` (spec verify §5) append une ligne ``file_verifications`` (catalogue
-    append-only, taguée ``node_id``) — la décision du verdict est prise ailleurs (le verifier),
-    l'adapter ne fait que persister.
+    ``last_decision`` (anti-redundancy, spec orchestration §3) returns a :class:`DecisionRecord`.
+    ``download_decisions`` (spec download §5) returns the :class:`DownloadCandidate` whose
+    LATEST verdict is tier=download (to be replayed by the download loop). ``last_observation``
+    returns the most recent :class:`ObservedFile` of a hash (name+size for the ed2k link), or
+    ``None``. These three reads are harmless (no write).
+    ``record_verification`` (spec verify §5) appends a ``file_verifications`` row (append-only
+    catalog, tagged ``node_id``) — the verdict decision is made elsewhere (the verifier), the
+    adapter only persists.
     """
 
     def record_observation(self, observation: FileObservation) -> None: ...

@@ -1,4 +1,4 @@
-"""Tests de ``port_sync_loop`` (design §4.5/§10.6) — l'arrêt (pattern ``verification_loop``)."""
+"""Tests for ``port_sync_loop`` (design §4.5/§10.6) — shutdown (``verification_loop`` pattern)."""
 
 import asyncio
 
@@ -41,14 +41,14 @@ async def test_loop_stops_when_shutdown_is_set_before_start() -> None:
     reader = FakePortForwardingReader(port=None)
     deps = _loop_deps(reader=reader, shutdown=shutdown)
     await asyncio.wait_for(port_sync_loop(deps), timeout=1.0)
-    assert reader.calls == 0  # aucun cycle
+    assert reader.calls == 0  # no cycle
 
 
 @pytest.mark.asyncio
 async def test_loop_runs_cycles_then_stops() -> None:
     shutdown = asyncio.Event()
     clock = FakeClock()
-    reader = FakePortForwardingReader(port=None)  # pas prêt → dort à chaque cycle
+    reader = FakePortForwardingReader(port=None)  # not ready → sleeps each cycle
     deps = _loop_deps(reader=reader, shutdown=shutdown, clock=clock)
 
     async def stop_after_second_sleep() -> None:
@@ -60,11 +60,11 @@ async def test_loop_runs_cycles_then_stops() -> None:
         asyncio.wait_for(port_sync_loop(deps), timeout=2.0), stop_after_second_sleep()
     )
     assert reader.calls >= 2
-    assert len(clock.sleeps) >= 2  # deux cycles complets → branche while-continue couverte
+    assert len(clock.sleeps) >= 2  # two full cycles → while-continue branch covered
 
 
 class _ShutdownDuringCycleReader(FakePortForwardingReader):
-    """Pose ``shutdown`` au 1er ``forwarded_port`` (PENDANT le cycle) → break sans 2e cycle."""
+    """Set ``shutdown`` on the 1st ``forwarded_port`` (DURING the cycle) → break, no 2nd cycle."""
 
     def __init__(self, shutdown: asyncio.Event) -> None:
         super().__init__(port=None)
@@ -81,4 +81,4 @@ async def test_loop_breaks_when_shutdown_is_set_during_the_cycle() -> None:
     reader = _ShutdownDuringCycleReader(shutdown)
     deps = _loop_deps(reader=reader, shutdown=shutdown)
     await asyncio.wait_for(port_sync_loop(deps), timeout=1.0)
-    assert reader.calls == 1  # un seul cycle, puis break (shutdown posé pendant)
+    assert reader.calls == 1  # a single cycle, then break (shutdown set during)

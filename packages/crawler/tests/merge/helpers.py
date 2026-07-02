@@ -1,10 +1,10 @@
-"""Helpers de test partagés pour le script de merge (catalogues réels, jamais ``:memory:``).
+"""Shared test helpers for the merge script (real catalogs, never ``:memory:``).
 
-WAL exige un fichier réel (``open_catalog`` refuse ``:memory:``) : chaque helper crée un
-``catalog.db`` sur disque via ``open_catalog`` (schéma + triggers append-only), insère des
-lignes données par colonnes explicites, ferme, rend le chemin. Style aligné sur
-``tests/adapters/persistence_sqlite/test_append_only.py`` (INSERT directs, FK : ``files``/
-``sources`` avant les journaux).
+WAL requires a real file (``open_catalog`` rejects ``:memory:``): each helper creates a
+``catalog.db`` on disk via ``open_catalog`` (schema + append-only triggers), inserts the given
+rows by explicit columns, closes, and returns the path. Style aligned with
+``tests/adapters/persistence_sqlite/test_append_only.py`` (direct INSERTs, FK: ``files``/
+``sources`` before the journals).
 """
 
 import sqlite3
@@ -13,8 +13,8 @@ from pathlib import Path
 
 from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
 
-# Colonnes hors id, dans l'ordre du schéma (0001_initial.sql) — pour les INSERT directs et
-# les lectures de clé naturelle dans les assertions.
+# Columns excluding id, in schema order (0001_initial.sql) — for direct INSERTs and
+# natural-key reads in the assertions.
 FILE_COLUMNS = ("ed2k_hash", "size_bytes", "aich_hash")
 SOURCE_COLUMNS = ("user_hash", "client_name", "client_version")
 FILE_OBSERVATION_COLUMNS = (
@@ -90,21 +90,21 @@ _COLUMNS_BY_TABLE: Mapping[str, Sequence[str]] = {
     "file_observation_ranges": FILE_OBSERVATION_RANGE_COLUMNS,
 }
 
-# Un hash eD2k canonique (32 hex minuscules) par lettre — satisfait le CHECK sur files.
+# One canonical eD2k hash (32 lowercase hex chars) per letter — satisfies the CHECK on files.
 HASH_A = "a" * 32
 HASH_B = "b" * 32
 HASH_C = "c" * 32
 
 
 def hash_for(letter: str) -> str:
-    """Un hash canonique de 32 caractères répétant ``letter`` (1 seul caractère hex)."""
+    """A canonical 32-char hash repeating ``letter`` (a single hex character)."""
     return letter * 32
 
 
 def insert_rows(
     connection: sqlite3.Connection, table: str, rows: Sequence[Mapping[str, object]]
 ) -> None:
-    """INSERT direct de ``rows`` dans ``table`` (colonnes explicites, ordre du schéma)."""
+    """Direct INSERT of ``rows`` into ``table`` (explicit columns, schema order)."""
     columns = _COLUMNS_BY_TABLE[table]
     placeholders = ", ".join("?" for _ in columns)
     statement = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})"
@@ -115,11 +115,11 @@ def insert_rows(
 def make_catalog(
     path: Path, content: Mapping[str, Sequence[Mapping[str, object]]] | None = None
 ) -> Path:
-    """Crée un ``catalog.db`` réel à ``path`` et insère ``content`` (par table, ordre FK).
+    """Create a real ``catalog.db`` at ``path`` and insert ``content`` (per table, FK order).
 
-    ``content`` mappe un nom de table → des lignes (dict colonne→valeur). On insère dans
-    l'ordre FK (``files``/``sources`` avant les journaux) pour que les références soient
-    satisfaites. Rend ``path`` pour chaînage.
+    ``content`` maps a table name → rows (dict column→value). We insert in FK order
+    (``files``/``sources`` before the journals) so that references are satisfied. Returns
+    ``path`` for chaining.
     """
     connection = open_catalog(path)
     try:
@@ -142,7 +142,7 @@ def make_catalog(
 
 
 def count(path: Path, table: str) -> int:
-    """Nombre de lignes de ``table`` dans le catalogue ``path``."""
+    """Number of rows of ``table`` in the catalog ``path``."""
     connection = open_catalog(path)
     try:
         return int(connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0])
@@ -151,7 +151,7 @@ def count(path: Path, table: str) -> int:
 
 
 def rows_without_id(path: Path, table: str) -> list[tuple[object, ...]]:
-    """Toutes les lignes de ``table`` (colonnes hors ``id``, ordre du schéma), triées."""
+    """All rows of ``table`` (columns excluding ``id``, schema order), sorted."""
     columns = _COLUMNS_BY_TABLE[table]
     connection = open_catalog(path)
     try:
@@ -162,7 +162,7 @@ def rows_without_id(path: Path, table: str) -> list[tuple[object, ...]]:
 
 
 def ids(path: Path, table: str) -> list[int]:
-    """Les ``id`` (réassignés) de ``table``, triés croissant."""
+    """The (reassigned) ``id`` values of ``table``, sorted ascending."""
     connection = open_catalog(path)
     try:
         cursor = connection.execute(f"SELECT id FROM {table} ORDER BY id")

@@ -66,7 +66,7 @@ def test_download_decisions_includes_hash_whose_latest_verdict_is_download(
 ) -> None:
     repository.record_observation(_obs(_A))
     repository.record_decision(_A, _decision("catalog"))
-    repository.record_decision(_A, _decision("download"))  # plus récent = download
+    repository.record_decision(_A, _decision("download"))  # more recent = download
     assert repository.download_decisions() == (
         DownloadCandidate(ed2k_hash=_A, target_id="S2E062A"),
     )
@@ -76,7 +76,7 @@ def test_download_decisions_includes_a_single_download_only_decision(
     repository: SqliteCatalogRepository,
 ) -> None:
     repository.record_observation(_obs(_A))
-    repository.record_decision(_A, _decision("download"))  # une seule décision, = download
+    repository.record_decision(_A, _decision("download"))  # a single decision, = download
     assert repository.download_decisions() == (
         DownloadCandidate(ed2k_hash=_A, target_id="S2E062A"),
     )
@@ -87,15 +87,15 @@ def test_download_decisions_excludes_hash_whose_latest_verdict_is_not_download(
 ) -> None:
     repository.record_observation(_obs(_B))
     repository.record_decision(_B, _decision("download"))
-    repository.record_decision(_B, _decision("catalog"))  # plus récent = catalog
+    repository.record_decision(_B, _decision("catalog"))  # more recent = catalog
     assert repository.download_decisions() == ()
 
 
 def test_download_decisions_isolates_per_hash(
     repository: SqliteCatalogRepository,
 ) -> None:
-    # deux hash distincts dans la même requête : _A finit en download, _B finit en catalog.
-    # La fenêtre PARTITION BY ed2k_hash doit les isoler → seul _A est rendu.
+    # two distinct hashes in the same query: _A ends in download, _B ends in catalog.
+    # The PARTITION BY ed2k_hash window must isolate them → only _A is returned.
     repository.record_observation(_obs(_A))
     repository.record_observation(_obs(_B))
     repository.record_decision(_A, _decision("catalog"))

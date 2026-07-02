@@ -9,7 +9,7 @@ _CLEAN_EGRESS = b'{"verdict": "clean", "real_meta": {"container": "mp4"}, "check
 
 
 class _StubChildRunner:
-    """ChildRunner injecté : rend un (rc, stdout, timed_out) canné, capture le hash de l'argv."""
+    """ChildRunner injected: returns a canned (rc, stdout, timed_out), captures the argv hash."""
 
     def __init__(self, returncode: int, stdout: bytes, timed_out: bool) -> None:
         self._result = (returncode, stdout, timed_out)
@@ -31,9 +31,9 @@ def test_missing_file_is_error_without_spawn(tmp_path: Path) -> None:
     verdict, real_meta, checks, outcome = verify_file(
         tmp_path / "absent", {}, cfg=_cfg(tmp_path), runner=runner
     )
-    # outcome=None : aucun child n'a tourné → aucune issue technique à classer (observability#2).
+    # outcome=None: no child ran → no technical outcome to classify (observability#2).
     assert (verdict, real_meta, checks, outcome) == ("error", {}, [], None)
-    assert runner.seen_hash is None  # l'enfant n'est PAS spawné pour un fichier absent
+    assert runner.seen_hash is None  # the child is NOT spawned for a missing file
 
 
 def test_directory_is_error_without_spawn(tmp_path: Path) -> None:
@@ -46,14 +46,14 @@ def test_directory_is_error_without_spawn(tmp_path: Path) -> None:
 
 def test_existing_file_runs_pipeline_and_returns_verdict(tmp_path: Path) -> None:
     target = tmp_path / _HASH
-    target.write_bytes(b"x")  # le parent ne lit JAMAIS ces octets (l'enfant si — stubé ici)
+    target.write_bytes(b"x")  # the parent NEVER reads these bytes (the child does — stubbed here)
     runner = _StubChildRunner(0, _CLEAN_EGRESS, False)
     verdict, real_meta, checks, outcome = verify_file(target, {}, cfg=_cfg(tmp_path), runner=runner)
     assert verdict == "clean"
     assert real_meta == {"container": "mp4"}
     assert checks == []
     assert outcome == "ok"
-    assert runner.seen_hash == _HASH  # l'enfant a été spawné avec le bon hash
+    assert runner.seen_hash == _HASH  # the child was spawned with the right hash
 
 
 def test_child_failure_maps_to_suspicious(tmp_path: Path) -> None:
@@ -64,17 +64,17 @@ def test_child_failure_maps_to_suspicious(tmp_path: Path) -> None:
 
 
 def test_default_runner_is_prod(tmp_path: Path) -> None:
-    # cfg est REQUIS (résolu au boot, error-boundary#0) ; appel SANS runner pour couvrir le défaut
-    # PROD ProdChildRunner : fichier absent → error (pas de spawn, donc aucun sous-process réel).
+    # cfg is REQUIRED (resolved at boot, error-boundary#0); call WITHOUT a runner to cover the PROD
+    # ProdChildRunner default: missing file → error (no spawn, so no real subprocess).
     assert verify_file(tmp_path / "absent", {}, cfg=_cfg(tmp_path))[0] == "error"
 
 
 def test_symlink_at_quarantine_path_is_error_without_spawn(tmp_path: Path) -> None:
-    # Régression sandbox-confinement#4 : un symlink (même vers un fichier régulier) doit être
-    # REFUSÉ — verify_file rend "error", aucun spawn. ``is_file()`` suivait le symlink et
-    # passait la garde ; on bascule sur ``os.lstat + S_ISREG`` pour refuser tout type ≠ régulier.
-    # Defense-en-profondeur : si amuled (RW sur la quarantaine) était compromis, il pourrait
-    # y déposer un symlink vers un fichier arbitraire du fs verifier.
+    # sandbox-confinement#4 regression: a symlink (even to a regular file) must be
+    # REFUSED — verify_file returns "error", no spawn. ``is_file()`` followed the symlink and
+    # passed the guard; we switch to ``os.lstat + S_ISREG`` to refuse any non-regular type.
+    # Defense-in-depth: if amuled (RW on the quarantine) were compromised, it could drop
+    # a symlink there pointing to an arbitrary file on the verifier fs.
     target = tmp_path / "real.bin"
     target.write_bytes(b"x")
     link = tmp_path / _HASH

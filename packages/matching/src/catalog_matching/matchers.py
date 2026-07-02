@@ -1,4 +1,4 @@
-"""Matchers feuilles du moteur de matching (cf. spec §8.2)."""
+"""Leaf matchers of the matching engine (cf. spec §8.2)."""
 
 import re2
 from rapidfuzz import fuzz
@@ -8,7 +8,7 @@ from catalog_matching.normalization import fold, tokenize
 
 
 class KeywordMatcher:
-    """Vrai si la phrase (tokenisée) est une sous-suite CONTIGUË des tokens du nom."""
+    """True if the (tokenized) phrase is a CONTIGUOUS subsequence of the filename tokens."""
 
     def __init__(self, phrase: str) -> None:
         self._tokens = tokenize(phrase)
@@ -18,7 +18,7 @@ class KeywordMatcher:
         haystack = tokenize(candidate.filename)
         if not needle:
             return True
-        # Fenêtre glissante de largeur len(needle) : sous-suite CONTIGUË.
+        # Sliding window of width len(needle): CONTIGUOUS subsequence.
         last_start = len(haystack) - len(needle)
         return any(
             haystack[start : start + len(needle)] == needle for start in range(last_start + 1)
@@ -26,17 +26,16 @@ class KeywordMatcher:
 
 
 class RegexMatcher:
-    """Match RE2 sur ``fold(filename)``. Si ``"i"`` dans ``flags``, préfixe ``(?i)``.
+    """RE2 match on ``fold(filename)``. If ``"i"`` in ``flags``, prefixes ``(?i)``.
 
-    On préfixe explicitement ``(?i)`` au pattern plutôt que de s'appuyer sur des
-    constantes de flag RE2 (portabilité de l'API ``re2``).
+    We explicitly prefix ``(?i)`` to the pattern rather than relying on RE2 flag
+    constants (portability of the ``re2`` API).
 
-    ``flags`` est une chaîne courte façon ``re`` : ``"i"`` active l'insensibilité
-    à la casse, ``""`` la laisse sensible. Valeurs attendues depuis la config
-    YAML (Plan 2b) : ``"i"`` ou ``""``. La détection est ``"i" in flags`` — ne
-    pas passer de noms verbeux (``"ignore_case"``…), qui activeraient ``(?i)``
-    par accident. Un pattern invalide lève ``re2.error`` à la construction
-    (validation de config déléguée au Plan 2b).
+    ``flags`` is a short ``re``-style string: ``"i"`` enables case-insensitivity,
+    ``""`` leaves it case-sensitive. Expected values from the YAML config (Plan 2b):
+    ``"i"`` or ``""``. Detection is ``"i" in flags`` — do not pass verbose names
+    (``"ignore_case"``…), which would enable ``(?i)`` by accident. An invalid pattern
+    raises ``re2.error`` at construction (config validation delegated to Plan 2b).
     """
 
     def __init__(self, pattern: str, flags: str = "i") -> None:
@@ -48,10 +47,10 @@ class RegexMatcher:
         return self._re.search(fold(candidate.filename)) is not None
 
 
-# Mots-vides français (déjà repliés par tokenize) exclus des tokens significatifs
-# de la référence d'un CoverageMatcher (cf. spec §8.2 : R = tokens(title) \ stopwords).
-# Ensemble volontairement minimal : sous-filtrer favorise le rappel (mieux vaut
-# garder un mot limite que retirer un token significatif).
+# French stopwords (already folded by tokenize) excluded from the significant tokens
+# of a CoverageMatcher's reference (cf. spec §8.2: R = tokens(title) \ stopwords).
+# Deliberately minimal set: under-filtering favors recall (better to keep a borderline
+# word than to drop a significant token).
 STOPWORDS_FR: frozenset[str] = frozenset(
     {
         "le",
@@ -74,7 +73,7 @@ STOPWORDS_FR: frozenset[str] = frozenset(
 
 
 class CoverageMatcher:
-    """Fraction fuzzy des tokens significatifs de ``reference`` couverts (cf. spec §8.2)."""
+    """Fuzzy fraction of ``reference``'s significant tokens that are covered (cf. spec §8.2)."""
 
     def __init__(self, reference: str, min: float, fuzz: float = 0.85) -> None:
         self._reference_tokens = [t for t in tokenize(reference) if t not in STOPWORDS_FR]
@@ -97,15 +96,15 @@ class CoverageMatcher:
         return self.value(candidate) >= self._min
 
 
-# Enum fermé des attributs numériques de FileCandidate utilisables par attr_between
-# (cf. spec §8.2). Tout autre nom -> erreur.
+# Closed enum of FileCandidate numeric attributes usable by attr_between
+# (cf. spec §8.2). Any other name -> error.
 ATTR_NAMES: frozenset[str] = frozenset({"size_mb", "duration_sec", "bitrate_kbps"})
 
 
 class AttrBetweenMatcher:
-    """Vrai si l'attribut numérique est PRÉSENT et dans ``[min, max]`` (cf. spec §8.2).
+    """True if the numeric attribute is PRESENT and within ``[min, max]`` (cf. spec §8.2).
 
-    Bornes ouvertes quand ``min``/``max`` valent ``None``. Attribut absent -> faux.
+    Open bounds when ``min``/``max`` are ``None``. Missing attribute -> false.
     """
 
     def __init__(
@@ -115,7 +114,7 @@ class AttrBetweenMatcher:
         max: float | None = None,
     ) -> None:
         if attr not in ATTR_NAMES:
-            raise ValueError(f"attribut inconnu : {attr!r} (attendu l'un de {sorted(ATTR_NAMES)})")
+            raise ValueError(f"unknown attribute: {attr!r} (expected one of {sorted(ATTR_NAMES)})")
         self._attr = attr
         self._min = min
         self._max = max

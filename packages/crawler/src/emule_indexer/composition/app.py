@@ -1,18 +1,18 @@
-"""Composition root : assemble le pool + repos UNIQUES + moteur + boucle (spec §4/§6).
+"""Composition root: assembles the pool + UNIQUE repos + engine + loop (spec §4/§6).
 
-Couche COMPOSITION (la seule autorisée à importer adapters ET application). Construit :
-- UNE ``SqliteCatalogRepository`` + UNE ``SqliteLocalStateRepository`` +
-  ``SqliteSchedulerStateRepository`` (writer unique, invariant §11), connexions ouvertes
-  via ``open_catalog``/``open_local`` (migrations vérifiées au démarrage, fail-fast §14).
-- le ``MatchingEngine`` (une fois), le ``node_id`` (override config ou celui de local.db),
-- un ``MuleClient`` + ``SearchWorker`` par instance configurée (pool, spec §3).
+COMPOSITION layer (the only one allowed to import adapters AND application). Builds:
+- ONE ``SqliteCatalogRepository`` + ONE ``SqliteLocalStateRepository`` +
+  ``SqliteSchedulerStateRepository`` (single writer, invariant §11), connections opened
+  via ``open_catalog``/``open_local`` (migrations checked at startup, fail-fast §14).
+- the ``MatchingEngine`` (once), the ``node_id`` (config override or the one from local.db),
+- one ``MuleClient`` + ``SearchWorker`` per configured instance (pool, spec §3).
 
-Boucle (``_run_loop``) : par cycle, ``run_search_cycle`` puis sommeil (cadence − écoulé).
-Arrêt OBSERVABLE & BORNÉ (spec §6) : ``loop.add_signal_handler`` (PAS ``KeyboardInterrupt``,
-qui préempterait une fonction sync en pleine écriture) ; 1er ^C → ligne humaine stderr +
-annulation du ``TaskGroup`` ; 2e ^C → ``SystemExit`` immédiat ; les ressources longue durée
-sont fermées par l'``AsyncExitStack`` APRÈS l'unwind complet du ``TaskGroup`` (plus aucun
-travailleur ne peut écrire), le tout sous un délai borné (``shutdown_deadline_seconds``).
+Loop (``_run_loop``): per cycle, ``run_search_cycle`` then sleep (cadence − elapsed).
+OBSERVABLE & BOUNDED shutdown (spec §6): ``loop.add_signal_handler`` (NOT ``KeyboardInterrupt``,
+which would preempt a sync function mid-write); 1st ^C → human line on stderr +
+cancellation of the ``TaskGroup``; 2nd ^C → immediate ``SystemExit``; long-lived resources
+are closed by the ``AsyncExitStack`` AFTER the full unwind of the ``TaskGroup`` (no worker
+can write anymore), all within a bounded delay (``shutdown_deadline_seconds``).
 """
 
 import asyncio
@@ -80,48 +80,49 @@ from emule_indexer.ports.telemetry import Telemetry
 
 _logger = logging.getLogger("emule_indexer.composition.app")
 
-# Type de la factory de client (injectable en test pour substituer un FakeMuleClient).
+# Type of the client factory (injectable in test to substitute a FakeMuleClient).
 ClientFactory = Callable[[AmuleEndpoint], MuleClient]
 
-# Factory du client de DOWNLOAD : même type d'endpoint, mais le client satisfait
-# MuleDownloadClient (AmuleEcClient satisfait les deux Protocols structurellement, DÉCISION D3).
+# DOWNLOAD client factory: same endpoint type, but the client satisfies
+# MuleDownloadClient (AmuleEcClient satisfies both Protocols structurally, DECISION D3).
 DownloadClientFactory = Callable[[AmuleEndpoint], MuleDownloadClient]
-# Factory du verifier : prend l'URL (verifier_url) + le timeout de lecture (s) et rend un
+# Verifier factory: takes the URL (verifier_url) + the read timeout (s) and returns a
 # ContentVerifier.
 VerifierFactory = Callable[[str, float], ContentVerifier]
 
 
 def default_download_client_factory(endpoint: AmuleEndpoint) -> MuleDownloadClient:
-    """Un ``AmuleEcClient`` dédié au download (connexion EC distincte, DÉCISION D3)."""
+    """An ``AmuleEcClient`` dedicated to download (distinct EC connection, DECISION D3)."""
     return AmuleEcClient(endpoint.host, endpoint.port, endpoint.password)
 
 
 def default_verifier_factory(verifier_url: str, read_timeout_seconds: float) -> ContentVerifier:
-    """Un ``HttpContentVerifier`` httpx sur l'URL du verifier.
+    """An httpx ``HttpContentVerifier`` on the verifier's URL.
 
-    ``read_timeout_seconds`` (config) doit couvrir le pire cas d'analyse (clamav) — sinon un
-    fichier sain mais lent part en dead-letter (concurrency-async#1). Le ``connect`` reste court
-    (10 s) pour détecter vite un verifier mort sans subir le long read sur l'établissement.
+    ``read_timeout_seconds`` (config) must cover the worst-case analysis (clamav) — otherwise a
+    healthy but slow file goes to dead-letter (concurrency-async#1). The ``connect`` stays short
+    (10 s) to quickly detect a dead verifier without incurring the long read on establishment.
     """
     timeout = httpx.Timeout(read_timeout_seconds, connect=10.0)
     client = httpx.AsyncClient(base_url=verifier_url, timeout=timeout)
     return HttpContentVerifier(client)
 
 
-# Factories du port-sync (injectables en test — pattern verifier_factory). La 1re prend l'URL du
-# control-server gluetun, la 2e l'URL du docker-socket-proxy ; chacune rend l'adapter httpx réel.
+# Port-sync factories (injectable in test — verifier_factory pattern). The 1st takes the URL of
+# the gluetun control-server, the 2nd the docker-socket-proxy URL; each returns the real httpx
+# adapter.
 PortForwardingReaderFactory = Callable[[str], PortForwardingReader]
 MuleRestarterFactory = Callable[[str], MuleRestarter]
 
 
 def default_port_forwarding_reader_factory(gluetun_control_url: str) -> PortForwardingReader:
-    """Un ``GluetunPortReader`` httpx sur l'URL du control-server gluetun (timeout court)."""
+    """An httpx ``GluetunPortReader`` on the gluetun control-server URL (short timeout)."""
     client = httpx.AsyncClient(base_url=gluetun_control_url, timeout=httpx.Timeout(10.0))
     return GluetunPortReader(client)
 
 
 def default_mule_restarter_factory(restarter_url: str) -> MuleRestarter:
-    """Un ``HttpMuleRestarter`` httpx sur l'URL du docker-socket-proxy (timeout court)."""
+    """An httpx ``HttpMuleRestarter`` on the docker-socket-proxy URL (short timeout)."""
     client = httpx.AsyncClient(base_url=restarter_url, timeout=httpx.Timeout(10.0))
     return HttpMuleRestarter(client)
 
@@ -130,17 +131,17 @@ MetricsServer = Callable[[int, CollectorRegistry], None]
 
 
 def default_metrics_server(port: int, registry: CollectorRegistry) -> None:
-    """Démarre le serveur HTTP /metrics (thread daemon). Wrapper pour fixer l'ordre des args."""
+    """Starts the /metrics HTTP server (daemon thread). Wrapper to fix the argument order."""
     start_http_server(port, registry=registry)  # pragma: no cover
 
 
 def _human(message: str) -> None:
-    """Ligne humaine d'arrêt sur stderr (spec §6 : progression observable, hors logging)."""
+    """Human shutdown line on stderr (spec §6: observable progress, outside logging)."""
     print(message, file=sys.stderr, flush=True)
 
 
 def _build_policy(config: CrawlerConfig) -> WorkerPolicy:
-    """Déballe la config de politique en primitifs pour l'application (règle de dépendance)."""
+    """Unpacks the policy config into primitives for the application (dependency rule)."""
     return WorkerPolicy(
         backoff_base_seconds=config.backoff.base_seconds,
         backoff_cap_seconds=config.backoff.cap_seconds,
@@ -154,12 +155,12 @@ def _build_policy(config: CrawlerConfig) -> WorkerPolicy:
 
 
 def default_client_factory(endpoint: AmuleEndpoint) -> MuleClient:
-    """Un ``AmuleEcClient`` réel par instance (factory par défaut, substituée en test)."""
+    """A real ``AmuleEcClient`` per instance (default factory, substituted in test)."""
     return AmuleEcClient(endpoint.host, endpoint.port, endpoint.password)
 
 
 class CrawlerApp:
-    """Assemble et fait tourner le crawler (composition root, spec §4/§6)."""
+    """Assembles and runs the crawler (composition root, spec §4/§6)."""
 
     def __init__(
         self,
@@ -195,16 +196,16 @@ class CrawlerApp:
         self._signal_count = 0
 
     def _on_signal(self) -> None:
-        """Handler de boucle (ne préempte jamais une fonction sync, spec §6)."""
+        """Loop handler (never preempts a sync function, spec §6)."""
         self._signal_count += 1
         if self._signal_count == 1:
             _human(
-                "Arrêt demandé — fin des recherches en vol, fermeture propre… "
-                "(Ctrl-C à nouveau pour forcer)"
+                "Shutdown requested — finishing in-flight searches, clean close… "
+                "(Ctrl-C again to force)"
             )
             self._shutdown.set()
         else:
-            _human("Arrêt forcé.")
+            _human("Forced shutdown.")
             raise SystemExit(1)
 
     async def _run_loop(
@@ -218,7 +219,7 @@ class CrawlerApp:
         telemetry: Telemetry,
         edge: EdgeState,
     ) -> None:
-        """Boucle de cycles jusqu'à l'événement d'arrêt (annulée par le ``TaskGroup``)."""
+        """Cycle loop until the shutdown event (cancelled by the ``TaskGroup``)."""
         cycle_index = scheduler_state.read_cycle_index()
         while not self._shutdown.is_set():
             started = self._clock.now()
@@ -241,10 +242,10 @@ class CrawlerApp:
             await self._clock.sleep(remaining)
 
     def _port_sync_enabled(self) -> bool:
-        """Le port-sync s'active SSI la section ``port_sync`` est présente (``enabled: true``).
+        """Port-sync activates IFF the ``port_sync`` section is present (``enabled: true``).
 
-        Le parseur unifié garantit la complétude de la section quand elle est présente (URLs +
-        cadences) — plus de règle « 3 réglages solidaires » à la composition (design simpl.-dépl.).
+        The unified parser guarantees the section's completeness when present (URLs +
+        cadences) — no more "3 tied settings" rule at composition (deploy-simplification design).
         """
         return self._crawler_config.port_sync is not None
 
@@ -255,24 +256,24 @@ class CrawlerApp:
         telemetry: Telemetry,
         edge: EdgeState,
     ) -> PortSyncLoopDeps:
-        """Assemble les deps de la boucle port-sync (design §9). Suppose la config présente.
+        """Assemble the port-sync loop deps (design §9). Assumes the config is present.
 
-        Lecteur gluetun (factory) + restarter (factory), tous deux ``aclose`` poussés sur le stack.
-        Connexion EC port-sync DÉDIÉE (R6 : pas de contention avec download/search) vers l'endpoint
-        amuled, connectée en TOLÉRANT ``MuleUnreachableError`` au boot (un daemon down ne tue pas le
-        crawler ; le backoff de la boucle gouverne). En prod, host = ``gluetun`` (compose) — c'est
-        le MÊME endpoint que les autres clients EC.
+        gluetun reader (factory) + restarter (factory), both ``aclose`` pushed onto the stack.
+        DEDICATED port-sync EC connection (R6: no contention with download/search) to the amuled
+        endpoint, connected TOLERATING ``MuleUnreachableError`` at boot (a down daemon does not kill
+        the crawler; the loop's backoff governs). In prod, host = ``gluetun`` (compose) — it's
+        the SAME endpoint as the other EC clients.
         """
         port_sync_config = self._crawler_config.port_sync
-        assert port_sync_config is not None  # garanti par _port_sync_enabled (mypy : narrow)
+        assert port_sync_config is not None  # guaranteed by _port_sync_enabled (mypy: narrow)
 
         reader = self._port_forwarding_reader_factory(port_sync_config.gluetun_control_url)
         stack.push_async_callback(reader.aclose)  # type: ignore[attr-defined]
         restarter = self._mule_restarter_factory(port_sync_config.restarter_url)
         stack.push_async_callback(restarter.aclose)  # type: ignore[attr-defined]
 
-        # Connexion EC DÉDIÉE au port-sync : on vise le 1er endpoint amuled configuré (host EC en
-        # prod = gluetun). Tolère MuleUnreachableError au boot, comme la connexion download.
+        # DEDICATED port-sync EC connection: we target the 1st configured amuled endpoint (EC host
+        # in prod = gluetun). Tolerates MuleUnreachableError at boot, like the download connection.
         endpoint = self._crawler_config.amules[0]
         ec_client = self._client_factory(endpoint)
         stack.push_async_callback(ec_client.close)
@@ -280,7 +281,7 @@ class CrawlerApp:
             await ec_client.connect()
         except MuleUnreachableError as error:
             _logger.warning(
-                "daemon port-sync injoignable au démarrage (%s) — toléré, retry par la boucle",
+                "port-sync daemon unreachable at startup (%s) — tolerated, retry by the loop",
                 error,
             )
         return PortSyncLoopDeps(
@@ -307,16 +308,16 @@ class CrawlerApp:
         telemetry: Telemetry,
         edge: EdgeState,
     ) -> tuple[DownloadLoopDeps, VerifyLoopDeps]:
-        """Assemble les deps des boucles download + vérification (mode full, spec §7).
+        """Assemble the download + verification loop deps (full mode, spec §7).
 
-        Repos UNIQUES partagés (``catalog_repo``/``local_repo`` déjà construits ; un
-        ``SqliteDownloadRepository`` sur la MÊME ``local_conn`` — writer unique sur l'event
-        loop, aucune course). Une 2e connexion EC (``download_config.endpoint``) connectée en
-        tolérant
-        ``MuleUnreachableError`` (un daemon down au démarrage ne tue pas le crawler ; le backoff
-        de la boucle gouverne). ``staging_dir`` est l'Incoming d'amuled configuré ; le NOM du
-        fichier complété vient désormais des fichiers PARTAGÉS EC (le vrai nom on-disk rapporté
-        par amuled — résout DV10-Q2 ; la confinement anti-traversal vit dans ``_safe_basename``).
+        SHARED single repos (``catalog_repo``/``local_repo`` already built; a
+        ``SqliteDownloadRepository`` on the SAME ``local_conn`` — single writer on the event
+        loop, no race). A 2nd EC connection (``download_config.endpoint``) connected
+        tolerating
+        ``MuleUnreachableError`` (a down daemon at startup does not kill the crawler; the loop's
+        backoff governs). ``staging_dir`` is the configured amuled Incoming; the NAME of the
+        completed file now comes from the SHARED EC files (the real on-disk name reported
+        by amuled — resolves DV10-Q2; the anti-traversal confinement lives in ``_safe_basename``).
         """
         endpoint = download_config.endpoint
         staging_dir = download_config.staging_dir
@@ -329,13 +330,13 @@ class CrawlerApp:
             await download_client.connect()
         except MuleUnreachableError as error:
             _logger.warning(
-                "daemon download injoignable au démarrage (%s) — toléré, retry par la boucle",
+                "download daemon unreachable at startup (%s) — tolerated, retry by the loop",
                 error,
             )
         downloads_repo = SqliteDownloadRepository(local_conn)
         quarantine = FilesystemQuarantine(Path(quarantine_dir))
-        # ``staging_dir`` = l'Incoming d'amuled ; le NOM du fichier complété vient des fichiers
-        # PARTAGÉS EC (DV10-Q2 : ``_promote_completion`` bâtit ``staging_dir / <vrai nom>``).
+        # ``staging_dir`` = amuled's Incoming; the NAME of the completed file comes from the
+        # SHARED EC files (DV10-Q2: ``_promote_completion`` builds ``staging_dir / <real name>``).
         download_deps = DownloadLoopDeps(
             client=download_client,
             quarantine=quarantine,
@@ -379,28 +380,28 @@ class CrawlerApp:
         telemetry: Telemetry,
         edge: EdgeState,
     ) -> None:
-        """Lance les boucles, attend l'arrêt (NON borné), ARME la borne, annule TOUT et unwind.
+        """Launch the loops, wait for shutdown (UNBOUNDED), ARM the bound, cancel ALL and unwind.
 
-        L'attente du signal d'arrêt est LIBRE (``shutdown_timeout`` entre ici DÉSARMÉ —
-        échéance ``None`` — donc le crawler tourne tant qu'on ne l'arrête pas, sur un temps
-        non borné). DÈS l'arrêt demandé, on ARME la borne (``reschedule`` à ``maintenant +
-        shutdown_deadline_seconds``) AVANT d'annuler : ainsi l'unwind du ``TaskGroup`` (l'``await``
-        des tâches annulées à la sortie du ``async with``) PUIS la fermeture LIFO du stack
-        (dans ``run``) sont tous deux bornés — l'app ne PEUT pas paraître bloquée à l'arrêt.
-        L'annulation atterrit au prochain ``await`` réseau (jamais en pleine écriture DB, repos
-        sync, spec §6).
-        ARRÊT PROMPT DE TOUTES LES BOUCLES : il faut annuler EXPLICITEMENT chaque tâche sœur —
-        annuler ``loop_task`` (search) N'annule PAS les boucles download/verify, qui sont ses
-        sœurs dans le ``TaskGroup``. Sans cela, l'arrêt attendrait le sleep in-cycle de chaque
-        boucle (``_sleep_or_nudge`` du download ne surveille QUE poll/nudge, pas ``self._shutdown``
-        ; le poll de la vérif dort ``verify.poll_interval``), et le ``shutdown_deadline`` armé
-        au-dessus tirerait un ``TimeoutError`` AVANT — un Ctrl-C de routine forcerait alors la
-        sortie au lieu d'un arrêt propre. On annule donc l'ENSEMBLE des tâches créées.
-        VÉRIFICATION EMPIRIQUE : annuler les enfants d'un ``TaskGroup`` (le groupe lui-même
-        n'étant pas annulé) NE propage PAS de ``CancelledError`` au sortir du ``async with``
-        — l'unwind est PROPRE. On affiche donc la progression APRÈS le bloc, sans ``except*``
-        (qui serait du code mort). Une vraie exception d'un travailleur, elle, propagerait en
-        ``ExceptionGroup`` — on ne la masque pas.
+        Waiting on the shutdown signal is FREE (``shutdown_timeout`` enters here DISARMED —
+        deadline ``None`` — so the crawler runs until stopped, over an unbounded
+        span). AS SOON AS shutdown is requested, we ARM the bound (``reschedule`` to ``now +
+        shutdown_deadline_seconds``) BEFORE cancelling: thus the ``TaskGroup`` unwind (the ``await``
+        of the cancelled tasks on exit of the ``async with``) THEN the LIFO stack close
+        (in ``run``) are both bounded — the app CANNOT appear stuck at shutdown.
+        Cancellation lands at the next network ``await`` (never mid DB write, sync repos,
+        spec §6).
+        PROMPT SHUTDOWN OF ALL LOOPS: each sibling task must be cancelled EXPLICITLY —
+        cancelling ``loop_task`` (search) does NOT cancel the download/verify loops, which are its
+        siblings in the ``TaskGroup``. Without this, shutdown would wait on each loop's in-cycle
+        sleep (``_sleep_or_nudge`` of the download watches ONLY poll/nudge, not ``self._shutdown``
+        ; the verify poll sleeps ``verify.poll_interval``), and the ``shutdown_deadline`` armed
+        above would fire a ``TimeoutError`` FIRST — a routine Ctrl-C would then force the
+        exit instead of a clean shutdown. So we cancel the ENTIRE set of created tasks.
+        EMPIRICAL VERIFICATION: cancelling the children of a ``TaskGroup`` (the group itself
+        not being cancelled) does NOT propagate a ``CancelledError`` on exit of the ``async with``
+        — the unwind is CLEAN. So we print the progress AFTER the block, without ``except*``
+        (which would be dead code). A real worker exception, however, would propagate as an
+        ``ExceptionGroup`` — we don't mask it.
         """
         async with asyncio.TaskGroup() as group:
             tasks = [
@@ -422,27 +423,27 @@ class CrawlerApp:
                 tasks.append(group.create_task(verification_loop(verify_deps)))
             if port_sync_deps is not None:
                 tasks.append(group.create_task(port_sync_loop(port_sync_deps)))
-            await self._shutdown.wait()  # NON borné (la borne est désarmée tant qu'on tourne)
+            await self._shutdown.wait()  # UNBOUNDED (the bound is disarmed while running)
             shutdown_timeout.reschedule(
                 asyncio.get_running_loop().time() + self._crawler_config.shutdown_deadline_seconds
             )
             for task in tasks:
                 task.cancel()
-        _human("Travailleurs arrêtés.")
+        _human("Workers stopped.")
 
     async def run(self) -> None:
-        """Point d'entrée async : ouvre les ressources, installe les signaux, boucle (§6).
+        """Async entry point: opens the resources, installs the signals, loops (§6).
 
-        Ownership (spec §6) : l'``AsyncExitStack`` possède les ressources longue durée (pool
-        de clients + 2 connexions). La borne d'arrêt est un ``asyncio.timeout`` ENTRÉ DÉSARMÉ
-        (échéance ``None``) : le run en régime permanent (attente du signal, cycles) est NON
-        borné — sinon le crawler mourrait après ``shutdown_deadline_seconds`` de marche normale.
-        SEULE la PHASE D'ARRÊT est bornée : ``_supervise`` ARME la borne (``reschedule``) dès
-        l'arrêt demandé, donc l'unwind du ``TaskGroup`` PUIS la fermeture LIFO du stack ci-dessous
-        tombent sous l'échéance — l'app ne PEUT pas paraître bloquée à l'arrêt. Un dépassement
-        lève ``TimeoutError`` (sortie forcée) ; le ``finally`` tente alors une fermeture
-        best-effort (suppress) pour ne pas re-bloquer indéfiniment. La borne ne s'arme JAMAIS
-        sans arrêt demandé → un ``TimeoutError`` ne peut frapper qu'une fermeture qui traîne.
+        Ownership (spec §6): the ``AsyncExitStack`` owns the long-lived resources (client pool +
+        2 connections). The shutdown bound is an ``asyncio.timeout`` ENTERED DISARMED (deadline
+        ``None``): the steady-state run (waiting on the signal, cycles) is UNBOUNDED — otherwise
+        the crawler would die after ``shutdown_deadline_seconds`` of normal operation. ONLY the
+        SHUTDOWN PHASE is bounded: ``_supervise`` ARMS the bound (``reschedule``) as soon as
+        shutdown is requested, so the ``TaskGroup`` unwind THEN the LIFO stack close below fall
+        under the deadline — the app CANNOT appear stuck at shutdown. An overrun raises
+        ``TimeoutError`` (forced exit); the ``finally`` then attempts a best-effort close
+        (suppress) so as not to re-block indefinitely. The bound NEVER arms without a requested
+        shutdown → a ``TimeoutError`` can only hit a close that drags.
         """
         loop = asyncio.get_running_loop()
         loop.add_signal_handler(signal.SIGINT, self._on_signal)
@@ -476,9 +477,9 @@ class CrawlerApp:
             catalog_repo = SqliteCatalogRepository(catalog_conn, node_id)
             scheduler_state = SqliteSchedulerStateRepository(local_conn)
             engine = MatchingEngine(self._matcher_config, self._targets)
-            # Registre de backoff PARTAGÉ : construit UNE fois, RECHARGÉ depuis scheduler_state
-            # (le backoff survit au redémarrage, spec §3/§7), injecté dans TOUS les travailleurs
-            # + passé au cycle qui le persiste. Writer unique sur l'event loop → aucune course.
+            # SHARED backoff registry: built ONCE, RELOADED from scheduler_state
+            # (backoff survives restart, spec §3/§7), injected into ALL workers
+            # + passed to the cycle that persists it. Single writer on the event loop → no race.
             policy = _build_policy(self._crawler_config)
             backoff = BackoffRegistry(policy, self._clock, self._rng)
             backoff.load_from(scheduler_state.load_channel_backoff())
@@ -498,47 +499,47 @@ class CrawlerApp:
             for endpoint in self._crawler_config.amules:
                 client = self._client_factory(endpoint)
                 stack.push_async_callback(client.close)
-                # CONNECTE au montage du pool, AVANT le 1er relevé de coverage (sinon
-                # _aggregate_coverage frappe un client non connecté et lève). Un daemon down au
-                # démarrage ne doit PAS faire tomber un crawler multi-instances : on TOLÈRE le
-                # MuleUnreachableError (warning nommant l'instance) et on CONTINUE — le backoff
-                # de reconnexion du travailleur gouvernera les retentatives. connect() est
-                # idempotent → le _ensure_connected() ultérieur du travailleur reste un no-op.
-                # On NE catch PAS plus large : EcAuthError (mot de passe faux) n'est PAS un
-                # MuleUnreachableError → il continue de propager (fail-fast config, spec §14).
+                # CONNECT at pool assembly, BEFORE the 1st coverage readout (otherwise
+                # _aggregate_coverage hits an unconnected client and raises). A daemon down at
+                # startup must NOT bring down a multi-instance crawler: we TOLERATE the
+                # MuleUnreachableError (warning naming the instance) and CONTINUE — the worker's
+                # reconnection backoff will govern the retries. connect() is
+                # idempotent → the worker's later _ensure_connected() stays a no-op.
+                # We do NOT catch broader: EcAuthError (wrong password) is NOT a
+                # MuleUnreachableError → it keeps propagating (fail-fast config, spec §14).
                 try:
                     await client.connect()
                 except MuleUnreachableError as error:
                     _logger.warning(
-                        "instance %s injoignable au démarrage (%s) — tolérée, backoff au cycle",
+                        "instance %s unreachable at startup (%s) — tolerated, backoff at cycle",
                         endpoint.name,
                         error,
                     )
                 clients.append(client)
                 workers.append(SearchWorker(endpoint.name, client, deps))
 
-            _logger.info("crawler démarré : %d instance(s), node_id=%s", len(clients), node_id)
+            _logger.info("crawler started: %d instance(s), node_id=%s", len(clients), node_id)
 
             verifier: ContentVerifier | None = None
             download_deps: DownloadLoopDeps | None = None
             verify_deps: VerifyLoopDeps | None = None
-            # Mode FULL ⟺ la section ``download`` est présente (``enabled: true``). Le parseur
-            # unifié garantit alors la complétude du câblage (endpoint/dirs/verifier_url/verify) —
-            # plus de gate ``_require_full_config`` à la composition.
+            # FULL mode ⟺ the ``download`` section is present (``enabled: true``). The unified
+            # parser then guarantees the wiring is complete (endpoint/dirs/verifier_url/verify) —
+            # no more ``_require_full_config`` gate at composition.
             download_config = self._crawler_config.download
             if download_config is not None:
                 verifier = self._verifier_factory(
                     download_config.verifier_url, download_config.verify.client_timeout_seconds
                 )
-                # Ferme le client verifier au teardown. Le port ``ContentVerifier`` ne déclare
-                # PAS ``aclose`` (détail d'adapter http) → ``# type: ignore`` documenté ; toute
-                # impl passée à la composition (HttpContentVerifier, faux de test) l'expose
-                # (DÉCISION DV16 : pas de getattr/branche → pas de branche partielle à couvrir).
+                # Close the verifier client at teardown. The ``ContentVerifier`` port does NOT
+                # declare ``aclose`` (http adapter detail) → documented ``# type: ignore``; every
+                # impl passed to composition (HttpContentVerifier, test fake) exposes it
+                # (DECISION DV16: no getattr/branch → no partial branch to cover).
                 stack.push_async_callback(verifier.aclose)  # type: ignore[attr-defined]
                 if not await verifier.health():
                     raise ConfigError(
-                        "verifier injoignable au démarrage (health-check KO) — "
-                        "refus de démarrer en mode full"
+                        "verifier unreachable at startup (health-check failed) — "
+                        "refusing to start in full mode"
                     )
                 download_deps, verify_deps = await self._build_full_loops(
                     download_config=download_config,
@@ -550,24 +551,24 @@ class CrawlerApp:
                     telemetry=telemetry,
                     edge=edge,
                 )
-                _logger.info("mode full : boucles download + vérification armées")
+                _logger.info("full mode: download + verification loops armed")
 
-            # Port-sync (High-ID) : INDÉPENDANT du mode observer/full (déclencheur propre = section
-            # ``port_sync`` présente avec ``enabled: true`` ; complétude garantie par le parseur).
+            # Port-sync (High-ID): INDEPENDENT of observer/full mode (own trigger = ``port_sync``
+            # section present with ``enabled: true``; completeness guaranteed by the parser).
             port_sync_deps: PortSyncLoopDeps | None = None
             if self._port_sync_enabled():
                 port_sync_deps = await self._build_port_sync_loop(
                     stack=stack, telemetry=telemetry, edge=edge
                 )
-                _logger.info("port-sync (High-ID) armé")
+                _logger.info("port-sync (High-ID) armed")
 
             mode = "full" if download_config is not None else "observer"
             await telemetry.emit(CrawlerStarted(mode=mode))
 
-            # Borne ENTRÉE DÉSARMÉE (None) : le régime permanent est non borné ; ``_supervise``
-            # l'arme (reschedule) dès l'arrêt demandé → seule la phase d'arrêt + l'aclose ci-dessous
-            # sont bornés. (Vérifié empiriquement : timeout(None) ne tire pas ; reschedule de
-            # l'intérieur arme ; une op lente après arme lève TimeoutError, une rapide non.)
+            # Bound ENTERED DISARMED (None): the steady state is unbounded; ``_supervise`` arms it
+            # (reschedule) as soon as shutdown is requested → only the shutdown phase + the aclose
+            # below are bounded. (Verified empirically: timeout(None) does not fire; reschedule
+            # from inside arms; a slow op after arming raises TimeoutError, a fast one does not.)
             async with asyncio.timeout(None) as shutdown_timeout:
                 await self._supervise(
                     shutdown_timeout=shutdown_timeout,
@@ -582,12 +583,12 @@ class CrawlerApp:
                     telemetry=telemetry,
                     edge=edge,
                 )
-                _human(f"{len(clients)} connexion(s) EC en fermeture…")
+                _human(f"{len(clients)} EC connection(s) closing…")
                 await stack.aclose()
-                _human("Bases fermées — sortie.")
+                _human("Databases closed — exiting.")
         finally:
-            # Best-effort si l'arrêt borné a échoué (TimeoutError) ou si le setup a levé :
-            # ferme ce qui reste SANS jamais re-bloquer (suppress de toute panne/annulation).
+            # Best-effort if the bounded shutdown failed (TimeoutError) or if setup raised:
+            # close what remains WITHOUT ever re-blocking (suppress any failure/cancellation).
             with suppress(BaseException):
                 await stack.aclose()
             loop.remove_signal_handler(signal.SIGINT)

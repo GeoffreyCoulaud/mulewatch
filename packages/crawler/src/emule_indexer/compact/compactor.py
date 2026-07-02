@@ -1,17 +1,17 @@
-"""`compact_catalog` : compaction d'un catalog.db en une sortie NEUVE (spec compaction §5).
+"""`compact_catalog`: compacts a catalog.db into a NEW output (compaction spec §5).
 
-Reconstruction via open_catalog (schéma + triggers, TOUTES les migrations catalog appliquées
-dynamiquement — on ne fige PAS les numéros, pour éviter le drift au prochain ajout). ATTACH
-de la source
-(hors transaction — SQLite refuse d'attacher dans une transaction), puis DANS une transaction
-explicite (BEGIN…COMMIT, ROLLBACK best-effort) : copie verbatim des 5 tables intactes (ordre FK),
-copie verbatim du brut RÉCENT (observed_at >= cutoff_date), bucketize du brut ANCIEN
-(observed_at < cutoff_date). COMMIT puis DETACH (hors transaction). On n'écrit JAMAIS dans la
-source (que des SELECT). La sortie est supposée NEUVE (le CLI le garantit) → aucune dédup.
+Rebuild via open_catalog (schema + triggers, ALL catalog migrations applied
+dynamically — we do NOT freeze the numbers, to avoid drift on the next addition). ATTACH
+of the source
+(outside a transaction — SQLite refuses to attach inside a transaction), then INSIDE an explicit
+transaction (BEGIN…COMMIT, best-effort ROLLBACK): verbatim copy of the 5 intact tables (FK order),
+verbatim copy of the RECENT raw (observed_at >= cutoff_date), bucketize of the OLD raw
+(observed_at < cutoff_date). COMMIT then DETACH (outside a transaction). We NEVER write to the
+source (only SELECTs). The output is assumed NEW (the CLI guarantees it) → no dedup.
 
-Coupure alignée JOUR UTC (spec §5bis) : cutoff_date est une DATE "YYYY-MM-DD" ; « ancien » ⟺
-observed_at < cutoff_date — la comparaison lexicographique met tout horodatage du jour de coupure
-côté récent ("2026-06-01" < "2026-06-01T.."). Un jour n'est compacté qu'entièrement.
+UTC-DAY-aligned cutoff (spec §5bis): cutoff_date is a "YYYY-MM-DD" DATE; "old" ⟺
+observed_at < cutoff_date — the lexicographic comparison puts every timestamp of the cutoff day
+on the recent side ("2026-06-01" < "2026-06-01T.."). A day is only compacted in full.
 """
 
 import sqlite3
@@ -104,7 +104,7 @@ _INSERT_RANGE = (
 def compact_catalog(
     source: Path, output: Path, *, keep_recent_days: int, clock: Clock = utc_now
 ) -> None:
-    """Compacte `source` vers `output` (NEUF), fenêtre `keep_recent_days` alignée jour UTC."""
+    """Compacts `source` into `output` (NEW), `keep_recent_days` window UTC-day-aligned."""
     cutoff_date = (clock() - timedelta(days=keep_recent_days)).date().isoformat()
     connection = open_catalog(output)
     try:
@@ -117,7 +117,7 @@ def _compact_one(connection: sqlite3.Connection, source: Path, cutoff_date: str)
     try:
         connection.execute(f"ATTACH DATABASE ? AS {_SRC}", (str(Path(source).resolve()),))
     except sqlite3.Error as error:
-        raise CompactError(f"impossible d'attacher la source {source} : {error}") from error
+        raise CompactError(f"cannot attach source {source}: {error}") from error
     try:
         connection.execute("BEGIN")
         try:
@@ -138,7 +138,7 @@ def _compact_one(connection: sqlite3.Connection, source: Path, cutoff_date: str)
         except sqlite3.Error as error:
             with suppress(sqlite3.Error):
                 connection.execute("ROLLBACK")
-            raise CompactError(f"échec de la compaction de {source} : {error}") from error
+            raise CompactError(f"compaction of {source} failed: {error}") from error
     finally:
         with suppress(sqlite3.Error):
             connection.execute(f"DETACH DATABASE {_SRC}")

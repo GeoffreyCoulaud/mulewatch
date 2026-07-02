@@ -1,4 +1,4 @@
-"""Sink Prometheus : inc/set/observe sur un CollectorRegistry jetable (get_sample_value)."""
+"""Prometheus sink: inc/set/observe on a throwaway CollectorRegistry (get_sample_value)."""
 
 from prometheus_client import CollectorRegistry
 
@@ -12,7 +12,7 @@ def test_counter_inc_with_label() -> None:
     sink = PrometheusSink(registry)
     sink.apply(MetricInstruction(MetricName.OBSERVATIONS, "inc", (("network", "ed2k"),)))
     sink.apply(MetricInstruction(MetricName.OBSERVATIONS, "inc", (("network", "ed2k"),)))
-    # counter exposé AVEC le suffixe _total ajouté par prometheus_client
+    # counter exposed WITH the _total suffix added by prometheus_client
     assert registry.get_sample_value("emule_observations_total", {"network": "ed2k"}) == 2.0
 
 
@@ -46,12 +46,12 @@ def test_histogram_observe() -> None:
 
 
 def test_every_emitted_metric_is_declared_in_the_sink() -> None:
-    """Garde-fou STRUCTUREL : toute métrique que ``describe`` émet pour CHAQUE variante de
-    l'union ``Event`` doit être déclarée dans le sink (sinon ``apply`` lève ``KeyError``). Ferme
-    la boucle policy→sink, qu'aucun test pur ne couvrait : un futur event ajoutant une métrique
-    non déclarée fait échouer ce test."""
+    """STRUCTURAL guardrail: every metric that ``describe`` emits for EACH variant of the
+    ``Event`` union must be declared in the sink (otherwise ``apply`` raises ``KeyError``). Closes
+    the policy→sink loop, which no pure test covered: a future event adding an undeclared metric
+    makes this test fail."""
     registry = CollectorRegistry()
     sink = PrometheusSink(registry)
     for event, _ in CASES:
         for instruction in describe(event).metrics:
-            sink.apply(instruction)  # ne doit JAMAIS lever (métrique déclarée)
+            sink.apply(instruction)  # must NEVER raise (declared metric)

@@ -8,7 +8,7 @@ _CFG = AnalysisConfig.from_env({})
 
 
 class _StubRunner:
-    """ClamavRunner injecté : rend un (returncode, stdout) canné, capture l'argv."""
+    """ClamavRunner injected: returns a canned (returncode, stdout), captures the argv."""
 
     def __init__(self, returncode: int, stdout: bytes) -> None:
         self._returncode = returncode
@@ -26,7 +26,7 @@ def test_prod_clamav_runner_constructs() -> None:
 
 
 def test_stub_runner_satisfies_protocol() -> None:
-    # mypy contrôle ici la conformité structurelle de _StubRunner au Protocol ClamavRunner.
+    # mypy here checks _StubRunner's structural conformance to the ClamavRunner Protocol.
     runner: ClamavRunner = _StubRunner(0, b"")
     assert callable(runner)
 
@@ -58,15 +58,15 @@ def test_suspicious_when_rc_two() -> None:
 
 
 def test_suspicious_when_rc_other() -> None:
-    # garde la branche else du « rc >= 2 » : tout autre code (ici 40) → suspicious.
+    # keeps the else branch of "rc >= 2": any other code (here 40) → suspicious.
     outcome = scan(Path("/q/f"), _StubRunner(40, b""), _CFG)
     assert outcome.status == "suspicious"
 
 
 def test_argv_uses_frozen_flags_and_db_and_path() -> None:
-    # Bornes explicites passées à clamscan (sandbox-confinement#3) : défense-en-profondeur
-    # contre zip-bomb / récursion / scan trop long. Calibrées pour ne PAS gêner un média
-    # de plusieurs centaines de Mio (cf. constantes _CLAMSCAN_LIMITS du module).
+    # Explicit bounds passed to clamscan (sandbox-confinement#3): defense-in-depth against
+    # zip-bomb / recursion / scan-too-long. Calibrated NOT to hinder a media of several hundred
+    # MiB (cf. the module's _CLAMSCAN_LIMITS constants).
     runner = _StubRunner(0, b"")
     scan(Path("/quarantine/abc"), runner, _CFG)
     assert runner.calls[0] == [
@@ -85,14 +85,14 @@ def test_argv_uses_frozen_flags_and_db_and_path() -> None:
 
 
 def test_signature_line_without_colon_space_returns_none() -> None:
-    # « FOUND » présent mais pas de « : » → la branche `": " in line` est False → pas de signature.
+    # "FOUND" present but no ": " → the `": " in line` branch is False → no signature.
     outcome = scan(Path("/q/f"), _StubRunner(1, b"NoColon FOUND"), _CFG)
     assert outcome.status == "malicious"
     assert "clamav_signature" not in outcome.meta
 
 
 def test_signature_line_with_empty_token_returns_none() -> None:
-    # « : FOUND » → le token entre « : » et « FOUND » est vide → `or None` → pas de signature.
+    # ": FOUND" → the token between ": " and "FOUND" is empty → `or None` → no signature.
     outcome = scan(Path("/q/f"), _StubRunner(1, b"/q/f:  FOUND"), _CFG)
     assert outcome.status == "malicious"
     assert "clamav_signature" not in outcome.meta

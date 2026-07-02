@@ -1,7 +1,7 @@
-"""Tests TDD pour l'entrée uvicorn (catalog_webui.__main__ — Task 12).
+"""TDD tests for the uvicorn entry point (catalog_webui.__main__ — Task 12).
 
-``uvicorn.run`` est monkeypatché pour capturer l'appel sans démarrer de serveur.
-Les bases SQLite sont créées via les fixtures ``catalog_db``/``local_db`` du conftest.
+``uvicorn.run`` is monkeypatched to capture the call without starting a server.
+The SQLite databases are created via the conftest ``catalog_db``/``local_db`` fixtures.
 """
 
 from collections.abc import Mapping
@@ -14,7 +14,7 @@ from starlette.applications import Starlette
 from catalog_webui.__main__ import _require_env, main
 
 # ---------------------------------------------------------------------------
-# Helpers YAML minimaux (mêmes que dans test_webui_app.py)
+# Minimal YAML helpers (same as in test_webui_app.py)
 # ---------------------------------------------------------------------------
 
 
@@ -57,13 +57,13 @@ rules:
 
 
 def test_require_env_returns_value_when_present() -> None:
-    """_require_env retourne la valeur quand la clé est présente."""
+    """_require_env returns the value when the key is present."""
     env: Mapping[str, str] = {"FOO": "bar"}
     assert _require_env(env, "FOO") == "bar"
 
 
 def test_require_env_raises_when_missing() -> None:
-    """_require_env lève RuntimeError avec le nom de la variable manquante."""
+    """_require_env raises RuntimeError with the missing variable's name."""
     env: Mapping[str, str] = {}
     with pytest.raises(RuntimeError, match="CATALOG_DB"):
         _require_env(env, "CATALOG_DB")
@@ -79,9 +79,9 @@ def test_main_builds_app_and_runs_uvicorn(
     local_db: Path,
     tmp_path: Path,
 ) -> None:
-    """main() construit une app Starlette et appelle uvicorn.run avec host/port corrects.
+    """main() builds a Starlette app and calls uvicorn.run with the correct host/port.
 
-    uvicorn.run est monkeypatché — aucun serveur n'est démarré.
+    uvicorn.run is monkeypatched — no server is started.
     """
     targets = _write_targets_yaml(tmp_path)
     matcher = _write_matcher_yaml(tmp_path)
@@ -119,7 +119,7 @@ def test_main_uses_default_host_and_port(
     local_db: Path,
     tmp_path: Path,
 ) -> None:
-    """main() utilise host=127.0.0.1 et port=8080 par défaut (env minimal)."""
+    """main() uses host=127.0.0.1 and port=8080 by default (minimal env)."""
     targets = _write_targets_yaml(tmp_path)
     matcher = _write_matcher_yaml(tmp_path)
 
@@ -148,7 +148,7 @@ def test_main_uses_default_host_and_port(
 
 
 # ---------------------------------------------------------------------------
-# main() — fail-fast : variables requises absentes
+# main() — fail-fast: required variables missing
 # ---------------------------------------------------------------------------
 
 
@@ -162,7 +162,7 @@ def test_main_missing_required_env_raises(
     local_db: Path,
     tmp_path: Path,
 ) -> None:
-    """main() lève RuntimeError (fail-fast) si une variable requise est absente."""
+    """main() raises RuntimeError (fail-fast) if a required variable is missing."""
     targets = _write_targets_yaml(tmp_path)
     matcher = _write_matcher_yaml(tmp_path)
 

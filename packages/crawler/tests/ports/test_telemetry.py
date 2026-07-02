@@ -1,4 +1,4 @@
-"""Les ports sont des Protocols structurels : un faux minimal les satisfait."""
+"""The ports are structural Protocols: a minimal fake satisfies them."""
 
 from emule_indexer.domain.observability.events import Event
 from emule_indexer.domain.observability.policy import (

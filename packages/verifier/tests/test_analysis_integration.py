@@ -1,10 +1,10 @@
-"""Intégration D-analysis : spawn RÉEL de l'enfant + VRAI ffprobe (spec analysis §9 — DA9).
+"""D-analysis integration: REAL child spawn + REAL ffprobe (analysis spec §9 — DA9).
 
-Run dédié : ( cd packages/verifier && uv run pytest -m analysis_integration --no-cov )
-Dépendance : ffmpeg/ffprobe présents dans le PATH (image Plan F en prod ; dev = paquet système).
-Prouve POUR DE VRAI le confinement (ProdChildRunner : re-exec, rlimits/setsid via _confine,
-timeout-kill du groupe, env minimal, close_fds) + ProdFfprobeRunner (vrai ffprobe) — tout le code
-sous # pragma: no cover. Désélectionné par défaut, exclu de la coverage.
+Dedicated run: ( cd packages/verifier && uv run pytest -m analysis_integration --no-cov )
+Dependency: ffmpeg/ffprobe present in the PATH (Plan F image in prod; dev = system package).
+Proves the confinement FOR REAL (ProdChildRunner: re-exec, rlimits/setsid via _confine,
+group timeout-kill, minimal env, close_fds) + ProdFfprobeRunner (real ffprobe) — all the code
+under # pragma: no cover. Deselected by default, excluded from coverage.
 """
 
 import os
@@ -27,16 +27,16 @@ _FFMPEG = shutil.which("ffmpeg")
 _FFPROBE = shutil.which("ffprobe")
 _NEEDS_FFMPEG = pytest.mark.skipif(
     _FFMPEG is None or _FFPROBE is None,
-    reason="ffmpeg/ffprobe requis pour l'intégration D-analysis",
+    reason="ffmpeg/ffprobe required for the D-analysis integration",
 )
 
 
 def _seccomp_is_feasible() -> bool:
-    # Le ring noyau réel exige pyseccomp + libseccomp + un no_new_privs posable. On essaie de poser
-    # un filtre minimal (allow par défaut) DANS UN ENFANT JETABLE (os.fork) pour ne PAS contaminer
-    # le process de test — si l'install échoue (lib absente / no_new_privs impossible), on skip.
+    # The real kernel ring requires pyseccomp + libseccomp + a settable no_new_privs. We try to
+    # install a minimal filter (allow by default) IN A DISPOSABLE CHILD (os.fork) so as NOT to
+    # contaminate the test process — if it fails (missing lib / no_new_privs impossible), we skip.
     pid = os.fork()
-    if pid == 0:  # pragma: no cover (enfant : ne revient jamais dans la couverture du parent)
+    if pid == 0:  # pragma: no cover (child: never returns into the parent's coverage)
         try:
             import pyseccomp
 
@@ -50,15 +50,15 @@ def _seccomp_is_feasible() -> bool:
 
 _NEEDS_SECCOMP = pytest.mark.skipif(
     not _seccomp_is_feasible(),
-    reason="pyseccomp/libseccomp + no_new_privs requis pour le ring noyau réel",
+    reason="pyseccomp/libseccomp + no_new_privs required for the real kernel ring",
 )
 
 
 def _cfg(quarantine: Path, **overrides: object) -> AnalysisConfig:
-    # RLIMIT_NPROC=4096 : la limite par défaut (64) bloque le spawn de ffprobe dans un
-    # environnement dev où l'utilisateur a déjà de nombreux processus (RLIMIT_NPROC est
-    # global pour l'UID — si l'utilisateur en a déjà >64, tout fork() est refusé).
-    # 4096 reste un confinement réel tout en permettant au test de tourner hors-CI.
+    # RLIMIT_NPROC=4096: the default limit (64) blocks the ffprobe spawn in a dev
+    # environment where the user already has many processes (RLIMIT_NPROC is global
+    # for the UID — if the user already has >64, every fork() is refused).
+    # 4096 stays a real confinement while letting the test run outside CI.
     env: dict[str, str] = {
         "QUARANTINE_DIR": str(quarantine),
         "FFPROBE_PATH": _FFPROBE or "ffprobe",
@@ -69,8 +69,8 @@ def _cfg(quarantine: Path, **overrides: object) -> AnalysisConfig:
 
 
 def _verify(quarantine: Path, cfg: AnalysisConfig) -> tuple[str, dict[str, object], list[object]]:
-    # On strippe le 4ᵉ élément (``outcome``, observability#2) — les tests d'intégration
-    # n'asserent que sur le triplet historique (verdict, real_meta, checks).
+    # We strip the 4th element (``outcome``, observability#2) — the integration tests
+    # only assert on the historical triple (verdict, real_meta, checks).
     verdict, real_meta, checks, _outcome = verify_file(
         quarantine / _HASH, {}, cfg=cfg, runner=ProdChildRunner(cfg)
     )
@@ -79,18 +79,18 @@ def _verify(quarantine: Path, cfg: AnalysisConfig) -> tuple[str, dict[str, objec
 
 @_NEEDS_FFMPEG
 def test_real_small_media_is_clean_with_real_meta(tmp_path: Path) -> None:
-    # Smoke du chemin nominal `clean` de bout en bout via le re-exec confiné RÉEL
-    # (ProdChildRunner) : le SEUL test réel qui aboutit `clean` (les autres finissent
-    # malicious/suspicious/error), donc la seule preuve du happy-path de NOTRE confinement.
-    # Ne valide PAS ffprobe (brique tierce).
+    # End-to-end smoke of the nominal `clean` path via the REAL confined re-exec
+    # (ProdChildRunner): the ONLY real test that ends up `clean` (the others end
+    # malicious/suspicious/error), so the only proof of OUR confinement's happy-path.
+    # Does NOT validate ffprobe (third-party brick).
     quarantine = tmp_path / "quarantine"
     quarantine.mkdir()
     target = quarantine / _HASH
     assert _FFMPEG is not None
-    # génère un vrai média minuscule (1 s de couleur unie + un ton audio).
-    # -f matroska : obligatoire car le fichier n'a pas d'extension (nom = hash eD2k) ;
-    # sans format explicite, ffmpeg refuse de choisir un muxer ("Unable to choose an
-    # output format") et sort en erreur.
+    # generate a real tiny media (1 s of solid color + an audio tone).
+    # -f matroska: mandatory because the file has no extension (name = eD2k hash);
+    # without an explicit format, ffmpeg refuses to choose a muxer ("Unable to choose an
+    # output format") and exits with an error.
     subprocess.run(
         [
             _FFMPEG,
@@ -140,7 +140,7 @@ def test_real_shebang_script_is_malicious(tmp_path: Path) -> None:
 def test_real_plain_text_is_suspicious(tmp_path: Path) -> None:
     quarantine = tmp_path / "quarantine"
     quarantine.mkdir()
-    (quarantine / _HASH).write_bytes(b"ceci n'est pas un media\n" * 16)
+    (quarantine / _HASH).write_bytes(b"this is not a media\n" * 16)
     assert _verify(quarantine, _cfg(quarantine))[0] == "suspicious"
 
 
@@ -149,7 +149,7 @@ def test_real_oversized_egress_is_suspicious(tmp_path: Path) -> None:
     quarantine = tmp_path / "quarantine"
     quarantine.mkdir()
     (quarantine / _HASH).write_bytes(b"plain text\n")
-    # cap d'égress minuscule → l'égress (même suspicious) dépasse → suspicious (poison).
+    # tiny egress cap → the egress (even suspicious) exceeds it → suspicious (poison).
     assert _verify(quarantine, _cfg(quarantine, EGRESS_CAP_BYTES=1))[0] == "suspicious"
 
 
@@ -158,26 +158,26 @@ def test_real_timeout_is_suspicious(tmp_path: Path) -> None:
     quarantine = tmp_path / "quarantine"
     quarantine.mkdir()
     (quarantine / _HASH).write_bytes(b"plain text\n")
-    # timeout ~0 → l'enfant est tué (killpg) avant de finir → suspicious.
+    # timeout ~0 → the child is killed (killpg) before finishing → suspicious.
     assert _verify(quarantine, _cfg(quarantine, ANALYSIS_TIMEOUT_S=0.001))[0] == "suspicious"
 
 
 @_NEEDS_FFMPEG
 def test_real_missing_file_is_error(tmp_path: Path) -> None:
     quarantine = tmp_path / "quarantine"
-    quarantine.mkdir()  # pas de fichier _HASH
+    quarantine.mkdir()  # no _HASH file
     assert _verify(quarantine, _cfg(quarantine))[0] == "error"
 
 
-# --- ring noyau (filtre seccomp réel) : le filet minimal = « clean préservé sous filtre ». -------
+# --- kernel ring (real seccomp filter): the minimal net = "clean preserved under filter". --------
 
 
 @_NEEDS_SECCOMP
 @_NEEDS_FFMPEG
 def test_real_clean_media_stays_clean_under_seccomp(tmp_path: Path) -> None:
-    # PREUVE que le filtre seccomp réel (SECCOMP_ENABLED=1) ne casse RIEN de légitime : un vrai
-    # petit média sain reste `clean` avec le ring noyau posé dans l'enfant. Si le filtre tuait/
-    # cassait l'analyse (ffprobe fork/exec, lecture du fichier), le verdict tomberait suspicious.
+    # PROOF that the real seccomp filter (SECCOMP_ENABLED=1) breaks NOTHING legitimate: a real
+    # small healthy media stays `clean` with the kernel ring installed in the child. If the filter
+    # killed/broke the analysis (ffprobe fork/exec, file read), the verdict would turn suspicious.
     quarantine = tmp_path / "quarantine"
     quarantine.mkdir()
     target = quarantine / _HASH

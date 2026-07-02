@@ -1,1 +1,1 @@
-"""Tests des ports (Protocols + DTO)."""
+"""Ports tests (Protocols + DTOs)."""

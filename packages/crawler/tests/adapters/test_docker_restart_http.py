@@ -1,7 +1,8 @@
-"""Tests de ``HttpMuleRestarter`` (port-sync, design §5.3). 2xx → succès ; sinon ``RestarterError``.
+"""Tests for ``HttpMuleRestarter`` (port-sync, design §5.3): 2xx → success, else ``RestarterError``.
 
-Idiome httpx ``MockTransport`` : Docker renvoie 204 No Content sur un restart réussi ; tout
-≠2xx / timeout / connect error → ``RestarterError`` (absorbée par la boucle). Pas de retry interne.
+httpx ``MockTransport`` idiom: Docker returns 204 No Content on a successful restart; anything
+that is not 2xx / a timeout / a connect error → ``RestarterError`` (absorbed by the loop). No
+internal retry.
 """
 
 from collections.abc import Callable
@@ -28,11 +29,11 @@ async def test_204_is_success() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
         assert request.url.path == _RESTART_PATH
-        return httpx.Response(204)  # Docker : No Content sur restart réussi
+        return httpx.Response(204)  # Docker: No Content on a successful restart
 
     restarter = _restarter_with_handler(handler)
     try:
-        await restarter.restart()  # pas d'exception
+        await restarter.restart()  # no exception
     finally:
         await restarter.aclose()
 
@@ -41,7 +42,7 @@ async def test_204_is_success() -> None:
 async def test_200_is_success() -> None:
     restarter = _restarter_with_handler(lambda r: httpx.Response(200))
     try:
-        await restarter.restart()  # tout 2xx accepté
+        await restarter.restart()  # any 2xx accepted
     finally:
         await restarter.aclose()
 
@@ -68,7 +69,7 @@ async def test_500_raises_restarter_error() -> None:
 
 @pytest.mark.asyncio
 async def test_403_from_proxy_allowlist_raises_restarter_error() -> None:
-    # Si le proxy refuse (allowlist), 4xx → RestarterError (la boucle alerte + backoff).
+    # If the proxy refuses (allowlist), 4xx → RestarterError (the loop alerts + backs off).
     restarter = _restarter_with_handler(lambda r: httpx.Response(403, text="forbidden"))
     try:
         with pytest.raises(RestarterError):
@@ -105,7 +106,7 @@ async def test_timeout_raises_restarter_error() -> None:
 
 @pytest.mark.asyncio
 async def test_default_restart_path_targets_amuled() -> None:
-    # Le chemin par défaut cible le conteneur amuled (le proxy n'autorise que CE chemin).
+    # The default path targets the amuled container (the proxy allows only THIS path).
     captured: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -114,7 +115,7 @@ async def test_default_restart_path_targets_amuled() -> None:
 
     transport = httpx.MockTransport(handler)
     client = httpx.AsyncClient(transport=transport, base_url="http://docker-proxy:2375")
-    restarter = HttpMuleRestarter(client)  # chemin par défaut
+    restarter = HttpMuleRestarter(client)  # default path
     try:
         await restarter.restart()
     finally:

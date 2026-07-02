@@ -16,7 +16,7 @@ def test_delay_is_capped() -> None:
 
 
 def test_base_above_cap_is_also_capped_on_first_attempt() -> None:
-    # base > cap : même la première tentative est plafonnée (config pathologique mais sûre).
+    # base > cap: even the first attempt is capped (pathological but safe config).
     assert backoff_delay(1, base=100.0, cap=30.0, factor=2.0) == 30.0
 
 

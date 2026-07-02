@@ -1,1 +1,1 @@
-"""Tests d'intégration (Docker requis, marker ec_integration, hors coverage)."""
+"""Integration tests (Docker required, marker ec_integration, excluded from coverage)."""

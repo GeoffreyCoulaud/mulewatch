@@ -1,8 +1,8 @@
-"""Adapter : lecture d'un fichier YAML en structures Python (cf. spec §4 frontière I/O).
+"""Adapter: reads a YAML file into Python structures (cf. spec §4 I/O boundary).
 
-SEUL module du projet qui importe ``yaml`` et touche le système de fichiers pour la
-config. Ne valide PAS le fond (schéma/graphe/RE2) : c'est le rôle du domaine
-(``catalog_matching.validation``). Garde-fou minimal : la racine doit être un mapping.
+The ONLY module in the project that imports ``yaml`` and touches the filesystem for
+config. Does NOT validate the substance (schema/graph/RE2): that's the domain's job
+(``catalog_matching.validation``). Minimal guardrail: the root must be a mapping.
 """
 
 from pathlib import Path
@@ -12,25 +12,25 @@ import yaml
 
 
 class YamlLoadError(Exception):
-    """Le fichier YAML est illisible ou sa racine n'est pas un mapping."""
+    """The YAML file is unreadable or its root is not a mapping."""
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
-    """Lit ``path`` et renvoie sa racine (un mapping) parsée par ``yaml.safe_load``.
+    """Reads ``path`` and returns its root (a mapping) parsed by ``yaml.safe_load``.
 
-    ``safe_load`` parse les dates ISO en ``datetime.date`` et n'instancie aucun objet
-    Python arbitraire (pas de ``yaml.load`` non sûr). Frontière d'erreur de l'adapter :
-    fichier illisible, YAML invalide, ou racine non-mapping (liste, scalaire, fichier vide
-    → ``None``) lèvent tous :class:`YamlLoadError`.
+    ``safe_load`` parses ISO dates into ``datetime.date`` and instantiates no arbitrary
+    Python object (no unsafe ``yaml.load``). The adapter's error boundary:
+    unreadable file, invalid YAML, or non-mapping root (list, scalar, empty file
+    → ``None``) all raise :class:`YamlLoadError`.
     """
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise YamlLoadError(f"fichier YAML illisible : {path} ({exc})") from exc
+        raise YamlLoadError(f"unreadable YAML file: {path} ({exc})") from exc
     try:
         raw = yaml.safe_load(text)
     except yaml.YAMLError as exc:
-        raise YamlLoadError(f"YAML invalide dans {path} : {exc}") from exc
+        raise YamlLoadError(f"invalid YAML in {path}: {exc}") from exc
     if not isinstance(raw, dict):
-        raise YamlLoadError(f"racine YAML attendue = mapping, obtenu {type(raw).__name__} ({path})")
+        raise YamlLoadError(f"YAML root expected = mapping, got {type(raw).__name__} ({path})")
     return raw

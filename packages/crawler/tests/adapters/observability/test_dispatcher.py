@@ -1,4 +1,4 @@
-"""Le dispatcher : log + métriques toujours ; notif par audience, échec/timeout absorbés."""
+"""The dispatcher: log + metrics always; notification by audience, failure/timeout absorbed."""
 
 import asyncio
 import logging
@@ -34,13 +34,13 @@ class _RaisingNotifier:
 
 class _HangingNotifier:
     async def notify(self, audience: Audience, body: str, severity: Severity) -> None:
-        await asyncio.sleep(10)  # dépasse le timeout court du test
+        await asyncio.sleep(10)  # exceeds the test's short timeout
 
 
 def _dispatcher(
     sink: MetricsSink, notifier: Notifier, timeout: float = 5.0
 ) -> ObservabilityDispatcher:
-    # _RecordingSink/_RecordingNotifier/… satisfont structurellement MetricsSink/Notifier.
+    # _RecordingSink/_RecordingNotifier/… structurally satisfy MetricsSink/Notifier.
     return ObservabilityDispatcher(metrics=sink, notifier=notifier, notify_timeout_seconds=timeout)
 
 
@@ -49,7 +49,7 @@ async def test_logs_and_applies_metrics_no_audience() -> None:
     sink, notifier = _RecordingSink(), _RecordingNotifier()
     await _dispatcher(sink, notifier).emit(ev.ObservationRecorded(network="ed2k"))
     assert [m.name.value for m in sink.applied] == ["emule_observations"]
-    assert notifier.calls == []  # ObservationRecorded n'a aucune audience
+    assert notifier.calls == []  # ObservationRecorded has no audience
 
 
 @pytest.mark.asyncio
@@ -84,14 +84,14 @@ async def test_notification_failure_is_absorbed(caplog: pytest.LogCaptureFixture
     sink = _RecordingSink()
     with caplog.at_level(logging.WARNING, logger="emule_indexer.observability"):
         await _dispatcher(sink, _RaisingNotifier()).emit(ev.DownloadCompleted("S2E062A", "a" * 32))
-    assert sink.applied  # la métrique est passée malgré l'échec de notif
-    assert any("échouée" in r.getMessage() for r in caplog.records)
+    assert sink.applied  # the metric went through despite the notification failure
+    assert any("failed" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.asyncio
 async def test_notification_timeout_is_absorbed() -> None:
     sink = _RecordingSink()
-    # timeout court + notifier qui pend → wait_for lève TimeoutError, absorbé.
+    # short timeout + hanging notifier → wait_for raises TimeoutError, absorbed.
     await _dispatcher(sink, _HangingNotifier(), timeout=0.01).emit(
         ev.DownloadCompleted("S2E062A", "a" * 32)
     )

@@ -1,4 +1,4 @@
-"""Tests TDD pour l'application Starlette (composition/app.py — Task 11)."""
+"""TDD tests for the Starlette application (composition/app.py — Task 11)."""
 
 import sqlite3
 from pathlib import Path
@@ -50,13 +50,13 @@ rules:
 
 
 # ---------------------------------------------------------------------------
-# Fixture : app avec données
+# Fixture: app with data
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def populated_app(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
-    """Insère des données de test et construit l'app Starlette."""
+    """Insert test data and build the Starlette app."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
             "INSERT INTO files VALUES (?, ?, ?)",
@@ -118,7 +118,7 @@ def populated_app(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Sta
 
 @pytest.fixture
 def app_no_decision(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
-    """Fichier sans décision de matching (branche decision=None)."""
+    """File without a match decision (decision=None branch)."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
             "INSERT INTO files VALUES (?, ?, ?)",
@@ -142,7 +142,7 @@ def app_no_decision(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[S
                 "node1",
             ),
         )
-        # Pas de décision
+        # No decision
         conn.commit()
 
     with sqlite3.connect(local_db) as conn:
@@ -173,13 +173,13 @@ def app_no_decision(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[S
 
 @pytest.fixture
 def app_no_observations(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
-    """Fichier sans observation (branche last_obs=None → link='')."""
+    """File without observations (last_obs=None branch → link='')."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
             "INSERT INTO files VALUES (?, ?, ?)",
             (TEST_HASH, 100_000_000, None),
         )
-        # Pas d'observations
+        # No observations
         conn.commit()
 
     with sqlite3.connect(local_db) as conn:
@@ -210,7 +210,7 @@ def app_no_observations(catalog_db: Path, local_db: Path, tmp_path: Path) -> tup
 
 @pytest.fixture
 def app_unknown_target(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
-    """Fichier avec une décision pour un target_id inconnu de la config courante."""
+    """File with a decision for a target_id unknown to the current config."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
             "INSERT INTO files VALUES (?, ?, ?)",
@@ -234,7 +234,7 @@ def app_unknown_target(catalog_db: Path, local_db: Path, tmp_path: Path) -> tupl
                 "node1",
             ),
         )
-        # target_id inconnu de la config YAML courante
+        # target_id unknown to the current YAML config
         conn.execute(
             "INSERT INTO match_decisions VALUES (1, ?, ?, ?, ?, ?, ?)",
             (TEST_HASH, "S9E999Z", "catalog", "catalog", "2024-01-01T00:00:00", "node1"),
@@ -286,7 +286,7 @@ async def test_health_returns_200(populated_app: tuple[Starlette, str]) -> None:
 async def test_dashboard_returns_200_with_target_id(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """/ → 200 + contient S2E062A dans la page."""
+    """/ → 200 + contains S2E062A in the page."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/")
@@ -298,7 +298,7 @@ async def test_dashboard_returns_200_with_target_id(
 async def test_files_returns_200_with_file_row(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """/files → 200 + contient le hash du fichier inséré."""
+    """/files → 200 + contains the inserted file's hash."""
     app, hash_ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files")
@@ -310,7 +310,7 @@ async def test_files_returns_200_with_file_row(
 async def test_files_filtered_verdict_returns_200_empty(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """/files?verdict=malicious → 200 (aucun résultat, pas d'erreur)."""
+    """/files?verdict=malicious → 200 (no results, no error)."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files?verdict=malicious")
@@ -321,7 +321,7 @@ async def test_files_filtered_verdict_returns_200_empty(
 async def test_file_detail_with_decision_returns_200(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """/files/{hash} avec décision → 200, contient lien ed2k + infos d'explication."""
+    """/files/{hash} with a decision → 200, contains the ed2k link + explanation info."""
     app, hash_ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get(f"/files/{hash_}")
@@ -334,21 +334,21 @@ async def test_file_detail_with_decision_returns_200(
 async def test_file_detail_without_decision_returns_200(
     app_no_decision: tuple[Starlette, str],
 ) -> None:
-    """/files/{hash} sans décision → 200, branches vides rendues."""
+    """/files/{hash} without a decision → 200, empty branches rendered."""
     app, hash_ = app_no_decision
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get(f"/files/{hash_}")
     assert resp.status_code == 200
     assert "ed2k://" in resp.text
-    assert "Aucune décision de matching." in resp.text
-    assert "Aucune explication disponible." in resp.text
+    assert "No matching decision." in resp.text
+    assert "No explanation available." in resp.text
 
 
 @pytest.mark.asyncio
 async def test_file_detail_explanation_none_unknown_target(
     app_unknown_target: tuple[Starlette, str],
 ) -> None:
-    """/files/{hash} avec target_id inconnu de la config → 200 (explanation=None)."""
+    """/files/{hash} with a target_id unknown to the config → 200 (explanation=None)."""
     app, hash_ = app_unknown_target
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get(f"/files/{hash_}")
@@ -360,7 +360,7 @@ async def test_file_detail_explanation_none_unknown_target(
 async def test_file_detail_unknown_hash_returns_404(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """/files/{hash} inexistant (32 hex) → 404."""
+    """/files/{hash} nonexistent (32 hex) → 404."""
     app, _ = populated_app
     unknown = "00000000000000000000000000000000"
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -372,7 +372,7 @@ async def test_file_detail_unknown_hash_returns_404(
 async def test_targets_shortcut_returns_200(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """/targets/{target_id} → 200 (raccourci vers /files filtré)."""
+    """/targets/{target_id} → 200 (shortcut to filtered /files)."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/targets/S2E062A")
@@ -383,7 +383,7 @@ async def test_targets_shortcut_returns_200(
 async def test_node_returns_200_with_node_info(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """/node → 200 + contient l'id du nœud."""
+    """/node → 200 + contains the node id."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/node")
@@ -395,7 +395,7 @@ async def test_node_returns_200_with_node_info(
 async def test_files_non_numeric_page_defaults_to_1(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """/files?page=abc → 200 (page non numérique → défaut 1)."""
+    """/files?page=abc → 200 (non-numeric page → default 1)."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files?page=abc")
@@ -406,20 +406,20 @@ async def test_files_non_numeric_page_defaults_to_1(
 async def test_file_detail_no_observations_returns_200(
     app_no_observations: tuple[Starlette, str],
 ) -> None:
-    """/files/{hash} sans observation → 200 ; pas de lien ed2k, branche vide rendue."""
+    """/files/{hash} without observations → 200; no ed2k link, empty branch rendered."""
     app, hash_ = app_no_observations
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get(f"/files/{hash_}")
     assert resp.status_code == 200
     assert "ed2k://" not in resp.text
-    assert "Aucune observation." in resp.text
+    assert "No observations." in resp.text
 
 
 @pytest.mark.asyncio
 async def test_base_nav_uses_singular_node_href(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """La nav de base contient href="/node" (singulier) et PAS href="/nodes"."""
+    """The base nav contains href="/node" (singular) and NOT href="/nodes"."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/")
@@ -432,7 +432,7 @@ async def test_base_nav_uses_singular_node_href(
 async def test_node_page_renders_scheduler_state(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """/node → la clé last_search_cycle du scheduler_state apparaît dans le HTML."""
+    """/node → the scheduler_state key last_search_cycle appears in the HTML."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/node")
@@ -442,7 +442,7 @@ async def test_node_page_renders_scheduler_state(
 
 @pytest.fixture
 def app_with_media_obs(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
-    """Fichier avec observation ayant media_length_sec et bitrate_kbps non-null."""
+    """File with an observation having non-null media_length_sec and bitrate_kbps."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
             "INSERT INTO files VALUES (?, ?, ?)",
@@ -502,7 +502,7 @@ def app_with_media_obs(catalog_db: Path, local_db: Path, tmp_path: Path) -> tupl
 async def test_file_detail_with_media_fields_returns_200(
     app_with_media_obs: tuple[Starlette, str],
 ) -> None:
-    """/files/{hash} avec media_length_sec + bitrate_kbps → 200, explication calculée."""
+    """/files/{hash} with media_length_sec + bitrate_kbps → 200, explanation computed."""
     app, hash_ = app_with_media_obs
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get(f"/files/{hash_}")
@@ -514,22 +514,22 @@ async def test_file_detail_with_media_fields_returns_200(
 async def test_file_detail_unknown_hash_returns_styled_404(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """/files/{hash} inexistant → 404 avec le template HTML stylé (contient 'introuvable')."""
+    """/files/{hash} nonexistent → 404 with the styled HTML template (contains 'not found')."""
     app, _ = populated_app
     unknown = "00000000000000000000000000000000"
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get(f"/files/{unknown}")
     assert resp.status_code == 404
-    assert "introuvable" in resp.text.lower()
+    assert "not found" in resp.text.lower()
 
 
 @pytest.fixture
 def app_with_hostile_filename(
     catalog_db: Path, local_db: Path, tmp_path: Path
 ) -> tuple[Starlette, str]:
-    """Fichier dont le nom contient un ``|`` (séparateur du lien eD2k) — régression
-    webui-security#0 : sans percent-encoding, le ``|`` du nom décale taille/hash et le lien
-    pointe ailleurs."""
+    """File whose name contains a ``|`` (eD2k link separator) — webui-security#0
+    regression: without percent-encoding, the ``|`` in the name shifts size/hash and the
+    link points elsewhere."""
     hostile = "weird|name.avi"
     with sqlite3.connect(catalog_db) as conn:
         conn.execute("INSERT INTO files VALUES (?, ?, ?)", (TEST_HASH, 100_000_000, None))
@@ -579,22 +579,22 @@ def app_with_hostile_filename(
 async def test_empty_filter_param_does_not_silently_zero_results(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    # Régression webui-security#0 (filtres) : ``?target=`` (vide, fréquent avec un <select>
-    # à option vide) doit être traité comme « pas de filtre », pas comme ``target = ''`` qui
-    # matche 0 résultat sans message.
+    # webui-security#0 regression (filters): ``?target=`` (empty, common with a <select>
+    # that has an empty option) must be treated as "no filter", not as ``target = ''`` which
+    # matches 0 results with no message.
     app, hash_ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files?target=&tier=&verdict=&q=")
     assert resp.status_code == 200
-    assert hash_[:8] in resp.text  # le fichier inséré est rendu malgré les filtres vides
+    assert hash_[:8] in resp.text  # the inserted file is rendered despite the empty filters
 
 
 @pytest.mark.asyncio
 async def test_page_zero_is_clamped_to_first_page(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    # Régression webui-security#2 : ``?page=0`` → OFFSET=-50 (SQLite renvoyait la page 1 par
-    # chance). Désormais ``max(1, page)`` clamp.
+    # webui-security#2 regression: ``?page=0`` → OFFSET=-50 (SQLite returned page 1 by
+    # luck). Now ``max(1, page)`` clamps.
     app, hash_ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files?page=0")
@@ -607,7 +607,7 @@ async def test_page_zero_is_clamped_to_first_page(
 async def test_security_headers_are_set_on_every_response(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    # webui-security#3 : CSP + X-Content-Type-Options + Referrer-Policy posés par middleware.
+    # webui-security#3: CSP + X-Content-Type-Options + Referrer-Policy set by middleware.
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files")
@@ -620,8 +620,8 @@ async def test_security_headers_are_set_on_every_response(
 async def test_files_page_shows_pagination_navigation(
     catalog_db: Path, local_db: Path, tmp_path: Path
 ) -> None:
-    # webui-security#1 : la page liste 50 fichiers max ; quand elle est PLEINE, un lien
-    # « Suivante → » doit être rendu (heuristique : on n'a pas le compte total).
+    # webui-security#1: the page lists 50 files max; when it is FULL, a "Next →" link
+    # must be rendered (heuristic: we don't have the total count).
     with sqlite3.connect(catalog_db) as conn:
         for i in range(50):
             ed2k = f"{i:032d}"
@@ -669,29 +669,29 @@ async def test_files_page_shows_pagination_navigation(
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp1 = await client.get("/files")
         resp2 = await client.get("/files?page=2")
-    # page 1 : page pleine → « Suivante » présent, « Précédente » absent.
-    assert "Suivante" in resp1.text
-    assert "Précédente" not in resp1.text
-    # page 2 : page non pleine (0 fichier) → « Précédente » présent, « Suivante » absent.
-    assert "Précédente" in resp2.text
-    assert "Suivante" not in resp2.text
+    # page 1: full page → "Next" present, "Previous" absent.
+    assert "Next" in resp1.text
+    assert "Previous" not in resp1.text
+    # page 2: not full (0 files) → "Previous" present, "Next" absent.
+    assert "Previous" in resp2.text
+    assert "Next" not in resp2.text
 
 
 @pytest.mark.asyncio
 async def test_hostile_filename_is_escaped_in_ed2k_link(
     app_with_hostile_filename: tuple[Starlette, str],
 ) -> None:
-    # Régression webui-security#0 : un ``|`` hostile dans le nom doit être percent-encodé
-    # (%7C). Sans cet échappement, le lien aurait 6 ``|`` (au lieu de 5 séparateurs structurels)
-    # et la taille/hash seraient décalés → fichier inutilisable / pointant ailleurs.
+    # webui-security#0 regression: a hostile ``|`` in the name must be percent-encoded
+    # (%7C). Without this escaping, the link would have 6 ``|`` (instead of 5 structural
+    # separators) and size/hash would be shifted → unusable file / pointing elsewhere.
     app, hash_ = app_with_hostile_filename
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get(f"/files/{hash_}")
     assert resp.status_code == 200
-    # Le lien dans la réponse doit contenir %7C (et NON un ``|`` brut au milieu du nom).
+    # The link in the response must contain %7C (and NOT a raw ``|`` in the middle of the name).
     assert "%7C" in resp.text
-    # On extrait la première occurrence d'``ed2k://`` jusqu'au prochain whitespace/`"` pour
-    # vérifier qu'elle a EXACTEMENT 5 ``|`` (les 5 séparateurs structurels du lien canonique).
+    # We extract the first occurrence of ``ed2k://`` up to the next whitespace/`"` to
+    # verify it has EXACTLY 5 ``|`` (the 5 structural separators of the canonical link).
     start = resp.text.index("ed2k://")
     end = start
     while end < len(resp.text) and resp.text[end] not in ('"', "<", " ", "\n"):

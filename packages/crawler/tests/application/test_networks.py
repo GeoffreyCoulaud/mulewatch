@@ -1,4 +1,4 @@
-"""Le label réseau dérive du SearchChannel par construction (E-D6)."""
+"""The network label derives from the SearchChannel by construction (E-D6)."""
 
 from emule_indexer.application.networks import ED2K, KAD, network_label
 from emule_indexer.ports.mule_client import SearchChannel

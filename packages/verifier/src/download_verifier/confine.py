@@ -1,17 +1,17 @@
-"""Ring noyau de l'enfant d'analyse : filtre seccomp-bpf par-enfant (blocklist).
+"""Analysis child's kernel ring: per-child seccomp-bpf filter (blocklist).
 
-Le ``Confiner`` installe un filtre seccomp ``ALLOW`` par défaut qui DENY un petit ensemble de
-syscalls réseau/dangereux (cf. spec ring noyau §4) — réduit la surface d'attaque noyau d'un 0-day
-ffprobe/clamscan et coupe le mouvement latéral intra-conteneur. Le filtre est HÉRITÉ par le
-petit-fils (fork/exec sous ``no_new_privs``). Le ``Confiner`` est INJECTABLE : l'impl PROD installe
-le vrai filtre via ``pyseccomp`` (``# pragma: no cover`` — couvert par analysis_integration) ; les
-tests injectent un no-op. AUCUNE capability requise : ``no_new_privs`` est déjà posé par le
-conteneur (``no-new-privileges:true``, compose.yaml) — voir spec §3.
+The ``Confiner`` installs a default-``ALLOW`` seccomp filter that DENYs a small set of
+network/dangerous syscalls (cf. kernel ring spec §4) — it shrinks the kernel attack surface of a
+ffprobe/clamscan 0-day and cuts intra-container lateral movement. The filter is INHERITED by the
+grandchild (fork/exec under ``no_new_privs``). The ``Confiner`` is INJECTABLE: the PROD impl
+installs the real filter via ``pyseccomp`` (``# pragma: no cover`` — covered by
+analysis_integration); tests inject a no-op. NO capability required: ``no_new_privs`` is already
+set by the container (``no-new-privileges:true``, compose.yaml) — see spec §3.
 
-Fail-open ASSUMÉ (spec §10) : un échec d'installation du ring (``no_new_privs`` non posé hors
-conteneur, ``libseccomp`` absent, noyau sans seccomp) log un warning et continue SANS filtre — il
-ne doit JAMAIS transformer un média sain en ``suspicious`` (seccomp est une couche
-defense-in-depth, pas la seule barrière).
+Fail-open ASSUMED (spec §10): a ring-install failure (``no_new_privs`` not set outside a
+container, ``libseccomp`` missing, kernel without seccomp) logs a warning and continues WITHOUT
+the filter — it must NEVER turn a healthy media into ``suspicious`` (seccomp is a defense-in-depth
+layer, not the only barrier).
 """
 
 import contextlib
@@ -21,8 +21,8 @@ from typing import Protocol
 
 _LOG = logging.getLogger(__name__)
 
-# Syscalls deny en ERRNO(EPERM) : l'appelant gère l'échec (moins de faux positifs que KILL).
-# ``ptrace`` est traité à part (KILL_PROCESS — signal d'attaque univoque, spec §4).
+# Syscalls denied with ERRNO(EPERM): the caller handles the failure (fewer false positives than
+# KILL). ``ptrace`` is handled separately (KILL_PROCESS — an unambiguous attack signal, spec §4).
 _DENY_EPERM = (
     "socket",
     "socketcall",
@@ -39,34 +39,34 @@ _DENY_EPERM = (
 
 
 class Confiner(Protocol):
-    """Installe le ring noyau sur le process courant. Injecté pour les tests."""
+    """Install the kernel ring on the current process. Injected for tests."""
 
     def __call__(self) -> None: ...
 
 
 class ProdConfiner:
-    """``Confiner`` de PROD : vrai filtre seccomp (couvert par analysis_integration)."""
+    """PROD ``Confiner``: real seccomp filter (covered by analysis_integration)."""
 
     def __call__(self) -> None:  # pragma: no cover
         try:
             import pyseccomp
 
-            filt = pyseccomp.SyscallFilter(pyseccomp.ALLOW)  # blocklist : allow par défaut
+            filt = pyseccomp.SyscallFilter(pyseccomp.ALLOW)  # blocklist: allow by default
             for name in _DENY_EPERM:
-                # syscall absent de cette arch (ex. socketcall sur x86-64) → OSError ignorée.
+                # syscall missing on this arch (e.g. socketcall on x86-64) → OSError ignored.
                 with contextlib.suppress(OSError):
                     filt.add_rule(pyseccomp.ERRNO(errno.EPERM), name)
             filt.add_rule(pyseccomp.KILL_PROCESS, "ptrace")
-            filt.load()  # applique au thread courant (no_new_privs déjà posé → pas de privilège)
+            filt.load()  # applies to the current thread (no_new_privs already set → no privilege)
         except (OSError, ImportError) as exc:
-            # fail-open contrôlé : jamais un faux suspicious — on continue sans filtre (les autres
-            # rings tiennent : internal:true, RO, rlimits, cap_drop).
+            # controlled fail-open: never a false suspicious — we continue without the filter (the
+            # other rings hold: internal:true, RO, rlimits, cap_drop).
             _LOG.warning("seccomp filter not installed (fail-open): %s", exc)
             return
 
 
 class NoopConfiner:
-    """``Confiner`` no-op : ne pose AUCUN filtre. Défaut quand le ring est désactivé/indispo."""
+    """No-op ``Confiner``: installs NO filter. Default when the ring is disabled/unavailable."""
 
     def __call__(self) -> None:
         return None

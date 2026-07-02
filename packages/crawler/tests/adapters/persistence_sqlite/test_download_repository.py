@@ -43,7 +43,7 @@ def test_record_queued_inserts_a_new_download(repository: SqliteDownloadReposito
 
 def test_record_queued_is_dedup_safe(repository: SqliteDownloadRepository) -> None:
     assert repository.record_queued(_A, "S2E062A", 100) is True
-    assert repository.record_queued(_A, "S2E062A", 100) is False  # doublon ignoré
+    assert repository.record_queued(_A, "S2E062A", 100) is False  # duplicate ignored
 
 
 def test_is_downloaded_is_false_for_unknown_hash(repository: SqliteDownloadRepository) -> None:
@@ -87,13 +87,13 @@ def test_set_state_on_unknown_hash_raises(repository: SqliteDownloadRepository) 
 def test_committed_bytes_sums_only_active_downloads(
     repository: SqliteDownloadRepository,
 ) -> None:
-    repository.record_queued(_A, "S2E062A", 100)  # queued (actif)
-    repository.record_queued(_B, "S2E063A", 200)  # downloading (actif)
+    repository.record_queued(_A, "S2E062A", 100)  # queued (active)
+    repository.record_queued(_B, "S2E063A", 200)  # downloading (active)
     repository.set_state(_B, DownloadState.DOWNLOADING)
     assert repository.committed_bytes() == 300
-    repository.set_state(_A, DownloadState.COMPLETED)  # terminal → ne compte plus
+    repository.set_state(_A, DownloadState.COMPLETED)  # terminal → no longer counted
     assert repository.committed_bytes() == 200
-    repository.set_state(_B, DownloadState.FAILED)  # terminal → ne compte plus non plus
+    repository.set_state(_B, DownloadState.FAILED)  # terminal → no longer counted either
     assert repository.committed_bytes() == 0
 
 
@@ -114,9 +114,9 @@ def test_record_queued_is_atomic_on_injected_failure(
 ) -> None:
     connection.execute(
         "CREATE TRIGGER boom BEFORE INSERT ON downloads"
-        " BEGIN SELECT RAISE(ABORT, 'panne injectée'); END"
+        " BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
     )
-    with pytest.raises(PersistenceError, match="panne injectée"):
+    with pytest.raises(PersistenceError, match="injected failure"):
         repository.record_queued(_A, "S2E062A", 100)
     assert repository.is_downloaded(_A) is False
 

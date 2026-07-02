@@ -1,18 +1,18 @@
-"""Notifier apprise : route une notification par AUDIENCE via les tags apprise (E-D7).
+"""Apprise notifier: routes a notification per AUDIENCE via apprise tags (E-D7).
 
-Couche ADAPTER (implémente ``Notifier``). Au montage : ``add(url, tag=audience)`` pour chaque
-cible. ``notify`` PRÉFIXE le corps du ``node_id`` (ID d'instance — indispensable côté COMMUNITY,
-réseau distribué) et appelle ``async_notify(body, notify_type, tag)``. Aucune URL → no-op naturel
-(apprise sans service rend ``None``). ``apprise_obj`` injectable pour le test (défaut : vrai
-``apprise.Apprise``). Le timeout/l'absorption d'erreur sont dans le dispatcher (E-D13).
+ADAPTER layer (implements ``Notifier``). At wiring time: ``add(url, tag=audience)`` for each
+target. ``notify`` PREFIXES the body with the ``node_id`` (instance ID — essential COMMUNITY-side,
+distributed network) and calls ``async_notify(body, notify_type, tag)``. No URL → natural no-op
+(apprise with no service returns ``None``). ``apprise_obj`` injectable for testing (default: a real
+``apprise.Apprise``). The timeout/error absorption live in the dispatcher (E-D13).
 
-DÉCISION (audit 2026-06-23 / security-network#2) : l'egress apprise (webhooks Slack, Discord,
-SMTP, etc.) traverse le réseau HÔTE du crawler — pas le VPN. La spec packaging assume ce
-tradeoff : le kill-switch P2P reste effectif (eD2k bloqué hors VPN, anonymat préservé) ; seule
-la CORRÉLATION IP↔webhook de notification subsiste (un opérateur qui notifie sur Slack expose
-l'IP de son host à Slack, pas son trafic P2P). C'est un choix DÉLIBÉRÉ, pas un défaut.
+DECISION (audit 2026-06-23 / security-network#2): the apprise egress (Slack, Discord, SMTP,
+etc. webhooks) traverses the crawler's HOST network — not the VPN. The packaging spec accepts this
+tradeoff: the P2P kill-switch stays effective (eD2k blocked outside the VPN, anonymity preserved);
+only the notification IP↔webhook CORRELATION remains (an operator who notifies on Slack exposes
+their host's IP to Slack, not their P2P traffic). This is a DELIBERATE choice, not a flaw.
 
-Pas de stubs apprise → ``# type: ignore`` ciblés (override mypy, Task 9)."""
+No apprise stubs → targeted ``# type: ignore`` (mypy override, Task 9)."""
 
 from collections.abc import Sequence
 
@@ -20,7 +20,7 @@ import apprise
 
 from emule_indexer.domain.observability.policy import Audience, Severity
 
-# tuple (url, audience) — la config (Task 7) produit ces paires depuis ``local.yaml``.
+# tuple (url, audience) — the config (Task 7) produces these pairs from ``local.yaml``.
 NotificationTargets = Sequence[tuple[str, Audience]]
 
 _NOTIFY_TYPES: dict[Severity, object] = {
@@ -32,7 +32,7 @@ _NOTIFY_TYPES: dict[Severity, object] = {
 
 
 class AppriseNotifier:
-    """Adapter ``Notifier`` : un canal apprise par audience (tag), corps préfixé du node_id."""
+    """``Notifier`` adapter: one apprise channel per audience (tag), body prefixed with node_id."""
 
     def __init__(
         self,
@@ -41,8 +41,8 @@ class AppriseNotifier:
         node_id: str,
         apprise_obj: object | None = None,
     ) -> None:
-        # Typé ``object`` à dessein : l'adapter ne dépend pas de la surface (non typée)
-        # d'apprise ; ``.add``/``.async_notify`` portent un ``# type: ignore[attr-defined]``.
+        # Typed ``object`` on purpose: the adapter does not depend on apprise's (untyped)
+        # surface; ``.add``/``.async_notify`` carry a ``# type: ignore[attr-defined]``.
         self._apprise: object = apprise.Apprise() if apprise_obj is None else apprise_obj
         for url, audience in targets:
             self._apprise.add(url, tag=audience.value)  # type: ignore[attr-defined]

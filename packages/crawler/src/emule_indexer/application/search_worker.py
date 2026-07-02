@@ -1,29 +1,29 @@
-"""Travailleur de recherche : possède 1 ``MuleClient``, draine la queue (spec §4).
+"""Search worker: owns 1 ``MuleClient``, drains the queue (spec §4).
 
-Couche APPLICATION. Un travailleur par instance ``amuled`` (spec §3 : N travailleurs = N
-connexions EC = parallélisme réel ; dégénère en boucle séquentielle à N=1). Par item
-``(keyword, channel)`` tiré de la queue partagée :
+APPLICATION layer. One worker per ``amuled`` instance (spec §3: N workers = N
+EC connections = real parallelism; degenerates to a sequential loop at N=1). Per item
+``(keyword, channel)`` pulled from the shared queue:
 
-  consulte le backoff (SAUTE l'item si l'instance OU le canal est en backoff jusqu'à son
-  ``retry_after``) → assure la connexion (reconnexion par instance si down) →
-  ``start_search`` → polling borné (budget config) → ``fetch_results`` →
-  ``record_observation`` pour CHAQUE obs.
+  consults the backoff (SKIPS the item if the instance OR the channel is backed off until its
+  ``retry_after``) → ensures the connection (per-instance reconnection if down) →
+  ``start_search`` → bounded polling (config budget) → ``fetch_results`` →
+  ``record_observation`` for EACH obs.
 
-Gestion d'erreurs (spec §7, « le client signale, le plan C décide ») — l'application ne
-catch QUE des exceptions de PORT (jamais d'un adapter, règle de dépendance §4) :
-- ``MuleUnreachableError`` (flux mort : connexion/timeout/trame illisible côté EC) →
-  instance DOWN : on jette le client, BACKOFF de reconnexion PAR INSTANCE (``retry_after``
-  posé) ; les autres travailleurs continuent ; l'item est ABANDONNÉ.
-- ``MuleSearchFailedError`` (échec applicatif d'un canal) → BACKOFF PAR (instance, canal).
-- ``RepositoryError`` sur une obs → loggée et comptée par ``record_observations``.
+Error handling (spec §7, "the client signals, Plan C decides") — the application catches
+ONLY PORT exceptions (never an adapter's, dependency rule §4):
+- ``MuleUnreachableError`` (dead stream: connection/timeout/unreadable frame on the EC side) →
+  instance DOWN: we drop the client, PER-INSTANCE reconnection BACKOFF (``retry_after``
+  set); the other workers continue; the item is ABANDONED.
+- ``MuleSearchFailedError`` (application failure of a channel) → BACKOFF PER (instance, channel).
+- ``RepositoryError`` on an obs → logged and counted by ``record_observations``.
 
-Le backoff est exponentiel + jitter (spec §3), MÉMORISÉ dans un ``BackoffRegistry`` PARTAGÉ
-(une seule instance pour TOUS les travailleurs + le cycle) et PERSISTÉ dans
-``scheduler_state`` en fin de cycle (spec §3/§7 : il survit à un redémarrage). « Skip jusqu'à
-``retry_after`` » remplace l'ancien « sleep du délai » : un canal en backoff est sauté, pas
-attendu — l'event loop reste disponible. Les mutations du registre partagé se font entre
-deux ``await`` (event loop mono-thread, writer unique) → aucun verrou nécessaire (spec §3).
-Le travailleur ne FERME jamais le client (ownership = composition root, §6).
+The backoff is exponential + jitter (spec §3), REMEMBERED in a SHARED ``BackoffRegistry``
+(a single instance for ALL workers + the cycle) and PERSISTED in
+``scheduler_state`` at the end of the cycle (spec §3/§7: it survives a restart). "Skip until
+``retry_after``" replaces the old "sleep for the delay": a backed-off channel is skipped, not
+waited on — the event loop stays available. Mutations of the shared registry happen between
+two ``await`` (single-threaded event loop, single writer) → no lock needed (spec §3).
+The worker NEVER closes the client (ownership = composition root, §6).
 """
 
 import logging
@@ -54,26 +54,26 @@ from emule_indexer.ports.telemetry import Telemetry
 
 _logger = logging.getLogger("emule_indexer.application.search_worker")
 
-_PROGRESS_DONE = 100  # search_progress() à 100 % → on cesse de poller (handoff EC)
+_PROGRESS_DONE = 100  # search_progress() at 100 % → we stop polling (EC handoff)
 
 
 def _iso(moment: datetime) -> str:
-    """ISO-8601 UTC à largeur fixe (microsecondes TOUJOURS écrites) — mêmes règles que
-    ``utc_iso`` de l'adapter (qu'on ne peut pas importer : règle de dépendance §4) pour que
-    la comparaison ``now < retry_after`` soit lexicographique == chronologique, et que le
-    format PERSISTÉ soit identique à celui des autres timestamps."""
+    """Fixed-width ISO-8601 UTC (microseconds ALWAYS written) — same rules as the adapter's
+    ``utc_iso`` (which we cannot import: dependency rule §4) so that the
+    ``now < retry_after`` comparison is lexicographic == chronological, and the
+    PERSISTED format is identical to the other timestamps'."""
     return moment.astimezone(UTC).isoformat(timespec="microseconds")
 
 
 @dataclass(frozen=True)
 class SearchTask:
-    """Une unité de travail : un mot-clé sur un canal (spec §4).
+    """A unit of work: a keyword on a channel (spec §4).
 
-    ``skipped_by`` mémorise les ``instance_name`` qui ont déjà refusé cette tâche pendant le
-    cycle (backoff instance ou canal). Une tâche re-enfilée porte cette trace pour permettre
-    la terminaison : quand TOUTES les instances ont refusé, la boucle abandonne la tâche avec
-    une trace de télémétrie (spec §14 : visibilité plutôt que silence). ``frozenset`` →
-    union idempotente, hashable (compatible ``dataclass(frozen=True)``)."""
+    ``skipped_by`` remembers the ``instance_name`` values that have already refused this task
+    during the cycle (instance or channel backoff). A re-enqueued task carries this trace to
+    enable termination: when ALL instances have refused, the loop drops the task with
+    a telemetry trace (spec §14: visibility rather than silence). ``frozenset`` →
+    idempotent union, hashable (compatible with ``dataclass(frozen=True)``)."""
 
     keyword: str
     channel: SearchChannel
@@ -82,13 +82,13 @@ class SearchTask:
 
 @dataclass(frozen=True)
 class WorkerPolicy:
-    """Paramètres de politique d'un travailleur, en PRIMITIFS (spec §5 ; injectés par compo).
+    """A worker's policy parameters, as PRIMITIVES (spec §5; injected by composition).
 
-    ``backoff_jitter_ratio`` : fraction du délai nominal tirée en jitter additionnel
-    (anti-thundering-herd, spec §3) — p.ex. 0.3 ⇒ jitter dans ``[0, 0.3 * délai)``.
-    ``keyword_pause_min_seconds``/``keyword_pause_max_seconds`` : bornes (min ≤ max) de la
-    PAUSE JITTERÉE inter-mots-clés (spec §5/§7, anti-rate-limit eD2k) — un délai
-    ``min + rng.jitter(max - min)`` est dormi ENTRE deux items d'un même travailleur.
+    ``backoff_jitter_ratio``: fraction of the nominal delay drawn as additional jitter
+    (anti-thundering-herd, spec §3) — e.g. 0.3 ⇒ jitter in ``[0, 0.3 * delay)``.
+    ``keyword_pause_min_seconds``/``keyword_pause_max_seconds``: bounds (min ≤ max) of the
+    JITTERED inter-keyword PAUSE (spec §5/§7, eD2k anti-rate-limit) — a delay
+    ``min + rng.jitter(max - min)`` is slept BETWEEN two items of the same worker.
     """
 
     backoff_base_seconds: float
@@ -102,14 +102,14 @@ class WorkerPolicy:
 
 
 class BackoffRegistry:
-    """Registre de backoff PARTAGÉ par clé (instance, ou « instance:canal »), PERSISTABLE.
+    """SHARED backoff registry keyed (by instance, or "instance:channel"), PERSISTABLE.
 
-    Tient une map ``clé → ChannelBackoff(attempts, retry_after)`` (spec §3/§7). ``retry_after``
-    est calculé à l'échec : ``clock.now() + backoff_delay(attempts) + jitter`` (jitter tiré du
-    port ``Rng``, déterministe en test) → ISO-8601 UTC à largeur fixe (comparaison
-    lexicographique == chronologique). ``is_in_backoff`` saute une clé tant que
-    ``now < retry_after``. ``snapshot``/``load_from`` font le pont avec ``scheduler_state``
-    (la persistance survit à un redémarrage). Logique déterministe (clock/rng injectés).
+    Holds a map ``key → ChannelBackoff(attempts, retry_after)`` (spec §3/§7). ``retry_after``
+    is computed on failure: ``clock.now() + backoff_delay(attempts) + jitter`` (jitter drawn from
+    the ``Rng`` port, deterministic in test) → fixed-width ISO-8601 UTC (lexicographic ==
+    chronological comparison). ``is_in_backoff`` skips a key while
+    ``now < retry_after``. ``snapshot``/``load_from`` bridge to ``scheduler_state``
+    (the persistence survives a restart). Deterministic logic (injected clock/rng).
     """
 
     def __init__(self, policy: WorkerPolicy, clock: Clock, rng: Rng) -> None:
@@ -119,24 +119,24 @@ class BackoffRegistry:
         self._states: dict[str, ChannelBackoff] = {}
 
     def load_from(self, states: dict[str, ChannelBackoff]) -> None:
-        """Recharge le registre depuis un snapshot persisté (reprise après crash, spec §7)."""
+        """Reloads the registry from a persisted snapshot (recovery after crash, spec §7)."""
         self._states = dict(states)
 
     def snapshot(self) -> dict[str, ChannelBackoff]:
-        """Copie de la map courante (à persister en fin de cycle, spec §7)."""
+        """Copy of the current map (to persist at the end of the cycle, spec §7)."""
         return dict(self._states)
 
     def is_in_backoff(self, key: str) -> bool:
-        """``True`` si ``key`` a un ``retry_after`` encore dans le FUTUR (à sauter)."""
+        """``True`` if ``key`` has a ``retry_after`` still in the FUTURE (to skip)."""
         state = self._states.get(key)
         if state is None:
             return False
         return _iso(self._clock.now()) < state.retry_after
 
     def record_failure(self, key: str) -> float:
-        """Incrémente ``attempts``, calcule délai+jitter, pose ``retry_after``. Rend le délai.
+        """Increments ``attempts``, computes delay+jitter, sets ``retry_after``. Returns the delay.
 
-        Le délai sert au LOG ; la décision opérationnelle est le ``retry_after`` (skip).
+        The delay is for the LOG; the operational decision is the ``retry_after`` (skip).
         """
         attempts = self._states[key].attempts + 1 if key in self._states else 1
         delay = backoff_delay(
@@ -151,18 +151,18 @@ class BackoffRegistry:
         return delay
 
     def reset(self, key: str) -> None:
-        """Efface le backoff d'une clé (succès)."""
+        """Clears the backoff of a key (success)."""
         self._states.pop(key, None)
 
 
 @dataclass
 class WorkerDeps:
-    """Dépendances partagées d'un travailleur (la composition les assemble une fois).
+    """A worker's shared dependencies (composition assembles them once).
 
-    ``backoff`` est le registre PARTAGÉ (même instance pour tous les travailleurs + le cycle,
-    qui le persiste). ``rng`` sert au jitter de la pause inter-mots-clés (le backoff a son
-    propre accès au RNG via le registre ; les deux pointent la même instance partagée).
-    Writer unique sur l'event loop → aucune course (spec §3).
+    ``backoff`` is the SHARED registry (same instance for all workers + the cycle,
+    which persists it). ``rng`` serves the inter-keyword pause jitter (the backoff has its
+    own RNG access via the registry; both point to the same shared instance).
+    Single writer on the event loop → no race (spec §3).
     """
 
     catalog: CatalogRepository
@@ -176,7 +176,7 @@ class WorkerDeps:
 
 
 class SearchWorker:
-    """Pilote UN ``amuled`` pour drainer des ``SearchTask`` (spec §3/§4)."""
+    """Drives ONE ``amuled`` to drain ``SearchTask`` objects (spec §3/§4)."""
 
     def __init__(self, instance_name: str, client: MuleClient, deps: WorkerDeps) -> None:
         self._instance = instance_name
@@ -186,19 +186,19 @@ class SearchWorker:
 
     @property
     def instance_name(self) -> str:
-        """Nom logique de l'instance pilotée (clé de backoff + identifiant ``skipped_by``)."""
+        """Logical name of the driven instance (backoff key + ``skipped_by`` identifier)."""
         return self._instance
 
     def is_blocked_for(self, task: SearchTask) -> bool:
-        """``True`` si l'instance OU le canal de la tâche est en backoff (skip+re-enfile, §14)."""
+        """``True`` if the task's instance OR channel is backed off (skip+re-enqueue, §14)."""
         if self._deps.backoff.is_in_backoff(self._instance):
             return True
         return self._deps.backoff.is_in_backoff(f"{self._instance}:{task.channel}")
 
     async def report_dropped(self, task: SearchTask) -> None:
-        """Trace l'abandon d'une tâche refusée par TOUTES les instances (spec §14)."""
+        """Traces the drop of a task refused by ALL instances (spec §14)."""
         _logger.warning(
-            "tâche '%s'/%s abandonnée (toutes les instances en backoff)",
+            "task '%s'/%s dropped (all instances in backoff)",
             task.keyword,
             task.channel,
         )
@@ -207,7 +207,7 @@ class SearchWorker:
         )
 
     async def _ensure_connected(self) -> bool:
-        """Connecte le client si nécessaire. Rend ``False`` si l'instance reste down."""
+        """Connects the client if needed. Returns ``False`` if the instance stays down."""
         if self._connected:
             return True
         try:
@@ -215,7 +215,7 @@ class SearchWorker:
         except MuleUnreachableError as error:
             delay = self._deps.backoff.record_failure(self._instance)
             _logger.warning(
-                "instance %s injoignable (%s) — backoff reconnexion %.1fs",
+                "instance %s unreachable (%s) — reconnect backoff %.1fs",
                 self._instance,
                 error,
                 delay,
@@ -224,18 +224,18 @@ class SearchWorker:
             return False
         self._connected = True
         self._deps.backoff.reset(self._instance)
-        _logger.info("instance %s connectée", self._instance)
+        _logger.info("instance %s connected", self._instance)
         return True
 
     async def _poll_then_fetch(self, channel: SearchChannel) -> int:
-        """Polling borné (budget config) puis ``fetch_results`` → pipeline par obs.
+        """Bounded polling (config budget) then ``fetch_results`` → per-obs pipeline.
 
-        Rend le nombre de verdicts CHANGÉS (logging). Le polling s'arrête dès 100 % ou au
-        budget épuisé ; ``fetch_results`` rend le snapshot cumulatif (handoff EC). Une
-        ``RepositoryError`` par obs est ABSORBÉE (loggée + comptée) DANS
-        ``record_observation`` → le cycle continue (spec §7), une seule obs corrompue ne
-        fait pas tomber tout le balayage. Émet ``SearchExecuted`` (label réseau + nombre de
-        résultats) puis ``ObservationRecorded``/``DecisionRecorded`` via ``record_observation``.
+        Returns the number of CHANGED verdicts (logging). Polling stops at 100 % or when the
+        budget is exhausted; ``fetch_results`` returns the cumulative snapshot (EC handoff). A
+        ``RepositoryError`` per obs is ABSORBED (logged + counted) INSIDE
+        ``record_observation`` → the cycle continues (spec §7), a single corrupt obs does not
+        bring down the whole sweep. Emits ``SearchExecuted`` (network label + number of
+        results) then ``ObservationRecorded``/``DecisionRecorded`` via ``record_observation``.
         """
         waited = 0.0
         while waited < self._deps.policy.poll_budget_seconds:
@@ -261,17 +261,18 @@ class SearchWorker:
         return changed
 
     async def run_task(self, task: SearchTask) -> None:
-        """Exécute UN ``SearchTask`` (spec §4). Ne lève jamais : signale par backoff/log.
+        """Runs ONE ``SearchTask`` (spec §4). Never raises: signals via backoff/log.
 
-        SAUTE l'item si l'instance OU le canal est en backoff (``retry_after`` futur, spec §7).
+        SKIPS the item if the instance OR the channel is backed off (future ``retry_after``,
+        spec §7).
         """
         channel_key = f"{self._instance}:{task.channel}"
         if self._deps.backoff.is_in_backoff(self._instance):
-            _logger.info("instance %s en backoff — item '%s' sauté", self._instance, task.keyword)
+            _logger.info("instance %s in backoff — item '%s' skipped", self._instance, task.keyword)
             return
         if self._deps.backoff.is_in_backoff(channel_key):
             _logger.info(
-                "instance %s canal %s en backoff — item '%s' sauté",
+                "instance %s channel %s in backoff — item '%s' skipped",
                 self._instance,
                 task.channel,
                 task.keyword,
@@ -285,7 +286,7 @@ class SearchWorker:
         except MuleSearchFailedError as error:
             delay = self._deps.backoff.record_failure(channel_key)
             _logger.warning(
-                "instance %s canal %s en échec (%s) — backoff %.1fs",
+                "instance %s channel %s failed (%s) — backoff %.1fs",
                 self._instance,
                 task.channel,
                 error,
@@ -299,7 +300,7 @@ class SearchWorker:
             self._connected = False
             delay = self._deps.backoff.record_failure(self._instance)
             _logger.warning(
-                "instance %s : flux EC mort (%s) — instance down, backoff %.1fs",
+                "instance %s: dead EC stream (%s) — instance down, backoff %.1fs",
                 self._instance,
                 error,
                 delay,
@@ -308,7 +309,7 @@ class SearchWorker:
             return
         self._deps.backoff.reset(channel_key)
         _logger.info(
-            "instance %s : '%s'/%s → %d verdict(s) changé(s)",
+            "instance %s: '%s'/%s → %d verdict(s) changed",
             self._instance,
             task.keyword,
             task.channel,
@@ -316,13 +317,13 @@ class SearchWorker:
         )
 
     async def pause_between_items(self) -> None:
-        """Dort une PAUSE JITTERÉE inter-mots-clés (spec §5/§7, anti-rate-limit eD2k).
+        """Sleeps a JITTERED inter-keyword PAUSE (spec §5/§7, eD2k anti-rate-limit).
 
-        Délai = ``keyword_pause_min + rng.jitter(keyword_pause_max - keyword_pause_min)``
-        (réutilise le contrat ``Rng.jitter`` : ``[0, span)`` ; ``span ≤ 0`` quand min == max
-        → jitter nul → pause FIXE = min). Espace les recherches d'un même travailleur pour
-        éviter qu'``amuled`` se fasse bannir d'un serveur eD2k (spec §7). Appelée par le
-        drain ENTRE deux items, jamais après le dernier (l'appelant saute la file vidée).
+        Delay = ``keyword_pause_min + rng.jitter(keyword_pause_max - keyword_pause_min)``
+        (reuses the ``Rng.jitter`` contract: ``[0, span)``; ``span ≤ 0`` when min == max
+        → zero jitter → FIXED pause = min). Spaces out one worker's searches to
+        avoid ``amuled`` getting banned from an eD2k server (spec §7). Called by the
+        drain BETWEEN two items, never after the last (the caller skips the emptied queue).
         """
         policy = self._deps.policy
         span = policy.keyword_pause_max_seconds - policy.keyword_pause_min_seconds

@@ -1,9 +1,9 @@
-"""Intégration DOWNLOAD contre un amuled RÉEL (réf. protocole, spec download §11 — option A).
+"""DOWNLOAD integration against a REAL amuled (protocol ref., download spec §11 — option A).
 
-Run dédié : uv run pytest -m download_integration --no-cov
-Valide les MÉCANIQUES EC du download : ``add_link`` accepté + le lien apparaît dans
-``download_queue`` avec un statut lisible. La COMPLÉTION n'est PAS atteignable (pas de sources
-eD2k depuis le conteneur éphémère) : c'est le cycle add_link → file → statut qui est validé.
+Dedicated run: uv run pytest -m download_integration --no-cov
+Validates the EC MECHANICS of the download: ``add_link`` accepted + the link appears in
+``download_queue`` with a readable status. COMPLETION is NOT reachable (no eD2k sources from
+the ephemeral container): it is the add_link → queue → status cycle that is validated.
 """
 
 from collections.abc import Iterator
@@ -21,12 +21,12 @@ pytestmark = pytest.mark.download_integration
 
 _EC_PASSWORD = "indexer-ec-test"
 _IMAGE = "ngosang/amule:3.0.0-1"
-# Un hash canonique NON DÉGÉNÉRÉ : surtout PAS la MD4 du fichier vide (31d6cfe0…), qu'amuled
-# traite comme instantanément complet à 0 octet et ne liste JAMAIS comme partfile actif — ce
-# qui avait masqué le bug du décodage de hash. Avec une vraie taille, le lien crée un partfile
-# listé (size_done=0 < size_full), dont le hash apparaît dans l'enfant EC_TAG_PARTFILE_HASH.
+# A NON-DEGENERATE canonical hash: above all NOT the MD4 of the empty file (31d6cfe0…), which
+# amuled treats as instantly complete at 0 bytes and NEVER lists as an active partfile — which
+# had masked the hash-decoding bug. With a real size, the link creates a listed partfile
+# (size_done=0 < size_full), whose hash appears in the EC_TAG_PARTFILE_HASH child.
 _HASH = "aabbccddeeff00112233445566778899"
-_SIZE = 734003200  # ~700 Mio : une taille réelle, donc un partfile actif (jamais "complet")
+_SIZE = 734003200  # ~700 Mio: a real size, hence an active partfile (never "complete")
 
 
 @pytest.fixture(scope="module")
@@ -55,17 +55,17 @@ async def test_add_link_then_appears_in_download_queue(amuled: tuple[str, int]) 
         try:
             await client.add_link(link)
         except EcFailureError as exc:
-            # amuled a répondu FAILED proprement (lien refusé) : le cycle requête/réponse
-            # EST validé, avec le message du daemon. Tolérable pour ce contexte de test.
+            # amuled responded FAILED cleanly (link refused): the request/response cycle
+            # IS validated, with the daemon's message. Tolerable for this test context.
             assert str(exc)
             return
         queue = await client.download_queue()
         assert isinstance(queue, tuple)
         assert all(isinstance(entry, DownloadEntry) for entry in queue)
-        # add_link ACCEPTÉ : un lien à vraie taille (sans source) crée un partfile listé
-        # (size_done=0 < size_full), dont le hash est porté par l'enfant EC_TAG_PARTFILE_HASH.
-        # C'est le RÉGRESSION GUARD du bug de décodage : si _map_partfile lisait encore la
-        # valeur propre (UINT8) au lieu de l'enfant 0x031E, la file serait vide ici → échec.
+        # add_link ACCEPTED: a real-size link (no source) creates a listed partfile
+        # (size_done=0 < size_full), whose hash is carried by the EC_TAG_PARTFILE_HASH child.
+        # This is the REGRESSION GUARD for the decoding bug: if _map_partfile still read the
+        # own value (UINT8) instead of the 0x031E child, the queue would be empty here → fail.
         hashes = {entry.ed2k_hash for entry in queue}
         assert _HASH in hashes
     finally:
@@ -74,11 +74,11 @@ async def test_add_link_then_appears_in_download_queue(amuled: tuple[str, int]) 
 
 @pytest.mark.asyncio
 async def test_shared_files_round_trips(amuled: tuple[str, int]) -> None:
-    # Confirme EMPIRIQUEMENT le cycle requête/réponse GET_SHARED_FILES → SHARED_FILES et que le
-    # décodage ne lève pas (opcodes 0x10/0x22). Sur un amuled neuf la liste peut être vide ; le
-    # mapping (conteneur EC_TAG_KNOWNFILE 0x0400, nom/hash) est couvert par les tests unit + la
-    # source amont. Si des entrées remontent, ce sont des SharedFileEntry valides (hash hex 32,
-    # nom).
+    # EMPIRICALLY confirms the GET_SHARED_FILES → SHARED_FILES request/response cycle and that
+    # the decoding does not raise (opcodes 0x10/0x22). On a fresh amuled the list may be empty;
+    # the mapping (EC_TAG_KNOWNFILE 0x0400 container, name/hash) is covered by the unit tests +
+    # the upstream source. If entries come back, they are valid SharedFileEntry (32-hex hash,
+    # name).
     host, port = amuled
     client = AmuleEcClient(host, port, _EC_PASSWORD, timeout=30.0)
     await client.connect()

@@ -1,14 +1,14 @@
-"""Check ``clamav`` (spec clamav §3) : 3ᵉ source de verdict, par SIGNATURES virales.
+"""``clamav`` check (clamav spec §3): 3rd verdict source, by viral SIGNATURES.
 
-``scan`` invoque ``clamscan`` via un ``ClamavRunner`` INJECTABLE (prod = subprocess réel ; tests =
-``(rc, stdout)`` canné) avec des flags FIGÉS. ``clamscan`` encode son verdict dans son CODE DE
-SORTIE : ``0`` → aucun virus (``clean``), ``1`` → virus trouvé (``malicious``), ``≥2`` → erreur
-(base absente/corrompue, I/O…) → ``suspicious`` (défensif : on ne peut pas affirmer « sûr » sans
-base, on ne jette pas le fichier non plus). Sur un match, ``_parse_signature`` extrait AU MIEUX le
-nom de la signature pour ``meta`` (purement informatif — le verdict ``malicious`` est inchangé).
-``clamav`` tourne dans l'enfant confiné comme ``ffprobe`` (base RO locale + fichier local, pas de
-réseau) ; un ``clamscan`` qui boucle/excède les rlimits est tué par le parent et donne
-``suspicious`` via l'égress. ``error`` n'est JAMAIS un statut de check (réservé service-level).
+``scan`` invokes ``clamscan`` via an INJECTABLE ``ClamavRunner`` (prod = real subprocess; tests =
+canned ``(rc, stdout)``) with FIXED flags. ``clamscan`` encodes its verdict in its EXIT CODE:
+``0`` → no virus (``clean``), ``1`` → virus found (``malicious``), ``≥2`` → error (missing/corrupt
+database, I/O…) → ``suspicious`` (defensive: we cannot claim "safe" without a database, nor do we
+discard the file). On a match, ``_parse_signature`` extracts the signature name BEST-EFFORT for
+``meta`` (purely informational — the ``malicious`` verdict is unchanged). ``clamav`` runs in the
+confined child like ``ffprobe`` (local RO database + local file, no network); a ``clamscan`` that
+loops/exceeds the rlimits is killed by the parent and yields ``suspicious`` via the egress.
+``error`` is NEVER a check status (reserved service-level).
 """
 
 import subprocess
@@ -19,17 +19,17 @@ from typing import Protocol
 from download_verifier.checks.base import CheckOutcome
 from download_verifier.config import AnalysisConfig
 
-# Bornes explicites passées à ``clamscan`` (sandbox-confinement#3) — défense-en-profondeur.
-# Les vecteurs sont DÉJÀ bornés par les rlimits + mem_limit + wall-clock du parent, mais on
-# aligne la posture du moteur clamav lui-même (zip-bombs en récursion, fichiers extraits qui
-# dépassent les rlimits avant qu'elles ne mordent, etc.). Les bornes sont calibrées pour ne
-# PAS gêner l'usage normal (médias d'épisodes ~500 Mio max) :
+# Explicit bounds passed to ``clamscan`` (sandbox-confinement#3) — defense-in-depth. The vectors
+# are ALREADY bounded by the parent's rlimits + mem_limit + wall-clock, but we align the posture
+# of the clamav engine itself (recursion zip-bombs, extracted files that exceed the rlimits
+# before they bite, etc.). The bounds are calibrated NOT to hinder normal use (episode media
+# ~500 MiB max):
 #
-#  - ``--max-scansize=2048M`` / ``--max-filesize=2048M`` : 4× la taille usuelle (default 100M / 25M
-#    en clamav est trop serré pour un fichier média) ;
-#  - ``--max-recursion=10`` : un média légitime n'a aucune archive imbriquée ;
-#  - ``--max-files=1000`` : idem (un média non-archive ne génère pas 1000 unités) ;
-#  - ``--max-scantime=120000`` (ms = 120 s) : cohérent avec ``RLIMIT_CPU_S`` du parent.
+#  - ``--max-scansize=2048M`` / ``--max-filesize=2048M``: 4× the usual size (clamav's 100M / 25M
+#    default is too tight for a media file);
+#  - ``--max-recursion=10``: a legitimate media has no nested archive;
+#  - ``--max-files=1000``: same (a non-archive media does not produce 1000 units);
+#  - ``--max-scantime=120000`` (ms = 120 s): consistent with the parent's ``RLIMIT_CPU_S``.
 _CLAMSCAN_LIMITS: tuple[str, ...] = (
     "--max-scansize=2048M",
     "--max-filesize=2048M",
@@ -40,13 +40,13 @@ _CLAMSCAN_LIMITS: tuple[str, ...] = (
 
 
 class ClamavRunner(Protocol):
-    """Exécute clamscan et rend ``(returncode, stdout)``. Injecté pour les tests."""
+    """Run clamscan and return ``(returncode, stdout)``. Injected for tests."""
 
     def __call__(self, argv: Sequence[str]) -> tuple[int, bytes]: ...
 
 
 class ProdClamavRunner:
-    """``ClamavRunner`` de PROD : vrai ``subprocess.run`` (couvert par analysis_integration)."""
+    """PROD ``ClamavRunner``: real ``subprocess.run`` (covered by analysis_integration)."""
 
     def __init__(self, timeout_s: float) -> None:
         self._timeout_s = timeout_s
@@ -64,7 +64,7 @@ class ProdClamavRunner:
 
 
 def scan(path: Path, runner: ClamavRunner, cfg: AnalysisConfig) -> CheckOutcome:
-    """Scanne ``path`` via ``runner`` ; rend ``CheckOutcome`` (status + meta)."""
+    """Scan ``path`` via ``runner``; return ``CheckOutcome`` (status + meta)."""
     argv = [
         cfg.clamscan_path,
         "--no-summary",
@@ -83,12 +83,12 @@ def scan(path: Path, runner: ClamavRunner, cfg: AnalysisConfig) -> CheckOutcome:
         if signature is not None:
             meta["clamav_signature"] = signature
         return CheckOutcome(name="clamav", status="malicious", meta=meta)
-    # rc >= 2 (ou tout autre) : erreur clamscan (base absente/corrompue, I/O…) → défensif.
+    # rc >= 2 (or anything else): clamscan error (missing/corrupt database, I/O…) → defensive.
     return CheckOutcome(name="clamav", status="suspicious", meta={})
 
 
 def _parse_signature(stdout: bytes) -> str | None:
-    """Extrait AU MIEUX le nom de signature d'une ligne ``<file>: <sig> FOUND`` ; sinon ``None``."""
+    """Extract the signature name BEST-EFFORT from a ``<file>: <sig> FOUND`` line; else ``None``."""
     for line in stdout.decode("utf-8", "replace").splitlines():
         if line.endswith(" FOUND") and ": " in line:
             return line.rsplit(": ", 1)[1].removesuffix(" FOUND").strip() or None

@@ -1,14 +1,14 @@
-"""Port ``MuleClient`` : ce que le crawler attend d'un client eMule (cf. spec EC-adapter §4).
+"""``MuleClient`` port: what the crawler expects from an eMule client (cf. spec EC-adapter §4).
 
-Le port n'importe QUE le domaine. Les stubs du Protocol tiennent sur UNE ligne (le ``def``
-s'exécute à la création de la classe : couvert). La convenance ``search_and_wait`` (poll +
-timeout) vit dans l'outil probe, PAS ici : le polling appartient à l'appelant (spec §3).
+The port imports ONLY the domain. The Protocol stubs fit on ONE line (the ``def`` runs at
+class creation: covered). The ``search_and_wait`` convenience (poll + timeout) lives in the
+probe tool, NOT here: polling belongs to the caller (spec §3).
 
-Le port déclare aussi le CONTRAT d'ERREUR du client (spec orchestration §7, « le client
-signale, le plan C décide ») : ``MuleUnreachableError`` (flux mort → reconnexion par
-l'appelant) vs ``MuleSearchFailedError`` (échec applicatif d'un canal → backoff). L'adapter
-EC fait inhériter ses ``EcError`` de ces classes (dépendance adapter→port, licite), de
-sorte que l'APPLICATION ne dépende JAMAIS d'un adapter (règle de dépendance §4).
+The port also declares the client's ERROR CONTRACT (spec orchestration §7, "the client
+reports, plan C decides"): ``MuleUnreachableError`` (dead stream → reconnection by the
+caller) vs ``MuleSearchFailedError`` (application failure of a channel → backoff). The EC
+adapter makes its ``EcError`` inherit from these classes (adapter→port dependency, allowed),
+so that the APPLICATION NEVER depends on an adapter (dependency rule §4).
 """
 
 from dataclasses import dataclass
@@ -19,26 +19,26 @@ from emule_indexer.domain.observation import FileObservation
 
 
 class MuleClientError(Exception):
-    """Base du contrat d'erreur du client eMule (spec orchestration §7)."""
+    """Base of the eMule client's error contract (spec orchestration §7)."""
 
 
 class MuleUnreachableError(MuleClientError):
-    """Le daemon est injoignable ou le flux est mort → reconnexion par l'appelant (§7)."""
+    """The daemon is unreachable or the stream is dead → reconnection by the caller (§7)."""
 
 
 class MuleSearchFailedError(MuleClientError):
-    """Échec applicatif d'une recherche signalé par le daemon → backoff de canal (§7)."""
+    """Application failure of a search reported by the daemon → channel backoff (§7)."""
 
 
 class SearchChannel(StrEnum):
-    """Canal de recherche (enum fermé, spec §4) : serveurs eD2k ou Kad."""
+    """Search channel (closed enum, spec §4): eD2k servers or Kad."""
 
     GLOBAL = "global"
     KAD = "kad"
 
 
 class KadStatus(StrEnum):
-    """État Kad (enum fermé), décodé du bitfield CONNSTATE (réf. protocole §6)."""
+    """Kad state (closed enum), decoded from the CONNSTATE bitfield (protocol ref. §6)."""
 
     OFF = "off"
     RUNNING = "running"
@@ -48,11 +48,11 @@ class KadStatus(StrEnum):
 
 @dataclass(frozen=True)
 class NetworkStatus:
-    """Statut réseau (spec §4) — exactement ce que les métriques (§13 MVP) consommeront.
+    """Network status (spec §4) — exactly what the metrics (§13 MVP) will consume.
 
-    ``ed2k_id`` est ``None`` quand le client n'est pas connecté à un serveur eD2k.
-    ``ed2k_high`` : ``True`` = HighID (joignable), ``False`` = LowID,
-    c'est-à-dire ID < 16777216 (HIGHEST_LOWID_ED2K_KAD, réf. §6).
+    ``ed2k_id`` is ``None`` when the client is not connected to an eD2k server.
+    ``ed2k_high``: ``True`` = HighID (reachable), ``False`` = LowID,
+    i.e. ID < 16777216 (HIGHEST_LOWID_ED2K_KAD, ref. §6).
     """
 
     ed2k_id: int | None
@@ -63,10 +63,10 @@ class NetworkStatus:
 
 
 class MuleClient(Protocol):
-    """Contrat async du client eMule. Actions UNITAIRES : aucun sleep/retry/boucle ici.
+    """Async contract of the eMule client. UNIT actions: no sleep/retry/loop here.
 
-    ``fetch_results`` retourne le snapshot CUMULATIF accumulé par le daemon (réf. §5) ;
-    ``search_progress`` retourne un pourcentage si EC l'expose, sinon ``None``.
+    ``fetch_results`` returns the CUMULATIVE snapshot accumulated by the daemon (ref. §5);
+    ``search_progress`` returns a percentage if EC exposes it, otherwise ``None``.
     """
 
     async def connect(self) -> None: ...

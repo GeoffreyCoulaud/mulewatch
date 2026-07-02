@@ -29,7 +29,7 @@ async def test_send_then_receive_one_packet_fcfs() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_times_out_when_server_stays_silent() -> None:
-    async with FakeEcServer([]) as server:  # lit la requête puis se tait
+    async with FakeEcServer([]) as server:  # reads the request then goes silent
         transport = await open_ec_transport("127.0.0.1", server.port, timeout=0.2)
         await transport.send_packet(_NOOP)
         with pytest.raises(EcTimeoutError):
@@ -39,7 +39,7 @@ async def test_receive_times_out_when_server_stays_silent() -> None:
 
 @pytest.mark.asyncio
 async def test_receive_raises_connect_error_on_eof() -> None:
-    async with FakeEcServer([], close_after=0) as server:  # ferme dès l'accept
+    async with FakeEcServer([], close_after=0) as server:  # closes right at accept
         transport = await open_ec_transport("127.0.0.1", server.port, timeout=2.0)
         with pytest.raises(EcConnectError):
             await transport.receive_packet()
@@ -50,7 +50,7 @@ async def test_receive_raises_connect_error_on_eof() -> None:
 async def test_send_raises_connect_error_on_lost_connection() -> None:
     async with FakeEcServer([]) as server:
         transport = await open_ec_transport("127.0.0.1", server.port, timeout=2.0)
-        await transport.close()  # drain() sur connexion fermée → ConnectionResetError
+        await transport.close()  # drain() on a closed connection → ConnectionResetError
         with pytest.raises(EcConnectError):
             await transport.send_packet(_NOOP)
 
@@ -67,19 +67,19 @@ async def test_receive_propagates_protocol_error_on_malformed_header() -> None:
 
 @pytest.mark.asyncio
 async def test_close_after_connection_reset_does_not_raise() -> None:
-    async with FakeEcServer([], abort=True) as server:  # RST après la requête lue
+    async with FakeEcServer([], abort=True) as server:  # RST after the request read
         transport = await open_ec_transport("127.0.0.1", server.port, timeout=2.0)
         await transport.send_packet(_NOOP)
         with pytest.raises(EcConnectError):
             await transport.receive_packet()
-        await transport.close()  # ne doit PAS re-lever le ConnectionResetError stocké
-        await transport.close()  # double close : idempotent, ne lève pas non plus
+        await transport.close()  # must NOT re-raise the stored ConnectionResetError
+        await transport.close()  # double close: idempotent, does not raise either
 
 
 @pytest.mark.asyncio
 async def test_connect_refused_raises_connect_error() -> None:
     probe = socket.socket()
-    probe.bind(("127.0.0.1", 0))  # lié mais PAS en écoute → RST déterministe (Linux)
+    probe.bind(("127.0.0.1", 0))  # bound but NOT listening → deterministic RST (Linux)
     refused_port = probe.getsockname()[1]
     try:
         with pytest.raises(EcConnectError):

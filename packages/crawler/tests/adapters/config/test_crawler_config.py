@@ -19,7 +19,7 @@ from emule_indexer.domain.observability.policy import Audience
 
 
 def _minimal_raw() -> dict[str, Any]:
-    """Politique valide + câblage minimal (amules sans ${}, chemins de bases) — mode observer."""
+    """Valid policy + minimal wiring (amules without ${}, base paths) — observer mode."""
     return {
         "cycle_interval_seconds": 300.0,
         "search_poll_budget_seconds": 30.0,
@@ -53,7 +53,7 @@ def _full_download_section() -> dict[str, Any]:
         "staging_dir": "/data/staging",
         "quarantine_dir": "/data/quarantine",
         "verifier_url": "http://verifier:8000",
-        "verify": {"poll_interval_seconds": 10.0},  # pas de client_timeout → défaut 180
+        "verify": {"poll_interval_seconds": 10.0},  # no client_timeout → default 180
     }
 
 
@@ -67,7 +67,7 @@ def _full_port_sync_section() -> dict[str, Any]:
     }
 
 
-# --------------------------------------------------------------------- politique
+# --------------------------------------------------------------------- policy
 
 
 def test_parses_a_valid_config() -> None:
@@ -93,14 +93,14 @@ def test_parses_a_valid_config() -> None:
 
 def test_jitter_ratio_zero_is_accepted() -> None:
     raw = _minimal_raw()
-    raw["backoff"]["jitter_ratio"] = 0.0  # 0 = aucun jitter (≥ 0 autorisé)
+    raw["backoff"]["jitter_ratio"] = 0.0  # 0 = no jitter (≥ 0 allowed)
     assert parse_crawler_config(raw, _env()).backoff.jitter_ratio == 0.0
 
 
 def test_negative_jitter_ratio_is_fatal() -> None:
     raw = _minimal_raw()
     raw["backoff"]["jitter_ratio"] = -0.1
-    with pytest.raises(ConfigError, match="≥ 0 attendu"):
+    with pytest.raises(ConfigError, match="≥ 0 expected"):
         parse_crawler_config(raw, _env())
 
 
@@ -114,21 +114,21 @@ def test_missing_key_is_fatal() -> None:
 def test_non_numeric_value_is_fatal() -> None:
     raw = _minimal_raw()
     raw["cycle_interval_seconds"] = "souvent"
-    with pytest.raises(ConfigError, match="nombre attendu"):
+    with pytest.raises(ConfigError, match="number expected"):
         parse_crawler_config(raw, _env())
 
 
 def test_bool_is_not_accepted_as_a_number() -> None:
     raw = _minimal_raw()
     raw["cycle_interval_seconds"] = True
-    with pytest.raises(ConfigError, match="nombre attendu"):
+    with pytest.raises(ConfigError, match="number expected"):
         parse_crawler_config(raw, _env())
 
 
 def test_non_positive_value_is_fatal() -> None:
     raw = _minimal_raw()
     raw["search_poll_budget_seconds"] = 0
-    with pytest.raises(ConfigError, match="strictement positif"):
+    with pytest.raises(ConfigError, match="strictly positive"):
         parse_crawler_config(raw, _env())
 
 
@@ -142,7 +142,7 @@ def test_backoff_section_must_be_a_mapping() -> None:
 def test_backoff_factor_below_one_is_fatal() -> None:
     raw = _minimal_raw()
     raw["backoff"]["factor"] = 0.5
-    with pytest.raises(ConfigError, match="factor doit être ≥ 1"):
+    with pytest.raises(ConfigError, match="factor must be ≥ 1"):
         parse_crawler_config(raw, _env())
 
 
@@ -150,7 +150,7 @@ def test_backoff_cap_below_base_is_fatal() -> None:
     raw = _minimal_raw()
     raw["backoff"]["cap_seconds"] = 1.0
     raw["backoff"]["base_seconds"] = 10.0
-    with pytest.raises(ConfigError, match="plafond sous le plancher"):
+    with pytest.raises(ConfigError, match="cap below floor"):
         parse_crawler_config(raw, _env())
 
 
@@ -158,11 +158,11 @@ def test_keyword_pause_max_below_min_is_fatal() -> None:
     raw = _minimal_raw()
     raw["keyword_pause_min_seconds"] = 5.0
     raw["keyword_pause_max_seconds"] = 1.0
-    with pytest.raises(ConfigError, match="intervalle vide"):
+    with pytest.raises(ConfigError, match="empty interval"):
         parse_crawler_config(raw, _env())
 
 
-# ------------------------------------------------------------- amules (ex-local)
+# ------------------------------------------------------------- amules (formerly local)
 
 
 def test_node_id_override_is_kept() -> None:
@@ -188,49 +188,49 @@ def test_empty_amules_is_fatal() -> None:
 def test_amules_not_a_list_is_fatal() -> None:
     raw = _minimal_raw()
     raw["amules"] = {"name": "x"}
-    with pytest.raises(ConfigError, match="liste NON VIDE"):
+    with pytest.raises(ConfigError, match="NON-EMPTY list"):
         parse_crawler_config(raw, _env())
 
 
 def test_instance_must_be_a_mapping() -> None:
     raw = _minimal_raw()
     raw["amules"] = ["pas-un-mapping"]
-    with pytest.raises(ConfigError, match="mapping attendu"):
+    with pytest.raises(ConfigError, match="mapping expected"):
         parse_crawler_config(raw, _env())
 
 
 def test_duplicate_instance_name_is_fatal() -> None:
     raw = _minimal_raw()
     raw["amules"].append({"name": "amule-1", "host": "h2", "port": 4713, "password": "p2"})
-    with pytest.raises(ConfigError, match="nom d'instance en double"):
+    with pytest.raises(ConfigError, match="duplicate instance name"):
         parse_crawler_config(raw, _env())
 
 
 def test_missing_string_field_is_fatal() -> None:
     raw = _minimal_raw()
     del raw["amules"][0]["host"]
-    with pytest.raises(ConfigError, match="'host' manquante"):
+    with pytest.raises(ConfigError, match="'host' missing"):
         parse_crawler_config(raw, _env())
 
 
 def test_non_string_field_is_fatal() -> None:
     raw = _minimal_raw()
-    raw["amules"][0]["host"] = 1234  # non-chaîne → branche isinstance de _require_str
-    with pytest.raises(ConfigError, match="chaîne non vide"):
+    raw["amules"][0]["host"] = 1234  # non-string → isinstance branch of _require_str
+    with pytest.raises(ConfigError, match="non-empty string"):
         parse_crawler_config(raw, _env())
 
 
 def test_empty_string_field_is_fatal() -> None:
     raw = _minimal_raw()
     raw["amules"][0]["password"] = ""
-    with pytest.raises(ConfigError, match="chaîne non vide"):
+    with pytest.raises(ConfigError, match="non-empty string"):
         parse_crawler_config(raw, _env())
 
 
 def test_missing_port_is_fatal() -> None:
     raw = _minimal_raw()
     del raw["amules"][0]["port"]
-    with pytest.raises(ConfigError, match="'port' manquante"):
+    with pytest.raises(ConfigError, match="'port' missing"):
         parse_crawler_config(raw, _env())
 
 
@@ -282,7 +282,7 @@ def test_missing_env_var_raises() -> None:
         ],
     }
     with pytest.raises(ConfigError):
-        parse_crawler_config(raw, {})  # AMULE_EC_PASSWORD absent
+        parse_crawler_config(raw, {})  # AMULE_EC_PASSWORD not set
 
 
 # ----------------------------------------------------------------- download
@@ -294,21 +294,21 @@ def test_download_absent_is_observer() -> None:
 
 
 def test_download_enabled_false_is_observer_without_requiring_wiring() -> None:
-    # enabled:false ⇒ on NE lit PAS le reste : verifier_url manquant n'est PAS une erreur.
+    # enabled:false ⇒ we do NOT read the rest: a missing verifier_url is NOT an error.
     raw = _minimal_raw() | {"download": {"enabled": False}}
     cfg = parse_crawler_config(raw, _env())
     assert cfg.download is None
 
 
 def test_download_section_without_enabled_defaults_to_observer() -> None:
-    # enabled absent → défaut false → download None (branche clé-absente de _bool_default).
+    # enabled missing → default false → download None (missing-key branch of _bool_default).
     raw = _minimal_raw() | {"download": {"poll_interval_seconds": 30.0}}
     assert parse_crawler_config(raw, _env()).download is None
 
 
 def test_download_enabled_non_bool_is_fatal() -> None:
     raw = _minimal_raw() | {"download": {"enabled": "oui"}}
-    with pytest.raises(ConfigError, match="booléen attendu"):
+    with pytest.raises(ConfigError, match="boolean expected"):
         parse_crawler_config(raw, _env())
 
 
@@ -321,7 +321,7 @@ def test_download_section_must_be_a_mapping() -> None:
 def test_download_enabled_true_requires_endpoint_and_dirs() -> None:
     raw = _minimal_raw() | {
         "download": {"enabled": True, "poll_interval_seconds": 30, "disk_cap_bytes": 1024}
-    }  # câblage manquant
+    }  # wiring missing
     with pytest.raises(ConfigError):
         parse_crawler_config(raw, _env())
 
@@ -352,19 +352,19 @@ def test_download_verify_client_timeout_is_parsed_when_present() -> None:
 def test_download_poll_interval_must_be_positive() -> None:
     section = _full_download_section() | {"poll_interval_seconds": 0.0}
     raw = _minimal_raw() | {"download": section}
-    with pytest.raises(ConfigError, match="strictement positif"):
+    with pytest.raises(ConfigError, match="strictly positive"):
         parse_crawler_config(raw, _env())
 
 
 def test_download_disk_cap_must_be_positive_integer() -> None:
     section = _full_download_section() | {"disk_cap_bytes": 0}
     raw = _minimal_raw() | {"download": section}
-    with pytest.raises(ConfigError, match="strictement positif"):
+    with pytest.raises(ConfigError, match="strictly positive"):
         parse_crawler_config(raw, _env())
 
 
 def test_download_disk_cap_key_is_required() -> None:
-    # download activé mais sans disk_cap_bytes → branche clé-manquante de _positive_int.
+    # download enabled but no disk_cap_bytes → missing-key branch of _positive_int.
     section = _full_download_section()
     del section["disk_cap_bytes"]
     raw = _minimal_raw() | {"download": section}
@@ -418,14 +418,14 @@ def test_port_sync_section_must_be_a_mapping() -> None:
 def test_port_sync_poll_interval_must_be_positive() -> None:
     section = _full_port_sync_section() | {"poll_interval_seconds": 0.0}
     raw = _minimal_raw() | {"port_sync": section}
-    with pytest.raises(ConfigError, match="strictement positif"):
+    with pytest.raises(ConfigError, match="strictly positive"):
         parse_crawler_config(raw, _env())
 
 
 def test_port_sync_restart_min_interval_must_be_positive() -> None:
     section = _full_port_sync_section() | {"restart_min_interval_seconds": 0.0}
     raw = _minimal_raw() | {"port_sync": section}
-    with pytest.raises(ConfigError, match="strictement positif"):
+    with pytest.raises(ConfigError, match="strictly positive"):
         parse_crawler_config(raw, _env())
 
 
@@ -505,7 +505,7 @@ def test_observability_bad_log_level_rejected() -> None:
 
 def test_observability_metrics_enabled_key_missing_rejected() -> None:
     raw = _minimal_raw() | {"observability": {"log_level": "INFO", "metrics": {"port": 9100}}}
-    with pytest.raises(ConfigError, match="'enabled' manquante"):
+    with pytest.raises(ConfigError, match="'enabled' missing"):
         parse_crawler_config(raw, _env())
 
 
@@ -513,7 +513,7 @@ def test_observability_metrics_enabled_non_bool_rejected() -> None:
     raw = _minimal_raw() | {
         "observability": {"log_level": "INFO", "metrics": {"enabled": 1, "port": 9100}}
     }
-    with pytest.raises(ConfigError, match="booléen attendu"):
+    with pytest.raises(ConfigError, match="boolean expected"):
         parse_crawler_config(raw, _env())
 
 

@@ -12,8 +12,8 @@ from download_verifier.config import AnalysisConfig
 
 
 class _FakeProdChildRunner:
-    """Faux ``ProdChildRunner`` (signature conforme au Protocol ``ChildRunner``) : rend un égress
-    canné SANS spawner de sous-process — garde les tests d'analyse dans le gate par défaut."""
+    """Fake ``ProdChildRunner`` (signature conforming to the ``ChildRunner`` Protocol): returns a
+    canned egress WITHOUT spawning a subprocess — keeps the analysis tests in the default gate."""
 
     def __init__(self, cfg: object) -> None:
         self._cfg = cfg
@@ -49,7 +49,7 @@ async def test_health_returns_200(quarantine: Path) -> None:
 async def test_verify_existing_file_returns_suspicious(
     quarantine: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # fichier présent → analyse ; égress canné (pas de spawn réel dans le gate par défaut).
+    # file present → analysis; canned egress (no real spawn in the default gate).
     monkeypatch.setattr(check_module, "ProdChildRunner", _FakeProdChildRunner)
     (quarantine / ("a" * 32)).write_bytes(b"\x00\x01")
     async with _client(quarantine) as client:
@@ -94,7 +94,7 @@ async def test_verify_rejects_non_string_hash(quarantine: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_verify_rejects_oversized_body(quarantine: Path) -> None:
-    # corps > borne (le verifier ne charge pas un corps illimité en mémoire).
+    # body > bound (the verifier does not load an unbounded body into memory).
     huge = json.dumps({"hash": "c" * 32, "expected": {"pad": "x" * 200_000}})
     async with _client(quarantine) as client:
         response = await client.post(
@@ -105,8 +105,8 @@ async def test_verify_rejects_oversized_body(quarantine: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_verify_rejects_deeply_nested_json(quarantine: Path) -> None:
-    # corps SOUS le cap d'octets mais trop profond : json.loads lève RecursionError.
-    nested = ("[" * 20000) + "1" + ("]" * 20000)  # ~40 Kio < 64 Kio
+    # body UNDER the byte cap but too deep: json.loads raises RecursionError.
+    nested = ("[" * 20000) + "1" + ("]" * 20000)  # ~40 KiB < 64 KiB
     async with _client(quarantine) as client:
         response = await client.post(
             "/verify", content=nested.encode(), headers={"content-type": "application/json"}
@@ -116,7 +116,7 @@ async def test_verify_rejects_deeply_nested_json(quarantine: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_verify_rejects_non_canonical_hash(quarantine: Path) -> None:
-    # un hash hors-canon (traversal/slash) ne doit jamais sortir du dossier de quarantaine.
+    # a non-canonical hash (traversal/slash) must never escape the quarantine directory.
     async with _client(quarantine) as client:
         response = await client.post("/verify", json={"hash": "../etc/passwd", "expected": {}})
     assert response.status_code == 400
@@ -126,18 +126,18 @@ async def test_verify_rejects_non_canonical_hash(quarantine: Path) -> None:
 async def test_verify_defaults_expected_to_empty_mapping(
     quarantine: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # expected omis → défaut {} acceptable ; le pipeline analyse (égress canné, pas de spawn réel).
+    # expected omitted → default {} acceptable; the pipeline analyzes (canned egress, no spawn).
     monkeypatch.setattr(check_module, "ProdChildRunner", _FakeProdChildRunner)
     (quarantine / ("d" * 32)).write_bytes(b"x")
     async with _client(quarantine) as client:
-        response = await client.post("/verify", json={"hash": "d" * 32})  # expected omis
+        response = await client.post("/verify", json={"hash": "d" * 32})  # expected omitted
     assert response.status_code == 200
     assert response.json()["verdict"] == "suspicious"
 
 
 @pytest.mark.asyncio
 async def test_verify_rejects_non_object_json_payload(quarantine: Path) -> None:
-    # corps JSON valide mais non-objet (liste) → 400.
+    # valid JSON body but non-object (list) → 400.
     async with _client(quarantine) as client:
         response = await client.post(
             "/verify", content=b"[1, 2, 3]", headers={"content-type": "application/json"}
@@ -147,7 +147,7 @@ async def test_verify_rejects_non_object_json_payload(quarantine: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_verify_rejects_non_dict_expected(quarantine: Path) -> None:
-    # expected présent mais non-objet → 400.
+    # expected present but non-object → 400.
     async with _client(quarantine) as client:
         response = await client.post("/verify", json={"hash": "e" * 32, "expected": "string"})
     assert response.status_code == 400
@@ -166,10 +166,10 @@ async def test_metrics_endpoint_responds(tmp_path: Path) -> None:
 async def test_verify_runs_off_the_event_loop_thread(
     quarantine: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # sandbox-confinement#0 / concurrency-async#0 : verify_file est synchrone et bloquant (spawn +
-    # communicate). Il DOIT tourner via run_in_threadpool, pas sur le thread de l'event loop —
-    # sinon /health (healthcheck Docker) et /metrics sont gelés pendant toute l'analyse. Proxy
-    # déterministe du non-blocage : verify_file s'exécute sur un thread DIFFÉRENT de l'event loop.
+    # sandbox-confinement#0 / concurrency-async#0: verify_file is synchronous and blocking (spawn +
+    # communicate). It MUST run via run_in_threadpool, not on the event loop thread — otherwise
+    # /health (Docker healthcheck) and /metrics are frozen for the whole analysis. Deterministic
+    # proxy for non-blocking: verify_file runs on a DIFFERENT thread than the event loop.
     import download_verifier.app as app_module
 
     captured: dict[str, int] = {}
@@ -185,16 +185,16 @@ async def test_verify_runs_off_the_event_loop_thread(
     async with _client(quarantine) as client:
         response = await client.post("/verify", json={"hash": "a" * 32, "expected": {}})
     assert response.status_code == 200
-    assert captured["thread"] != threading.get_ident()  # exécuté HORS du thread de l'event loop
+    assert captured["thread"] != threading.get_ident()  # executed OFF the event loop thread
 
 
 @pytest.mark.asyncio
 async def test_verify_injects_boot_resolved_config(
     quarantine: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # error-boundary#0 : la config est résolue UNE fois au boot (app.state.config) et INJECTÉE à
-    # verify_file — fini le AnalysisConfig.from_env(os.environ) par requête, qui transformait une
-    # config invalide en 500 « transitoire » → dead-letter, au lieu d'un fail-fast au démarrage.
+    # error-boundary#0: the config is resolved ONCE at boot (app.state.config) and INJECTED into
+    # verify_file — no more per-request AnalysisConfig.from_env(os.environ), which turned an
+    # invalid config into a "transient" 500 → dead-letter, instead of a fail-fast at startup.
     import download_verifier.app as app_module
 
     captured: dict[str, object] = {}
@@ -215,7 +215,7 @@ async def test_verify_injects_boot_resolved_config(
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post("/verify", json={"hash": "a" * 32, "expected": {}})
     assert response.status_code == 200
-    assert captured["cfg"] is config  # la MÊME instance résolue au boot, pas une re-résolution
+    assert captured["cfg"] is config  # the SAME instance resolved at boot, not a re-resolution
 
 
 @pytest.mark.asyncio
@@ -239,9 +239,9 @@ async def test_verify_increments_request_counter(
 async def test_verify_increments_child_outcome_counter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # observability#2 : un verify qui aboutit avec un outcome ``timeout`` doit incrémenter
-    # ``emule_verifier_child_outcome{outcome="timeout"}``. Le verdict métier reste agrégé
-    # dans ``emule_verifier_requests`` (orthogonalité).
+    # observability#2: a verify that completes with a ``timeout`` outcome must increment
+    # ``emule_verifier_child_outcome{outcome="timeout"}``. The business verdict stays aggregated
+    # in ``emule_verifier_requests`` (orthogonality).
     import download_verifier.app as app_module
 
     monkeypatch.setattr(
@@ -261,9 +261,9 @@ async def test_verify_increments_child_outcome_counter(
 async def test_verify_skips_child_outcome_when_no_child_ran(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # observability#2 (cas frontière) : verify_file court-circuite (fichier absent / symlink /
-    # type non régulier → verdict ``error``, outcome=None). Aucun child n'a tourné → on ne doit
-    # PAS toucher ``child_outcome`` (sinon le métric serait pollué avec une cat fictive).
+    # observability#2 (boundary case): verify_file short-circuits (missing file / symlink /
+    # non-regular type → ``error`` verdict, outcome=None). No child ran → we must NOT touch
+    # ``child_outcome`` (otherwise the metric would be polluted with a fictitious category).
     import download_verifier.app as app_module
 
     monkeypatch.setattr(
@@ -272,13 +272,13 @@ async def test_verify_skips_child_outcome_when_no_child_ran(
     async with _client(tmp_path) as client:
         await client.post("/verify", json={"hash": "a" * 32, "expected": {}})
         metrics = await client.get("/metrics")
-    # le compteur n'a aucune série child_outcome (jamais touché)
+    # the counter has no child_outcome series (never touched)
     assert "emule_verifier_child_outcome_total{" not in metrics.text
 
 
 @pytest.mark.asyncio
 async def test_verify_counts_200_responses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # observability#3 : chaque sortie /verify est comptée par ``responses{status}``. Ici 200.
+    # observability#3: every /verify exit is counted by ``responses{status}``. Here 200.
     import download_verifier.app as app_module
 
     monkeypatch.setattr(
@@ -293,8 +293,8 @@ async def test_verify_counts_200_responses(tmp_path: Path, monkeypatch: pytest.M
 
 @pytest.mark.asyncio
 async def test_verify_counts_400_responses(quarantine: Path) -> None:
-    # observability#3 : un 400 (JSON invalide) doit aussi incrémenter ``responses{status="400"}``.
-    # Avant, seul ``observe`` était appelé (uniquement sur 200) → les 400 étaient invisibles.
+    # observability#3: a 400 (invalid JSON) must also increment ``responses{status="400"}``.
+    # Before, only ``observe`` was called (200s only) → the 400s were invisible.
     async with _client(quarantine) as client:
         await client.post("/verify", content=b"{not json")
         metrics = await client.get("/metrics")
@@ -303,18 +303,18 @@ async def test_verify_counts_400_responses(quarantine: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_verify_counts_500_responses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # observability#3 : un crash imprévu de ``verify_file`` (mkdtemp sur FS plein, etc.) sort en
-    # 500 et DOIT être compté. Le filet est un try/except Exception qui ré-élève après comptage,
-    # laissant le ServerErrorMiddleware standard de Starlette rendre la 500.
+    # observability#3: an unforeseen crash of ``verify_file`` (mkdtemp on a full FS, etc.) exits
+    # 500 and MUST be counted. The net is a try/except Exception that re-raises after counting,
+    # letting Starlette's standard ServerErrorMiddleware render the 500.
     import download_verifier.app as app_module
 
     def _boom(path: Path, expected: Mapping[str, object], *, cfg: object) -> None:
-        raise RuntimeError("disque plein")
+        raise RuntimeError("disk full")
 
     monkeypatch.setattr(app_module, "verify_file", _boom)
     (tmp_path / ("a" * 32)).write_bytes(b"x")
-    # ``raise_app_exceptions=False`` : on veut que httpx convertisse l'exception en une réponse
-    # HTTP 500 (comme un vrai serveur ASGI), pas qu'il la ré-élève côté test.
+    # ``raise_app_exceptions=False``: we want httpx to convert the exception into an HTTP 500
+    # response (like a real ASGI server), not re-raise it test-side.
     config = AnalysisConfig.from_env({"QUARANTINE_DIR": str(tmp_path)})
     app = build_app(config)
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)

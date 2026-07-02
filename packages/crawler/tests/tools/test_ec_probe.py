@@ -48,7 +48,7 @@ _OBSERVATION = FileObservation(
 
 
 class FakeMuleClient:
-    """Faux client conforme au port : journal d'appels + données en conserve."""
+    """Fake port-compliant client: call log + canned data."""
 
     def __init__(
         self,
@@ -91,7 +91,7 @@ class FakeMuleClient:
         self.calls.append("fetch_raw")
         if self._fetch_error is not None:
             raise self._fetch_error
-        assert self._raw_packet is not None  # fourni quand le mode --all-tags est testé
+        assert self._raw_packet is not None  # provided when the --all-tags mode is tested
         return self._raw_packet
 
     async def stop_search(self) -> None:
@@ -166,11 +166,11 @@ def test_main_errors_when_password_absent_everywhere(
     with pytest.raises(SystemExit) as excinfo:
         main(["--keyword", "keroro"], client_factory=lambda args: fake)
     assert excinfo.value.code == 2
-    assert "mot de passe requis" in capsys.readouterr().err
-    assert fake.calls == []  # le client n'est jamais construit ni connecté
+    assert "password required" in capsys.readouterr().err
+    assert fake.calls == []  # the client is never built nor connected
 
 
-# ---------------------------------------------------------------- format_raw_tags (dump TOUS)
+# ---------------------------------------------------------------- format_raw_tags (dump ALL)
 
 
 def _searchfile(*children: EcTag) -> EcTag:
@@ -188,19 +188,19 @@ def test_parser_accepts_all_tags_flag() -> None:
 
 
 def test_format_raw_tags_dumps_every_tag_including_mapped_and_unknown() -> None:
-    # Le mapper EXCLUT les tags mappés de raw_meta ; format_raw_tags les montre TOUS — c'est
-    # le but de C2 (mesurer le taux de remplissage empirique de CHAQUE tag).
+    # The mapper EXCLUDES the mapped tags from raw_meta; format_raw_tags shows them ALL — that
+    # is the point of C2 (measuring the empirical fill rate of EACH tag).
     entry = _searchfile(
-        string_tag(codes.EC_TAG_PARTFILE_NAME, "Keroro.avi"),  # MAPPÉ → absent de raw_meta
-        hash16_tag(codes.EC_TAG_PARTFILE_HASH, bytes(range(16))),  # MAPPÉ
-        uint_tag(0x0999, 42),  # inconnu
+        string_tag(codes.EC_TAG_PARTFILE_NAME, "Keroro.avi"),  # MAPPED → absent from raw_meta
+        hash16_tag(codes.EC_TAG_PARTFILE_HASH, bytes(range(16))),  # MAPPED
+        uint_tag(0x0999, 42),  # unknown
     )
     out = format_raw_tags(EcPacket(codes.EC_OP_SEARCH_RESULTS, (entry,)))
-    assert "résultat #1" in out
-    assert "0x0301" in out  # EC_TAG_PARTFILE_NAME (mappé) : présent dans le dump complet
+    assert "result #1" in out
+    assert "0x0301" in out  # EC_TAG_PARTFILE_NAME (mapped): present in the full dump
     assert "Keroro.avi" in out
-    assert "0x031E" in out  # EC_TAG_PARTFILE_HASH (mappé)
-    assert "0x0999 type=0x02 = 42" in out  # inconnu, type + valeur entière
+    assert "0x031E" in out  # EC_TAG_PARTFILE_HASH (mapped)
+    assert "0x0999 type=0x02 = 42" in out  # unknown, type + integer value
 
 
 def test_format_raw_tags_recurses_into_subtags() -> None:
@@ -208,27 +208,27 @@ def test_format_raw_tags_recurses_into_subtags() -> None:
     child = uint_tag(0x0BBB, 7, (grandchild,))
     out = format_raw_tags(EcPacket(codes.EC_OP_SEARCH_RESULTS, (_searchfile(child),)))
     assert "0x0BBB" in out
-    assert "0x0AAA" in out  # petit-fils atteint (récursion)
+    assert "0x0AAA" in out  # grandchild reached (recursion)
     assert "deep" in out
 
 
 def test_format_raw_tags_skips_non_searchfile_top_level() -> None:
-    stray = uint_tag(0x0001, 1)  # tag de premier niveau qui n'est PAS une entrée
+    stray = uint_tag(0x0001, 1)  # top-level tag that is NOT an entry
     out = format_raw_tags(EcPacket(codes.EC_OP_SEARCH_RESULTS, (stray,)))
-    assert "0 résultat(s)" in out  # aucune entrée dumpée
+    assert "0 result(s)" in out  # no entry dumped
 
 
 def test_format_raw_tags_renders_string_hash_and_opaque_values() -> None:
     entry = _searchfile(
         hash16_tag(0x031E, bytes(range(16))),  # HASH16 → hex
-        EcTag(0x0444, codes.EC_TAGTYPE_CUSTOM, b"\x01\x02\xff"),  # opaque → hex brut
+        EcTag(0x0444, codes.EC_TAGTYPE_CUSTOM, b"\x01\x02\xff"),  # opaque → raw hex
     )
     out = format_raw_tags(EcPacket(codes.EC_OP_SEARCH_RESULTS, (entry,)))
-    assert "000102030405060708090a0b0c0d0e0f" in out  # hash en hex
-    assert "0102ff" in out  # octets opaques en hex
+    assert "000102030405060708090a0b0c0d0e0f" in out  # hash in hex
+    assert "0102ff" in out  # opaque bytes in hex
 
 
-# ---------------------------------------------------------------- cycle complet via main()
+# ---------------------------------------------------------------- full cycle via main()
 
 
 def test_main_all_tags_dumps_raw_tag_stream(capsys: pytest.CaptureFixture[str]) -> None:
@@ -244,10 +244,10 @@ def test_main_all_tags_dumps_raw_tag_stream(capsys: pytest.CaptureFixture[str]) 
         client_factory=lambda args: fake,
     )
     assert code == 0
-    assert "fetch_raw" in fake.calls  # le mode raw passe par fetch_results_raw
-    assert "fetch" not in fake.calls  # ... et NON par le chemin mappé
+    assert "fetch_raw" in fake.calls  # the raw mode goes through fetch_results_raw
+    assert "fetch" not in fake.calls  # ... and NOT through the mapped path
     out = capsys.readouterr().out
-    assert "0x0999 type=0x02 = 42" in out  # tag inconnu dumpé
+    assert "0x0999 type=0x02 = 42" in out  # unknown tag dumped
 
 
 def test_main_success_dumps_status_results_and_raw_meta(capsys: pytest.CaptureFixture[str]) -> None:
@@ -268,10 +268,10 @@ def test_main_success_dumps_status_results_and_raw_meta(capsys: pytest.CaptureFi
     ]
     out = capsys.readouterr().out
     assert "TestServer (1.2.3.4:4661)" in out
-    # Noms de fichiers = entrée hostile : affichés via repr() (une ligne non ambiguë).
+    # Filenames = hostile input: displayed via repr() (an unambiguous line).
     assert "[probe] 'Keroro 062A.avi'" in out
     assert "hash=000102030405060708090a0b0c0d0e0f" in out
-    # Dump de TOUS les tags reçus, y compris inconnus (noms bruts/hex) — livrable 4.
+    # Dump of ALL received tags, including unknown ones (raw names/hex) — deliverable 4.
     assert "raw 0x0308 = '0'" in out
     assert "raw 0x0999 = 'mystère'" in out
 
@@ -285,8 +285,8 @@ def test_main_kad_channel_and_status_without_server(capsys: pytest.CaptureFixtur
     assert code == 0
     assert "start:keroro:kad" in fake.calls
     out = capsys.readouterr().out
-    assert "serveur : —" in out  # branche « pas de serveur » du format
-    assert "total : 0 résultat(s)" in out  # boucle d'observations à zéro itération
+    assert "server: —" in out  # format's "no server" branch
+    assert "total: 0 result(s)" in out  # zero-iteration observations loop
 
 
 def test_main_returns_1_on_ec_error_and_still_closes(capsys: pytest.CaptureFixture[str]) -> None:
@@ -298,7 +298,7 @@ def test_main_returns_1_on_ec_error_and_still_closes(capsys: pytest.CaptureFixtu
     )
     code = main(["--password", "bad", "--keyword", "keroro"], client_factory=lambda args: fake)
     assert code == 1
-    assert fake.calls == ["connect", "close"]  # close() TOUJOURS appelé (finally)
+    assert fake.calls == ["connect", "close"]  # close() ALWAYS called (finally)
     assert "Invalid password" in capsys.readouterr().err
 
 
@@ -313,8 +313,8 @@ def test_main_returns_130_on_keyboard_interrupt_and_still_closes(
     )
     code = main(["--password", "pwd", "--keyword", "keroro"], client_factory=lambda args: fake)
     assert code == 130
-    assert "interrompu" in capsys.readouterr().err
-    assert "close" in fake.calls  # close() TOUJOURS appelé (finally)
+    assert "interrupted" in capsys.readouterr().err
+    assert "close" in fake.calls  # close() ALWAYS called (finally)
 
 
 # ---------------------------------------------------------------- search_and_wait
@@ -334,10 +334,10 @@ async def test_search_and_wait_polls_until_budget_exhausted(
         client, "keroro", SearchChannel.GLOBAL, timeout=10.0, interval=5.0, sleep=_instant_sleep
     )
     assert results == ()
-    assert sleeps == [5.0]  # 2 relevés (ceil(10/5)), 1 seul sleep (pas après le dernier)
+    assert sleeps == [5.0]  # 2 polls (ceil(10/5)), only 1 sleep (not after the last)
     assert client.calls.count("fetch") == 2
     assert client.calls[-1] == "stop"
-    assert "progression ?" in capsys.readouterr().out  # progress None affiché « ? »
+    assert "progress ?" in capsys.readouterr().out  # progress None shown as "?"
 
 
 @pytest.mark.asyncio
@@ -351,14 +351,14 @@ async def test_search_and_wait_breaks_early_when_progress_reaches_100() -> None:
     await search_and_wait(
         client, "keroro", SearchChannel.GLOBAL, timeout=60.0, interval=5.0, sleep=_instant_sleep
     )
-    assert sleeps == []  # arrêt anticipé : aucun sleep
+    assert sleeps == []  # early stop: no sleep
     assert client.calls.count("fetch") == 1
 
 
 @pytest.mark.asyncio
 async def test_search_and_wait_stops_search_even_when_fetch_raises() -> None:
     async def _instant_sleep(delay: float) -> None:
-        pass  # jamais atteint : l'erreur survient au premier relevé
+        pass  # never reached: the error occurs on the first poll
 
     client = FakeMuleClient(
         status=_STATUS_OFF, batches=[()], progresses=[None], fetch_error=EcFailureError("boom")
@@ -367,30 +367,30 @@ async def test_search_and_wait_stops_search_even_when_fetch_raises() -> None:
         await search_and_wait(
             client, "keroro", SearchChannel.GLOBAL, timeout=10.0, interval=5.0, sleep=_instant_sleep
         )
-    assert "stop" in client.calls  # stop_search() TOUJOURS appelé (finally)
+    assert "stop" in client.calls  # stop_search() ALWAYS called (finally)
 
 
 @pytest.mark.asyncio
 async def test_search_and_wait_propagates_original_error_when_stop_search_also_fails() -> None:
-    # Diagnostic d'origine prime : si fetch_results échoue (ex. EcTimeoutError → transport
-    # invalidé), le finally tente stop_search() qui lève EcConnectError — cette seconde
-    # erreur NE DOIT PAS remplacer l'exception d'origine (le diagnostic montré à l'utilisateur
-    # serait faux). Le stop_search() impossible n'apporte rien : contextlib.suppress(EcError).
+    # Original diagnostic wins: if fetch_results fails (e.g. EcTimeoutError → transport
+    # invalidated), the finally attempts stop_search() which raises EcConnectError — this second
+    # error MUST NOT replace the original exception (the diagnostic shown to the user
+    # would be wrong). The impossible stop_search() adds nothing: contextlib.suppress(EcError).
     async def _instant_sleep(delay: float) -> None:
-        pass  # jamais atteint
+        pass  # never reached
 
     client = FakeMuleClient(
         status=_STATUS_OFF,
         batches=[()],
         progresses=[None],
-        fetch_error=EcTimeoutError("délai dépassé"),
-        stop_error=EcConnectError("non connecté"),
+        fetch_error=EcTimeoutError("timed out"),
+        stop_error=EcConnectError("not connected"),
     )
     with pytest.raises(EcTimeoutError):
         await search_and_wait(
             client, "keroro", SearchChannel.GLOBAL, timeout=10.0, interval=5.0, sleep=_instant_sleep
         )
-    assert "stop" in client.calls  # stop_search() toujours tenté
+    assert "stop" in client.calls  # stop_search() always attempted
 
 
 # ---------------------------------------------------------------- collect_raw_results
@@ -411,11 +411,11 @@ async def test_collect_raw_polls_until_budget_exhausted(
         client, "keroro", SearchChannel.GLOBAL, timeout=10.0, interval=5.0, sleep=_instant_sleep
     )
     assert result is packet
-    assert sleeps == [5.0]  # 2 relevés (ceil(10/5)), 1 seul sleep (pas après le dernier)
+    assert sleeps == [5.0]  # 2 polls (ceil(10/5)), only 1 sleep (not after the last)
     assert client.calls.count("fetch_raw") == 2
-    assert "fetch" not in client.calls  # chemin BRUT : jamais le mapper
+    assert "fetch" not in client.calls  # RAW path: never the mapper
     assert client.calls[-1] == "stop"
-    assert "relevé brut 1/2 : 1 résultat(s), progression ?" in capsys.readouterr().out
+    assert "raw readout 1/2: 1 result(s), progress ?" in capsys.readouterr().out
 
 
 @pytest.mark.asyncio
@@ -430,11 +430,11 @@ async def test_collect_raw_breaks_early_when_progress_reaches_100() -> None:
     await collect_raw_results(
         client, "keroro", SearchChannel.GLOBAL, timeout=60.0, interval=5.0, sleep=_instant_sleep
     )
-    assert sleeps == []  # arrêt anticipé : aucun sleep
+    assert sleeps == []  # early stop: no sleep
     assert client.calls.count("fetch_raw") == 1
 
 
-# ---------------------------------------------------------------- fabrique réelle
+# ---------------------------------------------------------------- real factory
 
 
 def test_default_client_builds_an_amule_ec_client() -> None:
@@ -442,8 +442,8 @@ def test_default_client_builds_an_amule_ec_client() -> None:
         ["--host", "homelab", "--port", "4713", "--password", "pwd", "--keyword", "k"]
     )
     client = _default_client(args)
-    assert isinstance(client, AmuleEcClient)  # constructeur sans I/O : sûr en test
-    # Câblage épinglé (regard privé acceptable en test) : host/port/password des args.
+    assert isinstance(client, AmuleEcClient)  # I/O-free constructor: safe in test
+    # Pinned wiring (private peek acceptable in test): host/port/password from the args.
     assert client._host == "homelab"
     assert client._port == 4713
     assert client._password == "pwd"

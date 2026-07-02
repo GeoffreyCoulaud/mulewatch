@@ -18,7 +18,7 @@ _NODE_ID_QUERY = "SELECT value FROM node_runtime WHERE key = 'node_id'"
 
 
 class _FakeClock:
-    """Horloge injectable AVANÇABLE : zéro sleep, zéro flakiness (spec §8)."""
+    """Injectable ADVANCEABLE clock: zero sleep, zero flakiness (spec §8)."""
 
     def __init__(self) -> None:
         self.now = _START
@@ -54,9 +54,9 @@ def test_node_id_is_created_on_first_call_and_stable(
     repository: SqliteLocalStateRepository, connection: sqlite3.Connection
 ) -> None:
     created = repository.node_id()
-    assert uuid.UUID(created)  # un VRAI UUID, vérifiable
-    assert repository.node_id() == created  # stable au second appel
-    fresh = SqliteLocalStateRepository(connection)  # et pour toute instance future
+    assert uuid.UUID(created)  # a REAL UUID, verifiable
+    assert repository.node_id() == created  # stable on the second call
+    fresh = SqliteLocalStateRepository(connection)  # and for any future instance
     assert fresh.node_id() == created
 
 
@@ -71,8 +71,8 @@ def test_node_id_persists_created_at_alongside(
 def test_node_id_creation_failure_is_wrapped_and_rolled_back(
     repository: SqliteLocalStateRepository, connection: sqlite3.Connection
 ) -> None:
-    # 'created_at' pré-existant -> l'INSERT à deux lignes viole la PK -> rollback complet.
-    connection.execute("INSERT INTO node_runtime (key, value) VALUES ('created_at', 'déjà')")
+    # 'created_at' pre-existing -> the two-row INSERT violates the PK -> full rollback.
+    connection.execute("INSERT INTO node_runtime (key, value) VALUES ('created_at', 'already')")
     with pytest.raises(PersistenceError, match="UNIQUE"):
         repository.node_id()
     assert connection.execute(_NODE_ID_QUERY).fetchone() is None
@@ -81,26 +81,26 @@ def test_node_id_creation_failure_is_wrapped_and_rolled_back(
 def test_node_id_clock_failure_does_not_wedge_the_connection(
     connection: sqlite3.Connection, clock: _FakeClock
 ) -> None:
-    # Horloge BOGUÉE (naïve) : utc_iso lève ValueError — une panne NON-sqlite ne doit
-    # JAMAIS laisser la connexion in_transaction (sinon tout appel suivant meurt avec
-    # « cannot start a transaction within a transaction », diagnostic trompeur).
+    # BUGGY clock (naive): utc_iso raises ValueError — a NON-sqlite failure must
+    # NEVER leave the connection in_transaction (otherwise every subsequent call dies with
+    # "cannot start a transaction within a transaction", a misleading diagnostic).
     broken = SqliteLocalStateRepository(connection, clock=lambda: datetime(2026, 6, 11, 12, 0, 0))
     with pytest.raises(ValueError, match="aware"):
         broken.node_id()
-    assert connection.in_transaction is False  # connexion saine, pas de transaction zombie
-    assert connection.execute(_NODE_ID_QUERY).fetchone() is None  # rien d'à moitié écrit
+    assert connection.in_transaction is False  # healthy connection, no zombie transaction
+    assert connection.execute(_NODE_ID_QUERY).fetchone() is None  # nothing half-written
     healthy = SqliteLocalStateRepository(connection, clock=clock)
-    assert uuid.UUID(healthy.node_id())  # la MÊME connexion reste pleinement utilisable
+    assert uuid.UUID(healthy.node_id())  # the SAME connection stays fully usable
 
 
-# --- enqueue idempotent (spec §6 : l'index UNIQUE partiel absorbe le doublon actif) ----
+# --- idempotent enqueue (spec §6: the partial UNIQUE index absorbs the active duplicate) ----
 
 
 def test_enqueue_returns_true_then_false_while_pending(
     repository: SqliteLocalStateRepository,
 ) -> None:
     assert repository.enqueue_verification("aaaa") is True
-    assert repository.enqueue_verification("aaaa") is False  # déjà active -> absorbé
+    assert repository.enqueue_verification("aaaa") is False  # already active -> absorbed
 
 
 def test_enqueue_is_still_refused_while_in_progress(
@@ -109,10 +109,10 @@ def test_enqueue_is_still_refused_while_in_progress(
     repository.enqueue_verification("aaaa")
     claimed = repository.claim_verification()
     assert claimed is not None
-    assert repository.enqueue_verification("aaaa") is False  # in_progress est ACTIF aussi
+    assert repository.enqueue_verification("aaaa") is False  # in_progress is ACTIVE too
 
 
-# --- claim atomique FIFO (spec §6) -----------------------------------------------------
+# --- atomic FIFO claim (spec §6) -------------------------------------------------------
 
 
 def test_claim_is_fifo_by_enqueue_time(
@@ -130,7 +130,7 @@ def test_claim_is_fifo_by_enqueue_time(
 def test_claim_breaks_enqueue_time_ties_by_id(
     repository: SqliteLocalStateRepository,
 ) -> None:
-    # Horloge GELÉE : même enqueued_at -> départage déterministe par id croissant.
+    # FROZEN clock: same enqueued_at -> deterministic tie-break by ascending id.
     repository.enqueue_verification("a")
     repository.enqueue_verification("b")
     first = repository.claim_verification()
@@ -156,12 +156,12 @@ def test_claim_stamps_lease_and_marks_in_progress(
     assert row == (
         "in_progress",
         "2026-06-11T12:00:00.000000+00:00",
-        "2026-06-11T12:05:00.000000+00:00",  # now + lease_duration (constructeur)
+        "2026-06-11T12:05:00.000000+00:00",  # now + lease_duration (constructor)
     )
 
 
 def test_two_connections_claim_distinct_tasks(tmp_path: Path, clock: _FakeClock) -> None:
-    # Atomicité PROUVÉE : deux connexions distinctes ne prennent JAMAIS la même tâche.
+    # Atomicity PROVEN: two distinct connections NEVER take the same task.
     path = tmp_path / "local.db"
     first_connection = open_local(path)
     second_connection = open_local(path)
@@ -187,12 +187,12 @@ def test_claim_failure_is_wrapped_and_rolled_back(
     repository.enqueue_verification("aaaa")
     connection.execute(
         "CREATE TRIGGER boom BEFORE UPDATE ON verification_tasks"
-        " BEGIN SELECT RAISE(ABORT, 'panne injectée'); END"
+        " BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
     )
-    with pytest.raises(PersistenceError, match="panne injectée"):
+    with pytest.raises(PersistenceError, match="injected failure"):
         repository.claim_verification()
     status = connection.execute("SELECT status FROM verification_tasks").fetchone()[0]
-    assert status == "pending"  # la transaction du claim a été défaite
+    assert status == "pending"  # the claim's transaction was rolled back
 
 
 # --- complete / fail / dead-letter (spec §6) -------------------------------------------
@@ -205,21 +205,21 @@ def test_complete_marks_done_and_keeps_the_row(
     claimed = repository.claim_verification()
     assert claimed is not None
     repository.complete_verification(claimed.task_id)
-    # done RESTE en table (historique local, spec §6).
+    # done STAYS in the table (local history, spec §6).
     assert connection.execute("SELECT status FROM verification_tasks").fetchone() == ("done",)
 
 
 def test_complete_requires_an_in_progress_task(
     repository: SqliteLocalStateRepository,
 ) -> None:
-    with pytest.raises(PersistenceError, match="introuvable"):
-        repository.complete_verification(42)  # id inconnu
+    with pytest.raises(PersistenceError, match="not found"):
+        repository.complete_verification(42)  # unknown id
     repository.enqueue_verification("aaaa")
     claimed = repository.claim_verification()
     assert claimed is not None
     repository.complete_verification(claimed.task_id)
-    with pytest.raises(PersistenceError, match="introuvable"):
-        repository.complete_verification(claimed.task_id)  # déjà done : bug appelant
+    with pytest.raises(PersistenceError, match="not found"):
+        repository.complete_verification(claimed.task_id)  # already done: caller bug
 
 
 def test_fail_below_max_attempts_requeues_as_pending(
@@ -232,7 +232,7 @@ def test_fail_below_max_attempts_requeues_as_pending(
     row = connection.execute(
         "SELECT status, attempts, claimed_at, lease_until FROM verification_tasks"
     ).fetchone()
-    assert row == ("pending", 1, None, None)  # attempts CONSERVÉ, lease nettoyée
+    assert row == ("pending", 1, None, None)  # attempts PRESERVED, lease cleared
 
 
 def test_fail_at_max_attempts_dead_letters(
@@ -247,10 +247,10 @@ def test_fail_at_max_attempts_dead_letters(
     second = repository.claim_verification()
     assert second is not None
     assert second.attempts == 2
-    repository.fail_verification(second.task_id)  # 2 >= 2 -> dead_letter (poison probable)
+    repository.fail_verification(second.task_id)  # 2 >= 2 -> dead_letter (likely poison)
     status = connection.execute("SELECT status FROM verification_tasks").fetchone()[0]
     assert status == "dead_letter"
-    assert repository.claim_verification() is None  # une dead_letter n'est JAMAIS reprise
+    assert repository.claim_verification() is None  # a dead_letter is NEVER retried
 
 
 def test_default_max_attempts_is_three(repository: SqliteLocalStateRepository) -> None:
@@ -260,11 +260,11 @@ def test_default_max_attempts_is_three(repository: SqliteLocalStateRepository) -
         assert claimed is not None
         assert claimed.attempts == expected_attempts
         repository.fail_verification(claimed.task_id)
-    assert repository.claim_verification() is None  # dead_letter au 3e échec (défaut)
+    assert repository.claim_verification() is None  # dead_letter on the 3rd failure (default)
 
 
 def test_fail_requires_an_in_progress_task(repository: SqliteLocalStateRepository) -> None:
-    with pytest.raises(PersistenceError, match="introuvable"):
+    with pytest.raises(PersistenceError, match="not found"):
         repository.fail_verification(42)
 
 
@@ -275,7 +275,7 @@ def test_enqueue_is_allowed_again_once_the_task_is_done(
     claimed = repository.claim_verification()
     assert claimed is not None
     repository.complete_verification(claimed.task_id)
-    assert repository.enqueue_verification("aaaa") is True  # done n'est PLUS actif
+    assert repository.enqueue_verification("aaaa") is True  # done is NO LONGER active
 
 
 # --- lease / reclaim (spec §6) ---------------------------------------------------------
@@ -287,19 +287,19 @@ def test_reclaim_expired_requeues_only_expired_leases(
     repository = SqliteLocalStateRepository(
         connection, clock=clock, lease_duration=timedelta(minutes=15)
     )
-    repository.enqueue_verification("expirée")
-    repository.claim_verification()  # lease jusqu'à 12:15
+    repository.enqueue_verification("expired")
+    repository.claim_verification()  # lease until 12:15
     clock.advance(timedelta(minutes=10))
-    repository.enqueue_verification("fraîche")
-    repository.claim_verification()  # lease jusqu'à 12:25
-    clock.advance(timedelta(minutes=6))  # 12:16 : la 1re a expiré, pas la 2e
+    repository.enqueue_verification("fresh")
+    repository.claim_verification()  # lease until 12:25
+    clock.advance(timedelta(minutes=6))  # 12:16: the 1st has expired, not the 2nd
     assert repository.reclaim_expired() == 1
     rows = dict(connection.execute("SELECT ed2k_hash, status FROM verification_tasks").fetchall())
-    assert rows == {"expirée": "pending", "fraîche": "in_progress"}
+    assert rows == {"expired": "pending", "fresh": "in_progress"}
     reclaimed = repository.claim_verification()
     assert reclaimed is not None
-    assert reclaimed.ed2k_hash == "expirée"
-    assert reclaimed.attempts == 2  # attempts compté AU CLAIM, le re-claim compte
+    assert reclaimed.ed2k_hash == "expired"
+    assert reclaimed.attempts == 2  # attempts counted AT CLAIM time, the re-claim counts
 
 
 def test_reclaim_with_nothing_expired_returns_zero(
@@ -307,7 +307,7 @@ def test_reclaim_with_nothing_expired_returns_zero(
 ) -> None:
     repository.enqueue_verification("aaaa")
     repository.claim_verification()
-    assert repository.reclaim_expired() == 0  # lease encore valide : rien à récupérer
+    assert repository.reclaim_expired() == 0  # lease still valid: nothing to reclaim
 
 
 def test_reclaim_ignores_done_and_dead_letter(
@@ -321,19 +321,19 @@ def test_reclaim_ignores_done_and_dead_letter(
     repository.enqueue_verification("poison")
     poisoned = repository.claim_verification()
     assert poisoned is not None
-    repository.fail_verification(poisoned.task_id)  # max_attempts=1 -> dead_letter direct
-    clock.advance(timedelta(days=1))  # toutes les leases seraient expirées depuis longtemps
+    repository.fail_verification(poisoned.task_id)  # max_attempts=1 -> straight to dead_letter
+    clock.advance(timedelta(days=1))  # all leases would have expired long ago
     assert repository.reclaim_expired() == 0
 
 
 def test_repository_satisfies_the_port_structurally(
     repository: SqliteLocalStateRepository,
 ) -> None:
-    port: LocalStateRepository = repository  # mypy prouve la satisfaction structurelle
+    port: LocalStateRepository = repository  # mypy proves structural satisfaction
     assert port.claim_verification() is None
 
 
-# --- count_pending_verifications (Plan E.2 — observabilité) --------------------------------
+# --- count_pending_verifications (Plan E.2 — observability) --------------------------------
 
 
 def test_count_pending_verifications(repository: SqliteLocalStateRepository) -> None:
@@ -342,5 +342,5 @@ def test_count_pending_verifications(repository: SqliteLocalStateRepository) -> 
     repository.enqueue_verification("b" * 32)
     assert repository.count_pending_verifications() == 2
     claimed = repository.claim_verification()
-    assert claimed is not None  # une tâche passe en in_progress → plus 'pending'
+    assert claimed is not None  # one task moves to in_progress → no longer 'pending'
     assert repository.count_pending_verifications() == 1

@@ -1,4 +1,4 @@
-"""Tests TDD pour CatalogReader — couverture, explorateur filtré, détail (spec W-D6 / §6)."""
+"""TDD tests for CatalogReader — coverage, filtered explorer, detail (spec W-D6 / §6)."""
 
 import sqlite3
 from pathlib import Path
@@ -9,12 +9,12 @@ from catalog_webui.adapters.catalog_read import CatalogReader
 from catalog_webui.adapters.db import open_ro
 
 # ---------------------------------------------------------------------------
-# Helpers de seed
+# Seed helpers
 # ---------------------------------------------------------------------------
 
 
 def _seed(db: Path) -> None:
-    """Peuple la base avec un fichier, une observation, une décision."""
+    """Populate the database with a file, an observation, a decision."""
     with sqlite3.connect(db) as conn:
         conn.execute(
             "INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)",
@@ -54,7 +54,7 @@ def _seed(db: Path) -> None:
 
 
 def _seed_with_verdict(db: Path) -> None:
-    """Ajoute un verdict de vérification au fichier seedé."""
+    """Add a verification verdict to the seeded file."""
     _seed(db)
     with sqlite3.connect(db) as conn:
         conn.execute(
@@ -74,7 +74,7 @@ def _seed_with_verdict(db: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests : couverture
+# Tests: coverage
 # ---------------------------------------------------------------------------
 
 
@@ -92,7 +92,7 @@ def test_target_coverage_empty_db_returns_empty(catalog_db: Path) -> None:
 
 
 def test_target_coverage_multiple_files_same_target(catalog_db: Path) -> None:
-    """Deux fichiers matchant le même target_id → list de longueur 2."""
+    """Two files matching the same target_id → list of length 2."""
     with sqlite3.connect(catalog_db) as conn:
         for suffix in ("a", "b"):
             h = suffix * 32
@@ -113,7 +113,7 @@ def test_target_coverage_multiple_files_same_target(catalog_db: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests : explorateur — filtres présents / absents
+# Tests: explorer — filters present / absent
 # ---------------------------------------------------------------------------
 
 
@@ -155,7 +155,7 @@ def test_list_files_filter_by_verdict(catalog_db: Path) -> None:
 
 
 def test_list_files_no_verdict_still_returns_file(catalog_db: Path) -> None:
-    """Un fichier sans vérification apparaît quand verdict=None."""
+    """A file without verification appears when verdict=None."""
     _seed(catalog_db)
     reader = CatalogReader(open_ro(catalog_db))
     rows = reader.list_files(target=None, tier=None, verdict=None, query=None, page=1)
@@ -172,7 +172,7 @@ def test_list_files_filter_by_query(catalog_db: Path) -> None:
 
 
 def test_list_files_page_two_is_empty(catalog_db: Path) -> None:
-    """Page 2 est vide si moins de PAGE_SIZE résultats."""
+    """Page 2 is empty when fewer than PAGE_SIZE results."""
     _seed(catalog_db)
     reader = CatalogReader(open_ro(catalog_db))
     rows = reader.list_files(target=None, tier=None, verdict=None, query=None, page=2)
@@ -180,7 +180,7 @@ def test_list_files_page_two_is_empty(catalog_db: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests : détail
+# Tests: detail
 # ---------------------------------------------------------------------------
 
 
@@ -208,7 +208,7 @@ def test_file_detail_with_verifications(catalog_db: Path) -> None:
 
 
 def test_file_detail_no_decision(catalog_db: Path) -> None:
-    """Détail fonctionne même sans décision (fichier non matché)."""
+    """Detail works even without a decision (unmatched file)."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
             "INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)",
@@ -239,7 +239,7 @@ def test_file_detail_no_decision(catalog_db: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests : list_files avec multiples filtres combinés
+# Tests: list_files with multiple combined filters
 # ---------------------------------------------------------------------------
 
 
@@ -254,7 +254,7 @@ def test_list_files_combined_target_and_tier_filters(catalog_db: Path) -> None:
 
 @pytest.mark.parametrize("page", [1, 2])
 def test_list_files_pagination(catalog_db: Path, page: int) -> None:
-    """Vérifie que la pagination ne crash pas (page 1 = résultats, page 2 = vide)."""
+    """Verify pagination doesn't crash (page 1 = results, page 2 = empty)."""
     _seed(catalog_db)
     reader = CatalogReader(open_ro(catalog_db))
     rows = reader.list_files(target=None, tier=None, verdict=None, query=None, page=page)
@@ -265,12 +265,12 @@ def test_list_files_pagination(catalog_db: Path, page: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests : "dernier par hash" — tie-break sur decided_at puis id
+# Tests: "latest per hash" — tie-break on decided_at then id
 # ---------------------------------------------------------------------------
 
 
 def test_target_coverage_uses_latest_decision_per_hash(catalog_db: Path) -> None:
-    """Un même hash avec deux décisions (T1 < T2) → target_coverage retourne le tier de T2."""
+    """Same hash with two decisions (T1 < T2) → target_coverage returns T2's tier."""
     h = "a" * 32
     with sqlite3.connect(catalog_db) as conn:
         conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 100))
@@ -292,7 +292,7 @@ def test_target_coverage_uses_latest_decision_per_hash(catalog_db: Path) -> None
 
 
 def test_coverage_tie_break_on_id(catalog_db: Path) -> None:
-    """Même hash, même decided_at, deux tiers différents → le plus grand id gagne."""
+    """Same hash, same decided_at, two different tiers → the larger id wins."""
     h = "b" * 32
     ts = "2026-06-22T10:00:00.000000+00:00"
     with sqlite3.connect(catalog_db) as conn:
@@ -315,7 +315,7 @@ def test_coverage_tie_break_on_id(catalog_db: Path) -> None:
 
 
 def test_file_detail_observations_include_media_fields_none(catalog_db: Path) -> None:
-    """ObservationRow.media_length_sec et bitrate_kbps sont None quand absents du SELECT."""
+    """ObservationRow.media_length_sec and bitrate_kbps are None when absent from the SELECT."""
     _seed(catalog_db)
     detail = CatalogReader(open_ro(catalog_db)).file_detail("a" * 32)
     assert detail is not None
@@ -326,7 +326,7 @@ def test_file_detail_observations_include_media_fields_none(catalog_db: Path) ->
 
 
 def test_file_detail_observations_include_media_fields_present(catalog_db: Path) -> None:
-    """ObservationRow.media_length_sec et bitrate_kbps sont remplis quand présents."""
+    """ObservationRow.media_length_sec and bitrate_kbps are filled when present."""
     h = "d" * 32
     with sqlite3.connect(catalog_db) as conn:
         conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 150))
@@ -359,7 +359,7 @@ def test_file_detail_observations_include_media_fields_present(catalog_db: Path)
 
 
 def test_list_files_shows_latest_observation(catalog_db: Path) -> None:
-    """Un même hash avec deux observations → list_files retourne le filename de la plus récente."""
+    """Same hash with two observations → list_files returns the most recent filename."""
     h = "c" * 32
     with sqlite3.connect(catalog_db) as conn:
         conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 300))

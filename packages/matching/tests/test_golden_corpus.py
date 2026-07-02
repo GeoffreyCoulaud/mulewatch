@@ -9,8 +9,8 @@ from catalog_matching.models import FileCandidate
 from catalog_matching.validation import parse_matcher_config, parse_targets
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
-# La policy matcher a une source de vérité unique : la config de déploiement (éditable par
-# l'opérateur). Le golden corpus valide donc la policy RÉELLEMENT livrée, pas une copie.
+# The matcher policy has a single source of truth: the deployment config (operator-
+# editable). So the golden corpus validates the policy ACTUALLY shipped, not a copy.
 _MATCHER = Path(__file__).resolve().parents[3] / "deploy" / "config" / "crawler" / "matcher.yml"
 
 
@@ -39,16 +39,16 @@ def test_golden_corpus(case: dict[str, Any]) -> None:
     engine = _engine()
     decision = engine.evaluate(FileCandidate(filename=str(case["filename"])))
     if case.get("discarded", False):
-        assert decision is None, f"{case['id']}: attendu écarté, obtenu {decision}"
+        assert decision is None, f"{case['id']}: expected discarded, got {decision}"
         return
-    assert decision is not None, f"{case['id']}: attendu une décision, obtenu None"
-    assert decision.tier == case["tier"], f"{case['id']}: palier"
-    assert decision.target_id == case["target_id"], f"{case['id']}: cible"
-    assert decision.rule_name == case["rule_name"], f"{case['id']}: règle"
+    assert decision is not None, f"{case['id']}: expected a decision, got None"
+    assert decision.tier == case["tier"], f"{case['id']}: tier"
+    assert decision.target_id == case["target_id"], f"{case['id']}: target"
+    assert decision.rule_name == case["rule_name"], f"{case['id']}: rule"
 
 
 def test_corpus_covers_every_tier_and_a_discard() -> None:
-    # Garde-fou de complétude : le corpus exerce les 3 paliers + au moins un écart.
+    # Completeness guard: the corpus exercises the 3 tiers + at least one discard.
     tiers = {c.get("tier") for c in _CASES if not c.get("discarded", False)}
     assert {"download", "notify", "catalog"} <= tiers
     assert any(c.get("discarded", False) for c in _CASES)

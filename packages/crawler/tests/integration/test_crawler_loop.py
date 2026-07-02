@@ -1,10 +1,10 @@
-"""Bout-en-bout léger : la boucle de crawl RÉELLE contre un amuled testcontainers (spec §8).
+"""Lightweight end-to-end: the REAL crawl loop against a testcontainers amuled (spec §8).
 
-Run dédié : uv run pytest -m orchestration_integration --no-cov
-Valide qu'un ``CrawlerApp`` réel — vrais ``AmuleEcClient`` + vraies bases SQLite — tourne
-UN cycle complet contre un ``amuled`` Docker puis s'arrête PROPREMENT. Les résultats
-peuvent être vides (pas d'accès réseau eD2k garanti) : c'est la BOUCLE (démarrage,
-recherche, catalogage, arrêt borné) qui est validée, pas la richesse des résultats.
+Dedicated run: uv run pytest -m orchestration_integration --no-cov
+Validates that a real ``CrawlerApp`` — real ``AmuleEcClient`` + real SQLite DBs — runs
+ONE full cycle against a Docker ``amuled`` then stops CLEANLY. The results may be
+empty (no guaranteed eD2k network access): it is the LOOP (startup, search, cataloging,
+bounded shutdown) that is validated, not the richness of the results.
 """
 
 from collections.abc import Iterator
@@ -64,14 +64,14 @@ def amuled() -> Iterator[tuple[str, int]]:
 
 
 class _ShutdownAfterFirstCycleClient:
-    """Enveloppe un vrai client et déclenche l'arrêt au relevé de statut du 2e cycle.
+    """Wraps a real client and triggers shutdown on the 2nd cycle's status poll.
 
-    On NE déclenche PAS au 1er relevé (début du 1er cycle) : l'arrêt posé pendant le coverage
-    annule le cycle en vol AVANT son ``write_cycle_state`` final, l'index n'avancerait jamais
-    (vérifié empiriquement). On laisse donc le 1er cycle COMPLÉTER (il écrit ``cycle_index=1``),
-    puis on déclenche l'arrêt au 1er relevé du 2e cycle — l'index reste à 1, preuve qu'un cycle
-    complet a bien tourné. Le ``cycle_interval`` est minuscule → le 2e cycle démarre tout de
-    suite après le 1er (le run reste borné, bien sous le ``wait_for`` de 120 s)."""
+    We do NOT trigger on the 1st poll (start of the 1st cycle): a shutdown set during the status
+    poll cancels the in-flight cycle BEFORE its final ``write_cycle_state``, and the index would
+    never advance (verified empirically). So we let the 1st cycle COMPLETE (it writes
+    ``cycle_index=1``), then we trigger shutdown on the 2nd cycle's 1st poll — the index stays at
+    1, proof that a full cycle actually ran. The ``cycle_interval`` is tiny → the 2nd cycle starts
+    right after the 1st (the run stays bounded, well under the 120 s ``wait_for``)."""
 
     def __init__(self, inner: object, app_holder: dict[str, CrawlerApp]) -> None:
         self._inner = inner
@@ -99,7 +99,7 @@ class _ShutdownAfterFirstCycleClient:
     async def network_status(self) -> NetworkStatus:
         status = await self._inner.network_status()  # type: ignore[attr-defined]
         self._status_calls += 1
-        if self._status_calls == 2:  # 1er relevé du 2e cycle (le 1er cycle a écrit son index)
+        if self._status_calls == 2:  # 1st poll of the 2nd cycle (the 1st cycle wrote its index)
             self._app_holder["app"]._on_signal()
         return status  # type: ignore[no-any-return]
 
@@ -113,16 +113,16 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_p
     host, port = amuled
     matcher_config = parse_matcher_config(load_yaml(_MATCHER))
     crawler_config = CrawlerConfig(
-        # Intervalle minuscule : le 2e cycle démarre juste après le 1er (qui a écrit son index)
-        # → l'arrêt déclenché au coverage du 2e cycle borne le run, bien sous le wait_for 120 s.
+        # Tiny interval: the 2nd cycle starts right after the 1st (which wrote its index)
+        # → the shutdown at the 2nd cycle's poll bounds the run, well under wait_for 120 s.
         cycle_interval_seconds=0.05,
-        # Budget/intervalle de polling MINUSCULES : contre un vrai amuled, search_progress des
-        # recherches Kad n'atteint pas 100 % → sans cela, CHAQUE tâche Kad brûlerait tout le
-        # budget (10 s) et le 1er cycle dépasserait le shutdown_deadline. Ici le 1er cycle
-        # complète en ~1 s → il écrit son index AVANT que l'arrêt (2e coverage) ne soit posé.
+        # TINY polling budget/interval: against a real amuled, search_progress of Kad
+        # searches does not reach 100% → without this, EVERY Kad task would burn the whole
+        # budget (10 s) and the 1st cycle would exceed the shutdown_deadline. Here the 1st cycle
+        # completes in ~1 s → it writes its index BEFORE the shutdown (2nd poll) is set.
         search_poll_budget_seconds=0.2,
         search_poll_interval_seconds=0.05,
-        keyword_pause_min_seconds=0.01,  # pauses minuscules (le test ne mesure pas le spacing)
+        keyword_pause_min_seconds=0.01,  # tiny pauses (the test does not measure spacing)
         keyword_pause_max_seconds=0.05,
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=60.0, factor=2.0, jitter_ratio=0.3),
         decision_poll_interval_seconds=5.0,
@@ -149,14 +149,14 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_p
     )
     app_holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=120.0)
-    # catalog.db ET local.db existent (open_catalog/open_local les créent), MAIS surtout le
-    # cycle a COMPLÉTÉ : l'index de cycle a avancé (write_cycle_state(cycle_index+1, …) ne tourne
-    # qu'en FIN de cycle). Sans cette assertion, le test passait avant même qu'un cycle tourne.
+    # catalog.db AND local.db exist (open_catalog/open_local create them), BUT above all the
+    # cycle COMPLETED: the cycle index advanced (write_cycle_state(cycle_index+1, …) only runs
+    # at the END of a cycle). Without this assertion, the test passed before any cycle even ran.
     assert (tmp_path / "catalog.db").exists()
     assert (tmp_path / "local.db").exists()
     local_conn = open_local(Path(crawler_config.local_db_path))
     try:
         scheduler_state = SqliteSchedulerStateRepository(local_conn)
-        assert scheduler_state.read_cycle_index() >= 1  # un cycle complet a avancé l'index
+        assert scheduler_state.read_cycle_index() >= 1  # a full cycle advanced the index
     finally:
         local_conn.close()

@@ -1,11 +1,11 @@
-"""Mapping des résultats de recherche EC → ``FileObservation`` (spec §4/§6, capture-all).
+"""Maps EC search results → ``FileObservation`` (spec §4/§6, capture-all).
 
-Réf. §5 : la liste EXHAUSTIVE des métadonnées qu'EC expose sur un résultat est : nom,
-taille, hash MD4, sources, sources complètes, statut, parent, (rating 3.0.0). AUCUN tag
-média (durée/bitrate/codec) ne transite — les champs média de ``FileObservation`` restent
-``None`` ; le capture-all ``raw_meta`` ramasse tout tag non mappé, connu ou inconnu.
-Tolérance aux inconnus : un tag inconnu n'est JAMAIS une erreur ; seule une entrée sans
-hash/nom/taille exploitables est écartée — et COMPTÉE, jamais fatale au lot (spec §6).
+Ref. §5: the EXHAUSTIVE list of metadata EC exposes on a result is: name,
+size, MD4 hash, sources, complete sources, status, parent, (rating 3.0.0). NO media
+tag (duration/bitrate/codec) transits — ``FileObservation``'s media fields stay
+``None``; the capture-all ``raw_meta`` gathers every unmapped tag, known or unknown.
+Unknown-tolerance: an unknown tag is NEVER an error; only an entry with no usable
+hash/name/size is discarded — and COUNTED, never fatal to the batch (spec §6).
 """
 
 from typing import Final
@@ -15,8 +15,8 @@ from emule_indexer.adapters.mule_ec.codec import INT_WIDTHS, EcTag
 from emule_indexer.adapters.mule_ec.errors import EcProtocolError
 from emule_indexer.domain.observation import FileObservation
 
-# Tags d'entrée mappés vers des champs structurés (donc EXCLUS de raw_meta — la PREMIÈRE
-# occurrence seulement, celle que ``find()`` lit ; un doublon hostile tombe dans raw_meta).
+# Entry tags mapped to structured fields (hence EXCLUDED from raw_meta — the FIRST
+# occurrence only, the one ``find()`` reads; a hostile duplicate falls into raw_meta).
 _MAPPED_CHILD_TAGS = frozenset(
     {
         codes.EC_TAG_PARTFILE_NAME,
@@ -27,21 +27,21 @@ _MAPPED_CHILD_TAGS = frozenset(
     }
 )
 
-# Tags écartés de TOUTE sortie (réf. §9 piège 13) : EC_TAG_SEARCH_PARENT pointe l'ECID
-# d'une AUTRE entrée — identifiant de SESSION volatil, comme l'ECID propre de l'entrée ;
-# le persister casserait la dédup inter-sessions du plan A.
+# Tags discarded from ALL output (ref. §9 pitfall 13): EC_TAG_SEARCH_PARENT points to the
+# ECID of ANOTHER entry — a volatile SESSION identifier, like the entry's own ECID;
+# persisting it would break plan A's cross-session dedup.
 _DISCARDED_CHILD_TAGS: Final[frozenset[int]] = frozenset({codes.EC_TAG_SEARCH_PARENT})
 
 
 def map_search_results(
     tags: tuple[EcTag, ...], keyword: str
 ) -> tuple[tuple[FileObservation, ...], int]:
-    """Tags de premier niveau d'un EC_OP_SEARCH_RESULTS → ``(observations, nb_écartés)``."""
+    """Top-level tags of an EC_OP_SEARCH_RESULTS → ``(observations, skipped_count)``."""
     observations: list[FileObservation] = []
     skipped = 0
     for tag in tags:
         if tag.name != codes.EC_TAG_SEARCHFILE:
-            continue  # premier niveau inattendu : toléré, ignoré (pas une entrée)
+            continue  # unexpected top level: tolerated, ignored (not an entry)
         observation = _map_entry(tag, keyword)
         if observation is None:
             skipped += 1
@@ -51,10 +51,10 @@ def map_search_results(
 
 
 def _map_entry(entry: EcTag, keyword: str) -> FileObservation | None:
-    """Une entrée (sous-arbre EC_TAG_SEARCHFILE) → observation, ou ``None`` si inexploitable.
+    """An entry (EC_TAG_SEARCHFILE sub-tree) → observation, or ``None`` if unusable.
 
-    L'ECID (valeur propre de l'entrée) n'est JAMAIS conservé : identifiant de session
-    volatil (réf. §9 piège 13) ; seul le hash MD4 identifie le fichier.
+    The ECID (the entry's own value) is NEVER kept: a volatile session
+    identifier (ref. §9 pitfall 13); only the MD4 hash identifies the file.
     """
     hash_tag = entry.find(codes.EC_TAG_PARTFILE_HASH)
     name_tag = entry.find(codes.EC_TAG_PARTFILE_NAME)
@@ -68,7 +68,7 @@ def _map_entry(entry: EcTag, keyword: str) -> FileObservation | None:
         source_count = _optional_int(entry, codes.EC_TAG_PARTFILE_SOURCE_COUNT)
         complete_source_count = _optional_int(entry, codes.EC_TAG_PARTFILE_SOURCE_COUNT_XFER)
     except EcProtocolError:
-        return None  # entrée pourrie : écartée (l'appelant compte), jamais fatale
+        return None  # rotten entry: discarded (the caller counts), never fatal
     return FileObservation(
         ed2k_hash=ed2k_hash,
         filename=filename,
@@ -81,18 +81,18 @@ def _map_entry(entry: EcTag, keyword: str) -> FileObservation | None:
 
 
 def _hash_hex(tag: EcTag) -> str:
-    """Hash MD4 → hex minuscule 32 caractères (16 octets HASH16 exigés, réf. §3)."""
+    """MD4 hash → 32-character lowercase hex (16 HASH16 bytes required, ref. §3)."""
     if tag.tag_type != codes.EC_TAGTYPE_HASH16 or len(tag.value) != 16:
         raise EcProtocolError("hash eD2k inexploitable")
     return tag.value.hex()
 
 
 def _optional_int(entry: EcTag, name: int) -> int:
-    """Entier optionnel d'une entrée : absence = 0 (réf. §3 : absence = valeur nulle).
+    """Optional integer of an entry: absent = 0 (ref. §3: absent = null value).
 
-    Présent-mais-malformé = absent = 0 : un compteur pourri ne coûte JAMAIS l'observation
-    (seuls hash/nom/taille sont éliminatoires). Les octets malformés ne sont délibérément
-    pas ressuscités dans raw_meta (simplicité ; le hash identifie le fichier).
+    Present-but-malformed = absent = 0: a rotten counter NEVER costs the observation
+    (only hash/name/size are disqualifying). The malformed bytes are deliberately
+    not resurrected into raw_meta (simplicity; the hash identifies the file).
     """
     tag = entry.find(name)
     if tag is None:
@@ -104,11 +104,11 @@ def _optional_int(entry: EcTag, name: int) -> int:
 
 
 def _raw_meta(entry: EcTag) -> tuple[tuple[str, str], ...]:
-    """Capture-all (DÉCISION 7) : tout tag non mappé → ``("0xNNNN", valeur_rendue)``.
+    """Capture-all (DECISION 7): every unmapped tag → ``("0xNNNN", rendered_value)``.
 
-    Seule la PREMIÈRE occurrence d'un nom mappé est consommée (celle que ``find()`` lit) ;
-    un doublon hostile reste visible dans raw_meta. Chaque sous-arbre non mappé est
-    parcouru en ENTIER (profondeur d'abord, ordre wire) : aucun petit-fils n'est perdu.
+    Only the FIRST occurrence of a mapped name is consumed (the one ``find()`` reads);
+    a hostile duplicate stays visible in raw_meta. Each unmapped sub-tree is
+    walked in FULL (depth-first, wire order): no grandchild is lost.
     """
     collected: list[tuple[str, str]] = []
     consumed: set[int] = set()
@@ -121,8 +121,8 @@ def _raw_meta(entry: EcTag) -> tuple[tuple[str, str], ...]:
 
 
 def _collect_subtree(tag: EcTag, collected: list[tuple[str, str]]) -> None:
-    """Un nœud non mappé → sa paire, puis ses enfants récursivement (profondeur bornée
-    en amont par le codec, _MAX_TAG_DEPTH). Les tags écartés (piège 13) ne sortent JAMAIS."""
+    """An unmapped node → its pair, then its children recursively (depth bounded
+    upstream by the codec, _MAX_TAG_DEPTH). Discarded tags (pitfall 13) NEVER leak out."""
     if tag.name in _DISCARDED_CHILD_TAGS:
         return
     collected.append((f"0x{tag.name:04X}", _render_value(tag)))
@@ -131,7 +131,7 @@ def _collect_subtree(tag: EcTag, collected: list[tuple[str, str]]) -> None:
 
 
 def _render_value(tag: EcTag) -> str:
-    """Rendu JSON-friendly qui ne lève JAMAIS : entier décimal, texte, sinon hex brut."""
+    """JSON-friendly rendering that NEVER raises: decimal integer, text, else raw hex."""
     if tag.tag_type in INT_WIDTHS and len(tag.value) == INT_WIDTHS[tag.tag_type]:
         return str(int.from_bytes(tag.value, "big"))
     if tag.tag_type == codes.EC_TAGTYPE_STRING and tag.value.endswith(b"\x00"):

@@ -1,12 +1,12 @@
-"""Contrat d'erreur des repositories (spec orchestration §4/§7).
+"""Error contract of the repositories (spec orchestration §4/§7).
 
-Couche PORTS : le CONTRAT d'erreur que l'application catch (« une ``RepositoryError`` sur
-une obs est loggée, le cycle continue », spec §7) vit au niveau du port, JAMAIS d'un
-adapter — sinon l'application dépendrait d'un adapter (règle de dépendance §4). L'adapter
-SQLite fait hériter sa ``PersistenceError`` de ``RepositoryError`` (dépendance adapter→port,
-licite). L'application ne connaît que ``RepositoryError``.
+PORTS layer: the error CONTRACT the application catches ("a ``RepositoryError`` on an obs is
+logged, the cycle continues", spec §7) lives at the port level, NEVER at an adapter —
+otherwise the application would depend on an adapter (dependency rule §4). The SQLite adapter
+makes its ``PersistenceError`` inherit from ``RepositoryError`` (adapter→port dependency,
+allowed). The application only knows ``RepositoryError``.
 """
 
 
 class RepositoryError(Exception):
-    """Échec de persistance signalé par un repository (l'adapter signale, il ne décide pas)."""
+    """Persistence failure reported by a repository (the adapter reports, it does not decide)."""

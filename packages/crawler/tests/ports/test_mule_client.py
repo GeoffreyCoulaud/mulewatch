@@ -18,7 +18,7 @@ def test_search_channel_is_the_closed_global_kad_enum() -> None:
 
 
 def test_kad_status_is_the_closed_four_state_enum() -> None:
-    # Réf. §6 : ni 0x10 -> arrêté ; 0x10 seul -> tourne ; |0x04 -> connecté ; |0x08 -> firewalled.
+    # Ref. §6: no 0x10 -> off; 0x10 alone -> running; |0x04 -> connected; |0x08 -> firewalled.
     assert {status.value for status in KadStatus} == {"off", "running", "connected", "firewalled"}
 
 
@@ -46,7 +46,7 @@ def test_network_status_server_fields_default_to_none() -> None:
 
 
 class _StubClient:
-    """Implémentation structurelle minimale : satisfait MuleClient SANS l'importer."""
+    """Minimal structural implementation: satisfies MuleClient WITHOUT importing it."""
 
     async def connect(self) -> None:
         return None
@@ -72,7 +72,7 @@ class _StubClient:
 
 @pytest.mark.asyncio
 async def test_stub_client_satisfies_mule_client_protocol() -> None:
-    # L'annotation `MuleClient` force mypy à vérifier la compatibilité STRUCTURELLE.
+    # The `MuleClient` annotation forces mypy to check STRUCTURAL compatibility.
     client: MuleClient = _StubClient()
     await client.connect()
     await client.start_search("keroro", SearchChannel.GLOBAL)

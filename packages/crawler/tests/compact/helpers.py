@@ -1,7 +1,7 @@
-"""Helpers de test pour la compaction : seed/lecture de file_observation_ranges.
+"""Test helpers for compaction: seed/read of file_observation_ranges.
 
-Les autres tables (files, file_observations) passent par tests.merge.helpers.make_catalog
-(catalogues fichiers réels, jamais :memory:). Ici, ce qui est spécifique au rollup.
+The other tables (files, file_observations) go through tests.merge.helpers.make_catalog
+(real file-based catalogs, never :memory:). Here, what is specific to the rollup.
 """
 
 from collections.abc import Sequence
@@ -51,7 +51,7 @@ def read_ranges(path: Path) -> list[tuple[object, ...]]:
 
 
 def read_observation_days(path: Path) -> list[str]:
-    """Les `observed_at` du brut RÉCENT conservé (pour vérifier la fenêtre)."""
+    """The `observed_at` of the RECENT raw data kept (to check the window)."""
     connection = open_catalog(path)
     try:
         cursor = connection.execute(

@@ -1,11 +1,11 @@
--- catalog.db — migration 0002 : rollup journalier des observations (compaction).
--- Écrite/lue UNIQUEMENT par l'outil de compaction + le merge ; le crawler l'ignore.
--- Une ligne = UN bucket (ed2k_hash, jour UTC), node-agnostique : agrégat de TOUTES les
--- observations de ce fichier ce jour-là, tous nœuds confondus. source_count et
--- complete_source_count sont NOT NULL dans file_observations → agrégats toujours définis.
--- filenames / node_ids : tableaux JSON CANONIQUES (distincts, triés). moyenne = sum / count
--- (non stockée — exacte, associativement combinable). Migration ADDITIVE : ne reconstruit
--- aucune table de 0001, ne touche donc pas à ses triggers.
+-- catalog.db — migration 0002: daily rollup of observations (compaction).
+-- Written/read ONLY by the compaction tool + the merge; the crawler ignores it.
+-- One row = ONE bucket (ed2k_hash, UTC day), node-agnostic: aggregate of ALL
+-- observations of that file on that day, across all nodes. source_count and
+-- complete_source_count are NOT NULL in file_observations → aggregates always defined.
+-- filenames / node_ids: CANONICAL JSON arrays (distinct, sorted). average = sum / count
+-- (not stored — exact, associatively combinable). ADDITIVE migration: rebuilds
+-- no table from 0001, so it does not touch its triggers.
 
 CREATE TABLE file_observation_ranges (
     id INTEGER PRIMARY KEY,
@@ -33,11 +33,11 @@ ON file_observation_ranges (ed2k_hash);
 CREATE TRIGGER file_observation_ranges_no_update
 BEFORE UPDATE ON file_observation_ranges
 BEGIN
-    SELECT RAISE(ABORT, 'file_observation_ranges est append-only');
+    SELECT RAISE(ABORT, 'file_observation_ranges is append-only');
 END;
 
 CREATE TRIGGER file_observation_ranges_no_delete
 BEFORE DELETE ON file_observation_ranges
 BEGIN
-    SELECT RAISE(ABORT, 'file_observation_ranges est append-only');
+    SELECT RAISE(ABORT, 'file_observation_ranges is append-only');
 END;

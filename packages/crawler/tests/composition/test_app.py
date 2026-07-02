@@ -41,7 +41,7 @@ _DL_NAME = "Keroro N°062A Les demoiselles cambrioleuses.avi"
 
 
 class _NoopRng:
-    """Rng identité : conserve l'ordre + jitter nul (déterminisme du test)."""
+    """Identity RNG: preserves order + zero jitter (test determinism)."""
 
     def shuffled(self, items: tuple[str, ...], seed: str) -> tuple[str, ...]:
         return items
@@ -104,7 +104,7 @@ def _download_config(tmp_path: Path) -> DownloadConfig:
 
 
 def _full_crawler_config(tmp_path: Path) -> CrawlerConfig:
-    """Config mode FULL : section ``download`` présente (endpoint/dirs/verifier_url/verify)."""
+    """FULL-mode config: ``download`` section present (endpoint/dirs/verifier_url/verify)."""
     return _crawler_config(tmp_path, download=_download_config(tmp_path))
 
 
@@ -150,7 +150,7 @@ def _make_app(
 
 
 class _ShutdownOnStatusClient(FakeMuleClient):
-    """Client qui déclenche l'arrêt de l'app au PREMIER relevé de statut (1 cycle puis stop)."""
+    """Client that triggers app shutdown on the FIRST status poll (1 cycle then stop)."""
 
     def __init__(
         self,
@@ -164,7 +164,7 @@ class _ShutdownOnStatusClient(FakeMuleClient):
     async def network_status(self) -> NetworkStatus:
         if not self._fired:
             self._fired = True
-            self._app_holder["app"]._on_signal()  # simule un SIGINT après le démarrage du cycle
+            self._app_holder["app"]._on_signal()  # simulate a SIGINT after the cycle starts
         return await super().network_status()
 
 
@@ -180,8 +180,8 @@ async def test_app_runs_one_cycle_then_shuts_down_cleanly(
         created.append(client)
         return client
 
-    # observability NON-None → couvre la branche `obs is not None` du timeout de notification
-    # (le dispatcher est construit avec le timeout configuré, pas le défaut 5.0).
+    # observability non-None → covers the `obs is not None` branch of the notification timeout
+    # (the dispatcher is built with the configured timeout, not the default 5.0).
     app = _make_app(
         tmp_path,
         matcher_config,
@@ -192,20 +192,20 @@ async def test_app_runs_one_cycle_then_shuts_down_cleanly(
     )
     app_holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
-    assert created and created[0].close_calls == 1  # client fermé APRÈS l'unwind
-    assert created[0].connect_calls >= 1  # connecté au montage du pool (avant le coverage)
+    assert created and created[0].close_calls == 1  # client closed AFTER the unwind
+    assert created[0].connect_calls >= 1  # connected at pool setup (before coverage)
     assert (tmp_path / "catalog.db").exists()
     assert (tmp_path / "local.db").exists()
 
 
 class _OrderRecordingClient(FakeMuleClient):
-    """Enregistre l'ORDRE des appels (connect / network_status) pour prouver le bug d'ordre.
+    """Records the ORDER of calls (connect / network_status) to prove the ordering bug.
 
-    Le bug : ``_aggregate_coverage`` relève le statut AVANT toute connexion → le 1er
-    ``network_status`` frappe un client non connecté et lève. La correction connecte au
-    montage du pool → ``connect`` PRÉCÈDE le 1er ``network_status`` sur chaque client. Un
-    seul client du pool déclenche l'arrêt (drapeau PARTAGÉ) → le run est borné à un cycle
-    sans double-signal (qui escaladerait en SystemExit)."""
+    The bug: ``_aggregate_coverage`` polls the status BEFORE any connection → the 1st
+    ``network_status`` hits an unconnected client and raises. The fix connects at pool
+    setup → ``connect`` PRECEDES the 1st ``network_status`` on each client. A single
+    client in the pool triggers the shutdown (SHARED flag) → the run is bounded to one
+    cycle with no double-signal (which would escalate to SystemExit)."""
 
     def __init__(
         self, app_holder: dict[str, CrawlerApp], events: list[str], fired: list[bool]
@@ -213,7 +213,7 @@ class _OrderRecordingClient(FakeMuleClient):
         super().__init__()
         self._app_holder = app_holder
         self._events = events
-        self._fired = fired  # partagé par tout le pool : un seul arrêt
+        self._fired = fired  # shared by the whole pool: a single shutdown
 
     async def connect(self) -> None:
         self._events.append("connect")
@@ -231,13 +231,13 @@ class _OrderRecordingClient(FakeMuleClient):
 async def test_pool_setup_connects_each_client_before_coverage(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # Le composition root CONNECTE chaque client au montage du pool, AVANT que
-    # _aggregate_coverage ne relève le statut : sinon le 1er network_status frappe un client
-    # non connecté et lève (bug d'ordre attrapé par l'e2e). On vérifie, sur CHAQUE client d'un
-    # pool multi-instances, que le 1er événement observé est un connect (et non un status).
+    # The composition root CONNECTS each client at pool setup, BEFORE
+    # _aggregate_coverage polls the status: otherwise the 1st network_status hits an
+    # unconnected client and raises (ordering bug caught by the e2e). We check, on EACH client
+    # of a multi-instance pool, that the 1st observed event is a connect (not a status).
     created: list[_OrderRecordingClient] = []
     events: dict[str, list[str]] = {}
-    fired: list[bool] = []  # partagé : un seul arrêt pour tout le pool
+    fired: list[bool] = []  # shared: a single shutdown for the whole pool
     app_holder: dict[str, CrawlerApp] = {}
 
     def factory(endpoint: AmuleEndpoint) -> _OrderRecordingClient:
@@ -260,17 +260,17 @@ async def test_pool_setup_connects_each_client_before_coverage(
     await asyncio.wait_for(app.run(), timeout=5.0)
     assert len(created) == 2
     for log in events.values():
-        assert log[0] == "connect"  # connecté au montage AVANT tout relevé de statut
-        assert "status" in log  # le coverage a bien relevé le statut ensuite
+        assert log[0] == "connect"  # connected at setup BEFORE any status poll
+        assert "status" in log  # coverage did poll the status afterwards
 
 
 class _UnreachableAtStartupClient(_ShutdownOnStatusClient):
-    """Client dont le 1er ``connect`` (au montage du pool) lève ``MuleUnreachableError``.
+    """Client whose 1st ``connect`` (at pool setup) raises ``MuleUnreachableError``.
 
-    Modélise un daemon down au démarrage : le composition root doit ATTRAPER, logger, et
-    CONTINUER (un crawler multi-instances ne tombe pas parce qu'une instance est down ;
-    le backoff du travailleur gouvernera les reconnexions). Déclenche aussi l'arrêt au 1er
-    relevé de statut pour borner le run à un cycle."""
+    Models a daemon down at startup: the composition root must CATCH, log, and
+    CONTINUE (a multi-instance crawler does not fall over because one instance is down;
+    the worker's backoff will govern reconnections). Also triggers the shutdown on the 1st
+    status poll to bound the run to one cycle."""
 
     def __init__(self, app_holder: dict[str, CrawlerApp]) -> None:
         super().__init__(app_holder, results=None)
@@ -280,16 +280,16 @@ class _UnreachableAtStartupClient(_ShutdownOnStatusClient):
         self._connect_seen += 1
         self.connect_calls += 1
         if self._connect_seen == 1:
-            raise MuleUnreachableError("daemon injoignable au démarrage")
+            raise MuleUnreachableError("daemon unreachable at startup")
 
 
 @pytest.mark.asyncio
 async def test_unreachable_client_at_startup_does_not_crash_the_run(
     tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # Un client injoignable au montage du pool (connect lève MuleUnreachableError) ne doit PAS
-    # faire tomber run() : le composition root attrape, logge un warning NOMMANT l'instance, et
-    # CONTINUE. La phase de cycle tourne quand même (network_status atteint → l'arrêt fire).
+    # A client unreachable at pool setup (connect raises MuleUnreachableError) must NOT
+    # bring down run(): the composition root catches, logs a warning NAMING the instance, and
+    # CONTINUES. The cycle phase runs anyway (network_status reached → the shutdown fires).
     created: list[_UnreachableAtStartupClient] = []
     app_holder: dict[str, CrawlerApp] = {}
 
@@ -301,18 +301,18 @@ async def test_unreachable_client_at_startup_does_not_crash_the_run(
     app = _make_app(tmp_path, matcher_config, factory=factory)
     app_holder["app"] = app
     with caplog.at_level(logging.WARNING, logger="emule_indexer.composition.app"):
-        await asyncio.wait_for(app.run(), timeout=5.0)  # ne lève PAS (instance down tolérée)
-    # Le warning de tolérance vient du COMPOSITION ROOT (pas du travailleur) et nomme
-    # l'instance : c'est la branche `except MuleUnreachableError` du montage du pool.
+        await asyncio.wait_for(app.run(), timeout=5.0)  # does NOT raise (down instance tolerated)
+    # The tolerance warning comes from the COMPOSITION ROOT (not the worker) and names
+    # the instance: it is the `except MuleUnreachableError` branch of pool setup.
     startup_warnings = [
         record
         for record in caplog.records
         if record.name == "emule_indexer.composition.app" and record.levelno == logging.WARNING
     ]
-    assert startup_warnings, "le composition root doit logger la tolérance au démarrage"
-    assert "amule-0" in startup_warnings[0].getMessage()  # le warning nomme l'instance down
-    assert created and created[0].connect_calls >= 1  # connect tenté au montage (puis re-tenté)
-    assert created[0]._fired  # network_status atteint → la phase de cycle a bien démarré
+    assert startup_warnings, "the composition root must log the startup tolerance"
+    assert "amule-0" in startup_warnings[0].getMessage()  # the warning names the down instance
+    assert created and created[0].connect_calls >= 1  # connect attempted at setup (then retried)
+    assert created[0]._fired  # network_status reached → the cycle phase did start
 
 
 @pytest.mark.asyncio
@@ -344,15 +344,15 @@ async def test_node_id_override_is_used(tmp_path: Path, matcher_config: MatcherC
 @pytest.mark.asyncio
 async def test_second_signal_forces_exit(tmp_path: Path, matcher_config: MatcherConfig) -> None:
     app = _make_app(tmp_path, matcher_config, factory=lambda e: FakeMuleClient())
-    app._on_signal()  # 1er signal : demande d'arrêt
+    app._on_signal()  # 1st signal: shutdown request
     with pytest.raises(SystemExit):
-        app._on_signal()  # 2e signal : escalade → SystemExit
+        app._on_signal()  # 2nd signal: escalation → SystemExit
 
 
 class _ShutdownOnSleepClock(FakeClock):
-    """Horloge qui déclenche l'arrêt sur le LONG sleep inter-cycle (≥ 100s), PAS sur les
-    courtes pauses inter-mots-clés (1-2s) → le cycle se TERMINE, puis la boucle re-teste sa
-    condition et SORT d'elle-même (sans annulation) au tour suivant."""
+    """Clock that triggers the shutdown on the LONG inter-cycle sleep (≥ 100s), NOT on the
+    short inter-keyword pauses (1-2s) → the cycle COMPLETES, then the loop re-tests its
+    condition and EXITS on its own (without cancellation) on the next iteration."""
 
     def __init__(self, app_holder: dict[str, CrawlerApp]) -> None:
         super().__init__()
@@ -360,7 +360,7 @@ class _ShutdownOnSleepClock(FakeClock):
 
     async def sleep(self, seconds: float) -> None:
         await super().sleep(seconds)
-        if seconds >= 100.0:  # le sommeil inter-cycle (cycle_interval − écoulé), pas une pause
+        if seconds >= 100.0:  # the inter-cycle sleep (cycle_interval − elapsed), not a pause
             self._app_holder["app"]._shutdown.set()
 
 
@@ -368,8 +368,8 @@ class _ShutdownOnSleepClock(FakeClock):
 async def test_loop_exits_cleanly_when_shutdown_set_during_sleep(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # L'arrêt est posé pendant le sleep inter-cycle : la boucle re-teste sa condition et
-    # SORT d'elle-même (sans annulation) → couvre la sortie normale du `while`.
+    # The shutdown is set during the inter-cycle sleep: the loop re-tests its condition and
+    # EXITS on its own (without cancellation) → covers the normal exit of the `while`.
     app_holder: dict[str, CrawlerApp] = {}
     clock = _ShutdownOnSleepClock(app_holder)
     app = _make_app(tmp_path, matcher_config, factory=lambda e: FakeMuleClient(), clock=clock)
@@ -378,10 +378,10 @@ async def test_loop_exits_cleanly_when_shutdown_set_during_sleep(
 
 
 class _BlockingClient(FakeMuleClient):
-    """Client dont ``fetch_results`` BLOQUE : la boucle reste en vol → l'annulation la frappe."""
+    """Client whose ``fetch_results`` BLOCKS: the loop stays in flight → cancellation hits it."""
 
     async def fetch_results(self) -> tuple[FileObservation, ...]:
-        await asyncio.Event().wait()  # ne se résout jamais : bloque jusqu'à annulation
+        await asyncio.Event().wait()  # never resolves: blocks until cancellation
         return ()
 
 
@@ -389,26 +389,26 @@ class _BlockingClient(FakeMuleClient):
 async def test_signal_cancels_an_in_flight_cycle(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # Un travailleur est BLOQUÉ dans fetch_results ; un SIGINT externe annule le TaskGroup →
-    # couvre le chemin d'annulation (unwind propre + ligne « Travailleurs arrêtés »).
+    # A worker is BLOCKED in fetch_results; an external SIGINT cancels the TaskGroup →
+    # covers the cancellation path (clean unwind + "Workers stopped" line).
     app = _make_app(tmp_path, matcher_config, factory=lambda e: _BlockingClient())
     run_task = asyncio.create_task(app.run())
-    for _ in range(20):  # laisse le cycle démarrer et bloquer dans fetch_results
+    for _ in range(20):  # let the cycle start and block in fetch_results
         await asyncio.sleep(0)
     app._on_signal()
     await asyncio.wait_for(run_task, timeout=5.0)
 
 
 class _RealPacedClient(FakeMuleClient):
-    """Client qui cadence chaque cycle par un PETIT sleep RÉEL (pas le FakeClock).
+    """Client that paces each cycle with a SMALL REAL sleep (not the FakeClock).
 
-    Sert à prouver l'invariant temporel : ``network_status`` cède du temps RÉEL au lieu de
-    busy-spinner, donc la boucle de cycles s'écoule à un rythme réel maîtrisé. Le run normal
-    (sans signal) doit DÉPASSER ``shutdown_deadline_seconds`` de temps réel sans lever
-    ``TimeoutError`` — la borne d'arrêt ne doit PAS armer tant que l'arrêt n'est pas demandé."""
+    Used to prove the timing invariant: ``network_status`` yields REAL time instead of
+    busy-spinning, so the cycle loop advances at a controlled real pace. The normal run
+    (without a signal) must OUTLIVE ``shutdown_deadline_seconds`` of real time without raising
+    ``TimeoutError`` — the shutdown bound must NOT arm until a shutdown is requested."""
 
     async def network_status(self) -> NetworkStatus:
-        await asyncio.sleep(0.01)  # temps RÉEL : la boucle n'occupe pas l'event loop à 100 %
+        await asyncio.sleep(0.01)  # REAL time: the loop does not occupy the event loop 100%
         return await super().network_status()
 
 
@@ -416,13 +416,13 @@ class _RealPacedClient(FakeMuleClient):
 async def test_normal_run_outlives_shutdown_deadline_without_a_signal(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # Régression (spec §6, DÉCISION 6) : la borne d'arrêt ne couvre QUE la phase d'arrêt. Un
-    # run normal SANS signal doit tourner indéfiniment — donc survivre BIEN au-delà de
-    # ``shutdown_deadline_seconds`` de temps RÉEL. Avant correctif, ``asyncio.timeout`` enrobait
-    # tout ``_supervise`` (l'attente NON bornée du signal incluse) sur l'horloge RÉELLE → le run
-    # levait ``TimeoutError`` ~deadline après le démarrage, sans aucun arrêt demandé. Ici la
-    # deadline est minuscule (0.2 s) et on laisse passer 0.4 s de temps réel : le run doit
-    # ENCORE tourner, sans avoir levé. Puis on demande l'arrêt → il se termine PROPREMENT.
+    # Regression (spec §6, DECISION 6): the shutdown bound covers ONLY the shutdown phase. A
+    # normal run WITHOUT a signal must run indefinitely — so it must outlive FAR beyond
+    # ``shutdown_deadline_seconds`` of REAL time. Before the fix, ``asyncio.timeout`` wrapped
+    # all of ``_supervise`` (including the UNBOUNDED wait on the signal) on the REAL clock → the
+    # run raised ``TimeoutError`` ~deadline after startup, with no shutdown requested. Here the
+    # deadline is tiny (0.2 s) and we let 0.4 s of real time pass: the run must
+    # STILL be running, without having raised. Then we request the shutdown → it ends CLEANLY.
     app = _make_app(
         tmp_path,
         matcher_config,
@@ -430,10 +430,10 @@ async def test_normal_run_outlives_shutdown_deadline_without_a_signal(
         shutdown_deadline=0.2,
     )
     run_task = asyncio.create_task(app.run())
-    await asyncio.sleep(0.4)  # temps RÉEL > deadline : si la borne enrobait le run, il aurait levé
-    assert not run_task.done(), "le run normal (sans signal) ne doit PAS se terminer ni lever"
-    app._on_signal()  # arrêt demandé → la borne s'arme, l'arrêt propre est borné
-    await asyncio.wait_for(run_task, timeout=5.0)  # se termine sans TimeoutError
+    await asyncio.sleep(0.4)  # REAL time > deadline: if the bound wrapped the run, it would raise
+    assert not run_task.done(), "the normal run (no signal) must NOT finish or raise"
+    app._on_signal()  # shutdown requested → the bound arms, the clean shutdown is bounded
+    await asyncio.wait_for(run_task, timeout=5.0)  # ends without TimeoutError
     assert run_task.exception() is None
 
 
@@ -460,30 +460,30 @@ def test_default_verifier_factory_builds_an_http_verifier() -> None:
     assert isinstance(verifier, HttpContentVerifier)
 
 
-# Fermeture qui traîne BIEN AU-DELÀ de la borne armée (0.05 s), mais BIEN EN DEÇÀ du garde
-# externe (5 s) : ainsi seule la borne INTERNE (armée par ``reschedule``) peut couper la
-# fermeture. Si ``reschedule`` régressait, l'``aclose`` bloquerait ~1 s puis SORTIRAIT
-# proprement (pas de TimeoutError) — le test échouerait alors fail-closed, au lieu de
-# « passer » lentement via le garde externe.
+# Close that drags FAR BEYOND the armed bound (0.05 s), but FAR WITHIN the external
+# guard (5 s): so only the INTERNAL bound (armed by ``reschedule``) can cut the
+# close. If ``reschedule`` regressed, ``aclose`` would block ~1 s then EXIT
+# cleanly (no TimeoutError) — the test would then fail fail-closed, instead of
+# "passing" slowly via the external guard.
 _SLOW_CLOSE_SECONDS = 1.0
 
 
 class _SlowCloseClient(_ShutdownOnStatusClient):
-    """Client dont ``close`` traîne au-delà de la borne armée → la borne INTERNE le coupe."""
+    """Client whose ``close`` drags beyond the armed bound → the INTERNAL bound cuts it."""
 
     async def close(self) -> None:
-        await asyncio.sleep(_SLOW_CLOSE_SECONDS)  # > borne armée (0.05 s), < garde externe (5 s)
+        await asyncio.sleep(_SLOW_CLOSE_SECONDS)  # > armed bound (0.05 s), < external guard (5 s)
 
 
 @pytest.mark.asyncio
 async def test_shutdown_deadline_forces_exit(tmp_path: Path, matcher_config: MatcherConfig) -> None:
-    # Fermeture qui traîne + délai d'arrêt minuscule → la borne INTERNE (armée par
-    # ``reschedule`` à l'arrêt) lève TimeoutError (spec §6 : l'app ne peut PAS paraître bloquée).
-    # ROBUSTESSE : on mesure le temps réel écoulé et on exige que la levée vienne VITE — bien
-    # sous le garde externe ET sous la durée du close lent — pour prouver que c'est la borne
-    # ARMÉE (~0.05 s) qui a tiré, pas le ``wait_for`` externe (5 s) ni la fin du close (1 s).
-    # Un régression de ``reschedule`` (borne jamais armée) ferait sortir l'``aclose`` proprement
-    # après ~1 s SANS TimeoutError → ``pytest.raises`` échouerait (fail-closed).
+    # Close that drags + tiny shutdown deadline → the INTERNAL bound (armed by
+    # ``reschedule`` at shutdown) raises TimeoutError (spec §6: the app must NOT appear stuck).
+    # ROBUSTNESS: we measure the real elapsed time and require the raise to come FAST — well
+    # below the external guard AND below the slow close duration — to prove it is the ARMED
+    # bound (~0.05 s) that fired, not the external ``wait_for`` (5 s) nor the close end (1 s).
+    # A ``reschedule`` regression (bound never armed) would let ``aclose`` exit cleanly
+    # after ~1 s WITHOUT TimeoutError → ``pytest.raises`` would fail (fail-closed).
     app_holder: dict[str, CrawlerApp] = {}
 
     def factory(endpoint: AmuleEndpoint) -> _SlowCloseClient:
@@ -496,9 +496,9 @@ async def test_shutdown_deadline_forces_exit(tmp_path: Path, matcher_config: Mat
     with pytest.raises(TimeoutError):
         await asyncio.wait_for(app.run(), timeout=5.0)
     elapsed = loop.time() - started
-    # < 0.5 s : largement sous le close lent (1 s) et le garde externe (5 s) → c'est bien la
-    # borne armée (~0.05 s) qui a coupé la fermeture, pas un autre délai.
-    assert elapsed < 0.5, f"la borne armée doit couper vite, écoulé={elapsed:.3f}s"
+    # < 0.5 s: well below the slow close (1 s) and the external guard (5 s) → it is indeed the
+    # armed bound (~0.05 s) that cut the close, not some other delay.
+    assert elapsed < 0.5, f"the armed bound must cut fast, elapsed={elapsed:.3f}s"
 
 
 @pytest.mark.asyncio
@@ -530,12 +530,12 @@ async def test_observations_are_catalogued_during_the_cycle(
 
 
 # ---------------------------------------------------------------------------
-# Mode full (download.enabled) : gate health + câblage des 2 boucles
+# Full mode (download.enabled): health gate + wiring of the 2 loops
 # ---------------------------------------------------------------------------
 
 
 class FakeContentVerifier:
-    """ContentVerifier de test : santé scriptable, verdict NO-OP."""
+    """Test ContentVerifier: scriptable health, NO-OP verdict."""
 
     def __init__(self, *, healthy: bool = True) -> None:
         self._healthy = healthy
@@ -552,10 +552,10 @@ class FakeContentVerifier:
 
 
 class FakeDownloadClient(FakeMuleClient):
-    """Client download de test : satisfait aussi add_link/download_queue (no-op).
+    """Test download client: also satisfies add_link/download_queue (no-op).
 
-    ``queue_calls`` compte les relevés de la file : preuve qu'un cycle de la boucle de download
-    s'est BIEN exécuté (``download_queue`` est l'unique ``await`` réseau d'un cycle vide)."""
+    ``queue_calls`` counts the queue polls: proof that a download-loop cycle DID
+    run (``download_queue`` is the only network ``await`` of an empty cycle)."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -573,12 +573,12 @@ class FakeDownloadClient(FakeMuleClient):
 
 
 class _ShutdownOnQueueDownloadClient(FakeDownloadClient):
-    """Client download qui déclenche l'arrêt au PREMIER ``download_queue`` (1 cycle puis stop).
+    """Download client that fires the shutdown on the FIRST ``download_queue`` (1 cycle, stop).
 
-    Borne le run de façon DÉTERMINISTE sur la boucle de DOWNLOAD elle-même : l'arrêt n'est posé
-    QUE lorsque la boucle de download a exécuté un cycle (relevé de la file) → prouve que le
-    corps de la boucle a tourné (pas seulement que la tâche a été créée), sans course de timing
-    ni ``sleep`` réel. Le compteur ``queue_calls`` reste lisible après coup."""
+    Bounds the run DETERMINISTICALLY on the DOWNLOAD loop itself: the shutdown is set
+    ONLY once the download loop has run a cycle (queue poll) → proves that the
+    loop body ran (not just that the task was created), without a timing race
+    nor a real ``sleep``. The ``queue_calls`` counter stays readable afterwards."""
 
     def __init__(self, app_holder: dict[str, CrawlerApp]) -> None:
         super().__init__()
@@ -586,12 +586,12 @@ class _ShutdownOnQueueDownloadClient(FakeDownloadClient):
 
     async def download_queue(self) -> tuple[DownloadEntry, ...]:
         result = await super().download_queue()
-        self._app_holder["app"]._on_signal()  # arrêt APRÈS le 1er cycle de download
+        self._app_holder["app"]._on_signal()  # shutdown AFTER the 1st download cycle
         return result
 
 
 class _UnreachableDownloadClient(FakeDownloadClient):
-    """Client download dont ``connect`` lève ``MuleUnreachableError`` (daemon down au démarrage)."""
+    """Download client whose ``connect`` raises ``MuleUnreachableError`` (daemon down at start)."""
 
     async def connect(self) -> None:
         raise MuleUnreachableError("download daemon down")
@@ -601,8 +601,8 @@ class _UnreachableDownloadClient(FakeDownloadClient):
 async def test_observer_mode_runs_without_download_or_verify_loops(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # download absent → observateur : démarre, tourne un cycle, s'arrête ; aucun verifier
-    # construit, aucune boucle download/verif. (Comportement Plan C inchangé.)
+    # download absent → observer: starts, runs one cycle, stops; no verifier
+    # built, no download/verify loop. (Plan C behavior unchanged.)
     holder: dict[str, CrawlerApp] = {}
     verifier = FakeContentVerifier()
 
@@ -610,7 +610,7 @@ async def test_observer_mode_runs_without_download_or_verify_loops(
         return _ShutdownOnStatusClient(holder)
 
     app = CrawlerApp(
-        crawler_config=_crawler_config(tmp_path),  # pas de download → observer
+        crawler_config=_crawler_config(tmp_path),  # no download → observer
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -621,24 +621,24 @@ async def test_observer_mode_runs_without_download_or_verify_loops(
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
-    assert verifier.closed is False  # observateur : le verifier n'est jamais utilisé/fermé
+    assert verifier.closed is False  # observer: the verifier is never used/closed
 
 
 @pytest.mark.asyncio
 async def test_full_mode_health_ok_runs_both_loops(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # L'arrêt est piloté de façon DÉTERMINISTE par la boucle de DOWNLOAD elle-même (le client
-    # download fire l'arrêt à son 1er relevé de file) → on prouve que le CORPS de la boucle
-    # download a tourné (pas seulement que la tâche a été créée), sans course de timing. Le
-    # corps de la boucle de VÉRIFICATION est couvert par ses tests unitaires (Task 9) ; ICI on
-    # couvre le CÂBLAGE (sa tâche est créée dans le TaskGroup) + le health-check + le teardown.
+    # The shutdown is driven DETERMINISTICALLY by the DOWNLOAD loop itself (the download
+    # client fires the shutdown on its 1st queue poll) → we prove that the BODY of the download
+    # loop ran (not just that the task was created), without a timing race. The
+    # body of the VERIFICATION loop is covered by its unit tests (Task 9); HERE we
+    # cover the WIRING (its task is created in the TaskGroup) + the health-check + the teardown.
     holder: dict[str, CrawlerApp] = {}
     verifier = FakeContentVerifier(healthy=True)
     download_client = _ShutdownOnQueueDownloadClient(holder)
 
     def search_factory(endpoint: AmuleEndpoint) -> FakeMuleClient:
-        return FakeMuleClient()  # ne pilote PAS l'arrêt : c'est la boucle download qui l'arme
+        return FakeMuleClient()  # does NOT drive the shutdown: the download loop arms it
 
     app = CrawlerApp(
         crawler_config=_full_crawler_config(tmp_path),
@@ -653,9 +653,9 @@ async def test_full_mode_health_ok_runs_both_loops(
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
-    # full : le verifier a été health-checké et fermé proprement à l'arrêt.
+    # full: the verifier was health-checked and cleanly closed at shutdown.
     assert verifier.closed is True
-    # la boucle de download a exécuté ≥ 1 cycle (corps tourné, pas juste la tâche créée).
+    # the download loop ran ≥ 1 cycle (body ran, not just the task created).
     assert download_client.queue_calls >= 1
 
 
@@ -681,15 +681,15 @@ async def test_full_mode_health_failure_is_fail_fast(
     )
     with pytest.raises(ConfigError, match="verifier"):
         await app.run()
-    assert verifier.closed is True  # le client verifier est fermé même en fail-fast
+    assert verifier.closed is True  # the verifier client is closed even on fail-fast
 
 
 @pytest.mark.asyncio
 async def test_full_mode_tolerates_download_daemon_unreachable_at_startup(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # le daemon download injoignable au démarrage est TOLÉRÉ (handoff / DV8) : on n'échoue
-    # PAS, les boucles sont quand même armées (le backoff de la boucle gouverne les retries).
+    # the download daemon unreachable at startup is TOLERATED (handoff / DV8): we do NOT
+    # fail, the loops are armed anyway (the loop's backoff governs the retries).
     holder: dict[str, CrawlerApp] = {}
     verifier = FakeContentVerifier(healthy=True)
 
@@ -711,23 +711,23 @@ async def test_full_mode_tolerates_download_daemon_unreachable_at_startup(
         verifier_factory=lambda url, _timeout: verifier,
     )
     holder["app"] = app
-    await asyncio.wait_for(app.run(), timeout=5.0)  # ne lève pas : connect toléré
-    assert verifier.closed is True  # full a démarré (boucles armées), verifier fermé à l'arrêt
+    await asyncio.wait_for(app.run(), timeout=5.0)  # does not raise: connect tolerated
+    assert verifier.closed is True  # full started (loops armed), verifier closed at shutdown
 
 
 class _BlockingPollClock(FakeClock):
-    """Horloge dont les LONGS sleeps (≥ 5 s) BLOQUENT pour de bon (sur un Event jamais positionné).
+    """Clock whose LONG sleeps (≥ 5 s) BLOCK for good (on an Event that is never set).
 
-    Modélise le sleep IN-CYCLE des boucles : ``download._sleep_or_nudge`` (poll 30 s) et le poll
-    de la vérif (10 s) restent BLOQUÉS dans ``clock.sleep`` — donc ces boucles ne peuvent PAS
-    re-tester ``self._shutdown`` d'elles-mêmes ; seule une ANNULATION explicite par ``_supervise``
-    les en sort. Une BARRIÈRE : dès que les DEUX boucles (download 30 s + vérif 10 s) sont entrées
-    dans un long sleep, on ARME ``self._shutdown`` — l'arrêt est donc demandé pendant qu'elles
-    sont bloquées. Si ``_supervise`` ne les annulait PAS, le ``TaskGroup`` attendrait à jamais et
-    le ``shutdown_deadline`` armé tirerait un ``TimeoutError`` (force-exit) : le test échouerait
-    fail-closed. Les sleeps COURTS (pauses inter-mots-clés du search) rendent la main tout de suite
-    (déterminisme, pas de temps réel). Le sleep inter-cycle du search (≥ 5 s) bloque aussi → il est
-    sorti par l'annulation de ``loop_task`` (déjà en place)."""
+    Models the IN-CYCLE sleep of the loops: ``download._sleep_or_nudge`` (30 s poll) and the
+    verify poll (10 s) stay BLOCKED in ``clock.sleep`` — so these loops CANNOT
+    re-test ``self._shutdown`` on their own; only an explicit CANCELLATION by ``_supervise``
+    gets them out. A BARRIER: as soon as BOTH loops (download 30 s + verify 10 s) have entered
+    a long sleep, we ARM ``self._shutdown`` — the shutdown is thus requested while they
+    are blocked. If ``_supervise`` did NOT cancel them, the ``TaskGroup`` would wait forever and
+    the armed ``shutdown_deadline`` would fire a ``TimeoutError`` (force-exit): the test would
+    fail fail-closed. The SHORT sleeps (search inter-keyword pauses) yield immediately
+    (determinism, no real time). The search inter-cycle sleep (≥ 5 s) also blocks → it is
+    exited by the cancellation of ``loop_task`` (already in place)."""
 
     def __init__(self, app_holder: dict[str, CrawlerApp]) -> None:
         super().__init__()
@@ -737,34 +737,34 @@ class _BlockingPollClock(FakeClock):
 
     async def sleep(self, seconds: float) -> None:
         if seconds < 5.0:
-            await super().sleep(seconds)  # pause courte : rend la main (instantané)
+            await super().sleep(seconds)  # short pause: yields (instantaneous)
             return
-        # Long sleep (poll in-cycle d'une boucle, ou inter-cycle du search) : on note la cadence
-        # et, dès que les DEUX polls des nouvelles boucles (30 s download + 10 s vérif) sont
-        # bloqués, on demande l'arrêt PENDANT qu'elles dorment, puis on BLOQUE pour de bon.
+        # Long sleep (in-cycle poll of a loop, or search inter-cycle): we note the pace
+        # and, as soon as BOTH polls of the new loops (30 s download + 10 s verify) are
+        # blocked, we request the shutdown WHILE they sleep, then we BLOCK for good.
         self._blocked_long_polls.add(seconds)
         if {10.0, 30.0} <= self._blocked_long_polls:
             self._app_holder["app"]._shutdown.set()
-        await self._never.wait()  # ne se résout JAMAIS : sortie uniquement par annulation
+        await self._never.wait()  # NEVER resolves: exit only via cancellation
 
 
 @pytest.mark.asyncio
 async def test_full_mode_shutdown_cancels_download_and_verify_loops_promptly(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # RÉGRESSION (revue holistique) : à l'arrêt, ``_supervise`` doit annuler EXPLICITEMENT les
-    # boucles download/verify (tâches sœurs du search ``loop_task``). Sans cela, elles restent
-    # bloquées dans leur sleep in-cycle (``_sleep_or_nudge`` ne surveille PAS ``self._shutdown``),
-    # le ``TaskGroup`` attend leur poll (30 s/10 s), le ``shutdown_deadline`` tire AVANT un
-    # ``TimeoutError`` et l'arrêt est FORCÉ — pas propre. Ici : un clock dont les longs sleeps
-    # BLOQUENT, qui ARME l'arrêt une fois les deux boucles bloquées dans leur poll. Si l'annulation
-    # est faite, ``run()`` RETOURNE promptement (sans atteindre le deadline) ; sinon il
-    # ``TimeoutError``-erait (deadline) ou bloquerait jusqu'au garde externe → échec fail-closed.
+    # REGRESSION (holistic review): at shutdown, ``_supervise`` must EXPLICITLY cancel the
+    # download/verify loops (sibling tasks of the search ``loop_task``). Without this, they stay
+    # blocked in their in-cycle sleep (``_sleep_or_nudge`` does NOT watch ``self._shutdown``),
+    # the ``TaskGroup`` waits on their poll (30 s/10 s), the ``shutdown_deadline`` fires a
+    # ``TimeoutError`` FIRST and the shutdown is FORCED — not clean. Here: a clock whose long
+    # sleeps BLOCK, which ARMS the shutdown once both loops are blocked in their poll. If the
+    # cancellation happens, ``run()`` RETURNS promptly (without reaching the deadline); otherwise
+    # it would ``TimeoutError`` (deadline) or block until the external guard → fail-closed failure.
     holder: dict[str, CrawlerApp] = {}
     verifier = FakeContentVerifier(healthy=True)
     clock = _BlockingPollClock(holder)
 
-    # _full_crawler_config : download poll 30 s, verify poll 10 s, shutdown_deadline 30 s.
+    # _full_crawler_config: download poll 30 s, verify poll 10 s, shutdown_deadline 30 s.
     app = CrawlerApp(
         crawler_config=_full_crawler_config(tmp_path),
         targets=_TARGETS,
@@ -777,27 +777,27 @@ async def test_full_mode_shutdown_cancels_download_and_verify_loops_promptly(
         verifier_factory=lambda url, _timeout: verifier,
     )
     holder["app"] = app
-    # Le garde externe (3 s de temps RÉEL) est BIEN sous le shutdown_deadline (30 s) ET sous les
-    # polls (10 s/30 s) : il ne peut tirer que si l'arrêt N'est PAS prompt. Avec l'annulation, le
-    # run revient en quelques ticks d'event loop (aucun temps réel n'est consommé).
+    # The external guard (3 s of REAL time) is WELL below the shutdown_deadline (30 s) AND below
+    # the polls (10 s/30 s): it can only fire if the shutdown is NOT prompt. With the
+    # cancellation, the run returns within a few event-loop ticks (no real time is consumed).
     await asyncio.wait_for(app.run(), timeout=3.0)
-    assert verifier.closed is True  # arrêt propre : le teardown a bien fermé le verifier
+    assert verifier.closed is True  # clean shutdown: teardown did close the verifier
 
 
 @pytest.mark.asyncio
 async def test_full_mode_shutdown_leaves_no_task_leaked(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # T12 — INVARIANT d'arrêt « aucune fuite de tâche ». Le ``TaskGroup`` garantit PAR
-    # CONSTRUCTION qu'à la sortie de ``run()`` aucune des 3 boucles (search/download/verify)
-    # ne survit : son ``__aexit__`` attend la fin de TOUTES ses tâches, et ``_supervise`` les
-    # annule TOUTES explicitement à l'arrêt. Ce test VERROUILLE l'invariant : il échouerait si
-    # une régression future détachait une boucle du ``TaskGroup`` (``asyncio.create_task`` hors
-    # groupe) ou oubliait d'annuler une tâche sœur — une tâche ``pending`` survivrait alors à
-    # ``run()``. On le prouve par DIFFÉRENCE : les tâches nées PENDANT ``run()`` (full = 3
-    # boucles bloquées dans leur sleep, arrêt armé une fois bloquées) doivent TOUTES être
-    # terminées une fois ``run()`` retourné. Le ``_BlockingPollClock`` force le pire cas : les
-    # boucles ne peuvent sortir QUE par l'annulation explicite de ``_supervise``.
+    # T12 — shutdown INVARIANT "no task leak". The ``TaskGroup`` guarantees BY
+    # CONSTRUCTION that on exit from ``run()`` none of the 3 loops (search/download/verify)
+    # survives: its ``__aexit__`` waits for ALL its tasks to finish, and ``_supervise``
+    # cancels them ALL explicitly at shutdown. This test LOCKS the invariant: it would fail if
+    # a future regression detached a loop from the ``TaskGroup`` (``asyncio.create_task`` outside
+    # the group) or forgot to cancel a sibling task — a ``pending`` task would then survive
+    # ``run()``. We prove it by DIFFERENCE: the tasks born DURING ``run()`` (full = 3
+    # loops blocked in their sleep, shutdown armed once blocked) must ALL be
+    # finished once ``run()`` has returned. The ``_BlockingPollClock`` forces the worst case: the
+    # loops can only exit VIA the explicit cancellation by ``_supervise``.
     holder: dict[str, CrawlerApp] = {}
     verifier = FakeContentVerifier(healthy=True)
     clock = _BlockingPollClock(holder)
@@ -813,17 +813,17 @@ async def test_full_mode_shutdown_leaves_no_task_leaked(
         verifier_factory=lambda url, _timeout: verifier,
     )
     holder["app"] = app
-    before = asyncio.all_tasks()  # snapshot AVANT (la tâche de test + infra pytest-asyncio)
+    before = asyncio.all_tasks()  # snapshot BEFORE (the test task + pytest-asyncio infra)
     await asyncio.wait_for(app.run(), timeout=3.0)
-    # Tâches nées PENDANT le run (les 3 boucles du TaskGroup) : toutes doivent être terminées.
-    # Aucune tâche ``pending`` ne doit subsister — sinon une boucle a fui le cycle de vie.
+    # Tasks born DURING the run (the 3 loops of the TaskGroup): all must be finished.
+    # No ``pending`` task must remain — otherwise a loop leaked the lifecycle.
     leaked = [task for task in asyncio.all_tasks() - before if not task.done()]
-    assert leaked == [], f"tâches en fuite après shutdown : {leaked!r}"
-    assert verifier.closed is True  # arrêt propre confirmé (teardown complet)
+    assert leaked == [], f"leaked tasks after shutdown: {leaked!r}"
+    assert verifier.closed is True  # clean shutdown confirmed (full teardown)
 
 
 # ---------------------------------------------------------------------------
-# Task 8 — métriques + CrawlerStarted + log_level bootstrap
+# Task 8 — metrics + CrawlerStarted + log_level bootstrap
 # ---------------------------------------------------------------------------
 
 
@@ -831,7 +831,7 @@ async def test_full_mode_shutdown_leaves_no_task_leaked(
 async def test_metrics_server_started_when_enabled(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    """Serveur /metrics démarré lorsque metrics.enabled=True."""
+    """/metrics server started when metrics.enabled=True."""
     started: list[int] = []
     holder: dict[str, CrawlerApp] = {}
 
@@ -855,14 +855,14 @@ async def test_metrics_server_started_when_enabled(
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
-    assert started == [9123]  # serveur démarré car metrics.enabled=True
+    assert started == [9123]  # server started because metrics.enabled=True
 
 
 @pytest.mark.asyncio
 async def test_metrics_server_not_started_when_disabled(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    """Serveur /metrics NON démarré lorsque metrics.enabled=False."""
+    """/metrics server NOT started when metrics.enabled=False."""
     started: list[int] = []
     holder: dict[str, CrawlerApp] = {}
 
@@ -886,14 +886,14 @@ async def test_metrics_server_not_started_when_disabled(
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
-    assert started == []  # metrics.enabled=False → pas de serveur
+    assert started == []  # metrics.enabled=False → no server
 
 
 @pytest.mark.asyncio
 async def test_metrics_server_not_started_when_observability_absent(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    """Serveur /metrics NON démarré lorsque observability=None (obs is None)."""
+    """/metrics server NOT started when observability=None (obs is None)."""
     started: list[int] = []
     holder: dict[str, CrawlerApp] = {}
 
@@ -912,14 +912,14 @@ async def test_metrics_server_not_started_when_observability_absent(
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
-    assert started == []  # obs=None → pas de serveur
+    assert started == []  # obs=None → no server
 
 
 @pytest.mark.asyncio
 async def test_emits_crawler_started_observer_mode(
     tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """CrawlerStarted(mode='observer') émis au boot en mode observateur."""
+    """CrawlerStarted(mode='observer') emitted at boot in observer mode."""
     holder: dict[str, CrawlerApp] = {}
 
     def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
@@ -936,7 +936,7 @@ async def test_emits_crawler_started_observer_mode(
 async def test_emits_crawler_started_full_mode(
     tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """CrawlerStarted(mode='full') émis au boot en mode full."""
+    """CrawlerStarted(mode='full') emitted at boot in full mode."""
     holder: dict[str, CrawlerApp] = {}
     verifier = FakeContentVerifier(healthy=True)
     download_client = _ShutdownOnQueueDownloadClient(holder)
@@ -959,12 +959,12 @@ async def test_emits_crawler_started_full_mode(
 
 
 # ---------------------------------------------------------------------------
-# Port-sync (High-ID) : boucle ON / OFF
+# Port-sync (High-ID): loop ON / OFF
 # ---------------------------------------------------------------------------
 
 
 class _PortSyncCapableClient(FakeMuleClient):
-    """Client EC du port-sync de test : satisfait get/set_listen_port + network_status (High-ID)."""
+    """Test port-sync EC client: satisfies get/set_listen_port + network_status (High-ID)."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -982,11 +982,12 @@ class _PortSyncCapableClient(FakeMuleClient):
 
 
 class _ShutdownOnPollReader:
-    """Lecteur du port forwardé qui déclenche l'arrêt au PREMIER poll (1 cycle puis stop).
+    """Forwarded-port reader that triggers the shutdown on the FIRST poll (1 cycle then stop).
 
-    Borne le run de façon DÉTERMINISTE sur la boucle de PORT-SYNC elle-même : l'arrêt n'est posé
-    qu'une fois que ``forwarded_port`` a tourné → prouve que le corps de la boucle a démarré.
-    Rend ``None`` (« pas prêt ») → la boucle dort sans toucher l'EC (pas de divergence à corriger).
+    Bounds the run DETERMINISTICALLY on the PORT-SYNC loop itself: the shutdown is set
+    only once ``forwarded_port`` has run → proves that the loop body has started.
+    Returns ``None`` ("not ready") → the loop sleeps without touching the EC (no divergence to
+    fix).
     """
 
     def __init__(self, app_holder: dict[str, CrawlerApp]) -> None:
@@ -995,7 +996,7 @@ class _ShutdownOnPollReader:
 
     async def forwarded_port(self) -> int | None:
         self.calls += 1
-        self._app_holder["app"]._on_signal()  # arrêt APRÈS le 1er poll
+        self._app_holder["app"]._on_signal()  # shutdown AFTER the 1st poll
         return None
 
     async def aclose(self) -> None:
@@ -1003,7 +1004,7 @@ class _ShutdownOnPollReader:
 
 
 class _RecordingRestarter:
-    """Restarter no-op de test (jamais appelé ici : le reader rend None → pas de restart)."""
+    """Test no-op restarter (never called here: the reader returns None → no restart)."""
 
     def __init__(self) -> None:
         self.calls = 0
@@ -1019,8 +1020,8 @@ class _RecordingRestarter:
 async def test_port_sync_loop_runs_when_section_present(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # Section port_sync présente (enabled: true) → la boucle port-sync est ARMÉE. L'arrêt est
-    # piloté par le reader (1er poll → signal) → on prouve que le CORPS de la boucle a tourné.
+    # port_sync section present (enabled: true) → the port-sync loop is ARMED. The shutdown is
+    # driven by the reader (1st poll → signal) → we prove that the BODY of the loop ran.
     holder: dict[str, CrawlerApp] = {}
     reader = _ShutdownOnPollReader(holder)
     ec_client = _PortSyncCapableClient()
@@ -1038,28 +1039,28 @@ async def test_port_sync_loop_runs_when_section_present(
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
-    assert reader.calls >= 1  # le corps de la boucle port-sync a bien exécuté ≥ 1 cycle
+    assert reader.calls >= 1  # the body of the port-sync loop did run ≥ 1 cycle
 
 
 @pytest.mark.asyncio
 async def test_port_sync_loop_off_when_no_config(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # Pas de section port_sync → boucle OFF (Low-ID toléré). Les factories ne doivent JAMAIS être
-    # appelées : on le prouve avec des factories qui lèveraient si elles l'étaient.
+    # No port_sync section → loop OFF (Low-ID tolerated). The factories must NEVER be
+    # called: we prove it with factories that would raise if they were.
     holder: dict[str, CrawlerApp] = {}
 
     def boom_reader(url: str) -> object:
-        raise AssertionError("la factory reader ne doit pas être appelée (port-sync OFF)")
+        raise AssertionError("the reader factory must not be called (port-sync OFF)")
 
     def boom_restarter(url: str) -> object:
-        raise AssertionError("la factory restarter ne doit pas être appelée (port-sync OFF)")
+        raise AssertionError("the restarter factory must not be called (port-sync OFF)")
 
     def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
         return _ShutdownOnStatusClient(holder)
 
     app = CrawlerApp(
-        crawler_config=_crawler_config(tmp_path),  # pas de port_sync
+        crawler_config=_crawler_config(tmp_path),  # no port_sync
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -1070,15 +1071,15 @@ async def test_port_sync_loop_off_when_no_config(
         mule_restarter_factory=boom_restarter,  # type: ignore[arg-type]
     )
     holder["app"] = app
-    await asyncio.wait_for(app.run(), timeout=5.0)  # ne lève pas (factories jamais appelées)
+    await asyncio.wait_for(app.run(), timeout=5.0)  # does not raise (factories never called)
 
 
 @pytest.mark.asyncio
 async def test_port_sync_tolerates_ec_daemon_unreachable_at_startup(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # La connexion EC port-sync dédiée injoignable au démarrage est TOLÉRÉE (R6) : on n'échoue
-    # PAS, la boucle est quand même armée (le backoff de la boucle gouverne).
+    # The dedicated port-sync EC connection unreachable at startup is TOLERATED (R6): we do NOT
+    # fail, the loop is armed anyway (the loop's backoff governs).
     holder: dict[str, CrawlerApp] = {}
     reader = _ShutdownOnPollReader(holder)
 
@@ -1098,7 +1099,7 @@ async def test_port_sync_tolerates_ec_daemon_unreachable_at_startup(
         mule_restarter_factory=lambda url: _RecordingRestarter(),
     )
     holder["app"] = app
-    await asyncio.wait_for(app.run(), timeout=5.0)  # ne lève pas : connect toléré
+    await asyncio.wait_for(app.run(), timeout=5.0)  # does not raise: connect tolerated
     assert reader.calls >= 1
 
 

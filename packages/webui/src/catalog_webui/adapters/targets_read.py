@@ -1,10 +1,10 @@
-"""Chargement des cibles depuis un fichier YAML (spec W-D7 / Task 9).
+"""Load targets from a YAML file (spec W-D7 / Task 9).
 
-``load_targets`` lit ``targets.yaml``, en valide minimalement la structure de
-surface (mapping attendu en racine), puis délègue la validation complète à
+``load_targets`` reads ``targets.yaml``, minimally validates its surface
+structure (mapping expected at the root), then delegates full validation to
 ``catalog_matching.validation.parse_targets``.
 
-L'I/O (``yaml.safe_load``) est ici ; ``parse_targets`` est domaine pur.
+The I/O (``yaml.safe_load``) is here; ``parse_targets`` is pure domain.
 """
 
 from pathlib import Path
@@ -16,19 +16,17 @@ from catalog_matching.validation import ConfigError, parse_targets
 
 
 def load_targets(path: Path) -> tuple[TargetSegment, ...]:
-    """Lit ``path`` (YAML) et retourne le tuple de :class:`TargetSegment` validés.
+    """Read ``path`` (YAML) and return the tuple of validated :class:`TargetSegment`.
 
     Raises:
-        OSError: si le fichier est illisible ou inexistant.
-        ConfigError: si la racine YAML n'est pas un mapping ou si ``parse_targets``
-            détecte une erreur de schéma/sémantique.
+        OSError: if the file is unreadable or nonexistent.
+        ConfigError: if the YAML root is not a mapping or if ``parse_targets``
+            detects a schema/semantic error.
     """
     raw_text = path.read_text(encoding="utf-8")
     raw = yaml.safe_load(raw_text)
     if raw is None:
-        raise ConfigError(f"{path} : fichier YAML vide, mapping attendu")
+        raise ConfigError(f"{path}: empty YAML file, mapping expected")
     if not isinstance(raw, dict):
-        raise ConfigError(
-            f"{path} : racine YAML invalide — mapping attendu, obtenu {type(raw).__name__}"
-        )
+        raise ConfigError(f"{path}: invalid YAML root — mapping expected, got {type(raw).__name__}")
     return parse_targets(raw)

@@ -1,15 +1,15 @@
-"""Entrée du webui : ``python -m catalog_webui`` (spec webui — Task 12).
+"""webui entry point: ``python -m catalog_webui`` (webui spec — Task 12).
 
-Lit la configuration depuis l'environnement, résout les chemins templates/static
-relatifs au paquet, construit l'application via ``build_app`` et lance uvicorn.
+Reads the configuration from the environment, resolves the templates/static paths
+relative to the package, builds the application via ``build_app`` and starts uvicorn.
 
-Variables d'environnement :
-- ``CATALOG_DB``     : chemin vers catalog.db (requis)
-- ``LOCAL_DB``       : chemin vers local.db (requis)
-- ``TARGETS_CONFIG`` : chemin vers targets.yaml (requis)
-- ``MATCHER_CONFIG`` : chemin vers matcher.yaml (requis)
-- ``WEBUI_HOST``     : adresse d'écoute (défaut : 127.0.0.1)
-- ``WEBUI_PORT``     : port d'écoute (défaut : 8080)
+Environment variables:
+- ``CATALOG_DB``     : path to catalog.db (required)
+- ``LOCAL_DB``       : path to local.db (required)
+- ``TARGETS_CONFIG`` : path to targets.yaml (required)
+- ``MATCHER_CONFIG`` : path to matcher.yaml (required)
+- ``WEBUI_HOST``     : listen address (default: 127.0.0.1)
+- ``WEBUI_PORT``     : listen port (default: 8080)
 """
 
 import os
@@ -22,15 +22,15 @@ from catalog_webui.composition.app import build_app
 
 
 def _require_env(env: Mapping[str, str], key: str) -> str:
-    """Retourne ``env[key]`` ou lève ``RuntimeError`` avec le nom de la variable manquante."""
+    """Return ``env[key]`` or raise ``RuntimeError`` with the missing variable's name."""
     value = env.get(key)
     if value is None:
-        raise RuntimeError(f"{key} requis")
+        raise RuntimeError(f"{key} required")
     return value
 
 
 def main() -> None:
-    """Configure et lance l'application webui (host/port/chemins depuis l'environnement)."""
+    """Configure and start the webui application (host/port/paths from the environment)."""
     env = os.environ
 
     catalog_db = Path(_require_env(env, "CATALOG_DB"))

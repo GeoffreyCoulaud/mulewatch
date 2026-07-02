@@ -1,15 +1,15 @@
-"""Hiérarchie d'erreurs de l'adapter persistence (spec data-model §7 ; orchestration §7).
+"""Persistence adapter error hierarchy (data-model spec §7; orchestration §7).
 
-L'adapter SIGNALE, il ne décide pas (même philosophie que l'adapter EC) : toute
-``sqlite3.Error`` inattendue sort enveloppée en ``PersistenceError``, jamais nue.
-Un trigger append-only qui se déclenche est un BUG du code appelant, pas un cas
-métier → la même ``PersistenceError``. ``wrap_sqlite_errors`` est l'enveloppe
-UNIQUE partagée par la connexion et les deux repositories (cause chaînée gardée).
+The adapter SIGNALS, it does not decide (same philosophy as the EC adapter): any
+unexpected ``sqlite3.Error`` comes out wrapped as ``PersistenceError``, never bare.
+An append-only trigger that fires is a BUG in the caller code, not a business
+case → the same ``PersistenceError``. ``wrap_sqlite_errors`` is the SINGLE
+wrapper shared by the connection and the two repositories (chained cause kept).
 
-``PersistenceError`` HÉRITE du contrat de port ``RepositoryError`` (``ports/
-repository_errors.py``) : l'application catch ``RepositoryError`` (spec orchestration §7,
-« une obs en échec est loggée, le cycle continue »), jamais cette classe d'adapter — règle
-de dépendance §4. Dépendance adapter→port, licite.
+``PersistenceError`` INHERITS from the ``RepositoryError`` port contract (``ports/
+repository_errors.py``): the application catches ``RepositoryError`` (orchestration spec §7,
+"a failed obs is logged, the cycle continues"), never this adapter class — dependency
+rule §4. adapter→port dependency, allowed.
 """
 
 import sqlite3
@@ -20,16 +20,16 @@ from emule_indexer.ports.repository_errors import RepositoryError
 
 
 class PersistenceError(RepositoryError):
-    """Base de toutes les erreurs de l'adapter persistence (sous le contrat de port)."""
+    """Base of all persistence adapter errors (under the port contract)."""
 
 
 class MigrationError(PersistenceError):
-    """Base plus récente que le code, ou script qui échoue (fail-fast, spec MVP §14)."""
+    """Database newer than the code, or a script that fails (fail-fast, MVP spec §14)."""
 
 
 @contextmanager
 def wrap_sqlite_errors() -> Iterator[None]:
-    """Enveloppe toute ``sqlite3.Error`` en ``PersistenceError`` (cause chaînée)."""
+    """Wraps any ``sqlite3.Error`` as ``PersistenceError`` (chained cause)."""
     try:
         yield
     except sqlite3.Error as error:

@@ -1,5 +1,5 @@
-"""Erreur de config commune (fail-fast §5/§14), isolée pour casser un cycle d'import."""
+"""Shared config error (fail-fast §5/§14), isolated to break an import cycle."""
 
 
 class ConfigError(Exception):
-    """Config invalide → refus de démarrer (fail-fast, spec §5/§14)."""
+    """Invalid config → refuse to start (fail-fast, spec §5/§14)."""

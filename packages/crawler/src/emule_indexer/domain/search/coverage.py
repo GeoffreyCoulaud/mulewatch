@@ -1,13 +1,13 @@
-"""Couverture EFFECTIVE du réseau, dérivée des statuts (PUR, spec orchestration §7 ; MVP §13).
+"""EFFECTIVE network coverage, derived from statuses (PURE, spec orchestration §7; MVP §13).
 
-Domaine PUR : reçoit des faits BOOLÉENS déjà observés (« telle instance peut-elle faire
-aboutir une recherche ? ») et rend un signal agrégé. « Le process vit » ≠ « on peut
-trouver maintenant » (spec MVP §13) : ``effective_coverage`` répond à la seconde question.
+PURE domain: receives already-observed BOOLEAN facts ("can this instance make a search
+succeed?") and returns an aggregated signal. "The process is alive" ≠ "we can find right
+now" (spec MVP §13): ``effective_coverage`` answers the second question.
 
-Le domaine NE connaît PAS ``NetworkStatus`` (qui vit dans ``ports`` — règle de dépendance
-``ports ← application → domain`` : le domaine n'importe jamais un port). C'est
-l'APPLICATION (``run_search_cycle``) qui traduit chaque ``NetworkStatus`` en booléen
-« search-capable » (HighID eD2k OU Kad CONNECTED) avant d'appeler cette fonction pure.
+The domain does NOT know ``NetworkStatus`` (which lives in ``ports`` — dependency rule
+``ports ← application → domain``: the domain never imports a port). It is the APPLICATION
+(``run_search_cycle``) that translates each ``NetworkStatus`` into a "search-capable"
+boolean (HighID eD2k OR Kad CONNECTED) before calling this pure function.
 """
 
 from collections.abc import Sequence
@@ -15,7 +15,7 @@ from enum import StrEnum
 
 
 class Coverage(StrEnum):
-    """Signal agrégé de couverture (spec MVP §13). Enum fermé."""
+    """Aggregated coverage signal (spec MVP §13). Closed enum."""
 
     HEALTHY = "healthy"
     DEGRADED = "degraded"
@@ -23,12 +23,12 @@ class Coverage(StrEnum):
 
 
 def effective_coverage(search_capable: Sequence[bool]) -> Coverage:
-    """Agrège la capacité de recherche par instance en un signal (spec MVP §13).
+    """Aggregate per-instance search capability into one signal (spec MVP §13).
 
-    Aucune instance (liste vide) OU aucune capable → ``BLIND`` (on ne peut rien trouver,
-    loggé fort par l'appelant, spec §7). Toutes capables → ``HEALTHY``. Mélange →
-    ``DEGRADED`` (certaines instances aveugles). ``any(())`` vaut ``False`` → la liste
-    vide tombe bien sur ``BLIND``.
+    No instance (empty list) OR none capable → ``BLIND`` (we can find nothing, logged
+    loudly by the caller, spec §7). All capable → ``HEALTHY``. A mix → ``DEGRADED`` (some
+    instances blind). ``any(())`` is ``False`` → the empty list correctly lands on
+    ``BLIND``.
     """
     if not any(search_capable):
         return Coverage.BLIND

@@ -1,18 +1,18 @@
-"""Recalcul d'explication de match depuis la config courante (spec W-D7 / Task 9).
+"""Recompute a match explanation from the current config (spec W-D7 / Task 9).
 
-``MatchingExplainer`` charge ``matcher.yaml`` + ``targets.yaml`` au moment de la
-construction (une seule fois) et expose ``explain()`` pour recalculer l'explication
-d'un fichier contre la config ACTUELLE.
+``MatchingExplainer`` loads ``matcher.yaml`` + ``targets.yaml`` at construction time
+(once) and exposes ``explain()`` to recompute a file's explanation against the CURRENT
+config.
 
-Conversion ``size_bytes → size_mb`` : reproduit exactement la logique de
-``emule_indexer.domain.observation.FileObservation.to_candidate`` sans importer le
-crawler. Source : ``packages/crawler/src/emule_indexer/domain/observation.py`` :
+``size_bytes → size_mb`` conversion: reproduces exactly the logic of
+``emule_indexer.domain.observation.FileObservation.to_candidate`` without importing the
+crawler. Source: ``packages/crawler/src/emule_indexer/domain/observation.py``:
 
     _BYTES_PER_MIB = 1024 * 1024
     size_mb=self.size_bytes / _BYTES_PER_MIB
 
-Les champs ``duration_sec`` et ``bitrate_kbps`` sont convertis ``int → float | None``
-de la même façon (``float(x) if x is not None else None``).
+The ``duration_sec`` and ``bitrate_kbps`` fields are converted ``int → float | None``
+the same way (``float(x) if x is not None else None``).
 """
 
 from pathlib import Path
@@ -23,15 +23,15 @@ from catalog_matching.engine import Explanation, MatchingEngine
 from catalog_matching.models import FileCandidate, TargetSegment
 from catalog_matching.validation import parse_matcher_config, parse_targets
 
-# Décision 8 du crawler : les « MB » eMule sont des Mio (binaire).
+# Crawler DECISION 8: eMule "MB" are Mio (binary).
 _BYTES_PER_MIB = 1024 * 1024
 
 
 class MatchingExplainer:
-    """Construit et met en cache un :class:`MatchingEngine` depuis les fichiers YAML.
+    """Build and cache a :class:`MatchingEngine` from the YAML files.
 
-    L'engine est résolu UNE FOIS (arbres de matchers pré-compilés par cible) à la
-    construction. Les appels successifs à ``explain()`` réutilisent le même engine.
+    The engine is resolved ONCE (matcher trees pre-compiled per target) at
+    construction. Successive calls to ``explain()`` reuse the same engine.
     """
 
     def __init__(self, *, matcher_yaml: Path, targets_yaml: Path) -> None:
@@ -49,16 +49,16 @@ class MatchingExplainer:
         bitrate_kbps: int | None,
         target_id: str,
     ) -> Explanation | None:
-        """Recalcule l'explication de ``filename`` contre la cible ``target_id``.
+        """Recompute the explanation of ``filename`` against target ``target_id``.
 
-        Reproduit la conversion d'unités du crawler :
-        - ``size_bytes / (1024 * 1024)`` → ``size_mb`` (Mio binaire, toujours fourni
-          si ``size_bytes`` est non-``None``).
-        - ``float(media_length_sec)`` → ``duration_sec`` (``None`` si absent).
-        - ``float(bitrate_kbps)`` → ``bitrate_kbps`` du ``FileCandidate`` (``None`` si
-          absent).
+        Reproduces the crawler's unit conversion:
+        - ``size_bytes / (1024 * 1024)`` → ``size_mb`` (binary Mio, always provided
+          if ``size_bytes`` is non-``None``).
+        - ``float(media_length_sec)`` → ``duration_sec`` (``None`` if missing).
+        - ``float(bitrate_kbps)`` → the ``FileCandidate``'s ``bitrate_kbps`` (``None`` if
+          missing).
 
-        Retourne ``None`` si ``target_id`` est inconnu de la config actuelle.
+        Return ``None`` if ``target_id`` is unknown to the current config.
         """
         size_mb = size_bytes / _BYTES_PER_MIB if size_bytes is not None else None
         duration = float(media_length_sec) if media_length_sec is not None else None

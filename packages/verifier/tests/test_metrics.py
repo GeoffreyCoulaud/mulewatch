@@ -1,4 +1,4 @@
-"""VerifierMetrics : compteur par verdict + histogramme de durée, sur un registre dédié."""
+"""VerifierMetrics: per-verdict counter + duration histogram, on a dedicated registry."""
 
 from download_verifier.metrics import VerifierMetrics
 

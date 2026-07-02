@@ -1,4 +1,4 @@
-"""Tests pour catalog_webui.adapters.db.open_ro — TDD (spec W-D2 / §16)."""
+"""Tests for catalog_webui.adapters.db.open_ro — TDD (spec W-D2 / §16)."""
 
 import sqlite3
 from pathlib import Path

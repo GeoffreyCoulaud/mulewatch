@@ -1,19 +1,19 @@
-"""Port ``MuleRestarter`` : redémarre le conteneur amuled (port-sync High-ID, design §4.1/§5).
+"""``MuleRestarter`` port: restart the amuled container (High-ID port-sync, design §4.1/§5).
 
-Couche PORTS. amuled ne re-bind PAS son port d'écoute à chaud (socket créé une seule fois au
-boot) : après un ``set_listen_port`` EC, il faut RESTARTER le conteneur pour qu'il re-bind le
-nouveau port. Le restart passe par un docker-socket-proxy à surface minimale (le crawler ne voit
-JAMAIS le socket Docker). ``RestarterError`` (le proxy refuse/échoue) est ABSORBÉE par la boucle
-(jamais fatale → alerte edge-triggered + backoff). Stub sur UNE ligne (le ``def`` compte couvert).
+PORTS layer. amuled does NOT re-bind its listen port at runtime (socket created once at boot):
+after an EC ``set_listen_port``, the container must be RESTARTED so it re-binds the new port.
+The restart goes through a minimal-surface docker-socket-proxy (the crawler NEVER sees the
+Docker socket). ``RestarterError`` (the proxy refuses/fails) is ABSORBED by the loop (never
+fatal → edge-triggered alert + backoff). Stub on ONE line (the ``def`` counts as covered).
 """
 
 from typing import Protocol
 
 
 class RestarterError(Exception):
-    """Le restart du conteneur amuled a échoué (proxy injoignable / ≠2xx) → absorbé par la boucle.
+    """Restart of the amuled container failed (proxy unreachable / ≠2xx) → absorbed by the loop.
 
-    La boucle l'attrape sans importer cet adapter (règle de dépendance §4) : alerte + backoff.
+    The loop catches it without importing this adapter (dependency rule §4): alert + backoff.
     """
 
 

@@ -1,4 +1,4 @@
-"""Tests TDD pour matching_read.MatchingExplainer (Task 9 — W-D7)."""
+"""TDD tests for matching_read.MatchingExplainer (Task 9 — W-D7)."""
 
 from pathlib import Path
 
@@ -31,7 +31,7 @@ episodes:
 
 
 def _minimal_matcher_yaml(path: Path) -> Path:
-    """Matcher minimal : token keyword 'keroro' + règle catalog."""
+    """Minimal matcher: keyword token 'keroro' + catalog rule."""
     return _write_file(
         path / "matcher.yaml",
         """\
@@ -53,7 +53,7 @@ rules:
 
 
 def test_explainer_returns_explanation_on_matching_filename(tmp_path: Path) -> None:
-    """Filename contenant 'keroro' → Explanation avec rules_fired non vide."""
+    """Filename containing 'keroro' → Explanation with non-empty rules_fired."""
     matcher_path = _minimal_matcher_yaml(tmp_path)
     targets_path = _minimal_targets_yaml(tmp_path)
 
@@ -74,7 +74,7 @@ def test_explainer_returns_explanation_on_matching_filename(tmp_path: Path) -> N
 
 
 def test_explainer_returns_none_for_unknown_target(tmp_path: Path) -> None:
-    """target_id inconnu de la config → None."""
+    """target_id unknown to the config → None."""
     matcher_path = _minimal_matcher_yaml(tmp_path)
     targets_path = _minimal_targets_yaml(tmp_path)
 
@@ -93,12 +93,12 @@ def test_explainer_returns_none_for_unknown_target(tmp_path: Path) -> None:
 
 
 def test_explainer_size_bytes_converted_to_mb(tmp_path: Path) -> None:
-    """size_bytes → size_mb via conversion Mio (1024*1024).
+    """size_bytes → size_mb via Mio conversion (1024*1024).
 
-    On vérifie que le FileCandidate est construit sans erreur avec size_bytes fourni.
-    Un matcher attr_between sur size_mb permet de vérifier la valeur passée.
+    We verify the FileCandidate is built without error with size_bytes provided.
+    An attr_between matcher on size_mb lets us verify the passed value.
     """
-    # Matcher avec un token attr_between sur size_mb : 100 MiB exactement
+    # Matcher with an attr_between token on size_mb: exactly 100 MiB
     _write_file(
         tmp_path / "matcher.yaml",
         """\
@@ -123,7 +123,7 @@ rules:
         matcher_yaml=tmp_path / "matcher.yaml",
         targets_yaml=tmp_path / "targets.yaml",
     )
-    # 100 * 1024 * 1024 = 104857600 octets = exactement 100.0 MiB
+    # 100 * 1024 * 1024 = 104857600 bytes = exactly 100.0 MiB
     result = explainer.explain(
         filename="keroro_062a.avi",
         size_bytes=104857600,
@@ -136,8 +136,8 @@ rules:
 
 
 def test_explainer_media_length_and_bitrate_forwarded(tmp_path: Path) -> None:
-    """media_length_sec et bitrate_kbps sont transmis tels quels au FileCandidate."""
-    # Matcher avec attr_between sur duration_sec et bitrate_kbps
+    """media_length_sec and bitrate_kbps are forwarded as-is to the FileCandidate."""
+    # Matcher with attr_between on duration_sec and bitrate_kbps
     _write_file(
         tmp_path / "matcher.yaml",
         """\
@@ -179,7 +179,7 @@ rules:
 
 
 def test_explainer_engine_cached_across_calls(tmp_path: Path) -> None:
-    """Plusieurs appels à explain() réutilisent le même engine (objet identique)."""
+    """Multiple explain() calls reuse the same engine (identical object)."""
     matcher_path = _minimal_matcher_yaml(tmp_path)
     targets_path = _minimal_targets_yaml(tmp_path)
 
@@ -187,7 +187,7 @@ def test_explainer_engine_cached_across_calls(tmp_path: Path) -> None:
         matcher_yaml=matcher_path,
         targets_yaml=targets_path,
     )
-    # Deux appels successifs — le engine doit être construit UNE fois (attribut privé stable)
+    # Two successive calls — the engine must be built ONCE (stable private attribute)
     r1 = explainer.explain(
         filename="keroro_vf.avi",
         size_bytes=None,
@@ -202,5 +202,5 @@ def test_explainer_engine_cached_across_calls(tmp_path: Path) -> None:
         bitrate_kbps=None,
         target_id="S2E062A",
     )
-    # Les deux résultats sont identiques (engine stable)
+    # Both results are identical (stable engine)
     assert r1 == r2

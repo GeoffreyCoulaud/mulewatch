@@ -1,1 +1,1 @@
-"""Moteur de matching (domaine pur) : modèles cibles, interpolation, matchers feuilles."""
+"""Matching engine (pure domain): target models, interpolation, leaf matchers."""

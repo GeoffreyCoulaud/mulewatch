@@ -1,10 +1,10 @@
-"""Intégration contre un amuled RÉEL (image ngosang/amule, réf. protocole §8).
+"""Integration against a REAL amuled (ngosang/amule image, protocol ref. §8).
 
-Run dédié : uv run pytest -m ec_integration --no-cov
-Valide : auth réelle (formule du hash §4 contre le vrai daemon), échec d'auth, statut
-réseau, et le CYCLE complet start/fetch/stop — les résultats peuvent être vides sans
-accès réseau eD2k : c'est le cycle qui est validé (spec §7.3), la richesse des champs
-réels vient du probe (rapport livrable 5).
+Dedicated run: uv run pytest -m ec_integration --no-cov
+Validates: real auth (hash formula §4 against the real daemon), auth failure, network
+status, and the full start/fetch/stop CYCLE — the results may be empty without eD2k
+network access: it is the cycle that is validated (spec §7.3), the richness of the real
+fields comes from the probe (the deliverable 5 report).
 """
 
 from collections.abc import Iterator
@@ -20,14 +20,14 @@ from emule_indexer.ports.mule_client import KadStatus, NetworkStatus, SearchChan
 pytestmark = pytest.mark.ec_integration
 
 _EC_PASSWORD = "indexer-ec-test"
-_IMAGE = "ngosang/amule:3.0.0-1"  # DÉCISION 10 : image Docker Hub du dépôt ngosang/docker-amule
+_IMAGE = "ngosang/amule:3.0.0-1"  # DECISION 10: Docker Hub image from ngosang/docker-amule
 
 
 @pytest.fixture(scope="module")
 def amuled() -> Iterator[tuple[str, int]]:
-    # Readiness (réf. §8) : « *** TCP socket (ECServer) listening on 0.0.0.0:4712 »
-    # (ExternalConn.cpp:333). Motif regex SANS les parenthèses littérales. La stratégie
-    # détecte aussi un conteneur mort avant la ligne attendue (RuntimeError immédiate).
+    # Readiness (ref. §8): "*** TCP socket (ECServer) listening on 0.0.0.0:4712"
+    # (ExternalConn.cpp:333). Regex pattern WITHOUT the literal parentheses. The strategy
+    # also detects a container that died before the expected line (immediate RuntimeError).
     ready = LogMessageWaitStrategy(r"listening on 0\.0\.0\.0:4712").with_startup_timeout(180)
     container = (
         DockerContainer(_IMAGE)
@@ -36,17 +36,17 @@ def amuled() -> Iterator[tuple[str, int]]:
         .waiting_for(ready)
     )
     try:
-        container.start()  # la readiness est attendue PENDANT start() (stratégie ci-dessus)
+        container.start()  # readiness is awaited DURING start() (strategy above)
         yield container.get_container_host_ip(), int(container.get_exposed_port(4712))
     finally:
-        container.stop()  # no-op sûr si le conteneur n'a jamais été créé
+        container.stop()  # safe no-op if the container was never created
 
 
 @pytest.mark.asyncio
 async def test_real_auth_succeeds(amuled: tuple[str, int]) -> None:
     host, port = amuled
     client = AmuleEcClient(host, port, _EC_PASSWORD, timeout=30.0)
-    await client.connect()  # formule du hash §4 validée contre le VRAI daemon
+    await client.connect()  # hash formula §4 validated against the REAL daemon
     await client.close()
 
 
@@ -66,7 +66,7 @@ async def test_real_network_status(amuled: tuple[str, int]) -> None:
     try:
         status = await client.network_status()
         assert isinstance(status, NetworkStatus)
-        assert status.kad_status in set(KadStatus)  # état réel quelconque, mais DÉCODÉ
+        assert status.kad_status in set(KadStatus)  # any real state, but DECODED
     finally:
         await client.close()
 
@@ -80,14 +80,14 @@ async def test_real_search_cycle(amuled: tuple[str, int]) -> None:
         try:
             await client.start_search("keroro", SearchChannel.GLOBAL)
         except EcFailureError as exc:
-            # amuled a répondu EC_OP_FAILED proprement (pas de serveur eD2k joignable
-            # depuis le conteneur) : le cycle requête/réponse applicatif EST validé,
-            # avec le message du daemon transmis (spec §6, DÉCISION 10).
+            # amuled responded EC_OP_FAILED cleanly (no eD2k server reachable
+            # from the container): the application request/response cycle IS validated,
+            # with the daemon's forwarded message (spec §6, DECISION 10).
             assert str(exc)
             return
         progress = await client.search_progress()
         assert progress is None or 0 <= progress <= 100
-        results = await client.fetch_results()  # possiblement vide : le CYCLE compte
+        results = await client.fetch_results()  # possibly empty: the CYCLE is what counts
         assert isinstance(results, tuple)
         await client.stop_search()
     finally:

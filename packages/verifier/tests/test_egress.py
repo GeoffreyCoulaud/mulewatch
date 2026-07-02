@@ -74,7 +74,7 @@ def test_non_list_checks_is_suspicious() -> None:
     assert egress.parse(payload, 0, False, _CFG) == ("suspicious", {}, [])
 
 
-# --- classify_outcome (observability#2) : la cause TECHNIQUE de l'issue ----------------------
+# --- classify_outcome (observability#2): the outcome's TECHNICAL cause -----------------------
 
 
 def test_classify_outcome_ok_for_valid_egress() -> None:
@@ -87,7 +87,7 @@ def test_classify_outcome_each_valid_verdict_is_ok() -> None:
 
 
 def test_classify_outcome_timeout() -> None:
-    # timed_out wins over tout le reste (premier filtre).
+    # timed_out wins over everything else (first filter).
     assert egress.classify_outcome(_valid(), 0, True, _CFG) == "timeout"
 
 

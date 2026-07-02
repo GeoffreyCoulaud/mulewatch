@@ -1,4 +1,4 @@
-"""Tests de MatchingEngine.explain(candidate, target_id) (cf. spec W-D7/§7)."""
+"""Tests of MatchingEngine.explain(candidate, target_id) (cf. spec W-D7/§7)."""
 
 from catalog_matching.engine import Explanation, MatchingEngine
 from catalog_matching.models import FileCandidate

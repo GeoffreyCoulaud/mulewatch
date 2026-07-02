@@ -12,7 +12,7 @@ from emule_indexer.ports.mule_download_client import (
 
 
 class _StubDownloadClient:
-    """Satisfait MuleDownloadClient structurellement (sans l'importer)."""
+    """Satisfies MuleDownloadClient structurally (without importing it)."""
 
     def __init__(self) -> None:
         self.links: list[str] = []
@@ -65,8 +65,8 @@ def test_is_not_complete_below_full() -> None:
 
 
 def test_zero_full_size_is_never_complete() -> None:
-    # size_full == 0 (entrée naissante) ne doit JAMAIS compter comme complète (sinon on
-    # promouvrait un fichier vide). Garde explicite.
+    # size_full == 0 (nascent entry) must NEVER count as complete (otherwise we would
+    # promote an empty file). Explicit guard.
     assert DownloadEntry(ed2k_hash="a" * 32, size_done=0, size_full=0).is_complete is False
 
 
