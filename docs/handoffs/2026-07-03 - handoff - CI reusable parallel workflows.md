@@ -74,18 +74,22 @@ matrices orthogonales ; pin SHA.
   (3 manifests) verts. **Confirmé** : `ghcr.io/geoffreycoulaud/emule-indexer-{crawler,verifier,webui}`
   publiées en **OCI image index amd64 + arm64**, tags `main` + `latest` + `sha`.
 
+## Réglé depuis (post-merge)
+
+- **Visibilité ghcr** : packages **publics** (déjà fait par Geoffrey).
+- **Dependabot** : **activé** — `.github/dependabot.yml` (`chore(ci): enable Dependabot`, `718d8e9`),
+  écosystème `github-actions`, hebdo, **PR groupée**, préfixe `chore(ci)`. Bumpe le SHA **et** le
+  commentaire `# vX.Y.Z` des actions (workflows + composite actions), ignore les refs locales.
+
 ## PAS encore fait / à décider
 
-- **Visibilité ghcr** : les packages sont **privés** au 1er publish. Les rendre publics si on veut
-  un `docker pull` anonyme (Settings → Packages → visibility).
 - **Branch protection** : si activée, viser les **nouveaux noms de checks** (`validate / lint`,
   `validate / test (crawler)`, `validate / build (crawler, amd64)`, `validate / integration (amd64)`,
   `validate / integration (arm64)`, …).
-- **Dependabot** peut désormais bumper les actions (commentaires `# vX.Y.Z` lisibles) — non configuré.
 - Aucune image n'a été **déployée sur un vrai nœud** ici (le smoke valide le câblage du stack, pas
   un run de prod). Voir les runbooks `docs/runbooks/` pour un déploiement réel.
 
 ## Prochaine étape suggérée
 
-Régler la visibilité ghcr + la branch protection selon l'intention, puis reprendre le fil produit
-(le lost-media Keroro) là où le handoff précédent s'était arrêté.
+Régler la branch protection selon l'intention, puis reprendre le fil produit (le lost-media Keroro)
+là où le handoff précédent s'était arrêté.
