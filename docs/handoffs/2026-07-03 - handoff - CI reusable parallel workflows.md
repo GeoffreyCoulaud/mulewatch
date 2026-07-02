@@ -77,10 +77,15 @@ matrices orthogonales ; pin SHA.
 ## Réglé depuis (post-merge)
 
 - **Visibilité ghcr** : packages **publics** (déjà fait par Geoffrey).
-- **Dependabot** : **activé** — `.github/dependabot.yml`, **3 écosystèmes** hebdo + PR groupée :
-  `github-actions` (bumpe SHA **et** commentaire `# vX.Y.Z` des workflows + composite actions ;
-  ignore les refs locales), `docker` (les `FROM` de `packages/*/Dockerfile` — pas les compose),
-  `uv` (workspace Python : `pyproject.toml` + `uv.lock` racine). Commits `718d8e9` + `84ee737`.
+- **Images de base pinnées au digest** (`8cc72ff`, PR #9) : les `FROM` des 3 Dockerfiles pointent
+  vers le **digest d'index OCI multi-arch** (`tag@sha256:…`, tag conservé) — builder
+  `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` + runtime `python:3.12-slim-bookworm`. Vérifié :
+  les digests sont des index amd64+arm64, donc multi-arch préservé ; republié vert sur `main`.
+- **Dependabot** : **activé + confirmé actif** — `.github/dependabot.yml`, **3 écosystèmes** hebdo
+  + PR groupée : `github-actions` (SHA + commentaire `# vX.Y.Z` ; ignore les refs locales),
+  `docker` (les `FROM` de `packages/*/Dockerfile` — pas les compose), `uv` (workspace Python).
+  Commits `718d8e9` + `84ee737`. PRs groupées déjà générées (`docker` #8, `python`/uv #10 →
+  l'écosystème `uv` est validé) ; pas de PR `github-actions` car déjà au dernier SHA.
 
 ## PAS encore fait / à décider
 
