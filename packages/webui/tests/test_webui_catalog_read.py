@@ -446,3 +446,24 @@ def test_list_files_shows_latest_observation(catalog_db: Path) -> None:
     rows = reader.list_files(target=None, tier=None, verdict=None, query=None, page=1)
     assert len(rows) == 1
     assert rows[0].filename == "new_name.avi"
+
+
+# ---------------------------------------------------------------------------
+# Tests: count_files — /files summary (matched, total)
+# ---------------------------------------------------------------------------
+
+
+def test_count_files_no_filter_returns_matched_and_total(catalog_db: Path) -> None:
+    _seed(catalog_db)  # 1 matched file
+    _seed_unmatched(catalog_db)  # 1 unmatched file
+    reader = CatalogReader(open_ro(catalog_db))
+    matched, total = reader.count_files(target=None, tier=None, verdict=None, query=None)
+    assert (matched, total) == (1, 2)
+
+
+def test_count_files_respects_query_filter(catalog_db: Path) -> None:
+    _seed(catalog_db)  # filename keroro_062.avi (matched)
+    _seed_unmatched(catalog_db)  # filename gallego_ep021.ogm (unmatched)
+    reader = CatalogReader(open_ro(catalog_db))
+    matched, total = reader.count_files(target=None, tier=None, verdict=None, query="gallego")
+    assert (matched, total) == (0, 1)  # only the unmatched file matches the query
