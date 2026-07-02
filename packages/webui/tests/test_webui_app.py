@@ -333,6 +333,20 @@ async def test_files_default_hides_unmatched(
 
 
 @pytest.mark.asyncio
+async def test_files_toggle_preserves_active_filter(
+    populated_app: tuple[Starlette, str],
+) -> None:
+    """The matched→all toggle must carry the active q filter (spec §5: filters preserved)."""
+    app, hash_ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files?q=keroro")
+    assert resp.status_code == 200
+    assert hash_[:8] in resp.text  # the matched file still shows under the q filter
+    # Jinja2 autoescapes "&" to "&amp;" inside the href attribute.
+    assert 'href="/files?q=keroro&amp;show_unmatched=1">Show all catalogued files' in resp.text
+
+
+@pytest.mark.asyncio
 async def test_files_show_unmatched_reveals_and_toggles_back(
     app_no_decision: tuple[Starlette, str],
 ) -> None:
@@ -344,7 +358,7 @@ async def test_files_show_unmatched_reveals_and_toggles_back(
     assert hash_[:8] in resp.text
     assert "Showing all catalogued files — 1 catalogued (0 matched)." in resp.text
     assert "Matched only" in resp.text
-    assert 'href="/files"' in resp.text  # toggle drops the param (no filters) → bare /files
+    assert 'href="/files">Matched only' in resp.text  # toggle drops the param → bare /files
 
 
 @pytest.mark.asyncio
