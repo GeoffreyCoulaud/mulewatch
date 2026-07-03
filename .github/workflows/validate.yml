@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       push:
-        description: If true, the image job also pushes each image to ghcr by digest.
+        description: If true, the build-and-verify job also pushes each image to ghcr by digest.
         type: boolean
         default: false
 
@@ -36,9 +36,9 @@ jobs:
   # One job per arch on its native runner: build the 3 images (loaded locally, and pushed
   # by digest when inputs.push), run the compose smoke stack against the local images, then
   # upload the digests for the release merge. The push exporter runs during the build, but
-  # only `merge` publishes a tag — and merge is downstream of this job's integration step,
-  # so no tag ever references an image that failed integration.
-  image:
+  # only publish-manifest publishes a tag — and it is downstream of this job's integration
+  # step, so no tag ever references an image that failed integration.
+  build-and-verify:
     needs: [lint, test]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     permissions:
