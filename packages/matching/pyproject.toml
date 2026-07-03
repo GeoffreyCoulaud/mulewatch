@@ -2,9 +2,8 @@
 name = "catalog-matching"
 version = "0.0.0"
 description = "Moteur de matching fichier→épisode (domaine pur, YAML-driven) — partagé crawler/webui"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
-    "google-re2>=1.1.20251105",
     "rapidfuzz>=3.14.5",
 ]
 
