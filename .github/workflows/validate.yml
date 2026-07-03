@@ -132,3 +132,22 @@ jobs:
           path: /tmp/digests/webui/*
           if-no-files-found: error
           retention-days: 1
+
+  # Single aggregation gate for branch protection: require only `validate / gate` instead of the
+  # individual (matrix-suffixed) job checks — stable when jobs/matrix legs change. `if: always()`
+  # is essential: GitHub treats a *skipped* required check as passing, so the gate must always run
+  # and fail explicitly rather than be skipped when an upstream job fails.
+  gate:
+    needs: [lint, test, build-and-verify]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: All validation jobs must succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Validation job results: $RESULTS"
+          for r in $RESULTS; do
+            [ "$r" = "success" ] || { echo "::error::a required validation job reported '$r'"; exit 1; }
+          done
+          echo "All validation jobs succeeded."
