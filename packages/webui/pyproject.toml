@@ -2,7 +2,7 @@
 name = "catalog-webui"
 version = "0.0.0"
 description = "WebUI de consultation du catalogue (lecture seule, SSR) — déployable séparé"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "catalog-matching",
     "starlette>=1.3",

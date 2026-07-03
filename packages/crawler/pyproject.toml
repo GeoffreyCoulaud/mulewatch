@@ -2,7 +2,7 @@
 name = "emule-indexer"
 version = "0.0.0"
 description = "Crawler eMule — surveillance, catalogue, auto-download (Keroro VF lost media)"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "apprise>=1.9",
     "catalog-matching",
