@@ -84,8 +84,8 @@ Integration suites (Docker / ffmpeg, deselected by default, excluded from covera
 - **Strict TDD**: tests are the spec; write the failing test first, watch it fail, then the minimal implementation. Code review judges the tests first. Every test function is annotated `-> None` with typed params.
 - **`mypy --strict`** over **both `src` and `tests`**. **`ruff`** selects `E,F,I,UP,B,SIM`, line-length **100**.
 - **Clean / Hexagonal**: `domain/` is **pure** — no I/O, no `yaml`/DB/network/clock/logging imports. All I/O lives in `adapters/`. The dependency graph is a DAG. `${NAME}` env-var interpolation in `crawler.yml` is resolved by the config adapter before anything reaches the domain — the domain itself never touches env vars.
-- **Python only** (≥3.12). Conventional commits (`feat(domain):`, `fix(domain):`, `test:`, `chore:`, `docs:`).
-- **Language: all code is English** (decided 2026-07-02) — identifiers AND prose: comments, docstrings, runtime-emitted messages/logs, CI step names, and commit messages. The only French left in the codebase is genuine *domain data* (real VF episode titles like `La Grenouille Cosmique`, eMule filenames, non-ASCII test fixtures) — data, not prose. Historical markdown under `docs/` was not retro-translated. Conversational replies to the operator stay French.
+- **Python only** (≥3.14). Conventional commits (`feat(domain):`, `fix(domain):`, `test:`, `chore:`, `docs:`).
+- **Language: all code is English** (decided 2026-07-02) — identifiers AND prose: comments, docstrings, runtime-emitted messages/logs, CI step names, and commit messages. The only French left in the codebase is genuine *domain data* (real VF episode titles like `La Grenouille Cosmique`, eMule filenames, non-ASCII test fixtures) — data, not prose. **New docs under `docs/specs/`, `docs/plans/` and `docs/handoffs/` are written in English** (decided 2026-07-03); past docs keep their original language (no retro-translation). Conversational replies to the operator stay French.
 - **Subagent-driven execution** (Act phase) + **holistic review** (Verify phase): the cross-cutting review regularly catches bugs — don't skip it.
 - For library/framework/CLI questions, use the **context7 MCP** (current docs), not recalled knowledge.
 
@@ -148,7 +148,7 @@ The core is one layered, declarative matching engine under `packages/matching/sr
 ```
 load_yaml(path)                         # adapters/config/yaml_loader.py — the ONLY I/O
   → parse_matcher_config / parse_targets   # validation.py — schema + fail-fast graph validation:
-  →                                        #   DAG/named-cycle, depth bound (32), RE2 compile-check,
+  →                                        #   DAG/named-cycle, depth bound (32), regex compile-check,
   →                                        #   unique target_id, closed tier/attr enums → ConfigError
   → MatchingEngine(config, targets)        # engine.py — pre-resolves a matcher tree PER TARGET once
   → engine.evaluate(FileCandidate(...))    #   brute-force over all targets (no funnel)
@@ -158,7 +158,7 @@ load_yaml(path)                         # adapters/config/yaml_loader.py — the
 Module roles (each file is single-purpose):
 - `normalization.py` — `fold()` (NFKD + strip diacritics + casefold + `{œ→oe, æ→ae}`, keeps punctuation/digits), `normalize()`/`tokenize()` (alphanumerics only).
 - `models.py` — `FileCandidate`, `TargetSegment` (`season`/`seasonal_number`/`absolute_number`/`segment`/`title`/`status`/`sole_segment`; `.target_id` = `S2E062A` from `absolute_number`, zero-padded; double numérotation absolu+saisonnal).
-- `matchers.py` — the 4 leaf matchers (`KeywordMatcher`, `RegexMatcher` over **RE2**, `CoverageMatcher` via rapidfuzz, `AttrBetweenMatcher`).
+- `matchers.py` — the 4 leaf matchers (`KeywordMatcher`, `RegexMatcher` over stdlib **`re`** (`re.ASCII`), `CoverageMatcher` via rapidfuzz, `AttrBetweenMatcher`).
 - `interpolation.py` — regex placeholder interpolation (`{season} {seasonal_number} {absolute_number} {segment} {title}`, plus `{mono_gate}` → `[^\s\S]` never-match pour neutraliser un token sur les cibles non-mono).
 - `combinators.py` — the `Matcher` Protocol (`matches(candidate) -> bool`) + `All/Any/NotMatcher`; leaf matchers satisfy it structurally.
 - `config.py` — frozen tagged-union config model (`*Def`, `Rule`, `MatcherConfig`, `TIERS`).
@@ -166,14 +166,13 @@ Module roles (each file is single-purpose):
 - `resolver.py` — builds the per-target `Matcher` tree; regex interpolated+compiled per target, coverage bound to the title.
 - `engine.py` — `MatchingEngine`; deterministic decision = `min`-key `(-tier_rank, rule_index, target_id)`; `Explanation` is **returned, not logged**.
 
-Invariants: RE2 → linear-time matching (filenames are hostile input); the decision is order-independent (target_ids are unique); `MatchDecision`'s three string fields are exactly the future `match_decisions` columns (persistence columns like `decided_at`/`node_id` are an adapter's job).
+Invariants: the decision is order-independent (target_ids are unique); `MatchDecision`'s three string fields are exactly the future `match_decisions` columns (persistence columns like `decided_at`/`node_id` are an adapter's job). Regex tokens compile under stdlib `re` with `re.ASCII` (was RE2 until 2026-07-03 — see Gotchas).
 
 ## Gotchas
 
-**Matching engine / RE2:**
-- `google-re2` imports as **`re2`** (no type stubs → mypy override in place). Invalid pattern raises **`re2.error`**.
-- **RE2 has no lookaround and no backreferences** — *lookaround* = zero-width assertions like `(?=…)` / `(?<…)` that match without consuming characters; *backreference* = `\1` referring to a captured group. For a digit boundary, use a *consuming* guard `(?:^|[^0-9])` / `(?:[^0-9]|$)` (= "start-of-string OR a non-digit char, consumed"), not `\b` (which behaves differently in RE2 than in PCRE).
-- `re2.compile()` / `re2.escape()` return `Any` — `... is not None` recovers a `bool`; wrap `re2.escape(...)` in `str(...)` to satisfy `--strict`.
+**Matching engine (stdlib `re`, `re.ASCII`):**
+- Regex tokens compile with `re.compile(pattern, re.ASCII)` (`matchers.py`, `validation.py`). `re.ASCII` keeps `\b \d \s \w` ASCII — matching the pre-2026-07-03 RE2 default the existing policy relies on (`fold()` does not reduce non-Latin scripts to ASCII). Case-insensitivity is a leading `(?i)` prefix (not a flag arg). An invalid pattern raises **`re.error`** (caught in `validation.py` → `ConfigError` "not compilable").
+- **Why `re` and not RE2** (decided 2026-07-03): `google-re2` shipped no musllinux wheels (blocked Alpine) and was a native C++ dependency (CVE surface). Trade-off: RE2's *structural* linear-time guarantee is gone. **No anti-ReDoS guardrail** — residual risk accepted because `matcher.yml` is operator-owned, version-controlled and reviewed (the attacker controls the filename, never the pattern). Consequence: lookaround/backreferences are now syntactically permitted (were impossible under RE2). Full record: `docs/specs/2026-07-03-drop-google-re2-alpine-migration.md`.
 - Coverage idioms: a `Protocol` stub `def m(...) -> bool: ...` must be **one line** (a body with `...` on a second line counts as an uncovered branch under `branch=true`). A `case _: assert_never(x)` arm — i.e. the "unreachable default" of a `match` over a closed tagged-union — needs `# pragma: no cover` because it is unreachable by design but the branch counter doesn't know that.
 - Don't validate config order-dependently (parse pass = structural; graph pass = full table). Recursive validators need an explicit depth guard → a clean `DepthExceededError`, not `RecursionError` (which is a Python runtime artifact, not a domain error).
 
