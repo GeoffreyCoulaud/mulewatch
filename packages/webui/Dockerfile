@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # --- Builder : installe catalog-webui (membre du workspace VIRTUEL) via uv ---
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 AS builder
+FROM ghcr.io/astral-sh/uv:python3.14-alpine@sha256:e852e37cfaffb287f2d78de0d4f27e28bf0722ccbf0d6948dbdf19a0b4de7bc7 AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -24,12 +24,14 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-editable --package catalog-webui
 
-# --- Runtime : python slim, pas de dependance binaire (ni ffmpeg ni clamav), non-root ---
-FROM python:3.12-slim-bookworm@sha256:8a7e7cc04fd3e2bd787f7f24e22d5d119aa590d429b50c95dfe12b3abe52f48b
+# --- Runtime : python alpine, pas de dependance binaire (ni ffmpeg ni clamav), non-root ---
+FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
 
 # User non-root (999:999) — composera avec le durcissement compose (user:, read_only).
-RUN groupadd --system --gid 999 nonroot \
-    && useradd --system --gid 999 --uid 999 --create-home nonroot
+# Busybox (Alpine) : addgroup/adduser au lieu de groupadd/useradd (-h reproduit --create-home).
+# Alpine occupe deja GID 999 (groupe `ping`, inutile ici) → on le retire pour liberer 999:999.
+RUN delgroup ping 2>/dev/null; addgroup -S -g 999 nonroot \
+    && adduser -S -u 999 -G nonroot -h /home/nonroot nonroot
 
 COPY --from=builder --chown=nonroot:nonroot /app/.venv /app/.venv
 
