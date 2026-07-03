@@ -49,6 +49,11 @@ class ProdConfiner:
 
     def __call__(self) -> None:  # pragma: no cover
         try:
+            # On musl (Alpine) ctypes.util.find_library("seccomp") returns None (it resolves via
+            # gcc/ld, absent from the minimal image) though libseccomp.so.2 is present. The verifier
+            # IMAGE fixes this at the environment layer via a sitecustomize.py that points the
+            # lookup at the soname — see packages/verifier/docker/sitecustomize.py. This adapter
+            # therefore stays free of any musl-specific workaround.
             import pyseccomp
 
             filt = pyseccomp.SyscallFilter(pyseccomp.ALLOW)  # blocklist: allow by default
@@ -58,9 +63,11 @@ class ProdConfiner:
                     filt.add_rule(pyseccomp.ERRNO(errno.EPERM), name)
             filt.add_rule(pyseccomp.KILL_PROCESS, "ptrace")
             filt.load()  # applies to the current thread (no_new_privs already set → no privilege)
-        except (OSError, ImportError) as exc:
+        except (OSError, ImportError, RuntimeError) as exc:
             # controlled fail-open: never a false suspicious — we continue without the filter (the
-            # other rings hold: internal:true, RO, rlimits, cap_drop).
+            # other rings hold: internal:true, RO, rlimits, cap_drop). RuntimeError covers
+            # pyseccomp's "Unable to find libseccomp" (raised at import if the shim is absent, e.g.
+            # running outside the image on a host without a working find_library).
             _LOG.warning("seccomp filter not installed (fail-open): %s", exc)
             return
 
