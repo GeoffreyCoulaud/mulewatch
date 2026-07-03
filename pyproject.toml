@@ -21,6 +21,7 @@ dev = [
   "sqlfluff>=3.0",
   "testcontainers>=4.10",
   "types-pyyaml>=6.0.12.20260518",
+  "poethepoet>=0.47.1",
 ]
 
 [tool.ruff]
@@ -66,3 +67,29 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "testcontainers.*"
 ignore_missing_imports = true
+
+# Task runner (poethepoet). The gate lives here as the single source of truth; the
+# pre-push hook and CI both call these tasks. `uv run poe` lists them with their help.
+[tool.poe.tasks]
+lint           = { cmd = "ruff check .", help = "Lint Python with ruff" }
+format-check   = { cmd = "ruff format --check .", help = "Check Python formatting with ruff" }
+type-check     = { cmd = "mypy", help = "Type-check with mypy (strict, src + tests)" }
+sql-lint       = { cmd = "sqlfluff lint packages/crawler/src", help = "Lint the embedded SQLite migrations" }
+template-check = { cmd = "python -m catalog_webui._dev.check_templates packages/webui/src/catalog_webui/adapters/templates", help = "Assert webui templates carry no logic" }
+lint-fix       = { cmd = "ruff check --fix .", help = "Auto-fix ruff lint violations" }
+format-fix     = { cmd = "ruff format .", help = "Apply ruff formatting" }
+sql-fix        = { cmd = "sqlfluff fix packages/crawler/src", help = "Auto-fix the SQLite migrations" }
+lint-all       = { help = "Run every static check (no tests)", sequence = ["lint", "format-check", "type-check", "sql-lint", "template-check"] }
+fix            = { help = "Auto-fix everything mechanical (ruff lint + format + sqlfluff)", sequence = ["lint-fix", "format-fix", "sql-fix"], ignore_fail = "return_non_zero" }
+check          = { help = "The full gate: every static check + all unit tests", sequence = ["lint-all", "test"] }
+
+# `test` runs each package's suite in its own process (cwd) so per-package coverage
+# stays isolated — a single root pytest run would mix coverage and break --cov-fail-under=100.
+[tool.poe.tasks.test]
+help = "Run every package's unit suite (per-package 100% branch coverage)"
+sequence = [
+  { cmd = "pytest", cwd = "packages/matching" },
+  { cmd = "pytest", cwd = "packages/crawler" },
+  { cmd = "pytest", cwd = "packages/verifier" },
+  { cmd = "pytest", cwd = "packages/webui" },
+]

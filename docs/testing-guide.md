@@ -23,18 +23,18 @@ compose). Quand un prérequis n'est pas vérifiable dans le code, c'est noté «
 Le projet a **deux niveaux** :
 
 1. **Le gate unitaire** (lancé par défaut, **100 % de couverture de branches** imposée). C'est ce
-   que vérifient le hook pre-push et la CI. Le gate est **par paquet** (4 paquets) :
+   que vérifient le hook pre-push et la CI, via une source unique dans `pyproject.toml`
+   (`[tool.poe.tasks]`) :
 
    ```bash
-   ( cd packages/matching && uv run pytest -q )    # tests matching, 100 % branch
-   ( cd packages/crawler  && uv run pytest -q )    # tests crawler,  100 % branch
-   ( cd packages/verifier && uv run pytest -q )    # tests verifier, 100 % branch
-   ( cd packages/webui    && uv run pytest -q )    # tests webui,    100 % branch
+   uv run poe check     # le gate complet : lint-all + test (ce que lancent pre-push et CI)
+   uv run poe test      # les 4 suites unitaires seules, chacune dans son propre process
    ```
 
-   > Le gate est **par paquet** : un `uv run pytest` nu depuis la racine **n'est pas** le gate
-   > (la racine n'a pas de config pytest ; un `conftest.py` racine neutralise toute collecte →
-   > `exit 5`). Lancez toujours depuis `packages/<pkg>`.
+   > La tâche `test` reste **par paquet** : elle lance `pytest` avec `cwd = packages/<pkg>` pour
+   > chacun des 4 paquets, en processus séparés, pour garder la couverture isolée. Un `uv run pytest`
+   > nu depuis la racine **n'est pas** le gate (la racine n'a pas de config pytest ; un `conftest.py`
+   > racine neutralise toute collecte → `exit 5`).
 
    Les `addopts` de chaque paquet **désélectionnent** tous les marqueurs d'intégration
    (`-m "not ec_integration and not …"`), donc le gate ne les exécute jamais — ils sont aussi exclus
