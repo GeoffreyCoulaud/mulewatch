@@ -25,7 +25,7 @@ jobs:
   # Fan-in: combine the per-arch digests into one multi-arch manifest per package and tag it.
   # This is the only step that publishes a consumable tag, and it runs only after `validate`
   # (build + integration) succeeded — so a tag never points at an un-integration-tested image.
-  merge:
+  publish-manifest:
     needs: validate
     runs-on: ubuntu-latest
     permissions:

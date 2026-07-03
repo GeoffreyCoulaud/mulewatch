@@ -99,10 +99,12 @@ double-export cache race that the fan-out created.
 
 ## Not yet done / to decide
 
-- **Branch protection**: the required-check **names changed again**. New set (PR): `validate / lint`,
-  `validate / test`, `validate / image (amd64)`, `validate / image (arm64)`. The names listed in the
-  previous handoff (`validate / build (crawler, amd64)`, `validate / integration (amd64)`, …) are now
-  **stale**. Update required status checks accordingly.
+- **Branch protection**: the required-check names are (PR) `validate / lint`, `validate / test`,
+  `validate / build-and-verify (amd64)`, `validate / build-and-verify (arm64)`; release adds
+  `publish-manifest (crawler|verifier|webui)`. (`image` → `build-and-verify` and `merge` →
+  `publish-manifest` were renamed to kebab-case right after the first run above — which is why the
+  "Validated" section still shows the old `image` / `merge` ids.) The names in the previous handoff
+  are also stale. Update required status checks accordingly.
 - No image was **deployed to a real node** here (the smoke validates wiring, not a prod run).
 - The accepted multi-exporter consequence (pitfall 2): an untested digest blob may transiently land
   in ghcr on a failed release integration. Never tagged; revisit only if that residual bothers us.
