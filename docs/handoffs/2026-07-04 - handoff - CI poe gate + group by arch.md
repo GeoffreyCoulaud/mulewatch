@@ -99,17 +99,18 @@ double-export cache race that the fan-out created.
 
 ## Not yet done / to decide
 
-- **Branch protection**: the required-check names are (PR) `validate / lint`, `validate / test`,
-  `validate / build-and-verify (amd64)`, `validate / build-and-verify (arm64)`; release adds
-  `publish-manifest (crawler|verifier|webui)`. (`image` → `build-and-verify` and `merge` →
-  `publish-manifest` were renamed to kebab-case right after the first run above — which is why the
-  "Validated" section still shows the old `image` / `merge` ids.) The names in the previous handoff
-  are also stale. Update required status checks accordingly.
+- **Branch protection**: require the single aggregation check **`validate / gate`** — a job in
+  `validate.yml` that `needs: [lint, test, build-and-verify]` with `if: always()` and fails unless
+  every dependency reported `success`. Requiring that one check is stable across job/matrix renames,
+  unlike listing the individual (matrix-suffixed) `validate / build-and-verify (amd64|arm64)` legs.
+  `if: always()` is load-bearing: GitHub treats a *skipped* required check as passing. (The individual
+  check names, if ever needed: `validate / lint`, `validate / test`,
+  `validate / build-and-verify (amd64|arm64)`; `publish-manifest (…)` is release-only, never a PR check.)
 - No image was **deployed to a real node** here (the smoke validates wiring, not a prod run).
 - The accepted multi-exporter consequence (pitfall 2): an untested digest blob may transiently land
   in ghcr on a failed release integration. Never tagged; revisit only if that residual bothers us.
 
 ## Suggested next step
 
-Update the branch-protection required checks to the new names, then resume the product thread (the
-Keroro lost-media work) where the prior handoff left off.
+Set branch protection to require `validate / gate`, then resume the product thread (the Keroro
+lost-media work) where the prior handoff left off.
