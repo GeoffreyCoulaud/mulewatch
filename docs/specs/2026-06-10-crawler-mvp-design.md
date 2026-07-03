@@ -123,6 +123,9 @@ episodes:
 - **`norm(s)`** = `fold(s)` → non-alphanumériques convertis en espaces → espaces compactés → trim → utilisé par **`keyword`** et **`coverage`**. `tokens(s)` = `norm(s)` découpé sur les espaces.
 
 ### 8.2 Types de tokens (4, en code)
+
+> **Superseded (2026-07-03) :** le moteur regex est passé de **RE2** (`google-re2`) au module **`re`** de la stdlib, compilé avec `re.ASCII` (parité des classes `\b \d \s \w`). La garantie linéaire structurelle d'RE2 (et le bornage de longueur du §8.5) ne sont plus en place ; risque ReDoS résiduel accepté (config opérateur relue). Cf. `docs/specs/2026-07-03-drop-google-re2-alpine-migration.md`. Les mentions « RE2 » ci-dessous sont historiques.
+
 | Type | Forme | Opère sur | Vrai si… |
 |---|---|---|---|
 | `keyword` | `{ keyword: "mission titar" }` | `tokens(norm)` | phrase = sous-suite contiguë de tokens |
