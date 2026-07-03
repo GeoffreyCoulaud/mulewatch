@@ -1,5 +1,6 @@
+import re
+
 import pytest
-import re2
 
 from catalog_matching.interpolation import InterpolationError, interpolate
 from catalog_matching.models import TargetSegment
@@ -25,8 +26,8 @@ def test_interpolate_escapes_regex_special_title() -> None:
         season=1, seasonal_number=1, absolute_number=1, segment="a", title="C++ (demo)"
     )
     result = interpolate(r"prefix {title} suffix", target)
-    assert result == r"prefix " + re2.escape("C++ (demo)") + r" suffix"
-    assert re2.compile(result).search("prefix C++ (demo) suffix") is not None
+    assert result == r"prefix " + re.escape("C++ (demo)") + r" suffix"
+    assert re.compile(result, re.ASCII).search("prefix C++ (demo) suffix") is not None
 
 
 def test_interpolate_unknown_placeholder_raises() -> None:

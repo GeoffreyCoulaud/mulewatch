@@ -3,12 +3,11 @@
 PURE domain: receives already-parsed structures (``dict``/``list``), does not import
 ``yaml``, does not touch the disk. Covers spec §8.4 (load-time validation) on the schema
 side + local validations (closed tier, ``attr_between`` enum, coverage-only override). Graph
-validation (DAG/depth) and the RE2 compile-check are added in Task 6.
+validation (DAG/depth) and the regex compile-check are added in Task 6.
 """
 
+import re
 from typing import Any
-
-import re2
 
 from catalog_matching.config import (
     TIERS,
@@ -365,7 +364,7 @@ def _max_resolution_depth(config: MatcherConfig) -> int:
 
 
 def _check_regexes_compile(config: MatcherConfig) -> None:
-    """Each RegexDef interpolates (known placeholders) and compiles under RE2 (cf. §8.4)."""
+    """Each RegexDef interpolates (known placeholders) and compiles under ``re`` (cf. §8.4)."""
     for name, token_def in config.tokens.items():
         if not isinstance(token_def, RegexDef):
             continue
@@ -376,9 +375,9 @@ def _check_regexes_compile(config: MatcherConfig) -> None:
         if "i" in token_def.flags:
             pattern = "(?i)" + pattern
         try:
-            re2.compile(pattern)
-        except re2.error as exc:
-            raise ConfigError(f"token {name!r}: regex not compilable under RE2: {exc}") from exc
+            re.compile(pattern, re.ASCII)
+        except re.error as exc:
+            raise ConfigError(f"token {name!r}: regex not compilable: {exc}") from exc
 
 
 def validate_config(config: MatcherConfig, *, max_depth: int = _DEFAULT_MAX_DEPTH) -> None:
