@@ -1,6 +1,7 @@
 """Leaf matchers of the matching engine (cf. spec §8.2)."""
 
-import re2
+import re
+
 from rapidfuzz import fuzz
 
 from catalog_matching.models import FileCandidate
@@ -26,22 +27,24 @@ class KeywordMatcher:
 
 
 class RegexMatcher:
-    """RE2 match on ``fold(filename)``. If ``"i"`` in ``flags``, prefixes ``(?i)``.
+    """Regex match on ``fold(filename)``. If ``"i"`` in ``flags``, prefixes ``(?i)``.
 
-    We explicitly prefix ``(?i)`` to the pattern rather than relying on RE2 flag
-    constants (portability of the ``re2`` API).
+    Patterns are compiled with ``re.ASCII`` so ``\\b \\d \\s \\w`` keep ASCII semantics
+    (matching the prior RE2 default), which is what the existing policy relies on.
+
+    We explicitly prefix ``(?i)`` to the pattern rather than passing a flag constant.
 
     ``flags`` is a short ``re``-style string: ``"i"`` enables case-insensitivity,
     ``""`` leaves it case-sensitive. Expected values from the YAML config (Plan 2b):
     ``"i"`` or ``""``. Detection is ``"i" in flags`` — do not pass verbose names
     (``"ignore_case"``…), which would enable ``(?i)`` by accident. An invalid pattern
-    raises ``re2.error`` at construction (config validation delegated to Plan 2b).
+    raises ``re.error`` at construction (config validation delegated to Plan 2b).
     """
 
     def __init__(self, pattern: str, flags: str = "i") -> None:
         if "i" in flags:
             pattern = "(?i)" + pattern
-        self._re = re2.compile(pattern)
+        self._re = re.compile(pattern, re.ASCII)
 
     def matches(self, candidate: FileCandidate) -> bool:
         return self._re.search(fold(candidate.filename)) is not None

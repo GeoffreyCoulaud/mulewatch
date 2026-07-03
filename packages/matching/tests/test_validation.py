@@ -491,7 +491,7 @@ def test_acyclic_composite_graph_validates() -> None:
 
 
 def test_regex_compile_check_rejects_bad_pattern() -> None:
-    with pytest.raises(ConfigError, match="RE2"):
+    with pytest.raises(ConfigError, match="not compilable"):
         parse_matcher_config({"tokens": {"bad": {"regex": "(unbalanced"}}, "rules": []})
 
 
