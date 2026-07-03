@@ -53,20 +53,17 @@ The crawler is Clean/Hexagonal: `domain/` pure, `application/` async use-cases, 
 
 ## Commands
 
-```bash
-uv sync --dev                          # install (scripts/setup-dev.sh also installs the pre-push hook)
+The gate lives in `pyproject.toml` under `[tool.poe.tasks]` (poethepoet) as the single source of truth — the pre-push hook and CI both call it. `uv run poe` lists every task with its `help`.
 
-# The full gate — all eight must be green before any commit (pre-push hook + CI run the same):
-( cd packages/matching && uv run pytest -q )          # matching tests, 100% BRANCH coverage
-( cd packages/crawler  && uv run pytest -q )          # crawler tests, 100% BRANCH coverage
-( cd packages/verifier && uv run pytest -q )          # verifier tests, 100% BRANCH coverage
-( cd packages/webui    && uv run pytest -q )          # webui tests, 100% BRANCH coverage
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy
-uv run sqlfluff lint packages/crawler/src                    # embedded SQLite migrations
-uv run python -m catalog_webui._dev.check_templates packages/webui/src/catalog_webui/adapters/templates  # garde templates sans logique
+```bash
+uv sync --dev        # install (scripts/setup-dev.sh also installs the pre-push hook)
+uv run poe check     # THE FULL GATE (lint-all + test) — the pre-push hook and CI run exactly this
+uv run poe fix       # auto-fix everything mechanical: ruff --fix + ruff format + sqlfluff fix
 ```
+
+Gate sub-tasks, runnable in isolation: `lint` · `format-check` · `type-check` · `sql-lint` · `template-check` (grouped as **`lint-all`**), and **`test`** (runs each package's suite in its own process, so per-package coverage stays isolated). Fixers: `lint-fix` · `format-fix` · `sql-fix` (grouped as **`fix`**).
+
+**Before hand-fixing lint / formatting / SQL, run `uv run poe fix`** — don't spend turns rewriting by hand what a fixer applies mechanically; review its diff instead.
 
 **The gate is PER PACKAGE** (`cd packages/<pkg> && uv run pytest`). The intent: each package owns its own pytest config and 100 % branch coverage in isolation — a root run would mix coverage data across packages and break the per-package threshold. A bare `uv run pytest` from the repo root is also blocked mechanically (the root has no `[tool.pytest.ini_options]` and a root `conftest.py` sets `collect_ignore_glob = ["packages/*"]` → exit 5 with zero collected). Tooling split: `[tool.ruff]` / `[tool.mypy]` at root span all four packages; `[tool.pytest]` / `[tool.coverage]` / `[tool.sqlfluff]` are per-package; one root `uv.lock`. Deployment artifacts live under `deploy/` (compose + `config/` + `deploy/.env.example`); the smoke stack under `tests/smoke/`.
 

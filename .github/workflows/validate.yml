@@ -2,6 +2,11 @@ name: Validate
 
 on:
   workflow_call:
+    inputs:
+      push:
+        description: If true, the image job also pushes each image to ghcr by digest.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -15,53 +20,30 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: ./.github/actions/setup-uv-env
-      - name: ruff check
-        run: uv run ruff check .
-      - name: ruff format
-        run: uv run ruff format --check .
-      - name: mypy
-        run: uv run mypy
-      - name: sqlfluff (SQL migrations)
-        run: uv run sqlfluff lint packages/crawler/src
-      - name: webui templates guard
-        run: uv run python -m catalog_webui._dev.check_templates packages/webui/src/catalog_webui/adapters/templates
+      - name: Static checks
+        run: uv run poe lint-all
 
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        package: [matching, crawler, verifier, webui]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: ./.github/actions/setup-uv-env
-      - name: Unit tests — ${{ matrix.package }}
-        run: ( cd packages/${{ matrix.package }} && uv run pytest )
-
-  build:
-    needs: [lint, test]
-    # arm64 → native arm runner; amd64 → ubuntu-latest
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        package: [crawler, verifier, webui]
-        arch: [amd64, arm64]
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-      - name: Build (cache-only) — ${{ matrix.package }} ${{ matrix.arch }}
-        uses: ./.github/actions/docker-image
         with:
-          package: ${{ matrix.package }}
-          platform: linux/${{ matrix.arch }}
-          outputs: type=cacheonly
-          cache-scope: ${{ matrix.package }}-${{ matrix.arch }}
-          write-cache: true
+          save-cache: 'false'  # lint is the x86 cache writer; test restores only
+      - name: Unit tests
+        run: uv run poe test
 
-  integration:
-    needs: build
+  # One job per arch on its native runner: build the 3 images (loaded locally, and pushed
+  # by digest when inputs.push), run the compose smoke stack against the local images, then
+  # upload the digests for the release merge. The push exporter runs during the build, but
+  # only `merge` publishes a tag — and merge is downstream of this job's integration step,
+  # so no tag ever references an image that failed integration.
+  image:
+    needs: [lint, test]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -69,24 +51,84 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: ./.github/actions/setup-uv-env
+        with:
+          # One uv-cache writer per runner arch: arm64 (the sole arm64 job) saves; amd64
+          # restores lint's x86 cache. Avoids concurrent same-key saves → no cache warning.
+          save-cache: ${{ matrix.arch == 'arm64' }}
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-      - name: Load crawler image (${{ matrix.arch }}, from gha cache)
+      - name: Log in to ghcr.io
+        if: ${{ inputs.push }}
+        uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build crawler — ${{ matrix.arch }}
+        id: crawler
         uses: ./.github/actions/docker-image
         with:
           package: crawler
           platform: linux/${{ matrix.arch }}
-          outputs: type=docker
-          tags: ${{ env.IMAGE_PREFIX }}-crawler:ci-${{ github.sha }}
+          image: ${{ env.IMAGE_PREFIX }}-crawler
+          local-tag: ci-${{ github.sha }}
+          push: ${{ inputs.push }}
           cache-scope: crawler-${{ matrix.arch }}
-      - name: Load verifier image (${{ matrix.arch }}, from gha cache)
+      - name: Build verifier — ${{ matrix.arch }}
+        id: verifier
         uses: ./.github/actions/docker-image
         with:
           package: verifier
           platform: linux/${{ matrix.arch }}
-          outputs: type=docker
-          tags: ${{ env.IMAGE_PREFIX }}-verifier:ci-${{ github.sha }}
+          image: ${{ env.IMAGE_PREFIX }}-verifier
+          local-tag: ci-${{ github.sha }}
+          push: ${{ inputs.push }}
           cache-scope: verifier-${{ matrix.arch }}
+      - name: Build webui — ${{ matrix.arch }}
+        id: webui
+        uses: ./.github/actions/docker-image
+        with:
+          package: webui
+          platform: linux/${{ matrix.arch }}
+          image: ${{ env.IMAGE_PREFIX }}-webui
+          local-tag: ci-${{ github.sha }}
+          push: ${{ inputs.push }}
+          cache-scope: webui-${{ matrix.arch }}
       - name: Integration — compose smoke stack (${{ matrix.arch }})
         run: ( cd packages/crawler && uv run pytest -m compose_integration --no-cov -q )
         env:
           IMAGE_TAG: ci-${{ github.sha }}
+      - name: Export digests
+        if: ${{ inputs.push }}
+        run: |
+          mkdir -p /tmp/digests/crawler /tmp/digests/verifier /tmp/digests/webui
+          touch "/tmp/digests/crawler/${CRAWLER_DIGEST#sha256:}"
+          touch "/tmp/digests/verifier/${VERIFIER_DIGEST#sha256:}"
+          touch "/tmp/digests/webui/${WEBUI_DIGEST#sha256:}"
+        env:
+          CRAWLER_DIGEST: ${{ steps.crawler.outputs.digest }}
+          VERIFIER_DIGEST: ${{ steps.verifier.outputs.digest }}
+          WEBUI_DIGEST: ${{ steps.webui.outputs.digest }}
+      - name: Upload crawler digest
+        if: ${{ inputs.push }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-crawler-${{ matrix.arch }}
+          path: /tmp/digests/crawler/*
+          if-no-files-found: error
+          retention-days: 1
+      - name: Upload verifier digest
+        if: ${{ inputs.push }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-verifier-${{ matrix.arch }}
+          path: /tmp/digests/verifier/*
+          if-no-files-found: error
+          retention-days: 1
+      - name: Upload webui digest
+        if: ${{ inputs.push }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-webui-${{ matrix.arch }}
+          path: /tmp/digests/webui/*
+          if-no-files-found: error
+          retention-days: 1

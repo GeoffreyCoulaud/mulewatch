@@ -12,53 +12,21 @@ env:
   IMAGE_PREFIX: ghcr.io/geoffreycoulaud/emule-indexer
 
 jobs:
+  # Full gate + per-arch build/integration/push-by-digest (push: true). The images are
+  # pushed by digest only; no consumable tag exists yet.
   validate:
-    uses: ./.github/workflows/validate.yml
-
-  build-push:
-    needs: validate
-    # arm64 → native arm runner; amd64 → ubuntu-latest
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        package: [crawler, verifier, webui]
-        arch: [amd64, arm64]
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-      - name: Log in to ghcr.io
-        uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push by digest — ${{ matrix.package }} ${{ matrix.arch }}
-        id: build
-        uses: ./.github/actions/docker-image
-        with:
-          package: ${{ matrix.package }}
-          platform: linux/${{ matrix.arch }}
-          outputs: type=image,name=${{ env.IMAGE_PREFIX }}-${{ matrix.package }},push-by-digest=true,name-canonical=true,push=true
-          cache-scope: ${{ matrix.package }}-${{ matrix.arch }}
-      - name: Export digest
-        run: |
-          mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
-      - name: Upload digest
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: digest-${{ matrix.package }}-${{ matrix.arch }}
-          path: /tmp/digests/*
-          if-no-files-found: error
-          retention-days: 1
+    uses: ./.github/workflows/validate.yml
+    with:
+      push: true
 
+  # Fan-in: combine the per-arch digests into one multi-arch manifest per package and tag it.
+  # This is the only step that publishes a consumable tag, and it runs only after `validate`
+  # (build + integration) succeeded — so a tag never points at an un-integration-tested image.
   merge:
-    needs: build-push
+    needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: read

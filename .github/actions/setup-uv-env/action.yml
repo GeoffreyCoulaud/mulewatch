@@ -1,10 +1,20 @@
 name: Setup uv env
 description: Install uv (cache enabled) and sync the dev environment (uv sync --dev).
+inputs:
+  save-cache:
+    description: >
+      Whether this job saves the uv cache. Keep 'true' on exactly ONE job per runner
+      architecture (the cache writer) and set 'false' on the others — two jobs saving the
+      same key concurrently race and emit an "unable to reserve cache" warning. Every job
+      still restores.
+    required: false
+    default: 'true'
 runs:
   using: composite
   steps:
     - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       with:
         enable-cache: true
+        save-cache: ${{ inputs.save-cache }}
     - run: uv sync --dev
       shell: bash

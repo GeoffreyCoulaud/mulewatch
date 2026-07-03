@@ -12,4 +12,13 @@ concurrency:
 
 jobs:
   validate:
+    # The reusable `image` job statically declares `packages: write` (it pushes by digest on
+    # release). A called workflow may not request more permissions than the caller grants, or
+    # the run fails at startup — so grant it here too. Nothing is pushed from a PR: the push
+    # steps are gated on `push`, which is false here.
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/validate.yml
+    with:
+      push: false

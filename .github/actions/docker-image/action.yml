@@ -1,9 +1,10 @@
 name: Build a package image
 description: >
-  Build one package image for one platform with buildx. A thin passthrough over
-  docker/build-push-action: the caller picks the export via `outputs` (type=cacheonly,
-  type=docker for a local --load, or type=image,push-by-digest for publication). The gha
-  cache is scoped per (package, platform) via `cache-scope`.
+  Build one package image for one platform with buildx. The result is always loaded into
+  the local Docker daemon as <image>:<local-tag> (so integration can run against it); when
+  push=true, the SAME build also pushes the image to the registry by digest (multi-exporter,
+  needs BuildKit >= 0.13) for later manifest assembly. The gha cache is scoped per
+  (package, platform) via cache-scope and exported on every build (one build per scope/run).
 inputs:
   package:
     description: Package name (crawler|verifier|webui).
@@ -11,40 +12,50 @@ inputs:
   platform:
     description: Single target platform (e.g. linux/amd64 or linux/arm64).
     required: true
-  outputs:
-    description: >
-      buildx outputs, passed through verbatim. Examples: 'type=cacheonly';
-      'type=docker'; 'type=image,name=<img>,push-by-digest=true,name-canonical=true,push=true'.
+  image:
+    description: Fully-qualified image name without a tag (e.g. ghcr.io/owner/emule-indexer-crawler).
     required: true
-  tags:
-    description: Image tags (multiline). Optional — omit for cacheonly / push-by-digest.
+  local-tag:
+    description: Tag under which the built image is loaded into the local Docker daemon.
+    required: true
+  push:
+    description: If 'true', also push the image to the registry by digest.
     required: false
-    default: ''
+    default: 'false'
   cache-scope:
     description: gha cache scope, e.g. crawler-amd64.
     required: true
-  write-cache:
-    description: >
-      If 'true', also export the gha cache (cache-to). Only the build legs (the cache warmers)
-      set this. Read-only consumers (integration, release build-push) leave it false so they do
-      not re-export to a scope a build leg already wrote — a double export to the same gha scope
-      races and fails with "not_found".
-    required: false
-    default: 'false'
 outputs:
   digest:
-    description: Image digest (set for push/registry builds; empty otherwise).
+    description: Image digest (set when push=true; empty otherwise).
     value: ${{ steps.build.outputs.digest }}
 runs:
   using: composite
   steps:
+    # Assemble the buildx outputs: always load locally; add the push-by-digest exporter
+    # only when publishing. Two exporter lines, each with its own name — no global tag, so
+    # the registry push stays digest-only (untagged) while the local load carries local-tag.
+    - id: exporters
+      shell: bash
+      run: |
+        {
+          echo "value<<__EOF__"
+          echo "type=docker,name=${IMAGE}:${LOCAL_TAG}"
+          if [ "${PUSH}" = "true" ]; then
+            echo "type=image,name=${IMAGE},push-by-digest=true,name-canonical=true,push=true"
+          fi
+          echo "__EOF__"
+        } >> "$GITHUB_OUTPUT"
+      env:
+        IMAGE: ${{ inputs.image }}
+        LOCAL_TAG: ${{ inputs.local-tag }}
+        PUSH: ${{ inputs.push }}
     - id: build
       uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
       with:
         context: .
         file: packages/${{ inputs.package }}/Dockerfile
         platforms: ${{ inputs.platform }}
-        outputs: ${{ inputs.outputs }}
-        tags: ${{ inputs.tags }}
+        outputs: ${{ steps.exporters.outputs.value }}
         cache-from: type=gha,scope=${{ inputs.cache-scope }}
-        cache-to: ${{ inputs.write-cache == 'true' && format('type=gha,mode=max,scope={0}', inputs.cache-scope) || '' }}
+        cache-to: type=gha,mode=max,scope=${{ inputs.cache-scope }}
