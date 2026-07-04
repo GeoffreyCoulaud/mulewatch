@@ -56,6 +56,20 @@ def test_human_size_multi_tb() -> None:
     assert human_size(2 * 1024**4) == "2 TB"
 
 
+def test_human_size_just_under_mib_promotes_to_mb() -> None:
+    # Rounding 1024**2 - 1 bytes / 1024 lands exactly on 1024 (KB) — must promote to "1 MB",
+    # not render "1024 KB".
+    assert human_size(1024**2 - 1) == "1 MB"
+
+
+def test_human_size_just_under_gib_promotes_to_gb() -> None:
+    assert human_size(1024**3 - 1) == "1 GB"
+
+
+def test_human_size_just_under_tib_promotes_to_tb() -> None:
+    assert human_size(1024**4 - 1) == "1 TB"
+
+
 # ---------------------------------------------------------------------------
 # short_timestamp
 # ---------------------------------------------------------------------------
