@@ -34,34 +34,34 @@ def test_tier_rank_covers_exactly_the_valid_tiers() -> None:
 
 def test_explanation_is_frozen_and_holds_fields() -> None:
     explanation = Explanation(
-        target_id="S2E062A",
+        target_id="062A",
         rules_fired=("id_segment_exact", "keroro_large"),
         tokens_matched=("is_video", "keroro", "segment_id"),
         coverage_values=(("title_hit", 1.0),),
     )
-    assert explanation.target_id == "S2E062A"
+    assert explanation.target_id == "062A"
     assert explanation.rules_fired == ("id_segment_exact", "keroro_large")
     assert explanation.tokens_matched == ("is_video", "keroro", "segment_id")
     assert explanation.coverage_values == (("title_hit", 1.0),)
     with pytest.raises(dataclasses.FrozenInstanceError):
-        explanation.target_id = "S2E062B"  # type: ignore[misc]
+        explanation.target_id = "062B"  # type: ignore[misc]
 
 
 def test_match_decision_is_frozen_and_holds_persisted_columns_plus_explanation() -> None:
     explanation = Explanation(
-        target_id="S2E062A",
+        target_id="062A",
         rules_fired=("id_segment_exact",),
         tokens_matched=("keroro",),
         coverage_values=(),
     )
     decision = MatchDecision(
-        target_id="S2E062A",
+        target_id="062A",
         rule_name="id_segment_exact",
         tier="download",
         explanation=explanation,
     )
     # The three columns that match_decisions will persist (spec §11).
-    assert decision.target_id == "S2E062A"
+    assert decision.target_id == "062A"
     assert decision.rule_name == "id_segment_exact"
     assert decision.tier == "download"
     assert decision.explanation is explanation
@@ -150,7 +150,7 @@ def test_evaluate_real_62a_is_download_via_first_rule_on_62a() -> None:
     assert decision is not None
     assert decision.tier == "download"
     assert decision.rule_name == "id_segment_exact"
-    assert decision.target_id == "S2E062A"
+    assert decision.target_id == "062A"
 
 
 def test_evaluate_discards_non_keroro_file() -> None:
@@ -161,12 +161,12 @@ def test_evaluate_discards_non_keroro_file() -> None:
 def test_evaluate_highest_tier_comes_from_a_different_target() -> None:
     # "keroro N°062B.avi": 62A -> catalog (keroro_large); 62B -> download (id_segment_exact).
     # The highest tier comes from a DIFFERENT target than the lowest -> isolates the
-    # cross-target aggregation (a bug looking only at the 1st target would return catalog/S2E062A).
+    # cross-target aggregation (a bug looking only at the 1st target would return catalog/062A).
     decision = _canonical_engine().evaluate(FileCandidate(filename="keroro N°062B.avi"))
     assert decision is not None
     assert decision.tier == "download"
     assert decision.rule_name == "id_segment_exact"
-    assert decision.target_id == "S2E062B"
+    assert decision.target_id == "062B"
 
 
 def test_evaluate_notify_tier_via_title_review() -> None:
@@ -176,18 +176,18 @@ def test_evaluate_notify_tier_via_title_review() -> None:
     assert decision is not None
     assert decision.tier == "notify"
     assert decision.rule_name == "title_review"
-    assert decision.target_id == "S2E062A"
+    assert decision.target_id == "062A"
 
 
 def test_evaluate_tiebreak_same_tier_lowest_target_id_wins() -> None:
     # "Keroro" file alone -> 62A and 62B BOTH give keroro_large (catalog, index 3).
-    # Same tier AND same index -> tie-break by target_id: S2E062A < S2E062B.
+    # Same tier AND same index -> tie-break by target_id: 062A < 062B.
     # NB: neutral filler (not "Gunso", now vetoed by foreign_lang as a Japanese title).
     decision = _canonical_engine().evaluate(FileCandidate(filename="Keroro rediffusion.mkv"))
     assert decision is not None
     assert decision.tier == "catalog"
     assert decision.rule_name == "keroro_large"
-    assert decision.target_id == "S2E062A"
+    assert decision.target_id == "062A"
 
 
 # --- Tie-break by rule INDEX (isolated from target_id) ---
@@ -212,11 +212,11 @@ _INDEX_TIEBREAK_RAW: dict[str, object] = {
 
 def test_evaluate_tiebreak_same_tier_lowest_rule_index_wins_over_target_id() -> None:
     config = parse_matcher_config(_INDEX_TIEBREAK_RAW)
-    # target_high: large target_id (S2E099Z), matches by_segment (index 0).
+    # target_high: large target_id (099Z), matches by_segment (index 0).
     target_high = TargetSegment(
         season=2, seasonal_number=99, absolute_number=99, segment="z", title="zzz unrelated"
     )
-    # target_low: small target_id (S2E001A), matches by_title (index 1).
+    # target_low: small target_id (001A), matches by_title (index 1).
     target_low = TargetSegment(
         season=2,
         seasonal_number=1,
@@ -228,10 +228,10 @@ def test_evaluate_tiebreak_same_tier_lowest_rule_index_wins_over_target_id() -> 
     candidate = FileCandidate(filename="N°099Z Les demoiselles cambrioleuses.avi")
     decision = engine.evaluate(candidate)
     assert decision is not None
-    # Index 0 (by_segment on S2E099Z) prevails over index 1 (by_title on S2E001A),
-    # DESPITE S2E001A < S2E099Z: the index breaks ties BEFORE the target_id.
+    # Index 0 (by_segment on 099Z) prevails over index 1 (by_title on 001A),
+    # DESPITE 001A < 099Z: the index breaks ties BEFORE the target_id.
     assert decision.rule_name == "by_segment"
-    assert decision.target_id == "S2E099Z"
+    assert decision.target_id == "099Z"
 
 
 def test_evaluate_rejects_filename_over_max_length() -> None:
@@ -254,11 +254,11 @@ def test_engine_resolves_each_target_once_at_construction() -> None:
     config = parse_matcher_config(_CANONICAL_RAW)
     engine = MatchingEngine(config, (_TARGET_62A, _TARGET_62B))
     assert len(engine._resolved) == 2
-    assert {rt.target.target_id for rt in engine._resolved} == {"S2E062A", "S2E062B"}
+    assert {rt.target.target_id for rt in engine._resolved} == {"062A", "062B"}
 
 
 def test_evaluate_explanation_lists_coverage_value_even_below_threshold() -> None:
-    # "keroro rediffusion.mkv" wins in catalog (keroro) on S2E062A; title_hit (62A title) has a
+    # "keroro rediffusion.mkv" wins in catalog (keroro) on 062A; title_hit (62A title) has a
     # score 0.0 < 0.6: it is NOT in tokens_matched but ITS SCORE appears in
     # coverage_values (useful to debug a threshold).
     decision = _canonical_engine().evaluate(FileCandidate(filename="keroro rediffusion.mkv"))
@@ -272,7 +272,7 @@ def test_explanation_on_real_62a_lists_fired_rules_tokens_and_coverage() -> None
     decision = _canonical_engine().evaluate(FileCandidate(filename=_REAL_62A_FILENAME))
     assert decision is not None
     explanation = decision.explanation
-    assert explanation.target_id == "S2E062A"
+    assert explanation.target_id == "062A"
     # The real 62A fires on 4 rules (empirically verified) -> several rules_fired.
     # segment_id_loose never fires (bi-segment -> {mono_gate} never-match) so
     # numero_nu_confirmed/numero_nu are absent; archive_candidate absent (no archive).
@@ -373,14 +373,14 @@ def test_evaluate_bare_number_on_mono_target_is_notify_numero_nu() -> None:
     assert decision is not None
     assert decision.tier == "notify"
     assert decision.rule_name == "numero_nu"
-    assert decision.target_id == "S1E010A"
+    assert decision.target_id == "010A"
 
 
 def test_evaluate_bare_number_on_bi_segment_target_never_fires_numero_nu() -> None:
     # "Keroro 62.avi": 62 is the absolute number of the BI-segment target 62A -> {mono_gate}
     # neutralizes segment_id_loose for it (never-match) -> numero_nu/numero_nu_confirmed
     # never fire for it; only keroro_large (catalog) matches (tie-break
-    # target_id -> S1E010A).
+    # target_id -> 010A).
     decision = _mono_routing_engine().evaluate(FileCandidate(filename="Keroro 62.avi"))
     assert decision is not None
     assert decision.tier == "catalog"
@@ -394,7 +394,7 @@ def test_evaluate_lettered_mono_number_stays_download_via_strict_segment_id() ->
     assert decision is not None
     assert decision.tier == "download"
     assert decision.rule_name == "id_segment_exact"
-    assert decision.target_id == "S1E010A"
+    assert decision.target_id == "010A"
 
 
 def test_evaluate_bare_number_digit_boundary_guard_rejects_substring() -> None:
@@ -412,7 +412,7 @@ def test_evaluate_bare_number_on_mono_with_source_marker_is_download() -> None:
     assert decision is not None
     assert decision.tier == "download"
     assert decision.rule_name == "numero_nu_confirmed"
-    assert decision.target_id == "S1E010A"
+    assert decision.target_id == "010A"
 
 
 def test_evaluate_opening_with_bare_number_demoted_to_catalog_by_not_episode() -> None:
@@ -422,4 +422,4 @@ def test_evaluate_opening_with_bare_number_demoted_to_catalog_by_not_episode() -
     assert decision is not None
     assert decision.tier == "catalog"
     assert decision.rule_name == "keroro_large"
-    assert decision.target_id == "S1E010A"
+    assert decision.target_id == "010A"

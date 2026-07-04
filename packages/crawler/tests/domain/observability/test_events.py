@@ -16,7 +16,7 @@ def test_observation_recorded_carries_network() -> None:
 
 
 def test_event_is_frozen() -> None:
-    event = VerificationCompleted(target_id="S2E062A", verdict="clean")
+    event = VerificationCompleted(target_id="062A", verdict="clean")
     # Pass the attribute via a variable to avoid ruff B010 while still
     # triggering FrozenInstanceError at runtime (frozen=True).
     attr = "verdict"

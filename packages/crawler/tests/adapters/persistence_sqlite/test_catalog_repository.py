@@ -197,11 +197,11 @@ def test_outer_transaction_survives_record_observation_failure(
 
 def _decision() -> MatchDecision:
     return MatchDecision(
-        target_id="S2E062A",
+        target_id="062A",
         rule_name="exact_062a",
         tier="download",
         explanation=Explanation(
-            target_id="S2E062A",
+            target_id="062A",
             rules_fired=("exact_062a",),
             tokens_matched=("keroro",),
             coverage_values=(("titre", 0.91),),
@@ -217,7 +217,7 @@ def test_record_decision_round_trip(
     row = connection.execute(
         "SELECT ed2k_hash, target_id, rule_name, tier, decided_at, node_id FROM match_decisions"
     ).fetchone()
-    assert row == (_HASH, "S2E062A", "exact_062a", "download", _FROZEN_ISO, _NODE)
+    assert row == (_HASH, "062A", "exact_062a", "download", _FROZEN_ISO, _NODE)
 
 
 def test_explanation_is_never_persisted(

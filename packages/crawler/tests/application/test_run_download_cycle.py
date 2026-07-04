@@ -245,7 +245,7 @@ async def test_new_candidate_is_queued_and_link_added() -> None:
     client = FakeDownloadClient()
     downloads = FakeDownloadRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_A, "S2E062A"),),
+        candidates=(_candidate(_A, "062A"),),
         observations={_A: ObservedFile(filename="Keroro.avi", size_bytes=100)},
     )
     deps = _deps(
@@ -267,7 +267,7 @@ async def test_already_downloaded_candidate_is_deduped() -> None:
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING  # already known
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_A, "S2E062A"),),
+        candidates=(_candidate(_A, "062A"),),
         observations={_A: ObservedFile(filename="x", size_bytes=1)},
     )
     deps = _deps(
@@ -286,7 +286,7 @@ async def test_complete_target_candidate_is_skipped() -> None:
     client = FakeDownloadClient()
     downloads = FakeDownloadRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_B, "S2E063A"),),  # S2E063A status=complete
+        candidates=(_candidate(_B, "063A"),),  # 063A status=complete
         observations={_B: ObservedFile(filename="x", size_bytes=1)},
     )
     deps = _deps(
@@ -306,7 +306,7 @@ async def test_disk_cap_defers_candidate() -> None:
     client = FakeDownloadClient()
     downloads = FakeDownloadRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_A, "S2E062A"),),
+        candidates=(_candidate(_A, "062A"),),
         observations={_A: ObservedFile(filename="x", size_bytes=500)},
     )
     deps = _deps(
@@ -328,7 +328,7 @@ async def test_candidate_without_observation_is_skipped() -> None:
     # we skip it (log), never a crash.
     client = FakeDownloadClient()
     downloads = FakeDownloadRepo()
-    catalog = FakeCatalogReads(candidates=(_candidate(_A, "S2E062A"),), observations={})
+    catalog = FakeCatalogReads(candidates=(_candidate(_A, "062A"),), observations={})
     deps = _deps(
         client=client,
         quarantine=FakeQuarantine(),
@@ -428,7 +428,7 @@ async def test_unreachable_client_is_tolerated_and_iteration_skipped() -> None:
         client=client,
         quarantine=FakeQuarantine(),
         downloads=downloads,
-        catalog=FakeCatalogReads(candidates=(_candidate(_A, "S2E062A"),)),
+        catalog=FakeCatalogReads(candidates=(_candidate(_A, "062A"),)),
         local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)  # does not raise
@@ -440,7 +440,7 @@ async def test_repository_error_is_absorbed() -> None:
     client = FakeDownloadClient()
     downloads = FakeDownloadRepo(fail_record=True)  # record_queued raises RepositoryError
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_A, "S2E062A"),),
+        candidates=(_candidate(_A, "062A"),),
         observations={_A: ObservedFile(filename="x", size_bytes=1)},
     )
     deps = _deps(
@@ -546,7 +546,7 @@ async def test_intra_cycle_disk_cap_accounts_for_links_added_this_cycle() -> Non
     client = FakeDownloadClient()
     downloads = FakeDownloadRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_A, "S2E062A"), _candidate(_B, "S2E062A")),
+        candidates=(_candidate(_A, "062A"), _candidate(_B, "062A")),
         observations={
             _A: ObservedFile(filename="a", size_bytes=600),
             _B: ObservedFile(filename="b", size_bytes=600),
@@ -637,7 +637,7 @@ async def test_add_link_unreachable_keeps_queued_and_is_tolerated() -> None:
     client = FakeDownloadClient(add_failures=[MuleUnreachableError("down")])
     downloads = FakeDownloadRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_A, "S2E062A"),),
+        candidates=(_candidate(_A, "062A"),),
         observations={_A: ObservedFile(filename="x", size_bytes=1)},
     )
     deps = _deps(
@@ -659,7 +659,7 @@ async def test_add_link_rejected_marks_failed_and_does_not_crash() -> None:
     client = FakeDownloadClient(add_failures=[MuleSearchFailedError("rejected")])
     downloads = FakeDownloadRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_A, "S2E062A"),),
+        candidates=(_candidate(_A, "062A"),),
         observations={_A: ObservedFile(filename="x", size_bytes=1)},
     )
     deps = _deps(
@@ -681,7 +681,7 @@ async def test_add_link_rejected_for_one_hash_does_not_block_the_next() -> None:
     client = FakeDownloadClient(add_failures=[MuleSearchFailedError("rejected")])
     downloads = FakeDownloadRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_A, "S2E062A"), _candidate(_B, "S2E062A")),
+        candidates=(_candidate(_A, "062A"), _candidate(_B, "062A")),
         observations={
             _A: ObservedFile(filename="a", size_bytes=1),
             _B: ObservedFile(filename="b", size_bytes=1),
@@ -712,7 +712,7 @@ async def test_completion_and_new_candidate_in_the_same_cycle() -> None:
     quarantine = FakeQuarantine()
     local = FakeLocalRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_B, "S2E062A"),),
+        candidates=(_candidate(_B, "062A"),),
         observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
     )
     deps = _deps(
@@ -735,7 +735,7 @@ async def test_emits_download_queued() -> None:
     client = FakeDownloadClient()
     downloads = FakeDownloadRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_A, "S2E062A"),),
+        candidates=(_candidate(_A, "062A"),),
         observations={_A: ObservedFile(filename="Keroro.avi", size_bytes=100)},
     )
     deps = _deps(
@@ -756,7 +756,7 @@ async def test_emits_download_completed_on_promotion() -> None:
     client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING
-    downloads._target_ids[_A] = "S2E062A"
+    downloads._target_ids[_A] = "062A"
     deps = _deps(
         client=client,
         quarantine=FakeQuarantine(),
@@ -766,9 +766,7 @@ async def test_emits_download_completed_on_promotion() -> None:
         telemetry=telemetry,
     )
     await run_download_cycle(deps)
-    assert any(
-        isinstance(e, DownloadCompleted) and e.target_id == "S2E062A" for e in telemetry.events
-    )
+    assert any(isinstance(e, DownloadCompleted) and e.target_id == "062A" for e in telemetry.events)
 
 
 @pytest.mark.asyncio
@@ -806,7 +804,7 @@ async def test_completion_repo_failure_does_not_starve_new_candidates() -> None:
     downloads.states[_A] = DownloadState.DOWNLOADING  # shared → promoted step 2 (enqueue raises)
     downloads.sizes[_A] = 10
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_B, "S2E062A"),),  # new candidate step 3
+        candidates=(_candidate(_B, "062A"),),  # new candidate step 3
         observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
     )
     local = FakeLocalRepo(fail_enqueue=True)  # step 2 raises RepositoryError
@@ -837,7 +835,7 @@ async def test_candidate_repo_failure_does_not_starve_completions() -> None:
     quarantine = FakeQuarantine()
     local = FakeLocalRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_B, "S2E062A"),),  # new candidate → record_queued will raise
+        candidates=(_candidate(_B, "062A"),),  # new candidate → record_queued will raise
         observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
     )
     deps = _deps(
@@ -907,7 +905,7 @@ async def test_monitor_unreachable_aborts_subsequent_steps() -> None:
     quarantine = FakeQuarantine()
     local = FakeLocalRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_B, "S2E062A"),),  # a candidate (step 3)
+        candidates=(_candidate(_B, "062A"),),  # a candidate (step 3)
         observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
     )
     deps = _deps(
@@ -937,7 +935,7 @@ async def test_monitor_repo_failure_is_isolated_and_does_not_starve_candidates()
     downloads = _MonitorFailRepo()
     downloads.states[_A] = DownloadState.QUEUED  # reconciled → set_state(COMPLETED) will raise
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_B, "S2E062A"),),
+        candidates=(_candidate(_B, "062A"),),
         observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
     )
     deps = _deps(
@@ -968,7 +966,7 @@ async def test_add_links_repo_failure_is_tolerated_and_does_not_raise() -> None:
     client = FakeDownloadClient(add_failures=[MuleSearchFailedError("rejected")])
     downloads = _AddLinkSetStateFailRepo()
     catalog = FakeCatalogReads(
-        candidates=(_candidate(_A, "S2E062A"),),
+        candidates=(_candidate(_A, "062A"),),
         observations={_A: ObservedFile(filename="x", size_bytes=1)},
     )
     deps = _deps(

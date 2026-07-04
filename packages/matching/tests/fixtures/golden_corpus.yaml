@@ -5,20 +5,20 @@ cases:
   - id: real_62A_full_release
     filename: "[TV] KERORO MISSION TITAR N°062A « Les demoiselles cambrioleuses » [Dimanche 21 septembre 2008 à 16H50 sur TELETOON].avi"
     tier: download
-    target_id: S2E062A
+    target_id: 062A
     rule_name: id_segment_exact
 
   - id: ascii_no_accents_62A
     filename: "KERORO MISSION TITAR N062A Les demoiselles cambrioleuses 21 septembre 2008 TELETOON.avi"
     tier: download
-    target_id: S2E062A
+    target_id: 062A
     rule_name: id_segment_exact
 
   - id: match_via_teletoon_source_marker_title
     # Sans numéro de segment -> id_segment_exact faux, mais teletoon (source_marker) + titre -> title_confirmed (download).
     filename: "[TV] KERORO MISSION TITAR « Les demoiselles cambrioleuses » [21 septembre 2008 sur TELETOON].avi"
     tier: download
-    target_id: S2E062A
+    target_id: 062A
     rule_name: title_confirmed
 
   - id: segment_id_non_video_is_discarded
@@ -32,7 +32,7 @@ cases:
     # NB : filler neutre (pas "Gunso", désormais veto-é comme titre japonais).
     filename: "Keroro rediffusion.mkv"
     tier: catalog
-    target_id: S2E062A
+    target_id: 062A
     rule_name: keroro_large
 
   - id: decoy_non_keroro_naruto
@@ -57,56 +57,56 @@ cases:
     # Forme S02E11A (saison 2, épisode 11, segment A = absolu 62A) + keroro + vidéo.
     filename: "Keroro Mission Titar S02E11A Les demoiselles cambrioleuses.avi"
     tier: download
-    target_id: S2E062A
+    target_id: 062A
     rule_name: id_segment_exact
 
   - id: seasonal_NxM_62B_download
     # Forme 2x11B -> segment B (absolu 62B).
     filename: "Keroro Mission Titar 2x11B Le grand combat sous-marin.avi"
     tier: download
-    target_id: S2E062B
+    target_id: 062B
     rule_name: id_segment_exact
 
   - id: seasonal_episode_no_segment_falls_back_to_catalog
     # "S2E11" sans lettre -> segment_id NE matche PAS (précision A/B) ; keroro -> catalog, 62A (départage).
     filename: "Keroro S2E11.mkv"
     tier: catalog
-    target_id: S2E062A
+    target_id: 062A
     rule_name: keroro_large
 
   - id: decoy_resolution_not_a_segment
     # "1920x1080" ne doit pas déclencher la branche NxM ; keroro -> catalog, PAS download.
     filename: "Keroro 1920x1080 BDRip.mkv"
     tier: catalog
-    target_id: S2E062A
+    target_id: 062A
     rule_name: keroro_large
 
   - id: title_review_notify_without_source_marker
     # Titre proche, sans segment_id ni marqueur de source -> title_review (notify).
     filename: "Keroro Les demoiselles cambrioleuses.avi"
     tier: notify
-    target_id: S2E062A
+    target_id: 062A
     rule_name: title_review
 
   - id: title_confirmed_via_vf_marker
     # Titre + marqueur VF -> title_confirmed (download).
     filename: "Keroro VF Les demoiselles cambrioleuses.avi"
     tier: download
-    target_id: S2E062A
+    target_id: 062A
     rule_name: title_confirmed
 
   - id: title_confirmed_via_idf1_marker
     # Titre + marqueur IDF1 (autre chaîne) -> title_confirmed (download).
     filename: "Keroro IDF1 Les demoiselles cambrioleuses.avi"
     tier: download
-    target_id: S2E062A
+    target_id: 062A
     rule_name: title_confirmed
 
   - id: archive_with_segment_id_is_notify
     # Archive (.rar) + segment_id -> archive_candidate (notify, revue humaine).
     filename: "Keroro N°062A Les demoiselles cambrioleuses.rar"
     tier: notify
-    target_id: S2E062A
+    target_id: 062A
     rule_name: archive_candidate
 
   - id: not_episode_opening_demotes_title_to_catalog
@@ -114,7 +114,7 @@ cases:
     # keroro_large (catalog) reste (permissif).
     filename: "Keroro Les demoiselles cambrioleuses opening.avi"
     tier: catalog
-    target_id: S2E062A
+    target_id: 062A
     rule_name: keroro_large
 
   # --- Gate média (2026-07-02) : le catalogue permissif keroro_large exige is_video OU
@@ -145,7 +145,7 @@ cases:
     # branche is_archive du gate (une archive peut contenir l'épisode).
     filename: "Keroro rediffusion.zip"
     tier: catalog
-    target_id: S2E062A
+    target_id: 062A
     rule_name: keroro_large
 
   - id: decoy_dino_riders_via_titar

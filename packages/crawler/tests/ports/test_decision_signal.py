@@ -16,6 +16,6 @@ class _StubSignal:
 
 def test_protocol_is_satisfied_structurally() -> None:
     hub: DecisionSignal = _StubSignal()
-    hub.signal("S2E062A")
+    hub.signal("062A")
     assert isinstance(hub, _StubSignal)
-    assert hub.signalled == ["S2E062A"]
+    assert hub.signalled == ["062A"]

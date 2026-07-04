@@ -1,5 +1,5 @@
 # Cibles du golden corpus (sous-ensemble §7 ; PAS le catalogue prod complet, cf. deploy/…/targets.yml).
-# target_id : S2E062A / S2E062B.
+# target_id : 062A / 062B.
 episodes:
   - season: 2
     seasonal_number: 11

@@ -43,11 +43,11 @@ def _observation() -> FileObservation:
 
 def _decision(rule_name: str, tier: str) -> MatchDecision:
     return MatchDecision(
-        target_id="S2E062A",
+        target_id="062A",
         rule_name=rule_name,
         tier=tier,
         explanation=Explanation(
-            target_id="S2E062A", rules_fired=(rule_name,), tokens_matched=(), coverage_values=()
+            target_id="062A", rules_fired=(rule_name,), tokens_matched=(), coverage_values=()
         ),
     )
 
@@ -71,7 +71,7 @@ def test_last_decision_returns_the_most_recent_record(connection: sqlite3.Connec
     repository.record_decision(_HASH, _decision("keroro_large", "catalog"))
     repository.record_decision(_HASH, _decision("id_segment_exact", "download"))
     assert repository.last_decision(_HASH) == DecisionRecord(
-        target_id="S2E062A", rule_name="id_segment_exact", tier="download"
+        target_id="062A", rule_name="id_segment_exact", tier="download"
     )
 
 

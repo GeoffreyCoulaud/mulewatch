@@ -43,7 +43,7 @@ def _seed(db: Path) -> None:
             " VALUES (?, ?, ?, ?, ?, ?)",
             (
                 "a" * 32,
-                "S2E062A",
+                "062A",
                 "id_segment_exact",
                 "download",
                 "2026-06-22T10:00:01.000000+00:00",
@@ -82,7 +82,7 @@ def test_target_coverage_groups_by_target(catalog_db: Path) -> None:
     _seed(catalog_db)
     reader = CatalogReader(open_ro(catalog_db))
     coverage = reader.target_coverage()
-    assert coverage["S2E062A"] == [("a" * 32, "download")]
+    assert coverage["062A"] == [("a" * 32, "download")]
 
 
 def test_target_coverage_empty_db_returns_empty(catalog_db: Path) -> None:
@@ -104,12 +104,12 @@ def test_target_coverage_multiple_files_same_target(catalog_db: Path) -> None:
                 "INSERT INTO match_decisions"
                 " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
-                (h, "S2E062A", "rule", "download", "2026-06-22T10:00:00.000000+00:00", "n1"),
+                (h, "062A", "rule", "download", "2026-06-22T10:00:00.000000+00:00", "n1"),
             )
         conn.commit()
     reader = CatalogReader(open_ro(catalog_db))
     coverage = reader.target_coverage()
-    assert len(coverage["S2E062A"]) == 2
+    assert len(coverage["062A"]) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -130,8 +130,8 @@ def test_list_files_no_filter_returns_all(catalog_db: Path) -> None:
 def test_list_files_filter_by_target(catalog_db: Path) -> None:
     _seed(catalog_db)
     reader = CatalogReader(open_ro(catalog_db))
-    hit = reader.list_files(target="S2E062A", tier=None, verdict=None, query=None, page=1)
-    miss = reader.list_files(target="S2E001A", tier=None, verdict=None, query=None, page=1)
+    hit = reader.list_files(target="062A", tier=None, verdict=None, query=None, page=1)
+    miss = reader.list_files(target="001A", tier=None, verdict=None, query=None, page=1)
     assert len(hit) == 1
     assert miss == []
 
@@ -190,7 +190,7 @@ def test_file_detail_carries_observations_and_decision(catalog_db: Path) -> None
     assert detail is not None
     assert detail.size_bytes == 100
     assert detail.decision is not None
-    assert detail.decision.target_id == "S2E062A"
+    assert detail.decision.target_id == "062A"
     assert len(detail.observations) == 1
 
 
@@ -246,8 +246,8 @@ def test_file_detail_no_decision(catalog_db: Path) -> None:
 def test_list_files_combined_target_and_tier_filters(catalog_db: Path) -> None:
     _seed(catalog_db)
     reader = CatalogReader(open_ro(catalog_db))
-    hit = reader.list_files(target="S2E062A", tier="download", verdict=None, query=None, page=1)
-    miss = reader.list_files(target="S2E062A", tier="notify", verdict=None, query=None, page=1)
+    hit = reader.list_files(target="062A", tier="download", verdict=None, query=None, page=1)
+    miss = reader.list_files(target="062A", tier="notify", verdict=None, query=None, page=1)
     assert len(hit) == 1
     assert miss == []
 
@@ -278,17 +278,17 @@ def test_target_coverage_uses_latest_decision_per_hash(catalog_db: Path) -> None
             "INSERT INTO match_decisions"
             " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            (h, "S2E062A", "rule", "catalog", "2026-06-22T10:00:00.000000+00:00", "n1"),
+            (h, "062A", "rule", "catalog", "2026-06-22T10:00:00.000000+00:00", "n1"),
         )
         conn.execute(
             "INSERT INTO match_decisions"
             " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            (h, "S2E062A", "rule", "download", "2026-06-22T11:00:00.000000+00:00", "n1"),
+            (h, "062A", "rule", "download", "2026-06-22T11:00:00.000000+00:00", "n1"),
         )
         conn.commit()
     coverage = CatalogReader(open_ro(catalog_db)).target_coverage()
-    assert coverage["S2E062A"] == [(h, "download")]
+    assert coverage["062A"] == [(h, "download")]
 
 
 def test_coverage_tie_break_on_id(catalog_db: Path) -> None:
@@ -301,17 +301,17 @@ def test_coverage_tie_break_on_id(catalog_db: Path) -> None:
             "INSERT INTO match_decisions"
             " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            (h, "S2E062A", "rule", "catalog", ts, "n1"),
+            (h, "062A", "rule", "catalog", ts, "n1"),
         )
         conn.execute(
             "INSERT INTO match_decisions"
             " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            (h, "S2E062A", "rule", "download", ts, "n1"),
+            (h, "062A", "rule", "download", ts, "n1"),
         )
         conn.commit()
     coverage = CatalogReader(open_ro(catalog_db)).target_coverage()
-    assert coverage["S2E062A"] == [(h, "download")]
+    assert coverage["062A"] == [(h, "download")]
 
 
 def test_file_detail_observations_include_media_fields_none(catalog_db: Path) -> None:

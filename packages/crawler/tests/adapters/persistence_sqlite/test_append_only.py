@@ -27,7 +27,7 @@ _SEED = (
     f"INSERT INTO source_observations (user_hash, ed2k_hash, raw_meta, observed_at, node_id)"
     f" VALUES ('u', '{_HASH}', '[]', 't', 'n')",
     f"INSERT INTO match_decisions (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
-    f" VALUES ('{_HASH}', 'S2E062A', 'r', 'download', 't', 'n')",
+    f" VALUES ('{_HASH}', '062A', 'r', 'download', 't', 'n')",
     f"INSERT INTO file_verifications (ed2k_hash, verdict, verified_at, node_id)"
     f" VALUES ('{_HASH}', 'pending', 't', 'n')",
 )

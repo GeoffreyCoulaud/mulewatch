@@ -87,7 +87,7 @@ def test_verbatim_tables_copied(tmp_path: Path) -> None:
             "match_decisions": [
                 {
                     "ed2k_hash": _H,
-                    "target_id": "S2E062A",
+                    "target_id": "062A",
                     "rule_name": "r",
                     "tier": "download",
                     "decided_at": "t",

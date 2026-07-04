@@ -154,7 +154,7 @@ load_yaml(path)                         # adapters/config/yaml_loader.py — the
 
 Module roles (each file is single-purpose):
 - `normalization.py` — `fold()` (NFKD + strip diacritics + casefold + `{œ→oe, æ→ae}`, keeps punctuation/digits), `normalize()`/`tokenize()` (alphanumerics only).
-- `models.py` — `FileCandidate`, `TargetSegment` (`season`/`seasonal_number`/`absolute_number`/`segment`/`title`/`status`/`sole_segment`; `.target_id` = `S2E062A` from `absolute_number`, zero-padded; double numérotation absolu+saisonnal).
+- `models.py` — `FileCandidate`, `TargetSegment` (`season`/`seasonal_number`/`absolute_number`/`segment`/`title`/`status`/`sole_segment`; `.target_id` = `062A` from `absolute_number`, zero-padded; double numérotation absolu+saisonnal).
 - `matchers.py` — the 4 leaf matchers (`KeywordMatcher`, `RegexMatcher` over stdlib **`re`** (`re.ASCII`), `CoverageMatcher` via rapidfuzz, `AttrBetweenMatcher`).
 - `interpolation.py` — regex placeholder interpolation (`{season} {seasonal_number} {absolute_number} {segment} {title}`, plus `{mono_gate}` → `[^\s\S]` never-match pour neutraliser un token sur les cibles non-mono).
 - `combinators.py` — the `Matcher` Protocol (`matches(candidate) -> bool`) + `All/Any/NotMatcher`; leaf matchers satisfy it structurally.

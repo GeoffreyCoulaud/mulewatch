@@ -42,7 +42,7 @@ episodes:
     assert len(result) == 1
     segment = result[0]
     assert isinstance(segment, TargetSegment)
-    assert segment.target_id == "S2E062A"
+    assert segment.target_id == "062A"
     assert segment.title == "La Grenouille Cosmique"
 
 
@@ -64,8 +64,8 @@ episodes:
     )
     result = load_targets(yaml_path)
     assert len(result) == 2
-    assert result[0].target_id == "S2E062A"
-    assert result[1].target_id == "S2E062B"
+    assert result[0].target_id == "062A"
+    assert result[1].target_id == "062B"
 
 
 # ---------------------------------------------------------------------------

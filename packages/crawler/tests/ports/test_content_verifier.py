@@ -41,8 +41,8 @@ def test_unavailable_error_is_an_exception() -> None:
 @pytest.mark.asyncio
 async def test_protocol_is_satisfied_structurally() -> None:
     verifier: ContentVerifier = _StubVerifier()
-    result = await verifier.verify("a" * 32, {"target_id": "S2E062A"})
+    result = await verifier.verify("a" * 32, {"target_id": "062A"})
     assert await verifier.health() is True
     assert result.verdict == "unverified"
     assert isinstance(verifier, _StubVerifier)
-    assert verifier.verified == [("a" * 32, {"target_id": "S2E062A"})]
+    assert verifier.verified == [("a" * 32, {"target_id": "062A"})]

@@ -8,11 +8,11 @@ from catalog_matching.engine import (
 
 def _decision(tier: str = "download") -> MatchDecision:
     return MatchDecision(
-        target_id="S2E062A",
+        target_id="062A",
         rule_name="id_segment_exact",
         tier=tier,
         explanation=Explanation(
-            target_id="S2E062A",
+            target_id="062A",
             rules_fired=("id_segment_exact",),
             tokens_matched=(),
             coverage_values=(),
@@ -22,14 +22,12 @@ def _decision(tier: str = "download") -> MatchDecision:
 
 def test_to_record_projects_the_three_comparable_fields() -> None:
     record = to_record(_decision())
-    assert record == DecisionRecord(
-        target_id="S2E062A", rule_name="id_segment_exact", tier="download"
-    )
+    assert record == DecisionRecord(target_id="062A", rule_name="id_segment_exact", tier="download")
 
 
 def test_decision_record_is_frozen_and_equal_by_value() -> None:
-    a = DecisionRecord(target_id="S2E062A", rule_name="r", tier="catalog")
-    b = DecisionRecord(target_id="S2E062A", rule_name="r", tier="catalog")
+    a = DecisionRecord(target_id="062A", rule_name="r", tier="catalog")
+    b = DecisionRecord(target_id="062A", rule_name="r", tier="catalog")
     assert a == b
     assert hash(a) == hash(b)
 

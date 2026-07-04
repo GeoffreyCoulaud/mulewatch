@@ -25,9 +25,9 @@ def _engine() -> MatchingEngine:
 
 
 def test_explain_known_target_with_match_returns_explanation() -> None:
-    result = _engine().explain(FileCandidate(filename="keroro_062.avi"), "S2E062A")
+    result = _engine().explain(FileCandidate(filename="keroro_062.avi"), "062A")
     assert isinstance(result, Explanation)
-    assert result.target_id == "S2E062A"
+    assert result.target_id == "062A"
     assert "keroro_large" in result.rules_fired
 
 
@@ -36,6 +36,6 @@ def test_explain_unknown_target_returns_none() -> None:
 
 
 def test_explain_known_target_no_rule_fired_returns_empty_explanation() -> None:
-    result = _engine().explain(FileCandidate(filename="random.txt"), "S2E062A")
+    result = _engine().explain(FileCandidate(filename="random.txt"), "062A")
     assert isinstance(result, Explanation)
     assert result.rules_fired == ()
