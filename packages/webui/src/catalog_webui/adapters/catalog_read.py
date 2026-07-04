@@ -328,8 +328,10 @@ class CatalogReader:
         dec_row = self._conn.execute(_SQL_LAST_DECISION, (ed2k_hash,)).fetchone()
         ver_rows = self._conn.execute(_SQL_VERIFICATIONS, (ed2k_hash,)).fetchall()
 
+        # A retracted latest decision is treated as no decision at all (retracted == unmatched,
+        # spec §9): the earlier, pre-retraction real decision must never leak through here.
         decision: DecisionView | None = None
-        if dec_row is not None:
+        if dec_row is not None and dec_row["tier"] != "retracted":
             decision = DecisionView(
                 target_id=dec_row["target_id"],
                 rule_name=dec_row["rule_name"],

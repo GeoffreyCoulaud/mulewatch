@@ -613,6 +613,23 @@ async def test_file_detail_without_decision_returns_200(
 
 
 @pytest.mark.asyncio
+async def test_file_detail_retracted_shows_no_decision(
+    app_retracted_decision: tuple[Starlette, str],
+) -> None:
+    """/files/{hash} whose LATEST decision is a retraction renders exactly like a file with
+    no decision at all: "No matching decision.", never a tier/target/rule badge — and never
+    the literal "retracted" string anywhere in the page."""
+    app, hash_ = app_retracted_decision
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(f"/files/{hash_}")
+    assert resp.status_code == 200
+    assert "No matching decision." in resp.text
+    assert "No explanation available." in resp.text
+    assert "retracted" not in resp.text
+    assert "062A" not in resp.text  # the earlier, pre-retraction decision must not leak through
+
+
+@pytest.mark.asyncio
 async def test_file_detail_explanation_none_unknown_target(
     app_unknown_target: tuple[Starlette, str],
 ) -> None:

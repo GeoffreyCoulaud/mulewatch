@@ -207,6 +207,16 @@ def test_file_detail_with_verifications(catalog_db: Path) -> None:
     assert detail.verifications[0].verdict == "ok"
 
 
+def test_file_detail_retracted_latest_decision_is_no_decision(catalog_db: Path) -> None:
+    """A file whose LATEST decision is the crawler's retraction sentinel exposes NO decision
+    from ``file_detail`` — identical to an unmatched file (spec §9). The earlier
+    (pre-retraction) real decision must not leak through."""
+    _seed_retracted(catalog_db)
+    detail = CatalogReader(open_ro(catalog_db)).file_detail("c" * 32)
+    assert detail is not None
+    assert detail.decision is None
+
+
 def test_file_detail_no_decision(catalog_db: Path) -> None:
     """Detail works even without a decision (unmatched file)."""
     with sqlite3.connect(catalog_db) as conn:
