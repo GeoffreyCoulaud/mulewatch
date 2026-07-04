@@ -7,11 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from catalog_matching.engine import Explanation, MatchDecision
+from catalog_matching.engine import DecisionRecord, Explanation, MatchDecision
 from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
 from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
 from emule_indexer.adapters.persistence_sqlite.errors import PersistenceError
 from emule_indexer.domain.observation import FileObservation
+from emule_indexer.domain.retraction import RETRACTED_TIER
 from emule_indexer.ports.catalog_repository import CatalogRepository
 
 _HASH = "31d6cfe0d16ae931b73c59d7e0c089c0"
@@ -254,3 +255,48 @@ def test_repository_satisfies_the_port_structurally(
 ) -> None:
     port: CatalogRepository = repository  # mypy proves structural satisfaction
     port.record_observation(_observation())
+
+
+def test_record_retraction_round_trip(
+    repository: SqliteCatalogRepository, connection: sqlite3.Connection
+) -> None:
+    repository.record_observation(_observation())
+    repository.record_retraction(_HASH)
+    row = connection.execute(
+        "SELECT ed2k_hash, target_id, rule_name, tier, decided_at, node_id FROM match_decisions"
+    ).fetchone()
+    assert row == (_HASH, "", "", RETRACTED_TIER, _FROZEN_ISO, _NODE)
+    assert repository.last_decision(_HASH) == DecisionRecord(
+        target_id="", rule_name="", tier=RETRACTED_TIER
+    )
+
+
+def test_record_retraction_rejects_non_canonical_hash(
+    repository: SqliteCatalogRepository, connection: sqlite3.Connection
+) -> None:
+    with pytest.raises(PersistenceError, match="non-canonical eD2k hash"):
+        repository.record_retraction("NOTAHASH")
+    assert connection.execute("SELECT count(*) FROM match_decisions").fetchone()[0] == 0
+
+
+def test_record_retraction_for_unknown_file_raises_persistence_error(
+    repository: SqliteCatalogRepository,
+) -> None:
+    # FK violated (file never observed): mirrors record_decision's own guard.
+    with pytest.raises(PersistenceError, match="FOREIGN KEY"):
+        repository.record_retraction("0" * 32)
+
+
+def test_record_retraction_row_is_append_only(
+    repository: SqliteCatalogRepository, connection: sqlite3.Connection
+) -> None:
+    repository.record_observation(_observation())
+    repository.record_retraction(_HASH)
+    with pytest.raises(sqlite3.IntegrityError, match="match_decisions is append-only"):
+        connection.execute("UPDATE match_decisions SET tier = 'catalog'")
+    with pytest.raises(sqlite3.IntegrityError, match="match_decisions is append-only"):
+        connection.execute("DELETE FROM match_decisions")
+    # The sentinel row SURVIVED both attempts, untouched.
+    assert repository.last_decision(_HASH) == DecisionRecord(
+        target_id="", rule_name="", tier=RETRACTED_TIER
+    )

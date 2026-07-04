@@ -33,6 +33,7 @@ from catalog_matching.engine import (
 from emule_indexer.adapters.persistence_sqlite.connection import Clock, utc_iso, utc_now
 from emule_indexer.adapters.persistence_sqlite.errors import PersistenceError, wrap_sqlite_errors
 from emule_indexer.domain.observation import FileObservation
+from emule_indexer.domain.retraction import RETRACTED_TIER
 from emule_indexer.ports.catalog_repository import ObservedFile
 
 _CANONICAL_HASH_RE = re.compile(r"[0-9a-f]{32}\Z")
@@ -157,6 +158,23 @@ class SqliteCatalogRepository:
                     utc_iso(self._clock()),
                     self._node_id,
                 ),
+            )
+
+    def record_retraction(self, ed2k_hash: str) -> None:
+        """Appends a sentinel ``retracted`` decision (spec re-evaluation §5).
+
+        Mirrors ``record_decision`` exactly (same canonical-hash guard, same bare
+        autocommit ``INSERT``): a file that no longer matches any target gets an
+        appended ``(target_id="", rule_name="", tier=RETRACTED_TIER)`` row instead of a
+        mutation, per the append-only invariant. Unknown file → FK violated →
+        ``PersistenceError``.
+        """
+        if not _CANONICAL_HASH_RE.fullmatch(ed2k_hash):
+            raise PersistenceError(f"non-canonical eD2k hash: {ed2k_hash!r}")
+        with wrap_sqlite_errors():
+            self._connection.execute(
+                _INSERT_DECISION,
+                (ed2k_hash, "", "", RETRACTED_TIER, utc_iso(self._clock()), self._node_id),
             )
 
     def last_decision(self, ed2k_hash: str) -> DecisionRecord | None:
