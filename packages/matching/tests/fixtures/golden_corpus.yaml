@@ -197,6 +197,13 @@ cases:
     filename: "[KERORO][R3_DVDRIP][09][640x480.x264.AAC.2AUDIO.BIG5][7C094A47].mkv"
     discarded: true
 
+  - id: foreign_gb_popgo_chinese_discarded
+    # Real catalogued name. [GB] = GB2312 subtitles (Simplified Chinese); POPGO = a Chinese
+    # fansub group. Complement of BIG5 (Traditional, already vetoed): the GB* encoding tags
+    # must veto too -> french_safe false -> discarded (not catalogued as unidentified).
+    filename: "[POPGO][Keroro][GB]05(28D86ED1).avi"
+    discarded: true
+
   - id: foreign_spanish_xete_discarded
     # Spanish dub (XeTe group): foreign_lang veto -> discarded.
     filename: "Keroro 35 - El gran plan del cumple de Natsumi (DVD TV dual by XeTe).avi"
