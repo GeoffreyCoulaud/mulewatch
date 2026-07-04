@@ -28,15 +28,24 @@ def human_size(size_bytes: int) -> str:
     ``KB``/``MB``/``GB``/``TB`` labels are the familiar (if technically imprecise) ones, not
     ``KiB``/``MiB``/``GiB``/``TiB``. Rounds to the nearest whole unit — an operator-facing
     display, not a precise byte count.
+
+    The unit is picked on the ROUNDED value, not the raw byte count: e.g. ``1024**2 - 1``
+    bytes rounds to 1024 when divided by 1024 (KiB) — that must promote to ``"1 MB"``, not
+    render as ``"1024 KB"``. Comparing on the un-rounded byte count against a fixed threshold
+    (the previous bug) misses that a value just under a unit boundary can still round UP to
+    the next unit's first whole number.
     """
     if size_bytes < _KIB:
         return f"{size_bytes} B"
-    if size_bytes < _MIB:
-        return f"{round(size_bytes / _KIB)} KB"
-    if size_bytes < _GIB:
-        return f"{round(size_bytes / _MIB)} MB"
-    if size_bytes < _TIB:
-        return f"{round(size_bytes / _GIB)} GB"
+    kib = round(size_bytes / _KIB)
+    if kib < 1024:
+        return f"{kib} KB"
+    mib = round(size_bytes / _MIB)
+    if mib < 1024:
+        return f"{mib} MB"
+    gib = round(size_bytes / _GIB)
+    if gib < 1024:
+        return f"{gib} GB"
     return f"{round(size_bytes / _TIB)} TB"
 
 
