@@ -10,24 +10,52 @@
 </p>
 {% endfor %}
 
-<p class="tier-legend">
-  Tier legend — <strong>download</strong>: automatically queued for download;
-  <strong>notify</strong>: flagged for manual review; <strong>catalog</strong>: catalogued
-  but not identified to a specific episode ("unidentified").
-</p>
-
-<table>
+<table class="files-table">
   <thead>
     <tr>
       <th>Hash</th>
       <th>Name</th>
       <th>Size</th>
-      <th>Sources</th>
+      <th class="th-tip-host">Sources
+        <button type="button" class="th-help" aria-label="What Sources counts" aria-describedby="tip-sources">?</button>
+        <div id="tip-sources" role="tooltip" class="th-tip">
+          <p>Number of peers seen sharing this file on the eMule network (from the latest observation).</p>
+        </div>
+      </th>
       <th>Last seen</th>
-      <th>Target</th>
+      <th class="th-tip-host">Target
+        <button type="button" class="th-help" aria-label="What Target means" aria-describedby="tip-target">?</button>
+        <div id="tip-target" role="tooltip" class="th-tip">
+          <p>Shows the episode this file is matched to (absolute id + seasonal locator, e.g. 062A / S02E11A).</p>
+          <ul>
+            <li><strong>unidentified</strong>: catalogued, no specific episode</li>
+            <li>otherwise, the file has matched no episode</li>
+          </ul>
+        </div>
+      </th>
       <th>Title</th>
-      <th>Tier</th>
-      <th>Verdict</th>
+      <th class="th-tip-host">Tier
+        <button type="button" class="th-help" aria-label="What the tier values mean" aria-describedby="tip-tier">?</button>
+        <div id="tip-tier" role="tooltip" class="th-tip th-tip--end">
+          <ul>
+            <li><strong>download</strong>: automatically queued for download</li>
+            <li><strong>notify</strong>: flagged for manual review</li>
+            <li><strong>catalog</strong>: catalogued but not tied to a specific episode ("unidentified")</li>
+          </ul>
+        </div>
+      </th>
+      <th class="th-tip-host">Verdict
+        <button type="button" class="th-help" aria-label="What the verdict values mean" aria-describedby="tip-verdict">?</button>
+        <div id="tip-verdict" role="tooltip" class="th-tip th-tip--end">
+          <ul>
+            <li><strong>pending</strong>: decision made, not yet verified</li>
+            <li><strong>clean</strong>: content check found no problem</li>
+            <li><strong>suspicious</strong>: content check raised a flag</li>
+            <li><strong>malicious</strong>: content check detected malware</li>
+            <li><strong>error</strong>: the content check could not run</li>
+          </ul>
+        </div>
+      </th>
     </tr>
   </thead>
   <tbody>

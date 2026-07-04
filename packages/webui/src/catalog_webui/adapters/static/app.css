@@ -119,3 +119,64 @@ pre {
 
 /* Utilitaires */
 .muted { color: #6c757d; font-size: 0.9em; }
+
+/* Tooltips d'en-tête de colonne (tables /files et /targets) */
+/* overflow visible : laisse le tooltip absolu déborder hors de la table (base = hidden) */
+.files-table { overflow: visible; }
+
+.th-tip-host { position: relative; }
+
+.th-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2em;
+  height: 1.2em;
+  margin-left: 0.35em;
+  padding: 0;
+  border: 1px solid #adb5bd;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #495057;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+}
+
+.th-help:hover,
+.th-help:focus-visible { background: #e9ecef; color: #1a1a2e; }
+
+.th-tip {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  margin-top: 0.3rem;
+  min-width: 15rem;
+  max-width: 22rem;
+  padding: 0.55rem 0.7rem;
+  background: #ffffff;
+  color: #1a1a2e;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(13, 27, 42, 0.16);
+  font-weight: 400;
+  white-space: normal;       /* neutralise th { white-space: nowrap } */
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* Colonnes de droite (Tier, Verdict) : ouvre vers la gauche pour rester dans la page */
+.th-tip--end { left: auto; right: 0; }
+
+.th-tip p { margin: 0 0 0.35rem; font-size: 0.82rem; line-height: 1.45; }
+.th-tip p:last-child { margin-bottom: 0; }
+.th-tip ul { margin: 0; padding-left: 1.1rem; }
+.th-tip li { margin: 0.12rem 0; font-size: 0.82rem; line-height: 1.45; }
+
+.th-tip-host:hover .th-tip,
+.th-tip-host:focus-within .th-tip { display: block; }

@@ -1030,30 +1030,59 @@ async def test_files_unknown_target_shows_raw_id_and_dash_title(
 async def test_files_no_decision_shows_dashes(
     app_no_decision: tuple[Starlette, str],
 ) -> None:
-    """No decision at all → target/title/verdict all render as "—", never "pending" or
-    "unidentified". The row is only visible with show_unmatched (the matched-only default
-    hides it, cf. test_files_default_hides_unmatched)."""
+    """No decision at all → target/title/verdict all render as "—" cells, never a "pending"
+    or "unidentified" cell value. The row is only visible with show_unmatched (the
+    matched-only default hides it, cf. test_files_default_hides_unmatched)."""
     app, hash_ = app_no_decision
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files?show_unmatched=1")
     assert resp.status_code == 200
     assert hash_[:8] in resp.text
-    assert "pending" not in resp.text
-    # The static tier legend also mentions the word "unidentified" — scope to the cell.
+    # The Verdict/Target header tooltips also mention "pending"/"unidentified" — scope to
+    # the cell so we assert on the row value, not the static legend text.
+    assert "<td>pending</td>" not in resp.text
     assert "<td>unidentified</td>" not in resp.text
     assert "La Grenouille Cosmique" not in resp.text
 
 
 @pytest.mark.asyncio
-async def test_files_tier_legend_is_rendered(
+async def test_files_tier_header_has_tooltip_and_no_legacy_legend(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """A short static legend explains the download/notify/catalog tiers (brief requirement)."""
+    """The tier meanings now live in a "?" header tooltip on the Tier column, replacing the
+    old free-standing <p class="tier-legend"> block."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files")
     assert resp.status_code == 200
-    assert "Tier legend" in resp.text
+    # The legacy legend block is gone.
+    assert 'class="tier-legend"' not in resp.text
+    assert "Tier legend" not in resp.text
+    # A focusable "?" trigger describes a tooltip that enumerates the three tiers.
+    assert 'aria-describedby="tip-tier"' in resp.text
+    assert 'id="tip-tier"' in resp.text
+    assert 'role="tooltip"' in resp.text
+    assert "automatically queued for download" in resp.text
+    assert "flagged for manual review" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_files_nonobvious_columns_have_header_tooltips(
+    populated_app: tuple[Starlette, str],
+) -> None:
+    """The other non-obvious columns (Verdict, Target, Sources) also carry a "?" header
+    tooltip explaining their values."""
+    app, _ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files")
+    assert resp.status_code == 200
+    assert 'id="tip-verdict"' in resp.text
+    assert 'id="tip-target"' in resp.text
+    assert 'id="tip-sources"' in resp.text
+    # A distinctive phrase from each of the three tooltips.
+    assert "not yet verified" in resp.text  # verdict
+    assert "the episode this file is matched to" in resp.text  # target
+    assert "peers" in resp.text  # sources
 
 
 @pytest.mark.asyncio
