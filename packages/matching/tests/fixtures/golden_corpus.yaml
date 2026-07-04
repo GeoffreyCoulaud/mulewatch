@@ -190,3 +190,23 @@ cases:
     # "Josconcillo" (release étrangère connue) -> foreign_lang -> écarté.
     filename: "Keroro Titar 62 Josconcillo.avi"
     discarded: true
+
+  # --- Foreign-marker + hash-digit precision hardening (2026-07-04) ---
+  - id: foreign_big5_r3_taiwanese_discarded
+    # Taiwanese R3 DVD rip (BIG5): foreign_lang veto -> french_safe false -> discarded.
+    filename: "[KERORO][R3_DVDRIP][09][640x480.x264.AAC.2AUDIO.BIG5][7C094A47].mkv"
+    discarded: true
+
+  - id: foreign_spanish_xete_discarded
+    # Spanish dub (XeTe group): foreign_lang veto -> discarded.
+    filename: "Keroro 35 - El gran plan del cumple de Natsumi (DVD TV dual by XeTe).avi"
+    discarded: true
+
+  - id: hash_digits_not_matched_as_episode_number
+    # French-safe, no real episode number: "094" appears ONLY inside the CRC tag.
+    # Before 1b: segment_id_loose matched 094 -> numero_nu (notify) on mono 094A.
+    # After 1b: the hex-bordered number no longer matches -> keroro_large catch-all.
+    filename: "Keroro rediffusion [7C094A47].avi"
+    tier: catalog
+    target_id: 062A
+    rule_name: keroro_large

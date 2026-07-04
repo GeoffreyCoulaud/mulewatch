@@ -5,7 +5,7 @@ tokens:
   keroro:        { keyword: keroro }
   titar:         { keyword: titar }
   keroro_titar:  { any: [keroro, titar] }
-  foreign_lang:  { regex: "\\b(ITA|KOR|Korean|Italiano|Coreano|VOSTFR|VOSTA|Subs?FR|Espa[nñ]ol|English\\s?Dub|ENG|Japan|JAP|Gunsou?)\\b|dino-riders|guerriero|risveglio|sarxento|sargento|benjo|fatacolorata|catala|signor|josconcillo|sgt\\.?\\s*frog|\\((?:ita|j|jp|k|kr|ks)\\)" }
+  foreign_lang:  { regex: "\\b(ITA|KOR|Korean|Italiano|Coreano|VOSTFR|VOSTA|Subs?FR|Espa[nñ]ol|English\\s?Dub|ENG|Japan|JAP|Gunsou?)\\b|dino-riders|guerriero|risveglio|sarxento|sargento|benjo|fatacolorata|catala|signor|josconcillo|sgt\\.?\\s*frog|\\((?:ita|j|jp|k|kr|ks)\\)|BIG5|R3_DVDRIP|XeTe" }
   french_safe:   { not: foreign_lang }
   is_keroro:     { all: [french_safe, keroro_titar] }
   not_episode:   { regex: "opening|ending|g[eé]n[eé]rique|\\bsample\\b|preview|trailer|bande.?annonce" }
@@ -15,7 +15,7 @@ tokens:
   vf:            { regex: "\\b(?:vf|vff|vfb)\\b|version\\s?francaise" }
   source_marker: { any: [teletoon, idf1, vf] }
   segment_id:    { regex: "(?:n[°o]?\\s*0*{absolute_number}|s0*{season}\\s*e0*{seasonal_number}|0*{season}\\s*x\\s*0*{seasonal_number})\\s*{segment}" }
-  segment_id_loose: { regex: "{mono_gate}(?:^|[^0-9])0*(?:{absolute_number}|{seasonal_number})(?:[^0-9]|$)" }
+  segment_id_loose: { regex: "{mono_gate}(?:^|[^0-9A-Za-z])0*(?:{absolute_number}|{seasonal_number})(?:[^0-9A-Za-z]|$)" }
   title_hit:     { coverage: title, min: 0.6 }
   is_video:      { regex: "\\.(avi|mkv|mp4|mpg|mpeg|divx|m4v|ogm)$" }
   is_archive:    { regex: "\\.(zip|7z|rar|r\\d\\d|z\\d\\d|part\\d+\\.rar)$" }
