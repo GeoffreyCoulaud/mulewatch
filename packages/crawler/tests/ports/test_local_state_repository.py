@@ -38,6 +38,12 @@ class _StubRepository:
     def count_pending_verifications(self) -> int:
         return 0
 
+    def last_backfill_policy(self) -> str | None:
+        return None
+
+    def set_last_backfill_policy(self, sha256: str) -> None:
+        return None
+
 
 def test_protocol_is_satisfied_structurally() -> None:
     repository: LocalStateRepository = _StubRepository()  # mypy proves the satisfaction
@@ -48,3 +54,5 @@ def test_protocol_is_satisfied_structurally() -> None:
     repository.fail_verification(1)
     assert repository.reclaim_expired() == 0
     assert repository.count_pending_verifications() == 0
+    assert repository.last_backfill_policy() is None
+    repository.set_last_backfill_policy("abc")
