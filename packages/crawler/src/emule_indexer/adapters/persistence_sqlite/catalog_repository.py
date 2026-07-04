@@ -22,7 +22,7 @@ pragma would commit an ORPHAN observation. The rollback catches ``BaseException`
 import json
 import re
 import sqlite3
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import suppress
 
 from catalog_matching.engine import (
@@ -34,7 +34,7 @@ from emule_indexer.adapters.persistence_sqlite.connection import Clock, utc_iso,
 from emule_indexer.adapters.persistence_sqlite.errors import PersistenceError, wrap_sqlite_errors
 from emule_indexer.domain.observation import FileObservation
 from emule_indexer.domain.retraction import RETRACTED_TIER
-from emule_indexer.ports.catalog_repository import ObservedFile
+from emule_indexer.ports.catalog_repository import ObservedFile, ReevalRow
 
 _CANONICAL_HASH_RE = re.compile(r"[0-9a-f]{32}\Z")
 
@@ -90,6 +90,22 @@ SELECT filename, size_bytes FROM file_observations
 WHERE ed2k_hash = ?
 ORDER BY observed_at DESC, id DESC
 LIMIT 1
+"""
+
+# Every hash's LATEST observation (re-evaluation backfill spec §6), one row per hash:
+# a correlated anti-join keeps only the observation with no strictly-later observation for
+# the same hash (ties broken by id, the most recent INSERT). Stable sort by hash for a
+# deterministic, streamable result (no window function needed, unlike download_decisions).
+_SELECT_REEVALUATION_ROWS = """
+SELECT o.ed2k_hash, o.filename, o.size_bytes, o.media_length_sec, o.bitrate_kbps
+FROM file_observations AS o
+WHERE (
+    SELECT COUNT(*) FROM file_observations AS o2
+    WHERE o2.ed2k_hash = o.ed2k_hash
+      AND (o2.observed_at > o.observed_at
+           OR (o2.observed_at = o.observed_at AND o2.id > o.id))
+) = 0
+ORDER BY o.ed2k_hash
 """
 
 
@@ -204,6 +220,19 @@ class SqliteCatalogRepository:
         if row is None:
             return None
         return ObservedFile(filename=row[0], size_bytes=row[1])
+
+    def iter_reevaluation_rows(self) -> Iterator[ReevalRow]:
+        """Every hash's latest observation, streamed via the cursor (backfill spec §6) — READ."""
+        with wrap_sqlite_errors():
+            cursor = self._connection.execute(_SELECT_REEVALUATION_ROWS)
+            for row in cursor:
+                yield ReevalRow(
+                    ed2k_hash=row[0],
+                    filename=row[1],
+                    size_bytes=row[2],
+                    media_length_sec=row[3],
+                    bitrate_kbps=row[4],
+                )
 
     def record_verification(
         self,

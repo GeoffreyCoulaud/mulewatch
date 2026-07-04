@@ -3,7 +3,7 @@ import dataclasses
 import pytest
 
 from catalog_matching.models import FileCandidate
-from emule_indexer.domain.observation import FileObservation
+from emule_indexer.domain.observation import FileObservation, candidate_from_fields
 
 
 def _full_observation() -> FileObservation:
@@ -72,6 +72,37 @@ def test_to_candidate_maps_absent_media_metadata_to_none() -> None:
         keyword="keroro",
     )
     candidate = observation.to_candidate()
+    assert candidate == FileCandidate(
+        filename="Keroro 062A.avi",
+        size_mb=0.5,
+        duration_sec=None,
+        bitrate_kbps=None,
+    )
+
+
+def test_candidate_from_fields_converts_units_with_media_metadata() -> None:
+    # exactly 3 MiB -> size_mb == 3.0 (DECISION 8: 1 MiB = 1024*1024 bytes).
+    candidate = candidate_from_fields(
+        filename="Keroro 062A.avi",
+        size_bytes=3 * 1024 * 1024,
+        media_length_sec=1234,
+        bitrate_kbps=1500,
+    )
+    assert candidate == FileCandidate(
+        filename="Keroro 062A.avi",
+        size_mb=3.0,
+        duration_sec=1234.0,
+        bitrate_kbps=1500.0,
+    )
+
+
+def test_candidate_from_fields_maps_absent_media_metadata_to_none() -> None:
+    candidate = candidate_from_fields(
+        filename="Keroro 062A.avi",
+        size_bytes=524288,  # 0.5 MiB
+        media_length_sec=None,
+        bitrate_kbps=None,
+    )
     assert candidate == FileCandidate(
         filename="Keroro 062A.avi",
         size_mb=0.5,

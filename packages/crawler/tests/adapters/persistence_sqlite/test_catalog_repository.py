@@ -2,7 +2,7 @@ import dataclasses
 import json
 import sqlite3
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -13,9 +13,10 @@ from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
 from emule_indexer.adapters.persistence_sqlite.errors import PersistenceError
 from emule_indexer.domain.observation import FileObservation
 from emule_indexer.domain.retraction import RETRACTED_TIER
-from emule_indexer.ports.catalog_repository import CatalogRepository
+from emule_indexer.ports.catalog_repository import CatalogRepository, ReevalRow
 
 _HASH = "31d6cfe0d16ae931b73c59d7e0c089c0"
+_HASH_B = "b" * 32
 _NODE = "11111111-2222-3333-4444-555555555555"
 _FROZEN_NOW = datetime(2026, 6, 11, 12, 0, 0, tzinfo=UTC)
 _FROZEN_ISO = "2026-06-11T12:00:00.000000+00:00"
@@ -23,6 +24,18 @@ _FROZEN_ISO = "2026-06-11T12:00:00.000000+00:00"
 
 def _frozen_clock() -> datetime:
     return _FROZEN_NOW
+
+
+class _AdvancingClock:
+    """A clock that ticks forward on every call (to order two observations in time)."""
+
+    def __init__(self) -> None:
+        self._now = _FROZEN_NOW
+
+    def __call__(self) -> datetime:
+        moment = self._now
+        self._now += timedelta(minutes=1)
+        return moment
 
 
 def _observation(
@@ -300,3 +313,44 @@ def test_record_retraction_row_is_append_only(
     assert repository.last_decision(_HASH) == DecisionRecord(
         target_id="", rule_name="", tier=RETRACTED_TIER
     )
+
+
+def test_iter_reevaluation_rows_returns_the_latest_observation_per_hash(
+    connection: sqlite3.Connection,
+) -> None:
+    # _HASH gets TWO observations (advancing clock): only the LATEST must come back.
+    # _HASH_B gets a single observation with media metadata present.
+    repository = SqliteCatalogRepository(connection, _NODE, clock=_AdvancingClock())
+    repository.record_observation(_observation(filename="old.avi", size_bytes=100))
+    repository.record_observation(_observation(filename="new.avi", size_bytes=200))
+    repository.record_observation(
+        dataclasses.replace(
+            _observation(
+                filename="other.avi", size_bytes=300, media_length_sec=1234, bitrate_kbps=1500
+            ),
+            ed2k_hash=_HASH_B,
+        )
+    )
+    rows = list(repository.iter_reevaluation_rows())
+    assert rows == [
+        ReevalRow(
+            ed2k_hash=_HASH,
+            filename="new.avi",
+            size_bytes=200,
+            media_length_sec=None,
+            bitrate_kbps=None,
+        ),
+        ReevalRow(
+            ed2k_hash=_HASH_B,
+            filename="other.avi",
+            size_bytes=300,
+            media_length_sec=1234,
+            bitrate_kbps=1500,
+        ),
+    ]
+
+
+def test_iter_reevaluation_rows_is_empty_with_an_empty_catalogue(
+    repository: SqliteCatalogRepository,
+) -> None:
+    assert list(repository.iter_reevaluation_rows()) == []

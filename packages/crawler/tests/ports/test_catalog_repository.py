@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 
 from catalog_matching.engine import (
     DecisionRecord,
@@ -7,7 +7,7 @@ from catalog_matching.engine import (
     MatchDecision,
 )
 from emule_indexer.domain.observation import FileObservation
-from emule_indexer.ports.catalog_repository import CatalogRepository, ObservedFile
+from emule_indexer.ports.catalog_repository import CatalogRepository, ObservedFile, ReevalRow
 
 
 class _StubRepository:
@@ -36,6 +36,19 @@ class _StubRepository:
 
     def last_observation(self, ed2k_hash: str) -> ObservedFile | None:
         return None
+
+    def iter_reevaluation_rows(self) -> Iterator[ReevalRow]:
+        return iter(
+            (
+                ReevalRow(
+                    ed2k_hash="31d6cfe0d16ae931b73c59d7e0c089c0",
+                    filename="Keroro 062A.avi",
+                    size_bytes=100,
+                    media_length_sec=None,
+                    bitrate_kbps=None,
+                ),
+            )
+        )
 
     def record_verification(
         self,
@@ -72,6 +85,15 @@ def test_protocol_is_satisfied_structurally() -> None:
     assert repository.last_decision(observation.ed2k_hash) is None
     assert repository.download_decisions() == ()
     assert repository.last_observation(observation.ed2k_hash) is None
+    assert tuple(repository.iter_reevaluation_rows()) == (
+        ReevalRow(
+            ed2k_hash=observation.ed2k_hash,
+            filename=observation.filename,
+            size_bytes=observation.size_bytes,
+            media_length_sec=None,
+            bitrate_kbps=None,
+        ),
+    )
     repository.record_verification(observation.ed2k_hash, "unverified", {"k": 1}, ["c"])
     assert stub.observations == [observation]
     assert stub.decisions == [(observation.ed2k_hash, decision)]

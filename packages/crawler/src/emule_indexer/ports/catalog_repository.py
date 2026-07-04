@@ -8,7 +8,7 @@ is why ``record_decision`` receives the hash ALONGSIDE the decision (``MatchDeci
 not carry the content key, by principle: a domain without persistence columns).
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -29,6 +29,22 @@ class ObservedFile:
     size_bytes: int
 
 
+@dataclass(frozen=True)
+class ReevalRow:
+    """One hash's latest observation, enough to rebuild a :class:`FileCandidate`.
+
+    Read by the re-evaluation backfill (spec re-evaluation §6): each row feeds
+    ``domain.observation.candidate_from_fields`` to re-run the matching engine against
+    the whole catalogue, one row per catalogued hash.
+    """
+
+    ed2k_hash: str
+    filename: str
+    size_bytes: int
+    media_length_sec: int | None
+    bitrate_kbps: int | None
+
+
 class CatalogRepository(Protocol):
     """Sync catalog write contract (append-only; the adapter reports, it does not decide).
 
@@ -36,7 +52,9 @@ class CatalogRepository(Protocol):
     ``download_decisions`` (spec download §5) returns the :class:`DownloadCandidate` whose
     LATEST verdict is tier=download (to be replayed by the download loop). ``last_observation``
     returns the most recent :class:`ObservedFile` of a hash (name+size for the ed2k link), or
-    ``None``. These three reads are harmless (no write).
+    ``None``. ``iter_reevaluation_rows`` streams every hash's latest observation as a
+    :class:`ReevalRow` (spec re-evaluation §6), for the startup backfill to rebuild a
+    candidate per hash. These reads are harmless (no write).
     ``record_verification`` (spec verify §5) appends a ``file_verifications`` row (append-only
     catalog, tagged ``node_id``) — the verdict decision is made elsewhere (the verifier), the
     adapter only persists.
@@ -57,6 +75,8 @@ class CatalogRepository(Protocol):
     def download_decisions(self) -> tuple[DownloadCandidate, ...]: ...
 
     def last_observation(self, ed2k_hash: str) -> ObservedFile | None: ...
+
+    def iter_reevaluation_rows(self) -> Iterator[ReevalRow]: ...
 
     def record_verification(
         self,
