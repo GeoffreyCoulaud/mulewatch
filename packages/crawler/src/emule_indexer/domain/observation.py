@@ -14,6 +14,28 @@ from catalog_matching.models import FileCandidate
 _BYTES_PER_MIB = 1024 * 1024
 
 
+def candidate_from_fields(
+    filename: str,
+    size_bytes: int,
+    media_length_sec: int | None,
+    bitrate_kbps: int | None,
+) -> FileCandidate:
+    """Bridge to the matching engine: unit conversions (bytes -> MiB, int -> float).
+
+    Single source of the conversion (spec re-evaluation §6): both ``FileObservation.
+    to_candidate`` (live path) and the re-evaluation backfill (``ReevalRow`` ->
+    candidate) call this.
+    """
+    duration = float(media_length_sec) if media_length_sec is not None else None
+    bitrate = float(bitrate_kbps) if bitrate_kbps is not None else None
+    return FileCandidate(
+        filename=filename,
+        size_mb=size_bytes / _BYTES_PER_MIB,
+        duration_sec=duration,
+        bitrate_kbps=bitrate,
+    )
+
+
 @dataclass(frozen=True)
 class FileObservation:
     """A file observed during a search (content key = eD2k hash, never the person).
@@ -36,12 +58,7 @@ class FileObservation:
     raw_meta: tuple[tuple[str, str], ...] = ()
 
     def to_candidate(self) -> FileCandidate:
-        """Bridge to the matching engine: unit conversions (bytes → MiB, int → float)."""
-        duration = float(self.media_length_sec) if self.media_length_sec is not None else None
-        bitrate = float(self.bitrate_kbps) if self.bitrate_kbps is not None else None
-        return FileCandidate(
-            filename=self.filename,
-            size_mb=self.size_bytes / _BYTES_PER_MIB,
-            duration_sec=duration,
-            bitrate_kbps=bitrate,
+        """Bridge to the matching engine (delegates to ``candidate_from_fields``)."""
+        return candidate_from_fields(
+            self.filename, self.size_bytes, self.media_length_sec, self.bitrate_kbps
         )
