@@ -79,3 +79,24 @@ def test_is_archive_rejects_comic_book_formats(filename: str) -> None:
     # cbz/cbr are comic formats, not the generic archives is_archive is meant to catch;
     # adding them to is_archive would silently re-catalogue mangas.
     assert _is_archive_matcher().matches(FileCandidate(filename=filename)) is False
+
+
+# --- single-catalog-rule invariant (cross-package: relied on by catalog_webui) -----------
+# catalog_webui.domain.views.FileRowDisplay documents that ANY decision with tier=="catalog"
+# is displayed as "unidentified" (target_display) / "—" (title_display) — it relies on the
+# prod policy having exactly ONE catalog-tier rule, the target-agnostic catch-all
+# (keroro_large). If a second catalog-tier rule were ever added, the webui would silently
+# mislabel a real, identified episode as "unidentified" instead of showing its title. This
+# test guards that invariant directly against the shipped policy so a future editor gets a
+# loud failure instead of a silent webui regression.
+
+
+def test_prod_policy_has_exactly_one_catalog_tier_rule_named_keroro_large() -> None:
+    config = parse_matcher_config(yaml.safe_load(_MATCHER.read_text(encoding="utf-8")))
+    catalog_rules = [rule for rule in config.rules if rule.tier == "catalog"]
+    assert len(catalog_rules) == 1, (
+        "expected exactly one catalog-tier rule (webui's tier=='catalog' -> 'unidentified' "
+        f"display relies on this) but found {len(catalog_rules)}: "
+        f"{[rule.name for rule in catalog_rules]}"
+    )
+    assert catalog_rules[0].name == "keroro_large"
