@@ -160,6 +160,8 @@ class FileRowDisplay:
     Resolution rule for ``target_display``/``title_display`` (computed by
     ``composition.app._resolve_target_display``):
     - no decision (``target_id is None``) → ``"·"`` / ``"·"``.
+    - ``tier == "retracted"`` (crawler sentinel row for a now-excluded file) → ``"·"`` /
+      ``"·"``, exactly like no decision at all.
     - ``tier == "catalog"`` → ``"unidentified"`` / ``"·"`` (the ``keroro_large`` catch-all,
       the only catalog-tier rule).
     - otherwise, the target is looked up in the current catalogue: found → the canonical id
@@ -175,9 +177,9 @@ class FileRowDisplay:
     title_display: str
     size_display: str  # human_size(size_bytes)
     last_seen_display: str  # short_timestamp(last_seen)
-    tier_display: str  # tier or "·"
+    tier_display: str  # tier or "·"; "·" (not the literal "retracted") when retracted
     verdict_display: str  # last_verdict; "pending" if a decision exists but no verdict yet;
-    # "·" if there is no decision at all
+    # "·" if there is no decision at all, or if the latest decision is a retraction
     ed2k_link: str
 
 

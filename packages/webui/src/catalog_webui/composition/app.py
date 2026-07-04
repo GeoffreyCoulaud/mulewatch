@@ -44,7 +44,9 @@ def _resolve_target_display(
 ) -> tuple[str, str]:
     """Resolve a file row's ``(target_display, title_display)`` (Task 3 resolution rule,
     cf. ``domain.views.FileRowDisplay`` docstring for the full rule)."""
-    if row.target_id is None:
+    if row.target_id is None or row.tier == "retracted":
+        # A retracted latest decision (crawler sentinel row for a now-excluded file) is
+        # treated exactly like no decision at all — never a badge, never the raw sentinel id.
         return "·", "·"
     if row.tier == "catalog":
         return "unidentified", "·"
@@ -66,7 +68,13 @@ def _to_display_rows(
     rows = []
     for row in file_rows:
         target_display, title_display = _resolve_target_display(row, segment_by_id)
-        if row.last_verdict is not None:
+        # A retracted latest decision is treated as no decision at all: never a tier badge,
+        # never "pending", never a stale verdict from before the retraction.
+        retracted = row.tier == "retracted"
+        tier_display = "·" if retracted or row.tier is None else row.tier
+        if retracted:
+            verdict_display = "·"
+        elif row.last_verdict is not None:
             verdict_display = row.last_verdict
         elif row.target_id is not None:
             verdict_display = "pending"
@@ -82,7 +90,7 @@ def _to_display_rows(
                 title_display=title_display,
                 size_display=human_size(row.size_bytes),
                 last_seen_display=short_timestamp(row.last_seen),
-                tier_display=row.tier if row.tier is not None else "·",
+                tier_display=tier_display,
                 verdict_display=verdict_display,
                 ed2k_link=build_ed2k_link(row.filename, row.size_bytes, row.ed2k_hash),
             )

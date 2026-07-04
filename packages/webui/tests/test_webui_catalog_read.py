@@ -291,6 +291,15 @@ def test_target_coverage_uses_latest_decision_per_hash(catalog_db: Path) -> None
     assert coverage["062A"] == [(h, "download")]
 
 
+def test_target_coverage_omits_retracted(catalog_db: Path) -> None:
+    """A file whose latest decision is a retraction contributes to NO target's coverage."""
+    _seed(catalog_db)
+    _seed_retracted(catalog_db)
+    coverage = CatalogReader(open_ro(catalog_db)).target_coverage()
+    assert coverage["062A"] == [("a" * 32, "download")]
+    assert "063A" not in coverage  # the retracted file's earlier (now stale) target
+
+
 def test_coverage_tie_break_on_id(catalog_db: Path) -> None:
     """Same hash, same decided_at, two different tiers → the larger id wins."""
     h = "b" * 32
@@ -358,6 +367,45 @@ def test_file_detail_observations_include_media_fields_present(catalog_db: Path)
     assert obs.bitrate_kbps == 192
 
 
+def _seed_retracted(db: Path) -> None:
+    """Add a third file (c*32) whose LATEST decision is the crawler's retraction sentinel
+    (``target_id="", rule_name="", tier="retracted"``), appended after a real decision (was
+    matched, then excluded by a policy change) — must be treated as unmatched everywhere."""
+    h = "c" * 32
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 300))
+        conn.execute(
+            "INSERT INTO file_observations"
+            " (ed2k_hash, filename, size_bytes, source_count,"
+            " complete_source_count, raw_meta, keyword, observed_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                h,
+                "keroro_063.avi",
+                300,
+                2,
+                1,
+                "[]",
+                "keroro",
+                "2026-06-22T09:00:00.000000+00:00",
+                "n1",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO match_decisions"
+            " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (h, "063A", "id_segment_exact", "download", "2026-06-22T10:00:00.000000+00:00", "n1"),
+        )
+        conn.execute(
+            "INSERT INTO match_decisions"
+            " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (h, "", "", "retracted", "2026-06-22T11:00:00.000000+00:00", "n1"),
+        )
+        conn.commit()
+
+
 def _seed_unmatched(db: Path) -> None:
     """Add a second file (b*32) with an observation but NO match decision."""
     with sqlite3.connect(db) as conn:
@@ -391,6 +439,19 @@ def test_list_files_matched_only_excludes_unmatched(catalog_db: Path) -> None:
     )
     hashes = {r.ed2k_hash for r in rows}
     assert hashes == {"a" * 32}  # only the matched file
+
+
+def test_list_files_matched_only_excludes_retracted(catalog_db: Path) -> None:
+    """A file whose latest decision is a retraction is NOT matched, even though its
+    ``target_id`` column is non-NULL (the crawler's sentinel is an empty string, not NULL)."""
+    _seed(catalog_db)
+    _seed_retracted(catalog_db)
+    reader = CatalogReader(open_ro(catalog_db))
+    rows = reader.list_files(
+        target=None, tier=None, verdict=None, query=None, page=1, matched_only=True
+    )
+    hashes = {r.ed2k_hash for r in rows}
+    assert hashes == {"a" * 32}  # the retracted file ("c"*32) is excluded
 
 
 def test_list_files_default_includes_unmatched(catalog_db: Path) -> None:
@@ -467,3 +528,21 @@ def test_count_files_respects_query_filter(catalog_db: Path) -> None:
     reader = CatalogReader(open_ro(catalog_db))
     matched, total = reader.count_files(target=None, tier=None, verdict=None, query="gallego")
     assert (matched, total) == (0, 1)  # only the unmatched file matches the query
+
+
+def test_count_files_counts_retracted_as_unmatched(catalog_db: Path) -> None:
+    """A retracted file counts toward ``total`` but not ``matched`` (the matched count is
+    unchanged by its presence, even though its ``target_id`` column is non-NULL)."""
+    _seed(catalog_db)  # 1 matched file
+    _seed_retracted(catalog_db)  # 1 retracted (== unmatched) file
+    reader = CatalogReader(open_ro(catalog_db))
+    matched, total = reader.count_files(target=None, tier=None, verdict=None, query=None)
+    assert (matched, total) == (1, 2)
+
+
+def test_count_files_empty_catalogue_matched_is_zero_not_none(catalog_db: Path) -> None:
+    """Regression guard for the COUNT → SUM(CASE ...) rewrite: SUM over zero rows is NULL in
+    SQL, unlike COUNT which is 0. An empty catalogue must still report ``matched == 0``."""
+    reader = CatalogReader(open_ro(catalog_db))
+    matched, total = reader.count_files(target=None, tier=None, verdict=None, query=None)
+    assert (matched, total) == (0, 0)
