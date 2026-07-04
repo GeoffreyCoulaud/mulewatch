@@ -72,6 +72,14 @@ WHERE status = 'in_progress' AND lease_until < ?
 
 _COUNT_PENDING = "SELECT COUNT(*) FROM verification_tasks WHERE status = 'pending'"
 
+_SELECT_BACKFILL_POLICY = "SELECT policy_sha256 FROM backfill_state WHERE id = 1"
+
+_UPSERT_BACKFILL_POLICY = """
+INSERT INTO backfill_state (id, policy_sha256)
+VALUES (1, ?)
+ON CONFLICT (id) DO UPDATE SET policy_sha256 = excluded.policy_sha256
+"""
+
 
 class SqliteLocalStateRepository:
     """SQLite implementation of the ``LocalStateRepository`` port (STRUCTURAL satisfaction)."""
@@ -167,3 +175,14 @@ class SqliteLocalStateRepository:
         with wrap_sqlite_errors():
             row = self._connection.execute(_COUNT_PENDING).fetchone()
         return int(row[0])
+
+    def last_backfill_policy(self) -> str | None:
+        """The stored policy fingerprint, or ``None`` if no backfill ever ran (spec §7.1)."""
+        with wrap_sqlite_errors():
+            row = self._connection.execute(_SELECT_BACKFILL_POLICY).fetchone()
+        return str(row[0]) if row is not None else None
+
+    def set_last_backfill_policy(self, sha256: str) -> None:
+        """Upserts the single-row marker (called only AFTER a full backfill pass)."""
+        with wrap_sqlite_errors():
+            self._connection.execute(_UPSERT_BACKFILL_POLICY, (sha256,))

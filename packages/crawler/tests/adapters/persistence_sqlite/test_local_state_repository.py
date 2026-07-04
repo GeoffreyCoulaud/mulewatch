@@ -344,3 +344,27 @@ def test_count_pending_verifications(repository: SqliteLocalStateRepository) -> 
     claimed = repository.claim_verification()
     assert claimed is not None  # one task moves to in_progress → no longer 'pending'
     assert repository.count_pending_verifications() == 1
+
+
+# --- backfill policy marker (spec §7.1 — startup re-evaluation gate) -------------------
+
+
+def test_last_backfill_policy_is_none_before_any_set(
+    repository: SqliteLocalStateRepository,
+) -> None:
+    assert repository.last_backfill_policy() is None
+
+
+def test_set_last_backfill_policy_then_read_back(
+    repository: SqliteLocalStateRepository,
+) -> None:
+    repository.set_last_backfill_policy("abc")
+    assert repository.last_backfill_policy() == "abc"
+
+
+def test_set_last_backfill_policy_overwrites_on_a_second_call(
+    repository: SqliteLocalStateRepository,
+) -> None:
+    repository.set_last_backfill_policy("abc")
+    repository.set_last_backfill_policy("def")
+    assert repository.last_backfill_policy() == "def"

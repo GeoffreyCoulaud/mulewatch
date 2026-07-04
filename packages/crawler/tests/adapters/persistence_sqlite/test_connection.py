@@ -24,7 +24,13 @@ _CATALOG_TABLES = {
     "file_verifications",
     "file_observation_ranges",
 }
-_LOCAL_TABLES = {"node_runtime", "verification_tasks", "downloads", "scheduler_state"}
+_LOCAL_TABLES = {
+    "node_runtime",
+    "verification_tasks",
+    "downloads",
+    "scheduler_state",
+    "backfill_state",
+}
 
 # Canonical 32-char lowercase hex hash (satisfies the CHECK constraint).
 _CANONICAL_HASH = "a" * 32
@@ -46,7 +52,7 @@ def test_open_catalog_creates_the_seven_tables_and_versions_the_schema(tmp_path:
         connection.close()
 
 
-def test_open_local_creates_the_four_tables_and_the_partial_unique_index(tmp_path: Path) -> None:
+def test_open_local_creates_the_tables_and_the_partial_unique_index(tmp_path: Path) -> None:
     connection = open_local(tmp_path / "local.db")
     try:
         assert _table_names(connection) == _LOCAL_TABLES
