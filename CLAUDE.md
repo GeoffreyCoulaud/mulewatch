@@ -125,13 +125,13 @@ Naming: `<type>/<kebab-slug>` (conventional-commit types: `feat`, `fix`, `docs`,
 
 Run the **full gate** (unit tests 100% branch per package, ruff, mypy, sqlfluff, check_templates). Review the produced code **holistically** — this review regularly catches cross-cutting bugs.
 
-If the change touches CI or benefits from being verified on remote hardware, **open a PR** to see CI run.
+Any non-documentation change reaches `main` **through a PR** (see Wrap) so CI's required `validate / gate` runs before merge — this holistic review is the last local check before that PR.
 
 ### 5. Wrap
 
 Once the gate is green and code reviewed:
 
-1. **Integrate** per user preference: local merge into `main`, or PR, or leave as-is. Suggested default: local merge, unless the change touches CI → PR.
+1. **Integrate.** **Push the branch and open a PR** for any change touching code, config, tests, `deploy/`, or CI: `main`'s branch protection requires the `validate / gate` check, but `enforce_admins: false` means a local admin merge silently bypasses CI — don't. Wait for the gate green, then merge (linear history is required → **squash or rebase**, not a merge commit). **Exception — documentation-only** (diff touches only `docs/**` + root `*.md`): a local merge/commit to `main` is fine, no PR needed. "Leave as-is" stays available when the user wants to handle it later.
 2. **Tag** annotated `vX.Y.Z-<name>` (not pushed), one per subsystem.
 3. **Clean up** branch and/or worktree if applicable.
 4. **Write the handoff** in `docs/handoffs/<ISO date> - handoff - <context>.md`: current state, what was just built, learned pitfalls, suggested next step, what is NOT validated against real hardware. The handoff is committed and pushed on `main`.
