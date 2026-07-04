@@ -200,11 +200,18 @@ def describe(event: Event) -> Report:
                 (MetricInstruction(MetricName.OBSERVATIONS, "inc", (("network", event.network),)),),
             )
         case DecisionRecorded():
+            audiences: frozenset[Audience]
+            if event.tier == "download":
+                audiences = frozenset({Audience.COMMUNITY})
+            elif event.tier == "notify":
+                audiences = frozenset({Audience.OPERATIONS})
+            else:
+                audiences = frozenset()
             return Report(
                 Severity.INFO,
                 f"decision {event.tier} for {event.target_id}",
                 (MetricInstruction(MetricName.DECISIONS, "inc", (("tier", event.tier),)),),
-                frozenset({Audience.COMMUNITY}) if event.tier == "download" else frozenset(),
+                audiences,
             )
         case DownloadQueued():
             return Report(

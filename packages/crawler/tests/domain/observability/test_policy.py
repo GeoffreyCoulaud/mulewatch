@@ -87,11 +87,28 @@ CASES: list[tuple[ev.Event, Report]] = [
         ),
     ),
     (
-        ev.DecisionRecorded(target_id="062A", tier="candidate"),
+        ev.DecisionRecorded(target_id="062A", tier="notify"),
         Report(
             Severity.INFO,
-            "decision candidate for 062A",
-            (MetricInstruction(MetricName.DECISIONS, "inc", (("tier", "candidate"),)),),
+            "decision notify for 062A",
+            (MetricInstruction(MetricName.DECISIONS, "inc", (("tier", "notify"),)),),
+            _OPERATIONS,
+        ),
+    ),
+    (
+        ev.DecisionRecorded(target_id="062A", tier="retracted"),
+        Report(
+            Severity.INFO,
+            "decision retracted for 062A",
+            (MetricInstruction(MetricName.DECISIONS, "inc", (("tier", "retracted"),)),),
+        ),
+    ),
+    (
+        ev.DecisionRecorded(target_id="062A", tier="catalog"),
+        Report(
+            Severity.INFO,
+            "decision catalog for 062A",
+            (MetricInstruction(MetricName.DECISIONS, "inc", (("tier", "catalog"),)),),
         ),
     ),
     (
