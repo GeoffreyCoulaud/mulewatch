@@ -31,7 +31,9 @@ from catalog_webui.domain.views import (
 PAGE_SIZE = 50
 _PAGE_SIZE = PAGE_SIZE  # historical alias (internal) — the public value is used by the handler
 
-# Latest decision per file via ROW_NUMBER window.
+# Latest decision per file via ROW_NUMBER window. A "retracted" latest decision (the
+# crawler's sentinel row for a now-excluded file) is dropped: retracted == unmatched, so it
+# must not contribute to any target's coverage.
 _SQL_COVERAGE = """\
 SELECT
     md.ed2k_hash,
@@ -48,6 +50,7 @@ WHERE (
             OR (md2.decided_at = md.decided_at AND md2.id > md.id)
         )
 ) = 0
+AND md.tier != 'retracted'
 ORDER BY md.target_id, md.ed2k_hash
 """
 
@@ -109,12 +112,17 @@ SELECT
 )
 
 # Counter for the /files summary: (total, matched) over the same source + filters,
-# WITHOUT the matched-only clause. COUNT(dec.target_id) counts non-null = matched.
+# WITHOUT the matched-only clause. "matched" excludes a retracted latest decision (retracted
+# == unmatched); COALESCE guards the empty-catalogue case, where a bare SUM() over zero rows
+# is NULL (unlike COUNT(), which is 0).
 _SQL_COUNT_FILES_BASE = (
     """\
 SELECT
     COUNT(*) AS total,
-    COUNT(dec.target_id) AS matched
+    COALESCE(
+        SUM(CASE WHEN dec.target_id IS NOT NULL AND dec.tier != 'retracted' THEN 1 ELSE 0 END),
+        0
+    ) AS matched
 """
     + _SQL_FILES_SOURCE
 )
@@ -249,12 +257,15 @@ class CatalogReader:
         - ``verdict``: filter on ``ver.verdict`` (latest verdict).
         - ``query``  : substring of ``obs.filename`` (LIKE ``%query%``).
         - ``matched_only``: when true, keep only files with a match decision
-          (``dec.target_id IS NOT NULL``). Default false = whole catalogue.
+          (``dec.target_id IS NOT NULL``) whose latest tier is not ``retracted``
+          (a retraction is treated as no current match). Default false = whole catalogue.
         - ``page``   : page number (1-based).
         """
         clauses, str_params = _filter_clauses(target, tier, verdict, query)
         if matched_only:
-            clauses.append("dec.target_id IS NOT NULL")
+            # A retracted latest decision is treated as unmatched (retracted == no current
+            # match): exclude it here too, not just target_id IS NOT NULL.
+            clauses.append("dec.target_id IS NOT NULL AND dec.tier != 'retracted'")
         params: list[str | int] = [*str_params]
 
         sql = _SQL_LIST_FILES_BASE

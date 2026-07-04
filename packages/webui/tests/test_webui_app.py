@@ -174,6 +174,74 @@ def app_no_decision(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[S
 
 
 @pytest.fixture
+def app_retracted_decision(
+    catalog_db: Path, local_db: Path, tmp_path: Path
+) -> tuple[Starlette, str]:
+    """File whose LATEST decision is the crawler's retraction sentinel
+    (``target_id="", rule_name="", tier="retracted"``) — must be treated exactly like
+    ``app_no_decision`` (unmatched), never like a real decision."""
+    with sqlite3.connect(catalog_db) as conn:
+        conn.execute(
+            "INSERT INTO files VALUES (?, ?, ?)",
+            (TEST_HASH, 100_000_000, None),
+        )
+        conn.execute(
+            "INSERT INTO file_observations VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                TEST_HASH,
+                "keroro_s2e62a_vf.avi",
+                100_000_000,
+                5,
+                3,
+                None,
+                None,
+                None,
+                None,
+                "{}",
+                "keroro",
+                "2024-01-01T00:00:00",
+                "node1",
+            ),
+        )
+        # First a real decision (was matched)...
+        conn.execute(
+            "INSERT INTO match_decisions VALUES (1, ?, ?, ?, ?, ?, ?)",
+            (TEST_HASH, "062A", "high_confidence", "download", "2024-01-01T00:00:00", "node1"),
+        )
+        # ...then the crawler's retraction sentinel, now the LATEST row.
+        conn.execute(
+            "INSERT INTO match_decisions VALUES (2, ?, ?, ?, ?, ?, ?)",
+            (TEST_HASH, "", "", "retracted", "2024-01-02T00:00:00", "node1"),
+        )
+        conn.commit()
+
+    with sqlite3.connect(local_db) as conn:
+        conn.execute("INSERT INTO node_runtime VALUES (?, ?)", ("node_id", "node-retracted"))
+        conn.execute(
+            "INSERT INTO node_runtime VALUES (?, ?)", ("created_at", "2024-01-01T00:00:00")
+        )
+        conn.commit()
+
+    targets_path = _write_targets_yaml(tmp_path)
+    matcher_path = _write_matcher_yaml(tmp_path)
+
+    import catalog_webui
+
+    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+
+    app = build_app(
+        catalog_db=catalog_db,
+        local_db=local_db,
+        targets=targets_path,
+        matcher=matcher_path,
+        templates_dir=templates_dir,
+        static_dir=static_dir,
+    )
+    return app, TEST_HASH
+
+
+@pytest.fixture
 def app_no_observations(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
     """File without observations (last_obs=None branch → link='')."""
     with sqlite3.connect(catalog_db) as conn:
@@ -454,6 +522,38 @@ async def test_files_default_hides_unmatched(
     assert "Showing matched files only: 0 of 1 catalogued." in resp.text
     assert "Show all catalogued files" in resp.text
     assert "show_unmatched=1" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_files_default_hides_retracted(
+    app_retracted_decision: tuple[Starlette, str],
+) -> None:
+    """A retracted latest decision is treated exactly like no decision: the matched-only
+    default (/files) hides it and counts it as unmatched in the summary."""
+    app, hash_ = app_retracted_decision
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files")
+    assert resp.status_code == 200
+    assert hash_[:8] not in resp.text
+    assert "Showing matched files only: 0 of 1 catalogued." in resp.text
+
+
+@pytest.mark.asyncio
+async def test_files_retracted_shows_as_unmatched_in_all_view(
+    app_retracted_decision: tuple[Starlette, str],
+) -> None:
+    """The all-view (show_unmatched=1) renders a retracted file as an unmatched row: "·"
+    cells, never "<td>unidentified</td>", never a tier/verdict badge (e.g. never the literal
+    "retracted" or "pending" string in a cell)."""
+    app, hash_ = app_retracted_decision
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files?show_unmatched=1")
+    assert resp.status_code == 200
+    assert hash_[:8] in resp.text
+    assert "<td>unidentified</td>" not in resp.text
+    assert "<td>pending</td>" not in resp.text
+    assert "<td>retracted</td>" not in resp.text
+    assert "La Grenouille Cosmique" not in resp.text
 
 
 @pytest.mark.asyncio
@@ -943,9 +1043,25 @@ def test_resolve_target_display_unknown_id_falls_back_to_raw_id() -> None:
     assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("999Z", "·")
 
 
+def test_resolve_target_display_retracted_is_all_dashes() -> None:
+    """The crawler's retraction sentinel row (``target_id="", tier="retracted"``) must be
+    treated exactly like no decision at all, never falling back to the raw (empty) id."""
+    row = _file_row(target_id="", tier="retracted")
+    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("·", "·")
+
+
 def test_to_display_rows_verdict_dash_when_no_decision() -> None:
     row = _file_row(target_id=None, tier=None)
     [display] = _to_display_rows([row], _SEGMENT_BY_ID)
+    assert display.verdict_display == "·"
+
+
+def test_to_display_rows_retracted_shows_dash_tier_and_verdict() -> None:
+    """A retracted latest decision renders "·" for tier and verdict, even if a verdict was
+    recorded before the file was retracted (never a stale badge)."""
+    row = _file_row(target_id="", tier="retracted", last_verdict="clean")
+    [display] = _to_display_rows([row], _SEGMENT_BY_ID)
+    assert display.tier_display == "·"
     assert display.verdict_display == "·"
 
 
