@@ -45,12 +45,12 @@ def _resolve_target_display(
     """Resolve a file row's ``(target_display, title_display)`` (Task 3 resolution rule,
     cf. ``domain.views.FileRowDisplay`` docstring for the full rule)."""
     if row.target_id is None:
-        return "—", "—"
+        return "·", "·"
     if row.tier == "catalog":
-        return "unidentified", "—"
+        return "unidentified", "·"
     seg = segment_by_id.get(row.target_id)
     if seg is None:
-        return row.target_id, "—"
+        return row.target_id, "·"
     locator = seasonal_id(
         season=seg.season, seasonal_number=seg.seasonal_number, letter=seg.segment
     )
@@ -71,7 +71,7 @@ def _to_display_rows(
         elif row.target_id is not None:
             verdict_display = "pending"
         else:
-            verdict_display = "—"
+            verdict_display = "·"
         rows.append(
             FileRowDisplay(
                 ed2k_hash=row.ed2k_hash,
@@ -82,7 +82,7 @@ def _to_display_rows(
                 title_display=title_display,
                 size_display=human_size(row.size_bytes),
                 last_seen_display=short_timestamp(row.last_seen),
-                tier_display=row.tier if row.tier is not None else "—",
+                tier_display=row.tier if row.tier is not None else "·",
                 verdict_display=verdict_display,
                 ed2k_link=build_ed2k_link(row.filename, row.size_bytes, row.ed2k_hash),
             )
@@ -125,11 +125,11 @@ def _build_summary(
     The toggle preserves the active filters and drops ``page`` (counts differ between modes,
     so page N may not exist → back to page 1)."""
     if show_unmatched:
-        summary_text = f"Showing all catalogued files — {total:,} catalogued ({matched:,} matched)."
+        summary_text = f"Showing all catalogued files: {total:,} catalogued ({matched:,} matched)."
         toggle_label = "Matched only"
         toggle_query = dict(filter_query)  # drop show_unmatched → matched only
     else:
-        summary_text = f"Showing matched files only — {matched:,} of {total:,} catalogued."
+        summary_text = f"Showing matched files only: {matched:,} of {total:,} catalogued."
         toggle_label = "Show all catalogued files"
         toggle_query = {**filter_query, "show_unmatched": "1"}
     toggle_url = "/files?" + urlencode(toggle_query) if toggle_query else "/files"
@@ -201,7 +201,7 @@ def build_app(
                     target_id=seg.target_id,
                     title=seg.title,
                     status=cov.status,
-                    best_tier_display=cov.best_tier if cov.best_tier is not None else "—",
+                    best_tier_display=cov.best_tier if cov.best_tier is not None else "·",
                     file_count=cov.file_count,
                 )
             )
@@ -313,7 +313,7 @@ def build_app(
         display = FileDetailDisplay(
             ed2k_hash=detail.ed2k_hash,
             size_bytes=detail.size_bytes,
-            aich_hash_display=detail.aich_hash if detail.aich_hash is not None else "—",
+            aich_hash_display=detail.aich_hash if detail.aich_hash is not None else "·",
             observations=detail.observations,
             decisions=decisions,
             verifications=detail.verifications,

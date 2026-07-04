@@ -24,7 +24,7 @@ class TargetCoverageRow:
     target_id: str
     title: str
     status: str  # "found" | "partial" | "none"
-    best_tier_display: str  # best_tier or "—"
+    best_tier_display: str  # best_tier or "·"
     file_count: int
 
 
@@ -159,12 +159,12 @@ class FileRowDisplay:
 
     Resolution rule for ``target_display``/``title_display`` (computed by
     ``composition.app._resolve_target_display``):
-    - no decision (``target_id is None``) → ``"—"`` / ``"—"``.
-    - ``tier == "catalog"`` → ``"unidentified"`` / ``"—"`` (the ``keroro_large`` catch-all,
+    - no decision (``target_id is None``) → ``"·"`` / ``"·"``.
+    - ``tier == "catalog"`` → ``"unidentified"`` / ``"·"`` (the ``keroro_large`` catch-all,
       the only catalog-tier rule).
     - otherwise, the target is looked up in the current catalogue: found → the canonical id
       joined with its seasonal locator (e.g. ``"062A / S02E11A"``) + the episode title; not
-      found (a target_id no longer in the current targets.yaml) → the raw id + ``"—"``.
+      found (a target_id no longer in the current targets.yaml) → the raw id + ``"·"``.
     """
 
     ed2k_hash: str
@@ -175,9 +175,9 @@ class FileRowDisplay:
     title_display: str
     size_display: str  # human_size(size_bytes)
     last_seen_display: str  # short_timestamp(last_seen)
-    tier_display: str  # tier or "—"
+    tier_display: str  # tier or "·"
     verdict_display: str  # last_verdict; "pending" if a decision exists but no verdict yet;
-    # "—" if there is no decision at all
+    # "·" if there is no decision at all
     ed2k_link: str
 
 
@@ -223,7 +223,7 @@ class FileDetailDisplay:
 
     ed2k_hash: str
     size_bytes: int
-    aich_hash_display: str  # aich_hash or "—"
+    aich_hash_display: str  # aich_hash or "·"
     observations: tuple[ObservationRow, ...]
     decisions: tuple[DecisionView, ...]  # 0 or 1 element — for template iteration
     verifications: tuple[VerificationRow, ...]
