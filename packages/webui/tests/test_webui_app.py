@@ -7,7 +7,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from starlette.applications import Starlette
 
-from catalog_webui.composition.app import build_app
+from catalog_matching.models import TargetSegment
+from catalog_webui.composition.app import _resolve_target_display, _to_display_rows, build_app
+from catalog_webui.domain.views import FileRow
 
 # ---------------------------------------------------------------------------
 # Helpers YAML
@@ -243,6 +245,128 @@ def app_unknown_target(catalog_db: Path, local_db: Path, tmp_path: Path) -> tupl
 
     with sqlite3.connect(local_db) as conn:
         conn.execute("INSERT INTO node_runtime VALUES (?, ?)", ("node_id", "node-unk"))
+        conn.execute(
+            "INSERT INTO node_runtime VALUES (?, ?)", ("created_at", "2024-01-01T00:00:00")
+        )
+        conn.commit()
+
+    targets_path = _write_targets_yaml(tmp_path)
+    matcher_path = _write_matcher_yaml(tmp_path)
+
+    import catalog_webui
+
+    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+
+    app = build_app(
+        catalog_db=catalog_db,
+        local_db=local_db,
+        targets=targets_path,
+        matcher=matcher_path,
+        templates_dir=templates_dir,
+        static_dir=static_dir,
+    )
+    return app, TEST_HASH
+
+
+@pytest.fixture
+def app_download_tier_known_target(
+    catalog_db: Path, local_db: Path, tmp_path: Path
+) -> tuple[Starlette, str]:
+    """A non-catalog decision (tier=download) on a target_id resolvable in the current
+    targets.yaml — Task 3 resolution rule: the "resolvable id" case."""
+    with sqlite3.connect(catalog_db) as conn:
+        conn.execute(
+            "INSERT INTO files VALUES (?, ?, ?)",
+            (TEST_HASH, 100_000_000, None),
+        )
+        conn.execute(
+            "INSERT INTO file_observations VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                TEST_HASH,
+                "keroro_s2e62a_vf.avi",
+                100_000_000,
+                5,
+                3,
+                None,
+                None,
+                None,
+                None,
+                "{}",
+                "keroro",
+                "2024-01-01T00:00:00",
+                "node1",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO match_decisions VALUES (1, ?, ?, ?, ?, ?, ?)",
+            (TEST_HASH, "062A", "high_confidence", "download", "2024-01-01T00:00:00", "node1"),
+        )
+        conn.commit()
+
+    with sqlite3.connect(local_db) as conn:
+        conn.execute("INSERT INTO node_runtime VALUES (?, ?)", ("node_id", "node-dl"))
+        conn.execute(
+            "INSERT INTO node_runtime VALUES (?, ?)", ("created_at", "2024-01-01T00:00:00")
+        )
+        conn.commit()
+
+    targets_path = _write_targets_yaml(tmp_path)
+    matcher_path = _write_matcher_yaml(tmp_path)
+
+    import catalog_webui
+
+    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+
+    app = build_app(
+        catalog_db=catalog_db,
+        local_db=local_db,
+        targets=targets_path,
+        matcher=matcher_path,
+        templates_dir=templates_dir,
+        static_dir=static_dir,
+    )
+    return app, TEST_HASH
+
+
+@pytest.fixture
+def app_download_tier_unknown_target(
+    catalog_db: Path, local_db: Path, tmp_path: Path
+) -> tuple[Starlette, str]:
+    """A non-catalog decision (tier=download) on a target_id NOT in the current
+    targets.yaml — Task 3 resolution rule: the "unknown id" case."""
+    with sqlite3.connect(catalog_db) as conn:
+        conn.execute(
+            "INSERT INTO files VALUES (?, ?, ?)",
+            (TEST_HASH, 100_000_000, None),
+        )
+        conn.execute(
+            "INSERT INTO file_observations VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                TEST_HASH,
+                "keroro_s9e999z_vf.avi",
+                100_000_000,
+                5,
+                3,
+                None,
+                None,
+                None,
+                None,
+                "{}",
+                "keroro",
+                "2024-01-01T00:00:00",
+                "node1",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO match_decisions VALUES (1, ?, ?, ?, ?, ?, ?)",
+            (TEST_HASH, "999Z", "high_confidence", "download", "2024-01-01T00:00:00", "node1"),
+        )
+        conn.commit()
+
+    with sqlite3.connect(local_db) as conn:
+        conn.execute("INSERT INTO node_runtime VALUES (?, ?)", ("node_id", "node-dl-unk"))
         conn.execute(
             "INSERT INTO node_runtime VALUES (?, ?)", ("created_at", "2024-01-01T00:00:00")
         )
@@ -761,3 +885,186 @@ async def test_hostile_filename_is_escaped_in_ed2k_link(
         end += 1
     link = resp.text[start:end]
     assert link.count("|") == 5
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — _resolve_target_display / _to_display_rows (Task 3 resolution rule)
+# ---------------------------------------------------------------------------
+
+_SEGMENT_062A = TargetSegment(
+    season=2,
+    seasonal_number=11,
+    absolute_number=62,
+    segment="a",
+    title="La Grenouille Cosmique",
+)
+_SEGMENT_BY_ID = {_SEGMENT_062A.target_id: _SEGMENT_062A}
+
+
+def _file_row(
+    *, target_id: str | None, tier: str | None, last_verdict: str | None = None
+) -> FileRow:
+    return FileRow(
+        ed2k_hash=TEST_HASH,
+        size_bytes=1024,
+        filename="f.avi",
+        source_count=1,
+        last_seen="2024-01-01T00:00:00",
+        target_id=target_id,
+        tier=tier,
+        last_verdict=last_verdict,
+    )
+
+
+def test_resolve_target_display_no_decision_is_all_dashes() -> None:
+    row = _file_row(target_id=None, tier=None)
+    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("—", "—")
+
+
+def test_resolve_target_display_catalog_tier_is_unidentified() -> None:
+    """``keroro_large`` is the only catalog-tier rule — tier=="catalog" always means "not
+    identified to a specific episode", regardless of the (possibly resolvable) target_id it
+    was recorded against."""
+    row = _file_row(target_id="062A", tier="catalog")
+    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("unidentified", "—")
+
+
+def test_resolve_target_display_resolvable_id_joins_seasonal_locator_and_title() -> None:
+    row = _file_row(target_id="062A", tier="download")
+    assert _resolve_target_display(row, _SEGMENT_BY_ID) == (
+        "062A / S02E11A",
+        "La Grenouille Cosmique",
+    )
+
+
+def test_resolve_target_display_unknown_id_falls_back_to_raw_id() -> None:
+    """A target_id no longer present in the current targets.yaml (e.g. after an edit)."""
+    row = _file_row(target_id="999Z", tier="download")
+    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("999Z", "—")
+
+
+def test_to_display_rows_verdict_dash_when_no_decision() -> None:
+    row = _file_row(target_id=None, tier=None)
+    [display] = _to_display_rows([row], _SEGMENT_BY_ID)
+    assert display.verdict_display == "—"
+
+
+def test_to_display_rows_verdict_pending_when_decision_without_verdict() -> None:
+    row = _file_row(target_id="062A", tier="download")
+    [display] = _to_display_rows([row], _SEGMENT_BY_ID)
+    assert display.verdict_display == "pending"
+
+
+def test_to_display_rows_verdict_shows_actual_verdict() -> None:
+    row = _file_row(target_id="062A", tier="download", last_verdict="clean")
+    [display] = _to_display_rows([row], _SEGMENT_BY_ID)
+    assert display.verdict_display == "clean"
+
+
+def test_to_display_rows_computes_size_and_last_seen_display() -> None:
+    row = FileRow(
+        ed2k_hash=TEST_HASH,
+        size_bytes=1024,
+        filename="f.avi",
+        source_count=1,
+        last_seen="2026-07-03T23:45:24.104990+00:00",
+        target_id=None,
+        tier=None,
+        last_verdict=None,
+    )
+    [display] = _to_display_rows([row], _SEGMENT_BY_ID)
+    assert display.size_display == "1 KB"
+    assert display.last_seen_display == "2026-07-03 23:45Z"
+
+
+# ---------------------------------------------------------------------------
+# HTTP-level tests — the resolution rule end-to-end through both routes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_files_catalog_tier_shows_unidentified_and_pending(
+    populated_app: tuple[Starlette, str],
+) -> None:
+    """populated_app's decision is tier=catalog with no verification row → the /files list
+    must show "unidentified" (not the resolved id/title) and "pending" (not a real verdict
+    or "—")."""
+    app, hash_ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files")
+    assert resp.status_code == 200
+    assert hash_[:8] in resp.text
+    # Scoped to the table cell (not the static tier legend, which also mentions the word).
+    assert "<td>unidentified</td>" in resp.text
+    assert "pending" in resp.text
+    assert "La Grenouille Cosmique" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_files_resolvable_target_shows_seasonal_locator_and_title(
+    app_download_tier_known_target: tuple[Starlette, str],
+) -> None:
+    app, _ = app_download_tier_known_target
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files")
+    assert resp.status_code == 200
+    assert "062A / S02E11A" in resp.text
+    assert "La Grenouille Cosmique" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_files_unknown_target_shows_raw_id_and_dash_title(
+    app_download_tier_unknown_target: tuple[Starlette, str],
+) -> None:
+    app, _ = app_download_tier_unknown_target
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files")
+    assert resp.status_code == 200
+    assert "999Z" in resp.text
+    # The static tier legend also mentions the word "unidentified" — scope to the cell.
+    assert "<td>unidentified</td>" not in resp.text
+    assert "La Grenouille Cosmique" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_files_no_decision_shows_dashes(
+    app_no_decision: tuple[Starlette, str],
+) -> None:
+    """No decision at all → target/title/verdict all render as "—", never "pending" or
+    "unidentified". The row is only visible with show_unmatched (the matched-only default
+    hides it, cf. test_files_default_hides_unmatched)."""
+    app, hash_ = app_no_decision
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files?show_unmatched=1")
+    assert resp.status_code == 200
+    assert hash_[:8] in resp.text
+    assert "pending" not in resp.text
+    # The static tier legend also mentions the word "unidentified" — scope to the cell.
+    assert "<td>unidentified</td>" not in resp.text
+    assert "La Grenouille Cosmique" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_files_tier_legend_is_rendered(
+    populated_app: tuple[Starlette, str],
+) -> None:
+    """A short static legend explains the download/notify/catalog tiers (brief requirement)."""
+    app, _ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files")
+    assert resp.status_code == 200
+    assert "Tier legend" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_target_page_resolves_title_via_segment_mapping(
+    app_download_tier_known_target: tuple[Starlette, str],
+) -> None:
+    """/targets/{id} shares _to_display_rows with /files — confirm handle_target ALSO
+    threads the segment_by_id mapping (both call sites, per the brief)."""
+    app, _ = app_download_tier_known_target
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/targets/062A")
+    assert resp.status_code == 200
+    assert "062A / S02E11A" in resp.text
+    assert "La Grenouille Cosmique" in resp.text

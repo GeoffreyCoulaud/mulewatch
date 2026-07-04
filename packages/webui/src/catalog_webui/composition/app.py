@@ -5,7 +5,7 @@ routes. The handlers are closures capturing the dependencies — no ``app.state`
 """
 
 import contextlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -20,13 +20,14 @@ from starlette.templating import Jinja2Templates
 from starlette.types import ASGIApp
 
 from catalog_matching.ed2k_link import build_ed2k_link
+from catalog_matching.models import TargetSegment
 from catalog_webui.adapters.catalog_read import PAGE_SIZE, CatalogReader
 from catalog_webui.adapters.db import open_ro
 from catalog_webui.adapters.local_read import LocalReader
 from catalog_webui.adapters.matching_read import MatchingExplainer
 from catalog_webui.adapters.targets_read import load_targets
 from catalog_webui.domain.coverage import coverage_for
-from catalog_webui.domain.format import short_hash
+from catalog_webui.domain.format import human_size, seasonal_id, short_hash, short_timestamp
 from catalog_webui.domain.views import (
     FileDetailDisplay,
     FileRow,
@@ -38,25 +39,55 @@ from catalog_webui.domain.views import (
 )
 
 
-def _to_display_rows(file_rows: Iterable[FileRow]) -> list[FileRowDisplay]:
+def _resolve_target_display(
+    row: FileRow, segment_by_id: Mapping[str, TargetSegment]
+) -> tuple[str, str]:
+    """Resolve a file row's ``(target_display, title_display)`` (Task 3 resolution rule,
+    cf. ``domain.views.FileRowDisplay`` docstring for the full rule)."""
+    if row.target_id is None:
+        return "—", "—"
+    if row.tier == "catalog":
+        return "unidentified", "—"
+    seg = segment_by_id.get(row.target_id)
+    if seg is None:
+        return row.target_id, "—"
+    locator = seasonal_id(
+        season=seg.season, seasonal_number=seg.seasonal_number, letter=seg.segment
+    )
+    return f"{row.target_id} / {locator}", seg.title
+
+
+def _to_display_rows(
+    file_rows: Iterable[FileRow], segment_by_id: Mapping[str, TargetSegment]
+) -> list[FileRowDisplay]:
     """Convert catalog rows into ``FileRowDisplay`` view-models. Shared dedup between
     ``handle_files`` and ``handle_target`` (code-smell#3 — without it, any column change
     had to be made in two places)."""
-    return [
-        FileRowDisplay(
-            ed2k_hash=row.ed2k_hash,
-            short_hash=short_hash(row.ed2k_hash),
-            filename=row.filename,
-            size_bytes=row.size_bytes,
-            source_count=row.source_count,
-            last_seen=row.last_seen,
-            target_id_display=row.target_id if row.target_id is not None else "—",
-            tier_display=row.tier if row.tier is not None else "—",
-            verdict_display=row.last_verdict if row.last_verdict is not None else "—",
-            ed2k_link=build_ed2k_link(row.filename, row.size_bytes, row.ed2k_hash),
+    rows = []
+    for row in file_rows:
+        target_display, title_display = _resolve_target_display(row, segment_by_id)
+        if row.last_verdict is not None:
+            verdict_display = row.last_verdict
+        elif row.target_id is not None:
+            verdict_display = "pending"
+        else:
+            verdict_display = "—"
+        rows.append(
+            FileRowDisplay(
+                ed2k_hash=row.ed2k_hash,
+                short_hash=short_hash(row.ed2k_hash),
+                filename=row.filename,
+                source_count=row.source_count,
+                target_display=target_display,
+                title_display=title_display,
+                size_display=human_size(row.size_bytes),
+                last_seen_display=short_timestamp(row.last_seen),
+                tier_display=row.tier if row.tier is not None else "—",
+                verdict_display=verdict_display,
+                ed2k_link=build_ed2k_link(row.filename, row.size_bytes, row.ed2k_hash),
+            )
         )
-        for row in file_rows
-    ]
+    return rows
 
 
 def _normalize(raw: str | None) -> str | None:
@@ -143,6 +174,8 @@ def build_app(
 
     # Title by target_id (quick access)
     _title_by_id = {seg.target_id: seg.title for seg in target_segments}
+    # Full segment by target_id (Task 3: seasonal locator + title resolution on /files)
+    _segment_by_id = {seg.target_id: seg for seg in target_segments}
 
     # ------------------------------------------------------------------
     # Handlers
@@ -213,7 +246,7 @@ def build_app(
                 query=query_param,
             )
 
-        display_rows = _to_display_rows(file_rows)
+        display_rows = _to_display_rows(file_rows, _segment_by_id)
         # Filters shared by the toggle link and the page nav.
         filter_query = {
             k: v
@@ -309,7 +342,7 @@ def build_app(
                 page=1,
             )
 
-        display_rows = _to_display_rows(file_rows)
+        display_rows = _to_display_rows(file_rows, _segment_by_id)
         # No pagination here (target view: we expect few) — empty nav.
         nav = PageNav(page=1, prev_url=None, next_url=None)
         # files.html is shared with /files, whose matched/all summary line is meaningless

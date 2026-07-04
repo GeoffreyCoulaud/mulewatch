@@ -155,17 +155,29 @@ class NodeState:
 
 @dataclass(frozen=True)
 class FileRowDisplay:
-    """Row of the paginated file list: all fields precomputed."""
+    """Row of the paginated file list: all fields precomputed (webui spec W-D8, Task 3).
+
+    Resolution rule for ``target_display``/``title_display`` (computed by
+    ``composition.app._resolve_target_display``):
+    - no decision (``target_id is None``) → ``"—"`` / ``"—"``.
+    - ``tier == "catalog"`` → ``"unidentified"`` / ``"—"`` (the ``keroro_large`` catch-all,
+      the only catalog-tier rule).
+    - otherwise, the target is looked up in the current catalogue: found → the canonical id
+      joined with its seasonal locator (e.g. ``"062A / S02E11A"``) + the episode title; not
+      found (a target_id no longer in the current targets.yaml) → the raw id + ``"—"``.
+    """
 
     ed2k_hash: str
     short_hash: str
     filename: str
-    size_bytes: int
     source_count: int
-    last_seen: str
-    target_id_display: str  # target_id or "—"
+    target_display: str
+    title_display: str
+    size_display: str  # human_size(size_bytes)
+    last_seen_display: str  # short_timestamp(last_seen)
     tier_display: str  # tier or "—"
-    verdict_display: str  # last_verdict or "—"
+    verdict_display: str  # last_verdict; "pending" if a decision exists but no verdict yet;
+    # "—" if there is no decision at all
     ed2k_link: str
 
 

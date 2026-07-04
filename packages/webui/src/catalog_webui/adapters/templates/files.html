@@ -10,6 +10,12 @@
 </p>
 {% endfor %}
 
+<p class="tier-legend">
+  Tier legend — <strong>download</strong>: automatically queued for download;
+  <strong>notify</strong>: flagged for manual review; <strong>catalog</strong>: catalogued
+  but not identified to a specific episode ("unidentified").
+</p>
+
 <table>
   <thead>
     <tr>
@@ -19,6 +25,7 @@
       <th>Sources</th>
       <th>Last seen</th>
       <th>Target</th>
+      <th>Title</th>
       <th>Tier</th>
       <th>Verdict</th>
     </tr>
@@ -28,15 +35,16 @@
     <tr>
       <td><a href="/files/{{ row.ed2k_hash }}">{{ row.short_hash }}</a></td>
       <td>{{ row.filename }}</td>
-      <td>{{ row.size_bytes }}</td>
+      <td>{{ row.size_display }}</td>
       <td>{{ row.source_count }}</td>
-      <td>{{ row.last_seen }}</td>
-      <td>{{ row.target_id_display }}</td>
+      <td>{{ row.last_seen_display }}</td>
+      <td>{{ row.target_display }}</td>
+      <td>{{ row.title_display }}</td>
       <td>{{ row.tier_display }}</td>
       <td>{{ row.verdict_display }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="8">No files found.</td></tr>
+    <tr><td colspan="9">No files found.</td></tr>
     {% endfor %}
   </tbody>
 </table>
