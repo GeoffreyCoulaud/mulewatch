@@ -266,6 +266,31 @@ Pour valider/tester en profondeur (suites d'intégration, smoke, CI), voir le
 
 ---
 
+## Ré-évaluation du catalogue au démarrage
+
+À chaque démarrage, le crawler ré-évalue **tout le catalogue** contre le matcher courant
+(`matcher.yml` + `targets.yml`), mais **seulement s'ils ont changé** depuis le dernier passage.
+Le crawler stocke une empreinte `sha256` des deux fichiers dans `local.db` : si l'empreinte est
+identique, la passe est **entièrement sautée** (un simple redémarrage ne coûte rien). Éditer
+l'un des deux fichiers (même un commentaire) déclenche une passe au prochain démarrage.
+
+Effets d'un changement de policy :
+
+- **Exclusion (rétractation).** Un fichier que le nouveau matcher n'attrape plus est *rétracté* :
+  une ligne sentinelle `tier="retracted"` est ajoutée (le catalogue reste append-only, rien n'est
+  supprimé). La WebUI le traite alors comme non identifié (masqué du filtre « matched only ») et il
+  sort de la file de téléchargement. On ne « dé-télécharge » jamais : un fichier déjà récupéré reste.
+- **Re-classement + action.** Un fichier qui change de palier déclenche l'action du nouveau palier :
+  `download` est mis en file **et** notifie le canal *community* ; `notify` notifie le canal
+  *operations* (configurez une cible `tag: operations` sous `observability.notifications` dans
+  `crawler.yml`). Les paliers `catalog` et `retracted` sont silencieux (log + métrique seulement).
+
+Un gros changement de policy peut donc émettre une rafale de notifications (bornée aux fichiers dont
+le palier a réellement changé) : c'est voulu. Le passage est idempotent (la garde anti-redondance
+n'écrit une ligne que sur un vrai changement) et tourne dans les deux modes (observer et download).
+
+---
+
 ## WebUI (consultation du catalogue)
 
 La WebUI est une interface de **lecture seule** qui expose le catalogue SQLite via un serveur HTTP
