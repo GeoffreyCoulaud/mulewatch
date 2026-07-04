@@ -451,7 +451,7 @@ async def test_files_default_hides_unmatched(
         resp = await client.get("/files")
     assert resp.status_code == 200
     assert hash_[:8] not in resp.text
-    assert "Showing matched files only — 0 of 1 catalogued." in resp.text
+    assert "Showing matched files only: 0 of 1 catalogued." in resp.text
     assert "Show all catalogued files" in resp.text
     assert "show_unmatched=1" in resp.text
 
@@ -480,7 +480,7 @@ async def test_files_show_unmatched_reveals_and_toggles_back(
         resp = await client.get("/files?show_unmatched=1")
     assert resp.status_code == 200
     assert hash_[:8] in resp.text
-    assert "Showing all catalogued files — 1 catalogued (0 matched)." in resp.text
+    assert "Showing all catalogued files: 1 catalogued (0 matched)." in resp.text
     assert "Matched only" in resp.text
     assert 'href="/files">Matched only' in resp.text  # toggle drops the param → bare /files
 
@@ -918,7 +918,7 @@ def _file_row(
 
 def test_resolve_target_display_no_decision_is_all_dashes() -> None:
     row = _file_row(target_id=None, tier=None)
-    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("—", "—")
+    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("·", "·")
 
 
 def test_resolve_target_display_catalog_tier_is_unidentified() -> None:
@@ -926,7 +926,7 @@ def test_resolve_target_display_catalog_tier_is_unidentified() -> None:
     identified to a specific episode", regardless of the (possibly resolvable) target_id it
     was recorded against."""
     row = _file_row(target_id="062A", tier="catalog")
-    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("unidentified", "—")
+    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("unidentified", "·")
 
 
 def test_resolve_target_display_resolvable_id_joins_seasonal_locator_and_title() -> None:
@@ -940,13 +940,13 @@ def test_resolve_target_display_resolvable_id_joins_seasonal_locator_and_title()
 def test_resolve_target_display_unknown_id_falls_back_to_raw_id() -> None:
     """A target_id no longer present in the current targets.yaml (e.g. after an edit)."""
     row = _file_row(target_id="999Z", tier="download")
-    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("999Z", "—")
+    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("999Z", "·")
 
 
 def test_to_display_rows_verdict_dash_when_no_decision() -> None:
     row = _file_row(target_id=None, tier=None)
     [display] = _to_display_rows([row], _SEGMENT_BY_ID)
-    assert display.verdict_display == "—"
+    assert display.verdict_display == "·"
 
 
 def test_to_display_rows_verdict_pending_when_decision_without_verdict() -> None:
@@ -988,7 +988,7 @@ async def test_files_catalog_tier_shows_unidentified_and_pending(
 ) -> None:
     """populated_app's decision is tier=catalog with no verification row → the /files list
     must show "unidentified" (not the resolved id/title) and "pending" (not a real verdict
-    or "—")."""
+    or "·")."""
     app, hash_ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files")
@@ -1030,7 +1030,7 @@ async def test_files_unknown_target_shows_raw_id_and_dash_title(
 async def test_files_no_decision_shows_dashes(
     app_no_decision: tuple[Starlette, str],
 ) -> None:
-    """No decision at all → target/title/verdict all render as "—" cells, never a "pending"
+    """No decision at all → target/title/verdict all render as "·" cells, never a "pending"
     or "unidentified" cell value. The row is only visible with show_unmatched (the
     matched-only default hides it, cf. test_files_default_hides_unmatched)."""
     app, hash_ = app_no_decision
