@@ -6,6 +6,7 @@ import pytest
 
 from emule_indexer.composition import __main__ as entry
 from emule_indexer.composition.app import CrawlerApp
+from emule_indexer.domain.policy_fingerprint import policy_fingerprint
 
 _CONFIG = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler"
 
@@ -74,6 +75,19 @@ def test_build_app_assembles_a_crawler_app(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
     app = entry.build_app(_args(_write_config(tmp_path)))
     assert isinstance(app, CrawlerApp)
+
+
+def test_build_app_computes_policy_fingerprint_from_matcher_and_targets_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The fingerprint (Task 6) is derived from the RAW bytes of matcher.yml/targets.yml
+    # (not the parsed config) and threaded into the CrawlerApp, so the startup gate can
+    # compare it against the marker stored in local.db.
+    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+    args = _args(_write_config(tmp_path))
+    app = entry.build_app(args)
+    expected = policy_fingerprint(args.matcher.read_bytes(), args.targets.read_bytes())
+    assert app._policy_fingerprint == expected
 
 
 def test_build_app_applies_log_level_when_observability_configured(

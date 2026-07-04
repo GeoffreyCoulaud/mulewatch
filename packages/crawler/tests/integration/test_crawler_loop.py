@@ -145,6 +145,7 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_p
         clock=AsyncioClock(),
         rng=SeededRng(),
         signal_hub=AsyncioDecisionSignal(),
+        policy_fingerprint="test-policy-fingerprint",
         client_factory=factory,
     )
     app_holder["app"] = app

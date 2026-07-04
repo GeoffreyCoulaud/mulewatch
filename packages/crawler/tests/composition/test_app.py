@@ -20,6 +20,10 @@ from emule_indexer.adapters.config.crawler_config import (
     VerifyConfig,
 )
 from emule_indexer.adapters.config.yaml_loader import load_yaml
+from emule_indexer.adapters.persistence_sqlite.connection import open_local
+from emule_indexer.adapters.persistence_sqlite.local_state_repository import (
+    SqliteLocalStateRepository,
+)
 from emule_indexer.composition.app import CrawlerApp, default_client_factory
 from emule_indexer.domain.observation import FileObservation
 from emule_indexer.ports.content_verifier import VerificationResult
@@ -38,6 +42,9 @@ _TARGETS = (
 )
 _MATCHER = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler" / "matcher.yml"
 _DL_NAME = "Keroro N°062A Les demoiselles cambrioleuses.avi"
+# Arbitrary policy fingerprint for tests that do not exercise the backfill gate itself
+# (Task 6 tests below construct their OWN fingerprint to drive the "ran"/"skipped" branches).
+_FP = "test-policy-fingerprint"
 
 
 class _NoopRng:
@@ -144,6 +151,7 @@ def _make_app(
         clock=clock or FakeClock(),
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=factory,  # type: ignore[arg-type]
         **extra,  # type: ignore[arg-type]
     )
@@ -254,6 +262,7 @@ async def test_pool_setup_connects_each_client_before_coverage(
         clock=FakeClock(),
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=factory,
     )
     app_holder["app"] = app
@@ -530,6 +539,84 @@ async def test_observations_are_catalogued_during_the_cycle(
 
 
 # ---------------------------------------------------------------------------
+# Task 6 — startup backfill wiring (policy-fingerprint gate)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_backfill_runs_and_stores_marker_when_policy_never_set(
+    tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Fresh local.db (never backfilled before) -> the gate RUNS the backfill (against an
+    # EMPTY catalog.db, since it runs BEFORE the first search cycle records anything) and
+    # stores the fingerprint, so a LATER restart with the SAME policy would skip it.
+    holder: dict[str, CrawlerApp] = {}
+
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(holder)
+
+    app = CrawlerApp(
+        crawler_config=_crawler_config(tmp_path),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        policy_fingerprint="fp-first-run",
+        client_factory=factory,
+    )
+    holder["app"] = app
+    with caplog.at_level(logging.INFO, logger="emule_indexer.composition.app"):
+        await asyncio.wait_for(app.run(), timeout=5.0)
+    assert any(
+        r.getMessage() == "catalogue re-evaluated: 0 files, 0 rows written" for r in caplog.records
+    )
+    local_conn = sqlite3.connect(tmp_path / "local.db")
+    try:
+        stored = local_conn.execute(
+            "SELECT policy_sha256 FROM backfill_state WHERE id = 1"
+        ).fetchone()
+    finally:
+        local_conn.close()
+    assert stored == ("fp-first-run",)
+
+
+@pytest.mark.asyncio
+async def test_backfill_skipped_when_marker_already_matches_fingerprint(
+    tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Pre-seed local.db with the SAME fingerprint the app is built with -> the gate SKIPS
+    # the pass (a restart with an unchanged matcher.yml/targets.yml does no redundant work).
+    local_conn = open_local(tmp_path / "local.db")
+    try:
+        SqliteLocalStateRepository(local_conn).set_last_backfill_policy("fp-unchanged")
+    finally:
+        local_conn.close()
+    holder: dict[str, CrawlerApp] = {}
+
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(holder)
+
+    app = CrawlerApp(
+        crawler_config=_crawler_config(tmp_path),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        policy_fingerprint="fp-unchanged",
+        client_factory=factory,
+    )
+    holder["app"] = app
+    with caplog.at_level(logging.INFO, logger="emule_indexer.composition.app"):
+        await asyncio.wait_for(app.run(), timeout=5.0)
+    assert any(
+        r.getMessage() == "policy unchanged — catalogue re-evaluation skipped"
+        for r in caplog.records
+    )
+
+
+# ---------------------------------------------------------------------------
 # Full mode (download.enabled): health gate + wiring of the 2 loops
 # ---------------------------------------------------------------------------
 
@@ -616,6 +703,7 @@ async def test_observer_mode_runs_without_download_or_verify_loops(
         clock=FakeClock(),
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=factory,
         verifier_factory=lambda url, _timeout: verifier,
     )
@@ -647,6 +735,7 @@ async def test_full_mode_health_ok_runs_both_loops(
         clock=FakeClock(),
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=search_factory,
         download_client_factory=lambda endpoint: download_client,
         verifier_factory=lambda url, _timeout: verifier,
@@ -675,6 +764,7 @@ async def test_full_mode_health_failure_is_fail_fast(
         clock=FakeClock(),
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=search_factory,
         download_client_factory=lambda endpoint: FakeDownloadClient(),
         verifier_factory=lambda url, _timeout: verifier,
@@ -706,6 +796,7 @@ async def test_full_mode_tolerates_download_daemon_unreachable_at_startup(
         clock=FakeClock(),
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=search_factory,
         download_client_factory=download_factory,
         verifier_factory=lambda url, _timeout: verifier,
@@ -772,6 +863,7 @@ async def test_full_mode_shutdown_cancels_download_and_verify_loops_promptly(
         clock=clock,
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=lambda endpoint: FakeMuleClient(),
         download_client_factory=lambda endpoint: FakeDownloadClient(),
         verifier_factory=lambda url, _timeout: verifier,
@@ -808,6 +900,7 @@ async def test_full_mode_shutdown_leaves_no_task_leaked(
         clock=clock,
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=lambda endpoint: FakeMuleClient(),
         download_client_factory=lambda endpoint: FakeDownloadClient(),
         verifier_factory=lambda url, _timeout: verifier,
@@ -948,6 +1041,7 @@ async def test_emits_crawler_started_full_mode(
         clock=FakeClock(),
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=lambda e: FakeMuleClient(),
         download_client_factory=lambda endpoint: download_client,
         verifier_factory=lambda url, _timeout: verifier,
@@ -1033,6 +1127,7 @@ async def test_port_sync_loop_runs_when_section_present(
         clock=FakeClock(),
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=lambda endpoint: ec_client,
         port_forwarding_reader_factory=lambda url: reader,
         mule_restarter_factory=lambda url: _RecordingRestarter(),
@@ -1066,6 +1161,7 @@ async def test_port_sync_loop_off_when_no_config(
         clock=FakeClock(),
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=factory,
         port_forwarding_reader_factory=boom_reader,  # type: ignore[arg-type]
         mule_restarter_factory=boom_restarter,  # type: ignore[arg-type]
@@ -1094,6 +1190,7 @@ async def test_port_sync_tolerates_ec_daemon_unreachable_at_startup(
         clock=FakeClock(),
         rng=_NoopRng(),
         signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
         client_factory=lambda endpoint: _UnreachableEcClient(),
         port_forwarding_reader_factory=lambda url: reader,
         mule_restarter_factory=lambda url: _RecordingRestarter(),

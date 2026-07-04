@@ -31,6 +31,7 @@ from emule_indexer.adapters.config.crawler_config import ConfigError, parse_craw
 from emule_indexer.adapters.config.yaml_loader import YamlLoadError, load_yaml
 from emule_indexer.adapters.decision_signal_asyncio import AsyncioDecisionSignal
 from emule_indexer.composition.app import CrawlerApp
+from emule_indexer.domain.policy_fingerprint import policy_fingerprint
 
 
 def _add_config_options(parser: argparse.ArgumentParser) -> None:
@@ -61,12 +62,18 @@ def build_app(args: argparse.Namespace) -> CrawlerApp:
     The unified crawler config is interpolated from ``os.environ`` (``${NAME}`` → secrets/URLs).
     Any error (``YamlLoadError``/``ConfigError``/``MatcherConfigError``) propagates as-is:
     ``main`` catches it, logs clearly, and refuses to start (spec §14).
+
+    The policy fingerprint (spec §7.1) is computed here, once, from the RAW bytes of
+    ``matcher.yml``/``targets.yml`` (both feed ``MatchingEngine``) — a source-level fingerprint,
+    not derived from the parsed config, so a comment/whitespace-only edit still triggers one
+    harmless backfill pass at the next start.
     """
     crawler_config = parse_crawler_config(load_yaml(args.config), os.environ)
     if crawler_config.observability is not None:
         logging.getLogger().setLevel(crawler_config.observability.log_level)
     targets = parse_targets(load_yaml(args.targets))
     matcher_config = parse_matcher_config(load_yaml(args.matcher))
+    fingerprint = policy_fingerprint(args.matcher.read_bytes(), args.targets.read_bytes())
     return CrawlerApp(
         crawler_config=crawler_config,
         targets=targets,
@@ -74,6 +81,7 @@ def build_app(args: argparse.Namespace) -> CrawlerApp:
         clock=AsyncioClock(),
         rng=SeededRng(),
         signal_hub=AsyncioDecisionSignal(),
+        policy_fingerprint=fingerprint,
     )
 
 

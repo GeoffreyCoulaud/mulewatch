@@ -55,6 +55,8 @@ from emule_indexer.adapters.quarantine_fs import FilesystemQuarantine
 from emule_indexer.adapters.verifier_http import HttpContentVerifier
 from emule_indexer.application.edge_state import EdgeState
 from emule_indexer.application.port_sync_loop import PortSyncLoopDeps, port_sync_loop
+from emule_indexer.application.reevaluate_catalog import reevaluate_catalog
+from emule_indexer.application.run_backfill import run_backfill_if_policy_changed
 from emule_indexer.application.run_download_cycle import (
     DownloadLoopDeps,
     download_loop,
@@ -171,6 +173,7 @@ class CrawlerApp:
         clock: Clock,
         rng: Rng,
         signal_hub: DecisionSignal,
+        policy_fingerprint: str,
         client_factory: ClientFactory = default_client_factory,
         download_client_factory: DownloadClientFactory = default_download_client_factory,
         verifier_factory: VerifierFactory = default_verifier_factory,
@@ -186,6 +189,7 @@ class CrawlerApp:
         self._clock = clock
         self._rng = rng
         self._signal = signal_hub
+        self._policy_fingerprint = policy_fingerprint
         self._client_factory = client_factory
         self._download_client_factory = download_client_factory
         self._verifier_factory = verifier_factory
@@ -564,6 +568,28 @@ class CrawlerApp:
 
             mode = "full" if download_config is not None else "observer"
             await telemetry.emit(CrawlerStarted(mode=mode))
+
+            # Startup backfill (spec §7/§7.1): re-evaluate the WHOLE catalogue against the
+            # current matcher, gated by a policy fingerprint stored in local.db (a
+            # comment/whitespace-only edit to matcher.yml/targets.yml still triggers one
+            # harmless extra pass, which then writes nothing before the marker updates).
+            # Runs to completion BEFORE the loops so tier actions (download nudge, notify)
+            # fire for the very first cycle, not a cycle later.
+            summary = await run_backfill_if_policy_changed(
+                fingerprint=self._policy_fingerprint,
+                local_repo=local_repo,
+                run_backfill=lambda: reevaluate_catalog(
+                    catalog=catalog_repo, engine=engine, signal=self._signal, telemetry=telemetry
+                ),
+            )
+            if summary is None:
+                _logger.info("policy unchanged — catalogue re-evaluation skipped")
+            else:
+                _logger.info(
+                    "catalogue re-evaluated: %d files, %d rows written",
+                    summary.evaluated,
+                    summary.written,
+                )
 
             # Bound ENTERED DISARMED (None): the steady state is unbounded; ``_supervise`` arms it
             # (reschedule) as soon as shutdown is requested → only the shutdown phase + the aclose
