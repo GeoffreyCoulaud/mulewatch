@@ -40,11 +40,11 @@ def _obs(hash_hex: str, *, name: str = "Keroro.avi", size: int = 100) -> FileObs
 
 def _decision(tier: str) -> MatchDecision:
     return MatchDecision(
-        target_id="S2E062A",
+        target_id="062A",
         rule_name="r",
         tier=tier,
         explanation=Explanation(
-            target_id="S2E062A", rules_fired=("r",), tokens_matched=(), coverage_values=()
+            target_id="062A", rules_fired=("r",), tokens_matched=(), coverage_values=()
         ),
     )
 
@@ -67,9 +67,7 @@ def test_download_decisions_includes_hash_whose_latest_verdict_is_download(
     repository.record_observation(_obs(_A))
     repository.record_decision(_A, _decision("catalog"))
     repository.record_decision(_A, _decision("download"))  # more recent = download
-    assert repository.download_decisions() == (
-        DownloadCandidate(ed2k_hash=_A, target_id="S2E062A"),
-    )
+    assert repository.download_decisions() == (DownloadCandidate(ed2k_hash=_A, target_id="062A"),)
 
 
 def test_download_decisions_includes_a_single_download_only_decision(
@@ -77,9 +75,7 @@ def test_download_decisions_includes_a_single_download_only_decision(
 ) -> None:
     repository.record_observation(_obs(_A))
     repository.record_decision(_A, _decision("download"))  # a single decision, = download
-    assert repository.download_decisions() == (
-        DownloadCandidate(ed2k_hash=_A, target_id="S2E062A"),
-    )
+    assert repository.download_decisions() == (DownloadCandidate(ed2k_hash=_A, target_id="062A"),)
 
 
 def test_download_decisions_excludes_hash_whose_latest_verdict_is_not_download(
@@ -102,9 +98,7 @@ def test_download_decisions_isolates_per_hash(
     repository.record_decision(_A, _decision("download"))  # _A latest = download
     repository.record_decision(_B, _decision("download"))
     repository.record_decision(_B, _decision("catalog"))  # _B latest = catalog
-    assert repository.download_decisions() == (
-        DownloadCandidate(ed2k_hash=_A, target_id="S2E062A"),
-    )
+    assert repository.download_decisions() == (DownloadCandidate(ed2k_hash=_A, target_id="062A"),)
 
 
 def test_download_decisions_is_empty_with_no_decisions(

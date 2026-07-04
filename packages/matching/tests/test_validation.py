@@ -238,11 +238,11 @@ def test_parse_targets_builds_segments_with_per_segment_status() -> None:
     )
     assert len(targets) == 2
     a, b = targets
-    assert a.target_id == "S2E062A"
+    assert a.target_id == "062A"
     assert a.seasonal_number == 11
     assert a.absolute_number == 62
     assert a.status == "found"  # status SPECIFIC to segment A
-    assert b.target_id == "S2E062B"
+    assert b.target_id == "062B"
     assert b.status == "lost"  # default, B not marked
 
 

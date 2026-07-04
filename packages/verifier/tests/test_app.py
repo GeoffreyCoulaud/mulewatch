@@ -54,7 +54,7 @@ async def test_verify_existing_file_returns_suspicious(
     (quarantine / ("a" * 32)).write_bytes(b"\x00\x01")
     async with _client(quarantine) as client:
         response = await client.post(
-            "/verify", json={"hash": "a" * 32, "expected": {"target_id": "S2E062A"}}
+            "/verify", json={"hash": "a" * 32, "expected": {"target_id": "062A"}}
         )
     assert response.status_code == 200
     body = response.json()

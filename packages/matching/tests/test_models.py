@@ -33,7 +33,7 @@ def test_target_segment_target_id_pads_and_uppercases() -> None:
     target = TargetSegment(
         season=2, seasonal_number=11, absolute_number=62, segment="a", title="Les demoiselles"
     )
-    assert target.target_id == "S2E062A"
+    assert target.target_id == "062A"
 
 
 def test_target_segment_full_fields() -> None:
@@ -45,5 +45,5 @@ def test_target_segment_full_fields() -> None:
         title="Le grand combat",
         status="partial",
     )
-    assert target.target_id == "S1E005B"
+    assert target.target_id == "005B"
     assert target.status == "partial"

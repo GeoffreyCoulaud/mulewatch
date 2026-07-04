@@ -81,7 +81,7 @@ async def test_verify_loop_produces_suspicious_row(
         )
     )
     downloads_repo = SqliteDownloadRepository(local)
-    downloads_repo.record_queued(_A, "S2E062A", 3)
+    downloads_repo.record_queued(_A, "062A", 3)
     local_repo = SqliteLocalStateRepository(local)
     assert local_repo.enqueue_verification(_A) is True  # task enqueued (the download would do it)
 

@@ -66,11 +66,11 @@ def test_explainer_returns_explanation_on_matching_filename(tmp_path: Path) -> N
         size_bytes=None,
         media_length_sec=None,
         bitrate_kbps=None,
-        target_id="S2E062A",
+        target_id="062A",
     )
     assert isinstance(result, Explanation)
     assert len(result.rules_fired) > 0
-    assert result.target_id == "S2E062A"
+    assert result.target_id == "062A"
 
 
 def test_explainer_returns_none_for_unknown_target(tmp_path: Path) -> None:
@@ -129,7 +129,7 @@ rules:
         size_bytes=104857600,
         media_length_sec=None,
         bitrate_kbps=None,
-        target_id="S2E062A",
+        target_id="062A",
     )
     assert isinstance(result, Explanation)
     assert "catalog" in result.rules_fired
@@ -172,7 +172,7 @@ rules:
         size_bytes=None,
         media_length_sec=1350,
         bitrate_kbps=1500,
-        target_id="S2E062A",
+        target_id="062A",
     )
     assert isinstance(result, Explanation)
     assert "catalog" in result.rules_fired
@@ -193,14 +193,14 @@ def test_explainer_engine_cached_across_calls(tmp_path: Path) -> None:
         size_bytes=None,
         media_length_sec=None,
         bitrate_kbps=None,
-        target_id="S2E062A",
+        target_id="062A",
     )
     r2 = explainer.explain(
         filename="keroro_vf.avi",
         size_bytes=None,
         media_length_sec=None,
         bitrate_kbps=None,
-        target_id="S2E062A",
+        target_id="062A",
     )
     # Both results are identical (stable engine)
     assert r1 == r2

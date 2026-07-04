@@ -37,13 +37,13 @@ def repository(connection: sqlite3.Connection) -> SqliteDownloadRepository:
 
 
 def test_record_queued_inserts_a_new_download(repository: SqliteDownloadRepository) -> None:
-    assert repository.record_queued(_A, "S2E062A", 100) is True
+    assert repository.record_queued(_A, "062A", 100) is True
     assert repository.is_downloaded(_A) is True
 
 
 def test_record_queued_is_dedup_safe(repository: SqliteDownloadRepository) -> None:
-    assert repository.record_queued(_A, "S2E062A", 100) is True
-    assert repository.record_queued(_A, "S2E062A", 100) is False  # duplicate ignored
+    assert repository.record_queued(_A, "062A", 100) is True
+    assert repository.record_queued(_A, "062A", 100) is False  # duplicate ignored
 
 
 def test_is_downloaded_is_false_for_unknown_hash(repository: SqliteDownloadRepository) -> None:
@@ -51,7 +51,7 @@ def test_is_downloaded_is_false_for_unknown_hash(repository: SqliteDownloadRepos
 
 
 def test_set_state_updates_the_state(repository: SqliteDownloadRepository) -> None:
-    repository.record_queued(_A, "S2E062A", 100)
+    repository.record_queued(_A, "062A", 100)
     repository.set_state(_A, DownloadState.DOWNLOADING)
     assert repository.active_states()[_A] is DownloadState.DOWNLOADING
 
@@ -60,7 +60,7 @@ def test_set_state_to_completed_stamps_completed_at(
     connection: sqlite3.Connection,
 ) -> None:
     repository = SqliteDownloadRepository(connection, clock=_AdvancingClock())
-    repository.record_queued(_A, "S2E062A", 100)
+    repository.record_queued(_A, "062A", 100)
     repository.set_state(_A, DownloadState.COMPLETED)
     stamped = connection.execute(
         "SELECT completed_at FROM downloads WHERE ed2k_hash = ?", (_A,)
@@ -71,7 +71,7 @@ def test_set_state_to_completed_stamps_completed_at(
 def test_set_state_non_completed_leaves_completed_at_null(
     repository: SqliteDownloadRepository, connection: sqlite3.Connection
 ) -> None:
-    repository.record_queued(_A, "S2E062A", 100)
+    repository.record_queued(_A, "062A", 100)
     repository.set_state(_A, DownloadState.DOWNLOADING)
     stamped = connection.execute(
         "SELECT completed_at FROM downloads WHERE ed2k_hash = ?", (_A,)
@@ -87,8 +87,8 @@ def test_set_state_on_unknown_hash_raises(repository: SqliteDownloadRepository) 
 def test_committed_bytes_sums_only_active_downloads(
     repository: SqliteDownloadRepository,
 ) -> None:
-    repository.record_queued(_A, "S2E062A", 100)  # queued (active)
-    repository.record_queued(_B, "S2E063A", 200)  # downloading (active)
+    repository.record_queued(_A, "062A", 100)  # queued (active)
+    repository.record_queued(_B, "063A", 200)  # downloading (active)
     repository.set_state(_B, DownloadState.DOWNLOADING)
     assert repository.committed_bytes() == 300
     repository.set_state(_A, DownloadState.COMPLETED)  # terminal → no longer counted
@@ -102,8 +102,8 @@ def test_committed_bytes_is_zero_on_empty(repository: SqliteDownloadRepository) 
 
 
 def test_active_states_maps_hash_to_state(repository: SqliteDownloadRepository) -> None:
-    repository.record_queued(_A, "S2E062A", 100)
-    repository.record_queued(_B, "S2E063A", 200)
+    repository.record_queued(_A, "062A", 100)
+    repository.record_queued(_B, "063A", 200)
     repository.set_state(_B, DownloadState.QUARANTINED)
     states = repository.active_states()
     assert states == {_A: DownloadState.QUEUED, _B: DownloadState.QUARANTINED}
@@ -117,15 +117,15 @@ def test_record_queued_is_atomic_on_injected_failure(
         " BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
     )
     with pytest.raises(PersistenceError, match="injected failure"):
-        repository.record_queued(_A, "S2E062A", 100)
+        repository.record_queued(_A, "062A", 100)
     assert repository.is_downloaded(_A) is False
 
 
 def test_get_target_id_returns_target_for_known_hash(
     repository: SqliteDownloadRepository,
 ) -> None:
-    repository.record_queued(_A, "S2E062A", 100)
-    assert repository.get_target_id(_A) == "S2E062A"
+    repository.record_queued(_A, "062A", 100)
+    assert repository.get_target_id(_A) == "062A"
 
 
 def test_get_target_id_is_none_for_unknown_hash(repository: SqliteDownloadRepository) -> None:

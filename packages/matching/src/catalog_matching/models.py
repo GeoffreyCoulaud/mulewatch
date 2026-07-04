@@ -38,5 +38,5 @@ class TargetSegment:
 
     @property
     def target_id(self) -> str:
-        """Stable segment identifier, e.g. ``S2E062A``."""
-        return f"S{self.season}E{self.absolute_number:03d}{self.segment.upper()}"
+        """Stable segment id: zero-padded absolute number + segment letter, e.g. ``062A``."""
+        return f"{self.absolute_number:03d}{self.segment.upper()}"

@@ -82,7 +82,7 @@ def populated_app(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Sta
         )
         conn.execute(
             "INSERT INTO match_decisions VALUES (1, ?, ?, ?, ?, ?, ?)",
-            (TEST_HASH, "S2E062A", "catalog", "catalog", "2024-01-01T00:00:00", "node1"),
+            (TEST_HASH, "062A", "catalog", "catalog", "2024-01-01T00:00:00", "node1"),
         )
         conn.commit()
 
@@ -286,12 +286,12 @@ async def test_health_returns_200(populated_app: tuple[Starlette, str]) -> None:
 async def test_dashboard_returns_200_with_target_id(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """/ → 200 + contains S2E062A in the page."""
+    """/ → 200 + contains 062A in the page."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/")
     assert resp.status_code == 200
-    assert "S2E062A" in resp.text
+    assert "062A" in resp.text
 
 
 @pytest.mark.asyncio
@@ -371,7 +371,7 @@ async def test_file_detail_with_decision_returns_200(
         resp = await client.get(f"/files/{hash_}")
     assert resp.status_code == 200
     assert "ed2k://" in resp.text
-    assert "S2E062A" in resp.text
+    assert "062A" in resp.text
 
 
 @pytest.mark.asyncio
@@ -419,7 +419,7 @@ async def test_targets_shortcut_returns_200(
     """/targets/{target_id} → 200 (shortcut to filtered /files)."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.get("/targets/S2E062A")
+        resp = await client.get("/targets/062A")
     assert resp.status_code == 200
 
 
@@ -431,7 +431,7 @@ async def test_target_page_has_no_summary_line(
     target-scoped page — the summary line and its toggle must not render there."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.get("/targets/S2E062A")
+        resp = await client.get("/targets/062A")
     assert resp.status_code == 200
     assert "files-summary" not in resp.text
     assert "Showing matched files only" not in resp.text
@@ -527,7 +527,7 @@ def app_with_media_obs(catalog_db: Path, local_db: Path, tmp_path: Path) -> tupl
         )
         conn.execute(
             "INSERT INTO match_decisions VALUES (1, ?, ?, ?, ?, ?, ?)",
-            (TEST_HASH, "S2E062A", "catalog", "catalog", "2024-01-01T00:00:00", "node1"),
+            (TEST_HASH, "062A", "catalog", "catalog", "2024-01-01T00:00:00", "node1"),
         )
         conn.commit()
 
@@ -566,7 +566,7 @@ async def test_file_detail_with_media_fields_returns_200(
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get(f"/files/{hash_}")
     assert resp.status_code == 200
-    assert "S2E062A" in resp.text
+    assert "062A" in resp.text
 
 
 @pytest.mark.asyncio
@@ -706,7 +706,7 @@ async def test_files_page_shows_pagination_navigation(
             )
             conn.execute(
                 "INSERT INTO match_decisions VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (i + 1, ed2k, "S2E062A", "catalog", "catalog", "2024-01-01T00:00:00", "node1"),
+                (i + 1, ed2k, "062A", "catalog", "catalog", "2024-01-01T00:00:00", "node1"),
             )
         conn.commit()
     with sqlite3.connect(local_db) as conn:

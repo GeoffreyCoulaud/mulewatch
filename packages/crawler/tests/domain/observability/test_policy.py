@@ -78,35 +78,35 @@ CASES: list[tuple[ev.Event, Report]] = [
         ),
     ),
     (
-        ev.DecisionRecorded(target_id="S2E062A", tier="download"),
+        ev.DecisionRecorded(target_id="062A", tier="download"),
         Report(
             Severity.INFO,
-            "decision download for S2E062A",
+            "decision download for 062A",
             (MetricInstruction(MetricName.DECISIONS, "inc", (("tier", "download"),)),),
             _COMMUNITY,
         ),
     ),
     (
-        ev.DecisionRecorded(target_id="S2E062A", tier="candidate"),
+        ev.DecisionRecorded(target_id="062A", tier="candidate"),
         Report(
             Severity.INFO,
-            "decision candidate for S2E062A",
+            "decision candidate for 062A",
             (MetricInstruction(MetricName.DECISIONS, "inc", (("tier", "candidate"),)),),
         ),
     ),
     (
-        ev.DownloadQueued(target_id="S2E062A"),
+        ev.DownloadQueued(target_id="062A"),
         Report(
             Severity.INFO,
-            "download queued: S2E062A",
+            "download queued: 062A",
             (MetricInstruction(MetricName.DOWNLOADS_QUEUED, "inc"),),
         ),
     ),
     (
-        ev.DownloadCompleted(target_id="S2E062A", ed2k_hash="a" * 32),
+        ev.DownloadCompleted(target_id="062A", ed2k_hash="a" * 32),
         Report(
             Severity.INFO,
-            "✅ download completed: S2E062A",
+            "✅ download completed: 062A",
             (MetricInstruction(MetricName.DOWNLOADS_COMPLETED, "inc"),),
             _COMMUNITY,
         ),
@@ -120,46 +120,46 @@ CASES: list[tuple[ev.Event, Report]] = [
         ),
     ),
     (
-        ev.VerificationCompleted(target_id="S2E062A", verdict="clean"),
+        ev.VerificationCompleted(target_id="062A", verdict="clean"),
         Report(
             Severity.INFO,
-            "verification S2E062A: verdict=clean",
+            "verification 062A: verdict=clean",
             (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", "clean"),)),),
             _COMMUNITY,
         ),
     ),
     (
-        ev.VerificationCompleted(target_id="S2E062A", verdict="suspicious"),
+        ev.VerificationCompleted(target_id="062A", verdict="suspicious"),
         Report(
             Severity.INFO,
-            "verification S2E062A: verdict=suspicious",
+            "verification 062A: verdict=suspicious",
             (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", "suspicious"),)),),
             _OPERATIONS,
         ),
     ),
     (
-        ev.VerificationCompleted(target_id="S2E062A", verdict="malicious"),
+        ev.VerificationCompleted(target_id="062A", verdict="malicious"),
         Report(
             Severity.WARNING,
-            "verification S2E062A: verdict=malicious",
+            "verification 062A: verdict=malicious",
             (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", "malicious"),)),),
             _OPERATIONS,
         ),
     ),
     (
-        ev.VerificationCompleted(target_id="S2E062A", verdict="error"),
+        ev.VerificationCompleted(target_id="062A", verdict="error"),
         Report(
             Severity.WARNING,
-            "verification S2E062A: verdict=error",
+            "verification 062A: verdict=error",
             (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", "error"),)),),
         ),
     ),
     (
         # UNKNOWN verdict → defensive
-        ev.VerificationCompleted(target_id="S2E062A", verdict="bogus"),
+        ev.VerificationCompleted(target_id="062A", verdict="bogus"),
         Report(
             Severity.WARNING,
-            "verification S2E062A: verdict=bogus",
+            "verification 062A: verdict=bogus",
             (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", "bogus"),)),),
         ),
     ),

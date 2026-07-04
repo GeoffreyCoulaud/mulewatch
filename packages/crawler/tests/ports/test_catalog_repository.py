@@ -55,11 +55,11 @@ def test_protocol_is_satisfied_structurally() -> None:
         keyword="keroro",
     )
     decision = MatchDecision(
-        target_id="S2E062A",
+        target_id="062A",
         rule_name="exact",
         tier="download",
         explanation=Explanation(
-            target_id="S2E062A", rules_fired=("exact",), tokens_matched=(), coverage_values=()
+            target_id="062A", rules_fired=("exact",), tokens_matched=(), coverage_values=()
         ),
     )
     repository.record_observation(observation)

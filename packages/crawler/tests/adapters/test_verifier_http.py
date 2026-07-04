@@ -56,7 +56,7 @@ async def test_contract_verify_against_real_app(
     config = AnalysisConfig.from_env({"QUARANTINE_DIR": str(quarantine)})
     verifier = _verifier_against(build_app(config))
     try:
-        result = await verifier.verify(_HASH, {"target_id": "S2E062A"})
+        result = await verifier.verify(_HASH, {"target_id": "062A"})
     finally:
         await verifier.aclose()
     assert result.verdict == "suspicious"

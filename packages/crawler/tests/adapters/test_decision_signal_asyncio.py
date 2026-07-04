@@ -8,10 +8,10 @@ from emule_indexer.adapters.decision_signal_asyncio import AsyncioDecisionSignal
 @pytest.mark.asyncio
 async def test_signal_wakes_a_waiter() -> None:
     hub = AsyncioDecisionSignal()
-    waiter = asyncio.create_task(hub.wait("S2E062A"))
+    waiter = asyncio.create_task(hub.wait("062A"))
     await asyncio.sleep(0)
     assert not waiter.done()
-    hub.signal("S2E062A")
+    hub.signal("062A")
     await asyncio.wait_for(waiter, timeout=1.0)
     assert waiter.done()
 
@@ -20,8 +20,8 @@ async def test_signal_wakes_a_waiter() -> None:
 async def test_signal_before_wait_is_not_lost() -> None:
     # A nudge emitted WITHOUT a waiter leaves the event armed: the next wait returns immediately.
     hub = AsyncioDecisionSignal()
-    hub.signal("S2E062A")
-    await asyncio.wait_for(hub.wait("S2E062A"), timeout=1.0)  # ne bloque pas
+    hub.signal("062A")
+    await asyncio.wait_for(hub.wait("062A"), timeout=1.0)  # ne bloque pas
 
 
 @pytest.mark.asyncio

@@ -29,7 +29,7 @@ def test_node_state_populated(local_db: Path) -> None:
     with sqlite3.connect(local_db) as w:
         w.execute(
             "INSERT INTO downloads VALUES (?,?,?,?,?,?)",
-            ("aabbccdd" * 4, "S2E062A", "active", "2026-06-22T10:00:00Z", None, 1024),
+            ("aabbccdd" * 4, "062A", "active", "2026-06-22T10:00:00Z", None, 1024),
         )
         w.execute(
             "INSERT INTO verification_tasks (ed2k_hash, status, attempts, enqueued_at)"
@@ -59,7 +59,7 @@ def test_node_state_populated(local_db: Path) -> None:
     dl = state.downloads[0]
     assert isinstance(dl, DownloadRow)
     assert dl.ed2k_hash == "aabbccdd" * 4
-    assert dl.target_id == "S2E062A"
+    assert dl.target_id == "062A"
     assert dl.state == "active"
     assert dl.queued_at == "2026-06-22T10:00:00Z"
     assert dl.completed_at is None

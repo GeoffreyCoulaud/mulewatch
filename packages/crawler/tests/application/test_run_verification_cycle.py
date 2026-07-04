@@ -184,10 +184,10 @@ async def test_claimed_task_is_verified_recorded_completed() -> None:
         queue=queue,
         verifier=verifier,
         writer=writer,
-        targets=FakeTargets(mapping={_A: "S2E062A"}),
+        targets=FakeTargets(mapping={_A: "062A"}),
     )
     await run_verification_cycle(deps)
-    assert verifier.verified == [(_A, {"target_id": "S2E062A"})]
+    assert verifier.verified == [(_A, {"target_id": "062A"})]
     assert writer.records == [(_A, "unverified")]
     assert queue.completed == [7]
     assert queue.failed == []
@@ -329,14 +329,14 @@ async def test_emits_verification_completed_and_queue_depth() -> None:
         queue=queue,
         verifier=verifier,
         writer=FakeWriter(),
-        targets=FakeTargets(mapping={_A: "S2E062A"}),
+        targets=FakeTargets(mapping={_A: "062A"}),
         telemetry=telemetry,
         edge=edge,
     )
     await run_verification_cycle(deps)
     assert any(isinstance(e, VerificationQueueDepthSampled) for e in telemetry.events)
     assert any(
-        isinstance(e, VerificationCompleted) and e.verdict == "clean" and e.target_id == "S2E062A"
+        isinstance(e, VerificationCompleted) and e.verdict == "clean" and e.target_id == "062A"
         for e in telemetry.events
     )
 

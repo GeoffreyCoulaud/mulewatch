@@ -83,7 +83,7 @@ async def test_log_level_matches_severity(caplog: pytest.LogCaptureFixture) -> N
 async def test_notification_failure_is_absorbed(caplog: pytest.LogCaptureFixture) -> None:
     sink = _RecordingSink()
     with caplog.at_level(logging.WARNING, logger="emule_indexer.observability"):
-        await _dispatcher(sink, _RaisingNotifier()).emit(ev.DownloadCompleted("S2E062A", "a" * 32))
+        await _dispatcher(sink, _RaisingNotifier()).emit(ev.DownloadCompleted("062A", "a" * 32))
     assert sink.applied  # the metric went through despite the notification failure
     assert any("failed" in r.getMessage() for r in caplog.records)
 
@@ -93,6 +93,6 @@ async def test_notification_timeout_is_absorbed() -> None:
     sink = _RecordingSink()
     # short timeout + hanging notifier → wait_for raises TimeoutError, absorbed.
     await _dispatcher(sink, _HangingNotifier(), timeout=0.01).emit(
-        ev.DownloadCompleted("S2E062A", "a" * 32)
+        ev.DownloadCompleted("062A", "a" * 32)
     )
     assert sink.applied

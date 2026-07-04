@@ -64,7 +64,7 @@ def _full_catalog(letter: str, *, node_id: str) -> dict[str, list[dict[str, obje
         "match_decisions": [
             {
                 "ed2k_hash": ed2k,
-                "target_id": "S2E062A",
+                "target_id": "062A",
                 "rule_name": "r",
                 "tier": "download",
                 "decided_at": "t1",

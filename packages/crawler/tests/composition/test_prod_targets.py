@@ -14,23 +14,23 @@ _TARGETS = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler"
 
 # Recovered segments (cf. spec §6): 17 in total.
 _FOUND = {
-    "S1E001A",
-    "S1E001B",
-    "S1E002A",
-    "S1E002B",
-    "S1E003A",
-    "S1E003B",
-    "S1E004A",
-    "S1E004B",
-    "S1E005A",
-    "S1E005B",
-    "S1E006A",
-    "S1E006B",
-    "S1E010A",  # mono recovered
-    "S1E027B",  # "Station thermale à gogo !" (segment B), A lost
-    "S1E036B",  # "La station de ski privée des Bellair" (segment B), A lost
-    "S2E062A",  # S02E11A (absolute 62), B lost
-    "S2E103A",  # S02E52 (absolute 103), mono recovered
+    "001A",
+    "001B",
+    "002A",
+    "002B",
+    "003A",
+    "003B",
+    "004A",
+    "004B",
+    "005A",
+    "005B",
+    "006A",
+    "006B",
+    "010A",  # mono recovered
+    "027B",  # "Station thermale à gogo !" (segment B), A lost
+    "036B",  # "La station de ski privée des Bellair" (segment B), A lost
+    "062A",  # S02E11A (absolute 62), B lost
+    "103A",  # S02E52 (absolute 103), mono recovered
 }
 
 
