@@ -1,13 +1,13 @@
-"""Per-observation pipeline: record → evaluate → (if verdict changed) decide + nudge.
+"""Per-observation pipeline: record → delegate to the shared decision helper (spec §4).
 
 APPLICATION layer (orchestration spec §4): orchestrates PORTS (sync repos + pure engine
 + async nudge hub), does no I/O itself. For EACH observation (spec §4):
 
 1. ``record_observation`` ALWAYS (periodic re-observation is the goal, spec §3/§6).
-2. ``evaluate`` via the pure engine; ``None`` (file discarded) → we stop there.
-3. Anti-redundancy (spec §3): we read the last known verdict (``last_decision``); we only
-   ``record_decision`` (and ``signal`` the hub) IF the verdict CHANGES (new hash, or a
-   different ``DecisionRecord``). Identical verdict → neither re-append nor nudge.
+2. ``record_decision_if_changed`` (``decisions.py``) does the rest: evaluate via the pure
+   engine, compare against the last known verdict, and append (or retract) + emit + nudge
+   only on a genuine change. Identical verdict, or a file that was never matched and still
+   isn't → no write, no emit, no nudge.
 
 The repos are SYNCHRONOUS, called DIRECTLY (spec §3: sub-ms, no ``to_thread`` in the
 MVP; accepted consequence: DB writes are de facto serialized on the event loop).
@@ -19,9 +19,9 @@ VISIBLE (``error``-level log, so a persistent failure gets noticed).
 
 import logging
 
-from catalog_matching.engine import MatchingEngine, to_record
-from emule_indexer.application.run_download_cycle import DOWNLOAD_NUDGE_SUBJECT
-from emule_indexer.domain.observability.events import DecisionRecorded, ObservationRecorded
+from catalog_matching.engine import MatchingEngine
+from emule_indexer.application.decisions import record_decision_if_changed
+from emule_indexer.domain.observability.events import ObservationRecorded
 from emule_indexer.domain.observation import FileObservation
 from emule_indexer.ports.catalog_repository import CatalogRepository
 from emule_indexer.ports.decision_signal import DecisionSignal
@@ -43,18 +43,19 @@ async def record_observation(
     """Process ONE observation (spec §4). Returns ``True`` iff a NEW verdict was persisted.
 
     Emits ``ObservationRecorded`` as soon as it is recorded (always), and ``DecisionRecorded`` on
-    a verdict change. A ``RepositoryError`` is absorbed (log + ``False``), the cycle
-    continues (spec §7)."""
+    a verdict change (or a retraction). A ``RepositoryError`` is absorbed (log + ``False``),
+    the cycle continues (spec §7)."""
     try:
         catalog.record_observation(observation)
         await telemetry.emit(ObservationRecorded(network=network))
-        decision = engine.evaluate(observation.to_candidate())
-        if decision is None:
-            return False
-        fresh = to_record(decision)
-        if catalog.last_decision(observation.ed2k_hash) == fresh:
-            return False
-        catalog.record_decision(observation.ed2k_hash, decision)
+        return await record_decision_if_changed(
+            observation.ed2k_hash,
+            observation.to_candidate(),
+            catalog=catalog,
+            engine=engine,
+            signal=signal,
+            telemetry=telemetry,
+        )
     except RepositoryError as error:
         _logger.error(
             "persistence failed on hash=%s (%s) — observation skipped, cycle continues",
@@ -62,15 +63,3 @@ async def record_observation(
             error,
         )
         return False
-    _logger.info(
-        "verdict changed hash=%s target=%s tier=%s rule=%s",
-        observation.ed2k_hash,
-        decision.target_id,
-        decision.tier,
-        decision.rule_name,
-    )
-    await telemetry.emit(DecisionRecorded(target_id=decision.target_id, tier=decision.tier))
-    signal.signal(observation.ed2k_hash)
-    if decision.tier == "download":
-        signal.signal(DOWNLOAD_NUDGE_SUBJECT)
-    return True
