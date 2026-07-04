@@ -40,11 +40,17 @@ class CatalogRepository(Protocol):
     ``record_verification`` (spec verify §5) appends a ``file_verifications`` row (append-only
     catalog, tagged ``node_id``) — the verdict decision is made elsewhere (the verifier), the
     adapter only persists.
+    ``record_retraction`` (spec re-evaluation §5) appends a sentinel ``match_decisions`` row
+    (``target_id=""``, ``rule_name=""``, ``tier="retracted"``) marking a previously-matched
+    file as no longer matching any target — the append-only table has no "delete", so
+    exclusion is represented as an appended row instead.
     """
 
     def record_observation(self, observation: FileObservation) -> None: ...
 
     def record_decision(self, ed2k_hash: str, decision: MatchDecision) -> None: ...
+
+    def record_retraction(self, ed2k_hash: str) -> None: ...
 
     def last_decision(self, ed2k_hash: str) -> DecisionRecord | None: ...
 
