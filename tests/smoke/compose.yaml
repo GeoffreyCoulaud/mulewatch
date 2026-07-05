@@ -17,7 +17,7 @@ services:
     restart: unless-stopped
 
   crawler:
-    image: ghcr.io/geoffreycoulaud/emule-indexer-crawler:${IMAGE_TAG:-latest}
+    image: ghcr.io/geoffreycoulaud/mulewatch-crawler:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: packages/crawler/Dockerfile
@@ -52,7 +52,7 @@ services:
     restart: unless-stopped
 
   verifier:
-    image: ghcr.io/geoffreycoulaud/emule-indexer-verifier:${IMAGE_TAG:-latest}
+    image: ghcr.io/geoffreycoulaud/mulewatch-verifier:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: packages/verifier/Dockerfile

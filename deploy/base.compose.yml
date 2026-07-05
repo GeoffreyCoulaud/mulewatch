@@ -3,7 +3,7 @@
 # Validate alone (from repo root):
 #   GRAFANA_PWD=x docker compose -f deploy/base.compose.yml config
 x-crawler-common: &crawler-common
-  image: ghcr.io/geoffreycoulaud/emule-indexer-crawler:${IMAGE_TAG:-latest}
+  image: ghcr.io/geoffreycoulaud/mulewatch-crawler:${IMAGE_TAG:-latest}
   build:
     context: ..
     dockerfile: packages/crawler/Dockerfile
@@ -50,7 +50,7 @@ services:
       - quarantine:/data/quarantine
 
   verifier:
-    image: ghcr.io/geoffreycoulaud/emule-indexer-verifier:${IMAGE_TAG:-latest}
+    image: ghcr.io/geoffreycoulaud/mulewatch-verifier:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: packages/verifier/Dockerfile
@@ -148,7 +148,7 @@ services:
     restart: unless-stopped
 
   webui:
-    image: ghcr.io/geoffreycoulaud/emule-indexer-webui:${IMAGE_TAG:-latest}
+    image: ghcr.io/geoffreycoulaud/mulewatch-webui:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: packages/webui/Dockerfile
