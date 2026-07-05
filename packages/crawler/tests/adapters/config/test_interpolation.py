@@ -1,7 +1,7 @@
 import pytest
 
-from emule_indexer.adapters.config.errors import ConfigError
-from emule_indexer.adapters.config.interpolation import interpolate
+from mulewatch.adapters.config.errors import ConfigError
+from mulewatch.adapters.config.interpolation import interpolate
 
 
 def test_no_pattern_returns_value_unchanged() -> None:

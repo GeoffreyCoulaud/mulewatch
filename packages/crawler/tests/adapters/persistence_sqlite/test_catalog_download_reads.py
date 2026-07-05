@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 
 from catalog_matching.engine import DownloadCandidate, Explanation, MatchDecision
-from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
-from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
-from emule_indexer.domain.observation import FileObservation
-from emule_indexer.ports.catalog_repository import ObservedFile
+from mulewatch.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
+from mulewatch.adapters.persistence_sqlite.connection import open_catalog
+from mulewatch.domain.observation import FileObservation
+from mulewatch.ports.catalog_repository import ObservedFile
 
 _A = "a" * 32
 _B = "b" * 32

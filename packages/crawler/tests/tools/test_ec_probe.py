@@ -1,24 +1,24 @@
 import pytest
 
-from emule_indexer.adapters.mule_ec import codes
-from emule_indexer.adapters.mule_ec.client import AmuleEcClient
-from emule_indexer.adapters.mule_ec.codec import (
+from mulewatch.adapters.mule_ec import codes
+from mulewatch.adapters.mule_ec.client import AmuleEcClient
+from mulewatch.adapters.mule_ec.codec import (
     EcPacket,
     EcTag,
     hash16_tag,
     string_tag,
     uint_tag,
 )
-from emule_indexer.adapters.mule_ec.errors import (
+from mulewatch.adapters.mule_ec.errors import (
     EcAuthError,
     EcConnectError,
     EcError,
     EcFailureError,
     EcTimeoutError,
 )
-from emule_indexer.domain.observation import FileObservation
-from emule_indexer.ports.mule_client import KadStatus, NetworkStatus, SearchChannel
-from emule_indexer.tools.ec_probe import (
+from mulewatch.domain.observation import FileObservation
+from mulewatch.ports.mule_client import KadStatus, NetworkStatus, SearchChannel
+from mulewatch.tools.ec_probe import (
     _default_client,
     build_parser,
     collect_raw_results,

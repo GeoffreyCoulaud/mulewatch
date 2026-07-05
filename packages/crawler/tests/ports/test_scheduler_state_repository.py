@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from emule_indexer.ports.scheduler_state_repository import (
+from mulewatch.ports.scheduler_state_repository import (
     ChannelBackoff,
     SchedulerStateRepository,
 )

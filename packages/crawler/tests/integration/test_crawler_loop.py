@@ -16,20 +16,20 @@ from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
 from catalog_matching.models import TargetSegment
 from catalog_matching.validation import parse_matcher_config
-from emule_indexer.adapters.clock_asyncio import AsyncioClock, SeededRng
-from emule_indexer.adapters.config.crawler_config import (
+from mulewatch.adapters.clock_asyncio import AsyncioClock, SeededRng
+from mulewatch.adapters.config.crawler_config import (
     AmuleEndpoint,
     BackoffConfig,
     CrawlerConfig,
 )
-from emule_indexer.adapters.config.yaml_loader import load_yaml
-from emule_indexer.adapters.decision_signal_asyncio import AsyncioDecisionSignal
-from emule_indexer.adapters.persistence_sqlite.connection import open_local
-from emule_indexer.adapters.persistence_sqlite.scheduler_state_repository import (
+from mulewatch.adapters.config.yaml_loader import load_yaml
+from mulewatch.adapters.decision_signal_asyncio import AsyncioDecisionSignal
+from mulewatch.adapters.persistence_sqlite.connection import open_local
+from mulewatch.adapters.persistence_sqlite.scheduler_state_repository import (
     SqliteSchedulerStateRepository,
 )
-from emule_indexer.composition.app import CrawlerApp
-from emule_indexer.ports.mule_client import NetworkStatus
+from mulewatch.composition.app import CrawlerApp
+from mulewatch.ports.mule_client import NetworkStatus
 
 pytestmark = pytest.mark.orchestration_integration
 
@@ -108,7 +108,7 @@ class _ShutdownAfterFirstCycleClient:
 async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_path: Path) -> None:
     import asyncio
 
-    from emule_indexer.adapters.mule_ec.client import AmuleEcClient
+    from mulewatch.adapters.mule_ec.client import AmuleEcClient
 
     host, port = amuled
     matcher_config = parse_matcher_config(load_yaml(_MATCHER))

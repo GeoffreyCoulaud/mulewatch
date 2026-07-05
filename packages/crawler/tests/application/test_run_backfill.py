@@ -8,9 +8,9 @@ SQLite/engine needed: the gate is pure orchestration over the port + the injecte
 
 import pytest
 
-from emule_indexer.application.reevaluate_catalog import ReevalSummary
-from emule_indexer.application.run_backfill import run_backfill_if_policy_changed
-from emule_indexer.ports.local_state_repository import ClaimedTask
+from mulewatch.application.reevaluate_catalog import ReevalSummary
+from mulewatch.application.run_backfill import run_backfill_if_policy_changed
+from mulewatch.ports.local_state_repository import ClaimedTask
 
 _SUMMARY = ReevalSummary(evaluated=3, written=1)
 

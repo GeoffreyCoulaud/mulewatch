@@ -5,10 +5,10 @@ import logging
 
 import pytest
 
-from emule_indexer.adapters.observability.dispatcher import ObservabilityDispatcher
-from emule_indexer.domain.observability import events as ev
-from emule_indexer.domain.observability.policy import Audience, MetricInstruction, Severity
-from emule_indexer.ports.telemetry import MetricsSink, Notifier
+from mulewatch.adapters.observability.dispatcher import ObservabilityDispatcher
+from mulewatch.domain.observability import events as ev
+from mulewatch.domain.observability.policy import Audience, MetricInstruction, Severity
+from mulewatch.ports.telemetry import MetricsSink, Notifier
 
 
 class _RecordingSink:
@@ -74,7 +74,7 @@ async def test_notifies_both_audiences() -> None:
 @pytest.mark.asyncio
 async def test_log_level_matches_severity(caplog: pytest.LogCaptureFixture) -> None:
     sink, notifier = _RecordingSink(), _RecordingNotifier()
-    with caplog.at_level(logging.DEBUG, logger="emule_indexer.observability"):
+    with caplog.at_level(logging.DEBUG, logger="mulewatch.observability"):
         await _dispatcher(sink, notifier).emit(ev.InstanceUnreachable(instance="amule-1"))
     assert caplog.records[-1].levelno == logging.WARNING
 
@@ -82,7 +82,7 @@ async def test_log_level_matches_severity(caplog: pytest.LogCaptureFixture) -> N
 @pytest.mark.asyncio
 async def test_notification_failure_is_absorbed(caplog: pytest.LogCaptureFixture) -> None:
     sink = _RecordingSink()
-    with caplog.at_level(logging.WARNING, logger="emule_indexer.observability"):
+    with caplog.at_level(logging.WARNING, logger="mulewatch.observability"):
         await _dispatcher(sink, _RaisingNotifier()).emit(ev.DownloadCompleted("062A", "a" * 32))
     assert sink.applied  # the metric went through despite the notification failure
     assert any("failed" in r.getMessage() for r in caplog.records)

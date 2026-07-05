@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.composition import __main__ as entry
-from emule_indexer.composition.app import CrawlerApp
-from emule_indexer.domain.policy_fingerprint import policy_fingerprint
+from mulewatch.composition import __main__ as entry
+from mulewatch.composition.app import CrawlerApp
+from mulewatch.domain.policy_fingerprint import policy_fingerprint
 
 _CONFIG = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler"
 
@@ -112,7 +112,7 @@ def test_main_returns_zero_on_clean_run(monkeypatch: pytest.MonkeyPatch) -> None
     def fake_run(coro: object) -> None:
         coro.close()  # type: ignore[attr-defined]  # close the coroutine without running it
 
-    monkeypatch.setattr("emule_indexer.composition.__main__.asyncio.run", fake_run)
+    monkeypatch.setattr("mulewatch.composition.__main__.asyncio.run", fake_run)
     monkeypatch.setattr(entry, "build_app", lambda args: _SpyApp())
     assert entry.main([]) == 0
 
@@ -123,13 +123,13 @@ def test_main_renders_runtime_config_error_from_run_as_clean_message(
     # The full-mode gate raises a ``ConfigError`` AT RUNTIME (verifier health-check KO) from
     # ``app.run()`` — not from ``build_app``. ``main`` must render it with the SAME clean message
     # + exit code 1 (and not a bare traceback).
-    from emule_indexer.adapters.config.crawler_config import ConfigError
+    from mulewatch.adapters.config.crawler_config import ConfigError
 
     def fake_run(coro: object) -> None:
         coro.close()  # type: ignore[attr-defined]  # close the coroutine without running it
         raise ConfigError("verifier unreachable at startup (health-check failed)")
 
-    monkeypatch.setattr("emule_indexer.composition.__main__.asyncio.run", fake_run)
+    monkeypatch.setattr("mulewatch.composition.__main__.asyncio.run", fake_run)
     monkeypatch.setattr(entry, "build_app", lambda args: _SpyApp())
     code = entry.main([])
     assert code == 1
@@ -160,9 +160,9 @@ def test_default_args_point_at_config_dir() -> None:
 
 
 def test_package_main_shim_reexports_main() -> None:
-    # `python -m emule_indexer` runs the PACKAGE's __main__: it must expose the SAME
+    # `python -m mulewatch` runs the PACKAGE's __main__: it must expose the SAME
     # `main` function as composition.__main__ (otherwise DoD §9.4 is not met).
-    from emule_indexer import __main__ as package_entry
+    from mulewatch import __main__ as package_entry
 
     assert package_entry.main is entry.main
 
@@ -182,7 +182,7 @@ def test_bare_invocation_still_runs_the_crawler(monkeypatch: pytest.MonkeyPatch)
         seen["config"] = args.config  # proves we went through _parse_args
         return _SpyApp()
 
-    monkeypatch.setattr("emule_indexer.composition.__main__.asyncio.run", fake_run)
+    monkeypatch.setattr("mulewatch.composition.__main__.asyncio.run", fake_run)
     monkeypatch.setattr(entry, "build_app", fake_build_app)
     assert entry.main(_argv(Path("crawler.yml"))) == 0
     assert seen["config"] == Path("crawler.yml")
@@ -200,7 +200,7 @@ def test_validate_config_does_not_start_the_app(
     def boom_build_app(args: argparse.Namespace) -> CrawlerApp:  # pragma: no cover
         raise AssertionError("build_app must not be called by validate-config")
 
-    monkeypatch.setattr("emule_indexer.composition.__main__.asyncio.run", boom_run)
+    monkeypatch.setattr("mulewatch.composition.__main__.asyncio.run", boom_run)
     monkeypatch.setattr(entry, "build_app", boom_build_app)
     assert entry.main(["validate-config", *_argv(_write_config(tmp_path))]) == 0
 

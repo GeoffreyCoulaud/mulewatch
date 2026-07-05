@@ -2,14 +2,14 @@
 members = ["packages/*"]
 
 [tool.uv.sources]
-emule-indexer = { workspace = true }
+mulewatch = { workspace = true }
 download-verifier = { workspace = true }
 catalog-matching = { workspace = true }
 catalog-webui = { workspace = true }
 
 [dependency-groups]
 dev = [
-  "emule-indexer",
+  "mulewatch",
   "download-verifier",
   "catalog-matching",
   "catalog-webui",

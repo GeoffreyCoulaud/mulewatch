@@ -6,18 +6,18 @@ import pytest
 
 from catalog_matching.engine import DownloadCandidate
 from catalog_matching.models import TargetSegment
-from emule_indexer.application.run_download_cycle import DownloadDeps, run_download_cycle
-from emule_indexer.domain.download.states import DownloadState
-from emule_indexer.domain.observability.events import DownloadCompleted, PromotionFailed
-from emule_indexer.ports.catalog_repository import ObservedFile
-from emule_indexer.ports.mule_client import (
+from mulewatch.application.run_download_cycle import DownloadDeps, run_download_cycle
+from mulewatch.domain.download.states import DownloadState
+from mulewatch.domain.observability.events import DownloadCompleted, PromotionFailed
+from mulewatch.ports.catalog_repository import ObservedFile
+from mulewatch.ports.mule_client import (
     KadStatus,
     MuleSearchFailedError,
     MuleUnreachableError,
     NetworkStatus,
 )
-from emule_indexer.ports.mule_download_client import DownloadEntry, SharedFileEntry
-from emule_indexer.ports.repository_errors import RepositoryError
+from mulewatch.ports.mule_download_client import DownloadEntry, SharedFileEntry
+from mulewatch.ports.repository_errors import RepositoryError
 from tests.application.fakes import RecordingTelemetry
 
 _A = "a" * 32

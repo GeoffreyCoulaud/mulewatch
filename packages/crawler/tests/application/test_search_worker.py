@@ -4,22 +4,22 @@ import sqlite3
 import pytest
 
 from catalog_matching.engine import MatchingEngine
-from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
-from emule_indexer.application.search_worker import (
+from mulewatch.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
+from mulewatch.application.search_worker import (
     BackoffRegistry,
     SearchTask,
     SearchWorker,
     WorkerDeps,
     WorkerPolicy,
 )
-from emule_indexer.domain.observability.events import (
+from mulewatch.domain.observability.events import (
     InstanceUnreachable,
     SearchExecuted,
     SearchFailed,
 )
-from emule_indexer.domain.observation import FileObservation
-from emule_indexer.ports.mule_client import SearchChannel
-from emule_indexer.ports.scheduler_state_repository import ChannelBackoff
+from mulewatch.domain.observation import FileObservation
+from mulewatch.ports.mule_client import SearchChannel
+from mulewatch.ports.scheduler_state_repository import ChannelBackoff
 from tests.application.fakes import (
     FakeClock,
     FakeMuleClient,

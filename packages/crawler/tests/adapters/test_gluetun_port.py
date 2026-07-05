@@ -9,7 +9,7 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from emule_indexer.adapters.gluetun_port import GluetunPortReader
+from mulewatch.adapters.gluetun_port import GluetunPortReader
 
 
 def _reader_with_handler(

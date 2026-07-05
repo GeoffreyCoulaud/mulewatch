@@ -10,8 +10,8 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from emule_indexer.adapters.docker_restart_http import HttpMuleRestarter
-from emule_indexer.ports.mule_restarter import RestarterError
+from mulewatch.adapters.docker_restart_http import HttpMuleRestarter
+from mulewatch.ports.mule_restarter import RestarterError
 
 _RESTART_PATH = "/v1.43/containers/amuled/restart"
 

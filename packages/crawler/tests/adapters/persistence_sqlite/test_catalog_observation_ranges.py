@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
+from mulewatch.adapters.persistence_sqlite.connection import open_catalog
 
 _HASH = "a" * 32
 _RANGE = (

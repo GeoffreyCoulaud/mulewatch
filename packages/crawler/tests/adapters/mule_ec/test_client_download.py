@@ -1,16 +1,16 @@
 import pytest
 
-from emule_indexer.adapters.mule_ec import codes
-from emule_indexer.adapters.mule_ec.client import AmuleEcClient
-from emule_indexer.adapters.mule_ec.codec import (
+from mulewatch.adapters.mule_ec import codes
+from mulewatch.adapters.mule_ec.client import AmuleEcClient
+from mulewatch.adapters.mule_ec.codec import (
     EcPacket,
     EcTag,
     encode_packet,
     string_tag,
     uint_tag,
 )
-from emule_indexer.adapters.mule_ec.errors import EcConnectError, EcFailureError
-from emule_indexer.ports.mule_download_client import DownloadEntry, SharedFileEntry
+from mulewatch.adapters.mule_ec.errors import EcConnectError, EcFailureError
+from mulewatch.ports.mule_download_client import DownloadEntry, SharedFileEntry
 from tests.adapters.mule_ec.ec_fakes import FakeEcServer
 
 _HASH = "a1b2c3d4e5f6071829303142535465f0"
@@ -239,14 +239,14 @@ def _knownfile_entry(hash_hex: str, name: str) -> EcTag:
 
 
 def test_map_shared_file_extracts_hash_and_name() -> None:
-    from emule_indexer.adapters.mule_ec.client import _map_shared_file
+    from mulewatch.adapters.mule_ec.client import _map_shared_file
 
     entry = _map_shared_file(_knownfile_entry(_HASH, "Keroro 62a.avi"))
     assert entry == SharedFileEntry(ed2k_hash=_HASH, name="Keroro 62a.avi")
 
 
 def test_map_shared_file_without_hash_is_none() -> None:
-    from emule_indexer.adapters.mule_ec.client import _map_shared_file
+    from mulewatch.adapters.mule_ec.client import _map_shared_file
 
     no_hash = EcTag(
         codes.EC_TAG_KNOWNFILE,
@@ -258,7 +258,7 @@ def test_map_shared_file_without_hash_is_none() -> None:
 
 
 def test_map_shared_file_without_name_is_none() -> None:
-    from emule_indexer.adapters.mule_ec.client import _map_shared_file
+    from mulewatch.adapters.mule_ec.client import _map_shared_file
 
     no_name = EcTag(
         codes.EC_TAG_KNOWNFILE,
@@ -270,7 +270,7 @@ def test_map_shared_file_without_name_is_none() -> None:
 
 
 def test_map_shared_file_with_wrong_length_hash_is_none() -> None:
-    from emule_indexer.adapters.mule_ec.client import _map_shared_file
+    from mulewatch.adapters.mule_ec.client import _map_shared_file
 
     bad = EcTag(
         codes.EC_TAG_KNOWNFILE,
@@ -285,7 +285,7 @@ def test_map_shared_file_with_wrong_length_hash_is_none() -> None:
 
 
 def test_map_shared_file_with_invalid_name_tag_is_none() -> None:
-    from emule_indexer.adapters.mule_ec.client import _map_shared_file
+    from mulewatch.adapters.mule_ec.client import _map_shared_file
 
     # name tag of STRING type but WITHOUT a terminating NUL → string_value() raises EcProtocolError.
     bad_name = EcTag(codes.EC_TAG_PARTFILE_NAME, codes.EC_TAGTYPE_STRING, b"no-nul", ())

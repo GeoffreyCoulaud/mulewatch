@@ -8,7 +8,7 @@ import pytest
 from catalog_matching.config import MatcherConfig
 from catalog_matching.models import TargetSegment
 from catalog_matching.validation import parse_matcher_config
-from emule_indexer.adapters.config.crawler_config import (
+from mulewatch.adapters.config.crawler_config import (
     AmuleEndpoint,
     BackoffConfig,
     ConfigError,
@@ -19,16 +19,16 @@ from emule_indexer.adapters.config.crawler_config import (
     PortSyncConfig,
     VerifyConfig,
 )
-from emule_indexer.adapters.config.yaml_loader import load_yaml
-from emule_indexer.adapters.persistence_sqlite.connection import open_local
-from emule_indexer.adapters.persistence_sqlite.local_state_repository import (
+from mulewatch.adapters.config.yaml_loader import load_yaml
+from mulewatch.adapters.persistence_sqlite.connection import open_local
+from mulewatch.adapters.persistence_sqlite.local_state_repository import (
     SqliteLocalStateRepository,
 )
-from emule_indexer.composition.app import CrawlerApp, default_client_factory
-from emule_indexer.domain.observation import FileObservation
-from emule_indexer.ports.content_verifier import VerificationResult
-from emule_indexer.ports.mule_client import KadStatus, MuleUnreachableError, NetworkStatus
-from emule_indexer.ports.mule_download_client import DownloadEntry, SharedFileEntry
+from mulewatch.composition.app import CrawlerApp, default_client_factory
+from mulewatch.domain.observation import FileObservation
+from mulewatch.ports.content_verifier import VerificationResult
+from mulewatch.ports.mule_client import KadStatus, MuleUnreachableError, NetworkStatus
+from mulewatch.ports.mule_download_client import DownloadEntry, SharedFileEntry
 from tests.application.fakes import FakeClock, FakeMuleClient, RecordingSignal
 
 _TARGETS = (
@@ -309,14 +309,14 @@ async def test_unreachable_client_at_startup_does_not_crash_the_run(
 
     app = _make_app(tmp_path, matcher_config, factory=factory)
     app_holder["app"] = app
-    with caplog.at_level(logging.WARNING, logger="emule_indexer.composition.app"):
+    with caplog.at_level(logging.WARNING, logger="mulewatch.composition.app"):
         await asyncio.wait_for(app.run(), timeout=5.0)  # does NOT raise (down instance tolerated)
     # The tolerance warning comes from the COMPOSITION ROOT (not the worker) and names
     # the instance: it is the `except MuleUnreachableError` branch of pool setup.
     startup_warnings = [
         record
         for record in caplog.records
-        if record.name == "emule_indexer.composition.app" and record.levelno == logging.WARNING
+        if record.name == "mulewatch.composition.app" and record.levelno == logging.WARNING
     ]
     assert startup_warnings, "the composition root must log the startup tolerance"
     assert "amule-0" in startup_warnings[0].getMessage()  # the warning names the down instance
@@ -447,23 +447,23 @@ async def test_normal_run_outlives_shutdown_deadline_without_a_signal(
 
 
 def test_default_client_factory_builds_an_amule_client() -> None:
-    from emule_indexer.adapters.mule_ec.client import AmuleEcClient
+    from mulewatch.adapters.mule_ec.client import AmuleEcClient
 
     endpoint = AmuleEndpoint(name="amule-1", host="gluetun", port=4712, password="secret")
     assert isinstance(default_client_factory(endpoint), AmuleEcClient)
 
 
 def test_default_download_client_factory_builds_an_amule_client() -> None:
-    from emule_indexer.adapters.mule_ec.client import AmuleEcClient
-    from emule_indexer.composition.app import default_download_client_factory
+    from mulewatch.adapters.mule_ec.client import AmuleEcClient
+    from mulewatch.composition.app import default_download_client_factory
 
     endpoint = AmuleEndpoint(name="dl", host="gluetun", port=4799, password="secret")
     assert isinstance(default_download_client_factory(endpoint), AmuleEcClient)
 
 
 def test_default_verifier_factory_builds_an_http_verifier() -> None:
-    from emule_indexer.adapters.verifier_http import HttpContentVerifier
-    from emule_indexer.composition.app import default_verifier_factory
+    from mulewatch.adapters.verifier_http import HttpContentVerifier
+    from mulewatch.composition.app import default_verifier_factory
 
     verifier = default_verifier_factory("http://verifier:8000", 180.0)
     assert isinstance(verifier, HttpContentVerifier)
@@ -566,7 +566,7 @@ async def test_backfill_runs_and_stores_marker_when_policy_never_set(
         client_factory=factory,
     )
     holder["app"] = app
-    with caplog.at_level(logging.INFO, logger="emule_indexer.composition.app"):
+    with caplog.at_level(logging.INFO, logger="mulewatch.composition.app"):
         await asyncio.wait_for(app.run(), timeout=5.0)
     assert any(
         r.getMessage() == "catalogue re-evaluated: 0 files, 0 rows written" for r in caplog.records
@@ -608,7 +608,7 @@ async def test_backfill_skipped_when_marker_already_matches_fingerprint(
         client_factory=factory,
     )
     holder["app"] = app
-    with caplog.at_level(logging.INFO, logger="emule_indexer.composition.app"):
+    with caplog.at_level(logging.INFO, logger="mulewatch.composition.app"):
         await asyncio.wait_for(app.run(), timeout=5.0)
     assert any(
         r.getMessage() == "policy unchanged — catalogue re-evaluation skipped"
@@ -1020,7 +1020,7 @@ async def test_emits_crawler_started_observer_mode(
 
     app = _make_app(tmp_path, matcher_config, factory=factory)
     holder["app"] = app
-    with caplog.at_level(logging.INFO, logger="emule_indexer.observability"):
+    with caplog.at_level(logging.INFO, logger="mulewatch.observability"):
         await asyncio.wait_for(app.run(), timeout=5.0)
     assert any("mode observer" in r.getMessage() for r in caplog.records)
 
@@ -1047,7 +1047,7 @@ async def test_emits_crawler_started_full_mode(
         verifier_factory=lambda url, _timeout: verifier,
     )
     holder["app"] = app
-    with caplog.at_level(logging.INFO, logger="emule_indexer.observability"):
+    with caplog.at_level(logging.INFO, logger="mulewatch.observability"):
         await asyncio.wait_for(app.run(), timeout=5.0)
     assert any("mode full" in r.getMessage() for r in caplog.records)
 
@@ -1201,16 +1201,16 @@ async def test_port_sync_tolerates_ec_daemon_unreachable_at_startup(
 
 
 def test_default_port_forwarding_reader_factory_builds_a_gluetun_reader() -> None:
-    from emule_indexer.adapters.gluetun_port import GluetunPortReader
-    from emule_indexer.composition.app import default_port_forwarding_reader_factory
+    from mulewatch.adapters.gluetun_port import GluetunPortReader
+    from mulewatch.composition.app import default_port_forwarding_reader_factory
 
     reader = default_port_forwarding_reader_factory("http://gluetun:8000")
     assert isinstance(reader, GluetunPortReader)
 
 
 def test_default_mule_restarter_factory_builds_an_http_restarter() -> None:
-    from emule_indexer.adapters.docker_restart_http import HttpMuleRestarter
-    from emule_indexer.composition.app import default_mule_restarter_factory
+    from mulewatch.adapters.docker_restart_http import HttpMuleRestarter
+    from mulewatch.composition.app import default_mule_restarter_factory
 
     restarter = default_mule_restarter_factory("http://docker-proxy:2375")
     assert isinstance(restarter, HttpMuleRestarter)

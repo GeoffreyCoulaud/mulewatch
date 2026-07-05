@@ -1,6 +1,6 @@
 """bucketize (pure): group observations by (ed2k_hash, UTC day), node-agnostic aggregate."""
 
-from emule_indexer.domain.retention.buckets import ObservationBucket, ObservationRow, bucketize
+from mulewatch.domain.retention.buckets import ObservationBucket, ObservationRow, bucketize
 
 
 def _row(

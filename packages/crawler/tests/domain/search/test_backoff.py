@@ -1,4 +1,4 @@
-from emule_indexer.domain.search.backoff import backoff_delay
+from mulewatch.domain.search.backoff import backoff_delay
 
 
 def test_first_attempt_is_the_base_delay() -> None:

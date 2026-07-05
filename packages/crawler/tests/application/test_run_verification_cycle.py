@@ -4,17 +4,17 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from emule_indexer.application.edge_state import EdgeState
-from emule_indexer.application.run_verification_cycle import VerifyDeps, run_verification_cycle
-from emule_indexer.domain.observability.events import (
+from mulewatch.application.edge_state import EdgeState
+from mulewatch.application.run_verification_cycle import VerifyDeps, run_verification_cycle
+from mulewatch.domain.observability.events import (
     VerificationCompleted,
     VerificationQueueDepthSampled,
     VerifierUnavailable,
 )
-from emule_indexer.ports.content_verifier import VerificationResult
-from emule_indexer.ports.local_state_repository import ClaimedTask
-from emule_indexer.ports.repository_errors import RepositoryError
-from emule_indexer.ports.verifier_errors import VerifierUnavailableError
+from mulewatch.ports.content_verifier import VerificationResult
+from mulewatch.ports.local_state_repository import ClaimedTask
+from mulewatch.ports.repository_errors import RepositoryError
+from mulewatch.ports.verifier_errors import VerifierUnavailableError
 from tests.application.fakes import RecordingTelemetry
 
 _A = "a" * 32

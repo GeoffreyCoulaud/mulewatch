@@ -1,13 +1,13 @@
 """The ports are structural Protocols: a minimal fake satisfies them."""
 
-from emule_indexer.domain.observability.events import Event
-from emule_indexer.domain.observability.policy import (
+from mulewatch.domain.observability.events import Event
+from mulewatch.domain.observability.policy import (
     Audience,
     MetricInstruction,
     MetricName,
     Severity,
 )
-from emule_indexer.ports.telemetry import MetricsSink, Notifier, Telemetry
+from mulewatch.ports.telemetry import MetricsSink, Notifier, Telemetry
 
 
 class _Sink:

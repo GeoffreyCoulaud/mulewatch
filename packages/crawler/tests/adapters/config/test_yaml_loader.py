@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.config.yaml_loader import YamlLoadError, load_yaml
+from mulewatch.adapters.config.yaml_loader import YamlLoadError, load_yaml
 
 
 def test_load_yaml_reads_mapping(tmp_path: Path) -> None:

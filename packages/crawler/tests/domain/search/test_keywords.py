@@ -1,4 +1,4 @@
-from emule_indexer.domain.search.keywords import SearchKeyword, generate_keywords
+from mulewatch.domain.search.keywords import SearchKeyword, generate_keywords
 
 
 def test_generates_one_keyword_per_input_in_order() -> None:

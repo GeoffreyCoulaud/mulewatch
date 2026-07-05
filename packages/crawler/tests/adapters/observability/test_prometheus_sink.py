@@ -2,8 +2,8 @@
 
 from prometheus_client import CollectorRegistry
 
-from emule_indexer.adapters.observability.prometheus_sink import PrometheusSink
-from emule_indexer.domain.observability.policy import MetricInstruction, MetricName, describe
+from mulewatch.adapters.observability.prometheus_sink import PrometheusSink
+from mulewatch.domain.observability.policy import MetricInstruction, MetricName, describe
 from tests.domain.observability.test_policy import CASES
 
 

@@ -6,22 +6,22 @@ from pathlib import Path
 import pytest
 
 from catalog_matching.engine import MatchingEngine
-from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
-from emule_indexer.adapters.persistence_sqlite.connection import open_local
-from emule_indexer.adapters.persistence_sqlite.scheduler_state_repository import (
+from mulewatch.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
+from mulewatch.adapters.persistence_sqlite.connection import open_local
+from mulewatch.adapters.persistence_sqlite.scheduler_state_repository import (
     SqliteSchedulerStateRepository,
 )
-from emule_indexer.application.edge_state import EdgeState
-from emule_indexer.application.run_search_cycle import run_search_cycle
-from emule_indexer.application.search_worker import (
+from mulewatch.application.edge_state import EdgeState
+from mulewatch.application.run_search_cycle import run_search_cycle
+from mulewatch.application.search_worker import (
     BackoffRegistry,
     SearchWorker,
     WorkerDeps,
     WorkerPolicy,
 )
-from emule_indexer.domain.observability.events import AllInstancesBlind
-from emule_indexer.domain.observation import FileObservation
-from emule_indexer.ports.mule_client import KadStatus, NetworkStatus
+from mulewatch.domain.observability.events import AllInstancesBlind
+from mulewatch.domain.observation import FileObservation
+from mulewatch.ports.mule_client import KadStatus, NetworkStatus
 from tests.application.fakes import (
     FakeClock,
     FakeMuleClient,
@@ -206,7 +206,7 @@ async def test_cycle_logs_blind_coverage(
     client = FakeMuleClient(status=blind)
     worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
     scheduler_state = SqliteSchedulerStateRepository(local_connection)
-    with caplog.at_level(logging.INFO, logger="emule_indexer.application.run_search_cycle"):
+    with caplog.at_level(logging.INFO, logger="mulewatch.application.run_search_cycle"):
         await run_search_cycle(
             workers=[worker],
             clients=[client],
@@ -239,7 +239,7 @@ async def test_unreachable_status_makes_instance_not_capable_and_logs_blind(
     client = UnreachableStatusClient()
     worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
     scheduler_state = SqliteSchedulerStateRepository(local_connection)
-    with caplog.at_level(logging.WARNING, logger="emule_indexer.application.run_search_cycle"):
+    with caplog.at_level(logging.WARNING, logger="mulewatch.application.run_search_cycle"):
         await run_search_cycle(
             workers=[worker],
             clients=[client],
@@ -275,7 +275,7 @@ async def test_unreachable_instance_does_not_blind_a_healthy_peer(
     deps = _deps(catalog, engine, clock, backoff)
     workers = [_worker("amule-1", down, deps), _worker("amule-2", healthy, deps)]
     scheduler_state = SqliteSchedulerStateRepository(local_connection)
-    with caplog.at_level(logging.INFO, logger="emule_indexer.application.run_search_cycle"):
+    with caplog.at_level(logging.INFO, logger="mulewatch.application.run_search_cycle"):
         await run_search_cycle(
             workers=workers,
             clients=[down, healthy],
@@ -302,7 +302,7 @@ async def test_channel_backoff_is_persisted_at_cycle_end(
     # A search fails (EC_OP_FAILED) → the channel enters backoff IN the shared registry;
     # the cycle PERSISTS the snapshot at cycle end (spec §3/§7). A fresh repo instance
     # (simulating a restart) re-reads this backoff.
-    from emule_indexer.ports.mule_client import MuleSearchFailedError, SearchChannel
+    from mulewatch.ports.mule_client import MuleSearchFailedError, SearchChannel
 
     class _AlwaysFails(FakeMuleClient):
         """Fails on EVERY search → the channels STAY in backoff (never reset)."""
@@ -342,8 +342,8 @@ async def test_one_worker_pauses_between_items_not_after_the_last(
     # A SINGLE worker drains ALL items → the inter-keyword pause (fixed 1.0s, min==max;
     # search_progress=100 → no polling sleep) falls BETWEEN two items and NEVER after the
     # last: exactly (N_items - 1) pauses of 1.0s.
-    from emule_indexer.application.run_search_cycle import _CHANNELS
-    from emule_indexer.domain.search.keywords import generate_keywords
+    from mulewatch.application.run_search_cycle import _CHANNELS
+    from mulewatch.domain.search.keywords import generate_keywords
 
     n_items = len(generate_keywords(_KEYWORDS)) * len(_CHANNELS)
     clock = FakeClock()
@@ -376,8 +376,8 @@ async def test_drained_queue_skips_the_final_pause_with_two_workers(
     # Two workers SHARE the fake clock: the pause is only slept between two real items
     # (the "queue not empty" guard). The total of pauses is STRICTLY less than the number
     # of items (at least the last item of each drain does not trigger a pause).
-    from emule_indexer.application.run_search_cycle import _CHANNELS
-    from emule_indexer.domain.search.keywords import generate_keywords
+    from mulewatch.application.run_search_cycle import _CHANNELS
+    from mulewatch.domain.search.keywords import generate_keywords
 
     n_items = len(generate_keywords(_KEYWORDS)) * len(_CHANNELS)
     clock = FakeClock()
@@ -415,8 +415,8 @@ async def test_worker_in_backoff_does_not_consume_peers_tasks(
     # Regression logic-search#0 (spec §14 "NO LOSS"): a worker whose instance is in backoff
     # must NOT drain/discard the remaining tasks. The queue is shared → if A is in backoff
     # and B healthy, B must process ALL tasks (not half).
-    from emule_indexer.application.run_search_cycle import _CHANNELS
-    from emule_indexer.domain.search.keywords import generate_keywords
+    from mulewatch.application.run_search_cycle import _CHANNELS
+    from mulewatch.domain.search.keywords import generate_keywords
 
     n_items = len(generate_keywords(_KEYWORDS)) * len(_CHANNELS)
     clock = FakeClock()
@@ -456,9 +456,9 @@ async def test_all_workers_in_backoff_drop_tasks_with_telemetry(
     # Terminal case: if ALL instances are in backoff, no one can process anymore → the
     # tasks are DROPPED with a telemetry trace (visibility), and the cycle finishes anyway
     # (queue drained, index advances).
-    from emule_indexer.application.run_search_cycle import _CHANNELS
-    from emule_indexer.domain.observability.events import SearchTaskDropped
-    from emule_indexer.domain.search.keywords import generate_keywords
+    from mulewatch.application.run_search_cycle import _CHANNELS
+    from mulewatch.domain.observability.events import SearchTaskDropped
+    from mulewatch.domain.search.keywords import generate_keywords
 
     n_items = len(generate_keywords(_KEYWORDS)) * len(_CHANNELS)
     clock = FakeClock()
@@ -503,8 +503,8 @@ async def test_repository_error_on_write_cycle_state_is_absorbed(
     # Regression error-boundary#1: a RepositoryError on write_cycle_state must NOT
     # propagate out of run_search_cycle (the supervisor TaskGroup would cancel the 3 other
     # loops → app crash). Aligned with run_download/verify ("NEVER RAISES").
-    from emule_indexer.ports.repository_errors import RepositoryError
-    from emule_indexer.ports.scheduler_state_repository import ChannelBackoff
+    from mulewatch.ports.repository_errors import RepositoryError
+    from mulewatch.ports.scheduler_state_repository import ChannelBackoff
 
     clock = FakeClock()
     backoff = BackoffRegistry(_POLICY, clock, FakeRng())
@@ -525,7 +525,7 @@ async def test_repository_error_on_write_cycle_state_is_absorbed(
         def save_channel_backoff(self, snapshot: dict[str, ChannelBackoff]) -> None:
             inner.save_channel_backoff(snapshot)
 
-    with caplog.at_level(logging.ERROR, logger="emule_indexer.application.run_search_cycle"):
+    with caplog.at_level(logging.ERROR, logger="mulewatch.application.run_search_cycle"):
         await run_search_cycle(
             workers=[worker],
             clients=[client],
@@ -553,8 +553,8 @@ async def test_repository_error_on_save_channel_backoff_is_absorbed(
     # Regression error-boundary#1 (symmetric): a RepositoryError on save_channel_backoff
     # is absorbed the same way. The index must NOT advance (atomicity §3/§7: if one of the
     # two fails, the cycle is replayable at the next startup).
-    from emule_indexer.ports.repository_errors import RepositoryError
-    from emule_indexer.ports.scheduler_state_repository import ChannelBackoff
+    from mulewatch.ports.repository_errors import RepositoryError
+    from mulewatch.ports.scheduler_state_repository import ChannelBackoff
 
     clock = FakeClock()
     backoff = BackoffRegistry(_POLICY, clock, FakeRng())
@@ -575,7 +575,7 @@ async def test_repository_error_on_save_channel_backoff_is_absorbed(
         def save_channel_backoff(self, snapshot: dict[str, ChannelBackoff]) -> None:
             raise RepositoryError("local.db locked")
 
-    with caplog.at_level(logging.ERROR, logger="emule_indexer.application.run_search_cycle"):
+    with caplog.at_level(logging.ERROR, logger="mulewatch.application.run_search_cycle"):
         await run_search_cycle(
             workers=[worker],
             clients=[client],

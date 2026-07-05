@@ -2,12 +2,12 @@ import asyncio
 
 import pytest
 
-from emule_indexer.application.edge_state import EdgeState
-from emule_indexer.application.run_verification_cycle import (
+from mulewatch.application.edge_state import EdgeState
+from mulewatch.application.run_verification_cycle import (
     VerifyLoopDeps,
     verification_loop,
 )
-from emule_indexer.ports.local_state_repository import ClaimedTask
+from mulewatch.ports.local_state_repository import ClaimedTask
 from tests.application.fakes import RecordingTelemetry
 from tests.application.test_run_verification_cycle import (
     FakeClock,

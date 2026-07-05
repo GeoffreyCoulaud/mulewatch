@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from emule_indexer.adapters.decision_signal_asyncio import AsyncioDecisionSignal
+from mulewatch.adapters.decision_signal_asyncio import AsyncioDecisionSignal
 
 
 @pytest.mark.asyncio

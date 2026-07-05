@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.persistence_sqlite.connection import open_local
-from emule_indexer.adapters.persistence_sqlite.errors import PersistenceError
-from emule_indexer.adapters.persistence_sqlite.local_state_repository import (
+from mulewatch.adapters.persistence_sqlite.connection import open_local
+from mulewatch.adapters.persistence_sqlite.errors import PersistenceError
+from mulewatch.adapters.persistence_sqlite.local_state_repository import (
     SqliteLocalStateRepository,
 )
-from emule_indexer.ports.local_state_repository import ClaimedTask, LocalStateRepository
+from mulewatch.ports.local_state_repository import ClaimedTask, LocalStateRepository
 
 _START = datetime(2026, 6, 11, 12, 0, 0, tzinfo=UTC)
 _NODE_ID_QUERY = "SELECT value FROM node_runtime WHERE key = 'node_id'"

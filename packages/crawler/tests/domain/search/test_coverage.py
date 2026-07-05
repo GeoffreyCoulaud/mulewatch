@@ -1,4 +1,4 @@
-from emule_indexer.domain.search.coverage import Coverage, effective_coverage
+from mulewatch.domain.search.coverage import Coverage, effective_coverage
 
 
 def test_no_instances_is_blind() -> None:

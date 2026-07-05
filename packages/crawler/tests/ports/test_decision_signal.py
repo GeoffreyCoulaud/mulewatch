@@ -1,4 +1,4 @@
-from emule_indexer.ports.decision_signal import DecisionSignal
+from mulewatch.ports.decision_signal import DecisionSignal
 
 
 class _StubSignal:

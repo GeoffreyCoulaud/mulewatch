@@ -11,9 +11,9 @@ a real wait (determinism). ``FakeRng``: identity shuffle + FIXED jitter (determi
 import asyncio
 from datetime import UTC, datetime, timedelta
 
-from emule_indexer.domain.observability.events import Event
-from emule_indexer.domain.observation import FileObservation
-from emule_indexer.ports.mule_client import (
+from mulewatch.domain.observability.events import Event
+from mulewatch.domain.observation import FileObservation
+from mulewatch.ports.mule_client import (
     KadStatus,
     MuleSearchFailedError,
     MuleUnreachableError,

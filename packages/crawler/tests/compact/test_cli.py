@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from emule_indexer.compact.__main__ import main
+from mulewatch.compact.__main__ import main
 
 from ..merge.helpers import HASH_A, make_catalog
 from .helpers import read_ranges

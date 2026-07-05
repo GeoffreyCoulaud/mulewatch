@@ -2,8 +2,8 @@ import dataclasses
 
 import pytest
 
-from emule_indexer.domain.observation import FileObservation
-from emule_indexer.ports.mule_client import (
+from mulewatch.domain.observation import FileObservation
+from mulewatch.ports.mule_client import (
     KadStatus,
     MuleClient,
     NetworkStatus,

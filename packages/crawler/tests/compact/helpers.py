@@ -7,7 +7,7 @@ The other tables (files, file_observations) go through tests.merge.helpers.make_
 from collections.abc import Sequence
 from pathlib import Path
 
-from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
+from mulewatch.adapters.persistence_sqlite.connection import open_catalog
 
 RANGE_COLUMNS = (
     "ed2k_hash",

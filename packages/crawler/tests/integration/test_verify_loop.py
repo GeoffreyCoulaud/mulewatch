@@ -19,16 +19,16 @@ import pytest
 
 from download_verifier.app import build_app
 from download_verifier.config import AnalysisConfig
-from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
-from emule_indexer.adapters.persistence_sqlite.connection import open_catalog, open_local
-from emule_indexer.adapters.persistence_sqlite.download_repository import SqliteDownloadRepository
-from emule_indexer.adapters.persistence_sqlite.local_state_repository import (
+from mulewatch.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
+from mulewatch.adapters.persistence_sqlite.connection import open_catalog, open_local
+from mulewatch.adapters.persistence_sqlite.download_repository import SqliteDownloadRepository
+from mulewatch.adapters.persistence_sqlite.local_state_repository import (
     SqliteLocalStateRepository,
 )
-from emule_indexer.adapters.verifier_http import HttpContentVerifier
-from emule_indexer.application.edge_state import EdgeState
-from emule_indexer.application.run_verification_cycle import VerifyDeps, run_verification_cycle
-from emule_indexer.domain.observation import FileObservation
+from mulewatch.adapters.verifier_http import HttpContentVerifier
+from mulewatch.application.edge_state import EdgeState
+from mulewatch.application.run_verification_cycle import VerifyDeps, run_verification_cycle
+from mulewatch.domain.observation import FileObservation
 from tests.application.fakes import RecordingTelemetry
 
 pytestmark = pytest.mark.verify_integration

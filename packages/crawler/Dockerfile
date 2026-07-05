@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# --- Builder : installe emule-indexer (membre du workspace VIRTUEL) via uv ---
+# --- Builder : installe mulewatch (membre du workspace VIRTUEL) via uv ---
 FROM ghcr.io/astral-sh/uv:python3.14-alpine@sha256:e852e37cfaffb287f2d78de0d4f27e28bf0722ccbf0d6948dbdf19a0b4de7bc7 AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
@@ -16,11 +16,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=packages/verifier/pyproject.toml,target=packages/verifier/pyproject.toml \
     --mount=type=bind,source=packages/matching/pyproject.toml,target=packages/matching/pyproject.toml \
     --mount=type=bind,source=packages/webui/pyproject.toml,target=packages/webui/pyproject.toml \
-    uv sync --locked --no-install-workspace --package emule-indexer
+    uv sync --locked --no-install-workspace --package mulewatch
 
 COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-editable --package emule-indexer
+    uv sync --locked --no-editable --package mulewatch
 
 # --- Runtime : python alpine, non-root, venv copie ---
 FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
@@ -42,4 +42,4 @@ COPY --from=builder --chown=nonroot:nonroot /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 USER nonroot
 WORKDIR /app
-ENTRYPOINT ["python", "-m", "emule_indexer"]
+ENTRYPOINT ["python", "-m", "mulewatch"]

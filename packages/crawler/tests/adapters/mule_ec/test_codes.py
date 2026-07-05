@@ -1,7 +1,7 @@
 import pytest
 
-from emule_indexer.adapters.mule_ec import codes
-from emule_indexer.adapters.mule_ec.errors import (
+from mulewatch.adapters.mule_ec import codes
+from mulewatch.adapters.mule_ec.errors import (
     EcAuthError,
     EcConnectError,
     EcError,

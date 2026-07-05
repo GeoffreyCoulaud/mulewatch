@@ -1,4 +1,4 @@
-from emule_indexer.domain.policy_fingerprint import policy_fingerprint
+from mulewatch.domain.policy_fingerprint import policy_fingerprint
 
 
 def test_fingerprint_is_deterministic_for_identical_bytes() -> None:

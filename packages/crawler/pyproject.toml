@@ -1,5 +1,5 @@
 [project]
-name = "emule-indexer"
+name = "mulewatch"
 version = "0.0.0"
 description = "Crawler eMule — surveillance, catalogue, auto-download (Keroro VF lost media)"
 requires-python = ">=3.14"
@@ -16,10 +16,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/emule_indexer"]
+packages = ["src/mulewatch"]
 
 [tool.pytest.ini_options]
-addopts = '--cov=emule_indexer --cov-report=term-missing --cov-fail-under=100 --strict-markers -m "not ec_integration and not orchestration_integration and not download_integration and not verify_integration and not compose_integration"'
+addopts = '--cov=mulewatch --cov-report=term-missing --cov-fail-under=100 --strict-markers -m "not ec_integration and not orchestration_integration and not download_integration and not verify_integration and not compose_integration"'
 testpaths = ["tests"]
 markers = [
     "ec_integration: tests d'intégration contre un amuled réel (Docker requis) — déselectionnés par défaut ; run dédié : cd packages/crawler && uv run pytest -m ec_integration --no-cov",
@@ -33,7 +33,7 @@ asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
 branch = true
-source = ["emule_indexer"]
+source = ["mulewatch"]
 
 [tool.coverage.report]
 show_missing = true

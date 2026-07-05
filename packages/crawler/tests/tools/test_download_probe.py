@@ -1,10 +1,10 @@
 import pytest
 
-from emule_indexer.adapters.mule_ec.client import AmuleEcClient
-from emule_indexer.adapters.mule_ec.errors import EcAuthError, EcError
-from emule_indexer.ports.mule_client import KadStatus, NetworkStatus
-from emule_indexer.ports.mule_download_client import DownloadEntry, SharedFileEntry
-from emule_indexer.tools.download_probe import (
+from mulewatch.adapters.mule_ec.client import AmuleEcClient
+from mulewatch.adapters.mule_ec.errors import EcAuthError, EcError
+from mulewatch.ports.mule_client import KadStatus, NetworkStatus
+from mulewatch.ports.mule_download_client import DownloadEntry, SharedFileEntry
+from mulewatch.tools.download_probe import (
     _default_client,
     build_parser,
     format_entry,

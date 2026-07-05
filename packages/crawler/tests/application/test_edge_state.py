@@ -1,6 +1,6 @@
 """EdgeState: first_occurrence = transition to active; leave rearms."""
 
-from emule_indexer.application.edge_state import EdgeState
+from mulewatch.application.edge_state import EdgeState
 
 
 def test_enter_is_true_only_on_transition() -> None:

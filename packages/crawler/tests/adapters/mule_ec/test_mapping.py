@@ -1,7 +1,7 @@
-from emule_indexer.adapters.mule_ec import codes
-from emule_indexer.adapters.mule_ec.codec import EcTag, hash16_tag, string_tag, uint_tag
-from emule_indexer.adapters.mule_ec.mapping import map_search_results
-from emule_indexer.domain.observation import FileObservation
+from mulewatch.adapters.mule_ec import codes
+from mulewatch.adapters.mule_ec.codec import EcTag, hash16_tag, string_tag, uint_tag
+from mulewatch.adapters.mule_ec.mapping import map_search_results
+from mulewatch.domain.observation import FileObservation
 
 _HASH = bytes(range(16))
 _HASH_HEX = _HASH.hex()
