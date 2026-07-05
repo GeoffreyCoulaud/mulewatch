@@ -26,7 +26,7 @@ vous devez voir, et sinon quelle fiche de dépannage ouvrir.
 
 ## 1. Ce qu'il vous faut
 
-- **Une machine qui reste allumée.** Un vieux PC ou un mini-PC suffisent : le nœud n'est utile que
+- **Une machine qui reste allumée.** Un vieux PC ou un mini-PC suffit : le nœud n'est utile que
   s'il veille en continu. Inutile d'y toucher une fois lancé.
 - **Une connexion Internet permanente.**
 - **Environ 2 Go de RAM libres** et **environ 5 Go d'espace disque** au départ (le catalogue grossit

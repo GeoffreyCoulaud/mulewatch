@@ -21,7 +21,7 @@ téléchargement des images viennent en plus, selon votre connexion. Installer D
 l'étape la plus difficile : le reste tient en une commande et deux mots de passe à choisir.
 
 Par défaut, un nœud tourne en mode **observer** : il ne télécharge rien et ne partage rien. Il
-cherche, catalogue et notifie. Une fois lancé, un catalogue web est disponible sur
+cherche, catalogue, et peut notifier. Une fois lancé, un catalogue web est disponible sur
 http://localhost:8080 et des tableaux de bord sur http://localhost:3000.
 
 Le pas-à-pas complet (secrets à renseigner, variante derrière VPN, mode téléchargement optionnel)
