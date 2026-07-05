@@ -37,7 +37,9 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
      - Windows ou macOS : Docker Desktop, <https://docs.docker.com/get-started/get-docker/>.
      - Serveur Linux : Docker Engine, <https://docs.docker.com/engine/install/>.
   2. Sous Windows ou macOS, **lancez l'application Docker Desktop** et attendez qu'elle affiche
-     qu'elle tourne : `docker compose` ne répond pas tant que le moteur est arrêté.
+     qu'elle tourne : seules les commandes qui interrogent le moteur (comme `docker ps` ou
+     `docker compose up`) échouent tant qu'il est arrêté ; `docker compose version`, elle, répond
+     même moteur éteint (c'est une commande côté client).
   3. Revérifiez :
      ```
      docker compose version
@@ -46,6 +48,35 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
      ne voyez toujours qu'un `docker-compose` v1, installez Docker Engine (v2) comme ci-dessus : la
      commande en deux mots est indispensable.
 - **Retour au guide.** [Étape 2 : Installer Docker](deployment.md#2-installer-docker).
+
+### Docker est installé mais ne répond pas
+
+- **Symptôme.** Une commande qui interroge le moteur (`docker ps`, `docker compose up -d`...)
+  s'arrête avec un message de connexion refusée. Sous **Windows** :
+  ```
+  error during connect: ... pipe/docker_engine ... The system cannot find the file specified
+  ```
+  Sous **macOS / Linux** :
+  ```
+  Cannot connect to the Docker daemon
+  ```
+  En revanche, `docker compose version` répond normalement : c'est une commande côté client, qui ne
+  parle pas au moteur.
+- **Cause.** Le moteur Docker n'est pas démarré : sous Windows/macOS, l'application Docker Desktop
+  n'est pas lancée (ou pas encore prête) ; sur un serveur Linux, le service Docker est arrêté.
+- **Solution.**
+  1. Sous **Windows ou macOS** : lancez **Docker Desktop** et attendez que son icône passe au vert
+     (le moteur est prêt).
+  2. Sur un **serveur Linux** : démarrez le service Docker.
+     ```
+     sudo systemctl start docker
+     ```
+  3. Re-testez `docker ps` : le succès est un tableau d'en-têtes de colonnes (même vide).
+     ```
+     docker ps
+     ```
+- **Retour au guide.** [Étape 2 : Installer Docker](deployment.md#2-installer-docker) et
+  [étape 5 : Lancer](deployment.md#5-lancer).
 
 ### Une valeur change-me est restée dans .env
 
@@ -59,22 +90,41 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
 - **Cause.** L'un des deux mots de passe obligatoires est encore la valeur d'exemple `change-me` :
   vous avez oublié une ligne, ou édité la mauvaise.
 - **Solution.**
-  1. Rouvrez le fichier (c'est un fichier **caché**, le plus sûr est de l'éditer au terminal) :
+  1. Rouvrez le fichier (son nom commence par un point ; le plus simple est de l'éditer au
+     terminal). Sous **macOS / Linux** :
      ```
      nano deploy/.env
      ```
+     Sous **Windows** :
+     ```
+     notepad deploy\.env
+     ```
      Remplacez la valeur après le `=` sur la ligne signalée : `AMULE_EC_PASSWORD` (au moins 12
-     caractères) et/ou `GRAFANA_PWD`. Enregistrez avec **Ctrl+O** puis **Entrée**, quittez avec
-     **Ctrl+X**.
+     caractères) et/ou `GRAFANA_PWD`. Dans `nano`, enregistrez avec **Ctrl+O** puis **Entrée**,
+     quittez avec **Ctrl+X** ; dans le Bloc-notes, enregistrez avec **Ctrl+S**.
   2. Revérifiez : la commande de contrôle ne doit **plus rien afficher**.
      ```
      grep -E '(AMULE_EC_PASSWORD|GRAFANA_PWD)=change-me' deploy/.env
+     ```
+     Sous **Windows (PowerShell)** :
+     ```
+     Select-String -Path deploy\.env -Pattern 'AMULE_EC_PASSWORD=change-me|GRAFANA_PWD=change-me'
      ```
   3. Relancez la pile **depuis le dossier `deploy`** : `up -d` ne recrée que ce qui a changé.
      ```
      cd deploy
      docker compose up -d
      ```
+  4. **Cas particulier `GRAFANA_PWD`.** Grafana n'applique ce mot de passe qu'à son **premier**
+     démarrage : s'il a déjà démarré avec l'ancienne valeur, réinitialisez aussi son état local
+     (depuis `deploy/`) :
+     ```
+     docker compose down
+     docker volume rm mulewatch_grafana-data
+     docker compose up -d
+     ```
+     Vous ne perdez que l'état local de Grafana : les tableaux de bord sont provisionnés depuis
+     des fichiers, et le catalogue n'est pas touché.
 - **Ce qui n'est PAS un problème.** Il reste normalement d'autres `change-me` dans le fichier (la
   ligne de commentaire, ou `WIREGUARD_PRIVATE_KEY` réservé au VPN de l'annexe A) : la commande de
   contrôle ci-dessus les **ignore** exprès. Seuls `AMULE_EC_PASSWORD` et `GRAFANA_PWD` comptent pour

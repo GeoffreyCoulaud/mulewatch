@@ -2,13 +2,20 @@
 
 Le sujet du catalogue est **le fichier, jamais la personne**.
 
-Ce guide vous emmène de zéro à un nœud qui tourne, en une quinzaine de minutes. Il ne suppose
-aucune connaissance en ligne de commande au-delà de « suivre un tutoriel ». L'étape la plus
-difficile est d'installer Docker : le reste tient en une commande et deux mots de passe à choisir.
+Ce guide vous emmène de zéro à un nœud qui tourne, en une quinzaine de minutes une fois Docker
+installé. L'installation de Docker et le premier téléchargement des images viennent en plus, selon
+votre connexion. Il ne suppose aucune connaissance en ligne de commande au-delà de « suivre un
+tutoriel ». L'étape la plus difficile est d'installer Docker : le reste tient en une commande et
+deux mots de passe à choisir.
 
 Par défaut, votre nœud tourne en mode **observer** : il ne télécharge rien et ne partage rien. Il
 cherche, catalogue et vous laisse consulter le résultat. Une fois lancé, vous aurez un catalogue web
 sur `http://localhost:8080` et des tableaux de bord sur `http://localhost:3000`.
+
+Par défaut, votre adresse IP est visible des autres pairs du réseau eMule : c'est le fonctionnement
+public et normal de ce réseau. Ce que mulewatch fait et ne fait pas est détaillé dans
+[légalité et confidentialité](../legal-and-privacy.md) ; pour masquer votre IP derrière un VPN, voir
+l'annexe A.
 
 Suivez les 8 étapes dans l'ordre : c'est la voie royale, celle qui marche à coup sûr. Les variantes
 (VPN, téléchargement, High-ID, réglage du monitoring) sont en annexe, sous forme d'ajouts à cette
@@ -51,7 +58,8 @@ et couvre chaque système :
 Ne recopiez pas d'instructions d'installation d'ailleurs : ces deux pages sont les sources de
 référence.
 
-**Point de contrôle.** Dans le terminal, tapez :
+**Point de contrôle.** Deux vérifications, à réussir toutes les deux. D'abord la version de
+`docker compose` :
 
 ```
 docker compose version
@@ -62,6 +70,19 @@ aussi). Ce qui compte : c'est bien `docker compose` en une seule commande. Si vo
 `command not found`, ou une version `1.x` du vieil outil `docker-compose`, ouvrez la fiche
 [« Docker introuvable ou compose v1 »](troubleshooting.md#docker-introuvable-ou-compose-v1).
 
+Ensuite, vérifiez que le **moteur** Docker tourne : la commande précédente ne parle qu'au client et
+répond même moteur arrêté, alors que `docker ps` exige le moteur.
+
+```
+docker ps
+```
+
+En cas de succès, vous obtenez un tableau d'en-têtes de colonnes (`CONTAINER ID   IMAGE   ...`),
+même vide : c'est bon signe. Si vous obtenez à la place un message d'erreur (`Cannot connect to the
+Docker daemon`, ou sous Windows `error during connect ... The system cannot find the file
+specified`), le moteur n'est pas démarré : ouvrez la fiche
+[« Docker est installé mais ne répond pas »](troubleshooting.md#docker-est-installé-mais-ne-répond-pas).
+
 ---
 
 ## 3. Obtenir mulewatch
@@ -70,7 +91,10 @@ Le plus simple, sans rien installer de plus :
 
 1. Ouvrez la page du projet : <https://github.com/GeoffreyCoulaud/mulewatch>.
 2. Cliquez sur le bouton vert **`Code`**, puis sur **`Download ZIP`**.
-3. Décompressez le fichier téléchargé. Vous obtenez un dossier nommé **`mulewatch-main`**.
+3. Décompressez le fichier téléchargé. Vous obtenez un dossier nommé **`mulewatch-main`**. Sous
+   Windows, « Extraire tout » crée souvent un dossier dans un dossier
+   (`mulewatch-main\mulewatch-main`) : le bon dossier est **celui qui contient `deploy`**,
+   c'est-à-dire, sous Windows, en général le dossier intérieur.
 4. Ouvrez un terminal **dans ce dossier `mulewatch-main`** :
    - **Windows** : clic droit dans le dossier, « Ouvrir dans le terminal ».
    - **macOS / Linux** : ouvrez le Terminal, puis déplacez-vous dans le dossier avec `cd`. Si le
@@ -100,9 +124,11 @@ puis ouvrez un terminal dans le dossier `mulewatch` créé.
 ls deploy
 ```
 
-La liste affichée doit contenir `compose.yaml`. Si le terminal répond que le dossier n'existe pas,
+La liste affichée doit contenir `compose.yaml` (sous Windows/PowerShell, `ls` affiche un tableau :
+cherchez `compose.yaml` dans la colonne `Name`). Si le terminal répond que le dossier n'existe pas,
 c'est que vous n'êtes pas au bon endroit : placez-vous dans le dossier du projet (celui qui contient
-`deploy/`, en général `mulewatch-main`) et réessayez.
+`deploy/`, sous Windows en général le dossier intérieur `mulewatch-main\mulewatch-main`) et
+réessayez.
 
 ---
 
@@ -117,20 +143,28 @@ Copiez le fichier d'exemple en un vrai fichier de configuration :
 cp deploy/.env.example deploy/.env
 ```
 
-Il faut maintenant éditer ce fichier. Attention : son nom commence par un point, donc `.env` est un
-**fichier caché**. Le Finder et la plupart des explorateurs de fichiers ne l'affichent pas : le plus
-simple est de l'éditer directement depuis le terminal, avec l'éditeur `nano` (déjà présent sur
-macOS et Linux) :
+Il faut maintenant éditer ce fichier. Son nom commence par un point : sous macOS (Finder) et la
+plupart des gestionnaires de fichiers Linux, un tel fichier est **caché** par défaut ; l'Explorateur
+de Windows, lui, l'affiche normalement. Le plus simple, partout, est de l'éditer directement depuis
+le terminal.
+
+Sous **macOS / Linux**, avec l'éditeur `nano` (déjà présent) :
 
 ```
 nano deploy/.env
 ```
 
-Le fichier s'ouvre dans le terminal : déplacez-vous avec les flèches, modifiez le texte, puis
-enregistrez avec **Ctrl+O** suivi d'**Entrée**, et quittez avec **Ctrl+X** (les raccourcis sont
-rappelés en bas de l'écran). Si vous préférez un éditeur graphique, c'est possible aussi : sous
-Windows, le Bloc-notes ouvre `deploy\.env` sans difficulté ; sous macOS, évitez TextEdit en mode
-« texte enrichi » (menu Format, « Convertir au format Texte » d'abord), sinon il abîme le fichier.
+Sous **Windows**, avec le Bloc-notes :
+
+```
+notepad deploy\.env
+```
+
+Dans `nano`, déplacez-vous avec les flèches, modifiez le texte, puis enregistrez avec **Ctrl+O**
+suivi d'**Entrée**, et quittez avec **Ctrl+X** (les raccourcis sont rappelés en bas de l'écran). Le
+Bloc-notes s'édite comme n'importe quel fichier texte, puis enregistrez avec **Ctrl+S**. Sous macOS,
+si vous tenez à un éditeur graphique, évitez TextEdit en mode « texte enrichi » (menu Format,
+« Convertir au format Texte » d'abord), sinon il abîme le fichier.
 
 Dans le fichier, remplacez les deux valeurs `change-me` suivantes :
 
@@ -146,14 +180,16 @@ Laissez tout le reste du fichier tel quel : les autres valeurs ne servent qu'aux
 grep -E '(AMULE_EC_PASSWORD|GRAFANA_PWD)=change-me' deploy/.env
 ```
 
+Sous **Windows (PowerShell)**, la vérification équivalente est :
+
+```
+Select-String -Path deploy\.env -Pattern 'AMULE_EC_PASSWORD=change-me|GRAFANA_PWD=change-me'
+```
+
 La commande ne doit **rien afficher** (le terminal revient directement à la ligne de saisie). Si
 elle affiche une ligne, c'est que ce mot de passe est encore le `change-me` d'origine : corrigez-le,
 puis relancez la commande. Si vous n'y arrivez pas, ouvrez la fiche
 [« Une valeur change-me est restée dans .env »](troubleshooting.md#une-valeur-change-me-est-restée-dans-env).
-
-> Sous Windows (PowerShell), remplacez la ligne de vérification par :
-> `Select-String -Path deploy\.env -Pattern 'AMULE_EC_PASSWORD=change-me|GRAFANA_PWD=change-me'`
-> (elle aussi ne doit rien afficher).
 
 ---
 
@@ -190,7 +226,11 @@ Vous devez voir **cinq services**, chacun avec un statut qui commence par `Up` :
 en `Restarting` ou `Exited`, ouvrez la fiche
 [« Un conteneur redémarre en boucle »](troubleshooting.md#un-conteneur-redémarre-en-boucle). Si le
 lancement s'est interrompu avec un message d'adresse ou de port déjà utilisé, ouvrez la fiche
-[« Le port est déjà pris »](troubleshooting.md#le-port-est-déjà-pris).
+[« Le port est déjà pris »](troubleshooting.md#le-port-est-déjà-pris). Si `docker compose up -d`
+s'est arrêté tout de suite avec un message `Cannot connect to the Docker daemon` (ou, sous Windows,
+`error during connect ... The system cannot find the file specified`), le moteur Docker n'est pas
+démarré : ouvrez la fiche
+[« Docker est installé mais ne répond pas »](troubleshooting.md#docker-est-installé-mais-ne-répond-pas).
 
 ---
 
@@ -252,6 +292,20 @@ Si votre nœud tourne sur un serveur distant (pas sur votre ordinateur de bureau
 c'est que la page se charge. Si la page ne se charge pas du tout (connexion refusée, page
 inaccessible), ouvrez la fiche
 [« La webui reste vide »](troubleshooting.md#la-webui-reste-vide).
+
+Côté tableaux de bord, si Grafana refuse le mot de passe `admin` que vous avez choisi (souvent une
+coquille dans `GRAFANA_PWD`), rouvrez `deploy/.env` (étape 4) et corrigez `GRAFANA_PWD`. Grafana
+n'applique ce mot de passe qu'à son **premier** démarrage : réinitialisez donc aussi son état local.
+Depuis le dossier `deploy` :
+
+```
+docker compose down
+docker volume rm mulewatch_grafana-data
+docker compose up -d
+```
+
+Vous ne perdez que l'état local de Grafana : les tableaux de bord sont provisionnés depuis des
+fichiers, et le catalogue n'est pas touché.
 
 ---
 

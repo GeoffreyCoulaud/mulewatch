@@ -16,8 +16,9 @@ manquant refait surface.
 
 ## Monter un nœud
 
-Compter une quinzaine de minutes. Installer Docker est de loin l'étape la plus difficile : le
-reste tient en une commande et deux mots de passe à choisir.
+Compter une quinzaine de minutes une fois Docker installé. L'installation de Docker et le premier
+téléchargement des images viennent en plus, selon votre connexion. Installer Docker est de loin
+l'étape la plus difficile : le reste tient en une commande et deux mots de passe à choisir.
 
 Par défaut, un nœud tourne en mode **observer** : il ne télécharge rien et ne partage rien. Il
 cherche, catalogue et notifie. Une fois lancé, un catalogue web est disponible sur
