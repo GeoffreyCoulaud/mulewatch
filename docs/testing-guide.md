@@ -251,7 +251,9 @@ file`).
 - Les variables gluetun sont **stubées** par le test lui-même (`WIREGUARD_PRIVATE_KEY`,
   `AMULE_EC_PASSWORD`, `SERVER_COUNTRIES`) car compose les interpole au parse même si gluetun est
   désactivé — **rien à poser côté opérateur**.
-- Fichiers compose utilisés : `tests/smoke/compose.yaml` (autonome) + overrides temporaires par scénario + `deploy/{gluetun,direct}.compose.yml` pour `test_entrypoint_config_renders` ; configs smoke sous `tests/smoke/`.
+- Fichiers compose utilisés : `tests/smoke/compose.yaml` (autonome) + overrides temporaires par
+  scénario + `deploy/compose.yaml` et `deploy/gluetun.compose.yml` pour
+  `test_entrypoint_config_renders` ; configs smoke sous `tests/smoke/`.
 - Le test n'importe **aucun** module `mulewatch` (préserve le 100 % branch du paquet).
 
 **Commande.**
@@ -259,7 +261,12 @@ file`).
 ( cd packages/crawler && uv run pytest -m compose_integration --no-cov )
 ```
 
-**Attendu.** 4 tests de cycle de vie + 9 cas paramétrés `test_entrypoint_config_renders` (3 points d'entrée × 3 combos de profil) = **13 tests passés**. Chaque scénario de cycle de vie fait son `docker compose down -v` dans un `finally` (volumes éphémères nettoyés). Prévoir plusieurs minutes (le build + le up sont sous des timeouts de 900 s).
+**Attendu.** 4 tests de cycle de vie + 4 cas paramétrés `test_entrypoint_config_renders` (2 points
+d'entrée `compose`/`gluetun` × 2 combos de profil, aucun et `download`) = **8 tests passés**. Chaque
+cas paramétré vérifie aussi le jeu de services rendu (`webui`/`prometheus`/`grafana` toujours
+présents ; `verifier`/`freshclam` uniquement avec `--profile download`). Chaque scénario de cycle
+de vie fait son `docker compose down -v` dans un `finally` (volumes éphémères nettoyés). Prévoir
+plusieurs minutes (le build + le up sont sous des timeouts de 900 s).
 
 ---
 
