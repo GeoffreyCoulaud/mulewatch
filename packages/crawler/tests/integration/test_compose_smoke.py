@@ -75,8 +75,8 @@ _CONFIG_CASE_IDS = [
 # always-on since deploy/compose.yaml + deploy/gluetun.compose.yml stopped gating them behind a
 # profile).
 _ALWAYS_ON_SERVICES = frozenset({"crawler", "amuled", "webui", "prometheus", "grafana"})
-# Gated behind --profile download in base.compose.yml (docker-proxy is gluetun-stack-only, checked
-# separately below).
+# Gated behind --profile download in base.compose.yml (docker-proxy is gluetun-stack-only and
+# asserted in test_entrypoint_config_renders).
 _DOWNLOAD_ONLY_SERVICES = frozenset({"verifier", "freshclam"})
 
 _CONFIG_ENV = {
@@ -301,7 +301,7 @@ def test_entrypoint_config_renders(entry: tuple[str, str], profiles: tuple[str, 
     prometheus/grafana render in the DEFAULT set (no profile needed), and `--profile download` is
     the only lever that adds verifier/freshclam (docker-proxy too, in the gluetun stack).
     """
-    _label, path = entry
+    label, path = entry
     profile_flags: list[str] = []
     for profile in profiles:
         profile_flags += ["--profile", profile]
@@ -334,6 +334,10 @@ def test_entrypoint_config_renders(entry: tuple[str, str], profiles: tuple[str, 
     else:
         assert not (_DOWNLOAD_ONLY_SERVICES & services), (
             f"{path}: download-only services present without --profile download: {services}"
+        )
+    if label == "gluetun":
+        assert ("docker-proxy" in services) == ("download" in profiles), (
+            f"{path}: docker-proxy must render iff --profile download, got {services}"
         )
 
 
