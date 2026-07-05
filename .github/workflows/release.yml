@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE_PREFIX: ghcr.io/geoffreycoulaud/emule-indexer
+  IMAGE_PREFIX: ghcr.io/geoffreycoulaud/mulewatch
 
 jobs:
   # Full gate + per-arch build/integration/push-by-digest (push: true). The images are

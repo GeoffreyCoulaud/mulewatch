@@ -1,6 +1,6 @@
 {
-  "uid": "emule-indexer",
-  "title": "emule-indexer",
+  "uid": "mulewatch",
+  "title": "mulewatch",
   "schemaVersion": 39,
   "version": 1,
   "time": { "from": "now-6h", "to": "now" },
