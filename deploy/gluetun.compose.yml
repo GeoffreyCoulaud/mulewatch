@@ -1,10 +1,12 @@
 # Stack VPN (gluetun). amuled partage la netns de gluetun ;
 # docker-proxy pour le port-sync.
+# webui + prometheus + grafana sont toujours actifs, sans profil à ajouter.
 # High-ID auto : VPN_PORT_FORWARDING=on (.env)
 #   + port_sync.enabled: true (crawler.yml).
 # Lancer :
-#   docker compose -f deploy/gluetun.compose.yml \
-#     [--profile download|monitoring|webui] up -d
+#   docker compose -f deploy/gluetun.compose.yml up -d
+#   docker compose -f deploy/gluetun.compose.yml --profile download up -d
+name: mulewatch
 
 include:
   - path: base.compose.yml

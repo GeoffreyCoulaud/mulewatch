@@ -12,7 +12,7 @@ Le sujet du catalogue est **le fichier, jamais la personne**.
 
 | Stack | Fichier | IP visible des pairs | VPN requis |
 |---|---|:--:|:--:|
-| **Sans VPN (défaut)** | `deploy/direct.compose.yml` | **Oui** ¹ | Non |
+| **Sans VPN (défaut)** | `deploy/compose.yaml` | **Oui** ¹ | Non |
 | **Avec VPN (gluetun)** | `deploy/gluetun.compose.yml` | Non | Oui (WireGuard) |
 
 ¹ Ton IP est visible des pairs eD2k/Kad — choix informé, le réseau eMule est public par nature.
@@ -36,7 +36,7 @@ cp deploy/.env.example deploy/.env
 | `WIREGUARD_PRIVATE_KEY` | gluetun | Clé privée WireGuard (espace client de votre fournisseur VPN) |
 | `VPN_SERVICE_PROVIDER` | gluetun | Ex. `protonvpn`, `pia`, `privatevpn` |
 | `SERVER_COUNTRIES` | gluetun | Ex. `Switzerland` (noms anglais complets) |
-| `GRAFANA_PWD` | `--profile monitoring` | Mot de passe Grafana (compte `admin`) |
+| `GRAFANA_PWD` | Toutes | Mot de passe Grafana (compte `admin`) : Grafana est toujours actif, il n'y a plus de profil monitoring |
 
 > Aucune valeur `change-me` ne doit rester — elles ne provoquent pas d'erreur au lancement, mais causent un **échec silencieux** plus tard (le crawler ne peut pas s'authentifier à amuled).
 
@@ -61,11 +61,12 @@ cp deploy/.env.example deploy/.env
 ## 4. Lancer
 
 ```bash
-# Stack sans VPN, observer (le chemin le plus simple) :
-docker compose -f deploy/direct.compose.yml up -d
+# Stack sans VPN, observer (le chemin le plus simple) : webui + prometheus + grafana
+# sont inclus par défaut, sans profil à ajouter.
+cd deploy && docker compose up -d
 
-# Stack sans VPN, download + monitoring :
-docker compose -f deploy/direct.compose.yml --profile download --profile monitoring up -d
+# Stack sans VPN, download (+ vérification antivirus) :
+cd deploy && docker compose --profile download up -d
 
 # Stack VPN, observer :
 docker compose -f deploy/gluetun.compose.yml up -d
@@ -79,12 +80,14 @@ docker compose -f deploy/gluetun.compose.yml --profile download up -d
 ## 5. Vérifier
 
 ```bash
-docker compose -f deploy/direct.compose.yml ps                    # tous les services en "Up"
-docker compose -f deploy/direct.compose.yml logs crawler          # activité du crawler
-docker compose -f deploy/direct.compose.yml logs amuled | head -50 # connexion réseau amuled
+cd deploy
+docker compose ps                    # tous les services en "Up"
+docker compose logs crawler          # activité du crawler
+docker compose logs amuled | head -50 # connexion réseau amuled
 ```
 
-> Stack VPN : remplacez `direct.compose.yml` par `gluetun.compose.yml` dans ces commandes.
+> Stack VPN : depuis `deploy/`, ajoutez `-f gluetun.compose.yml` à chaque commande (ou, depuis la
+> racine du dépôt, `-f deploy/gluetun.compose.yml`).
 
 amuled récupère sa liste de serveurs eD2k et nœuds Kad **automatiquement** au premier boot (1–3 min) — vous n'avez rien à faire. « Low-ID » dans les logs n'est **pas une panne**.
 
@@ -97,13 +100,14 @@ En mode download, le crawler redémarre en boucle pendant 1–2 min (il attend q
 Les images sont publiées sur ghcr et **la mise à jour est manuelle** : vous choisissez quand l'appliquer. Compose ne re-tire **pas** une image `:latest` déjà présente localement — il faut un `pull` explicite, puis recréer les conteneurs.
 
 ```bash
-# Reprenez EXACTEMENT le même fichier de stack et les mêmes --profile qu'au lancement (§4).
-# Un --profile omis = le service correspondant n'est ni tiré ni recréé (ex. webui reste périmé).
-docker compose -f deploy/direct.compose.yml [--profile …] pull
-docker compose -f deploy/direct.compose.yml [--profile …] up -d
+# Reprenez EXACTEMENT le même fichier de stack et le même --profile download (si utilisé)
+# qu'au lancement (§4). webui + prometheus + grafana sont toujours tirés et recréés (plus de profil).
+cd deploy
+docker compose [--profile download] pull
+docker compose [--profile download] up -d
 ```
 
-`up -d` ne recrée que les conteneurs dont l'image a changé ; les volumes nommés (catalogue, état) **persistent**. Pour seulement redémarrer un service sans changer d'image : `docker compose -f deploy/direct.compose.yml restart <service>`.
+`up -d` ne recrée que les conteneurs dont l'image a changé ; les volumes nommés (catalogue, état) **persistent**. Pour seulement redémarrer un service sans changer d'image (depuis `deploy/`) : `docker compose restart <service>`.
 
 > Détails cycle de vie (arrêt, persistance, reboot de l'hôte) : **[Runbook d'administration — Cycle de vie](administration.md#cycle-de-vie--données)**.
 
@@ -122,13 +126,20 @@ Détails, compromis, activation pas à pas : **[Runbook d'administration — Hig
 
 ---
 
-## Profils disponibles
+## Toujours actifs, et profil disponible
+
+WebUI et monitoring sont inclus par défaut, sans profil à ajouter :
+
+| Service | Ce qu'il ajoute |
+|---|---|
+| webui | Interface web lecture seule du catalogue sur `http://<hôte>:${WEBUI_PORT:-8080}` |
+| Prometheus + Grafana | Métriques sur `http://<hôte>:${GRAFANA_PORT:-3000}` (nécessite `GRAFANA_PWD`) |
+
+Un seul profil reste disponible :
 
 | Profil | Ce qu'il ajoute |
 |---|---|
 | `--profile download` | verifier + freshclam (clamav) — nécessite `download.enabled: true` dans `crawler.yml` |
-| `--profile monitoring` | Prometheus + Grafana sur `http://<hôte>:${GRAFANA_PORT:-3000}` (nécessite `GRAFANA_PWD`) |
-| `--profile webui` | Interface web lecture seule du catalogue sur `http://<hôte>:${WEBUI_PORT:-8080}` |
 
 ---
 

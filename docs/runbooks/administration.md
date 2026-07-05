@@ -15,7 +15,8 @@ catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jama
   recréation des conteneurs — ne lancez `docker compose down` **avec `-v`** que si vous voulez
   réellement **effacer** le catalogue.
 - **Arrêter le nœud** : `docker compose -f deploy/gluetun.compose.yml down`
-  (remplacez `gluetun` par `direct` si vous utilisez la stack sans VPN conteneur).
+  (remplacez par `cd deploy && docker compose down` si vous utilisez la stack sans VPN conteneur,
+  celle par défaut).
 - **Mettre à jour** : re-tirez les images puis relancez :
   ```bash
   docker compose -f deploy/gluetun.compose.yml --profile download pull
@@ -25,6 +26,22 @@ catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jama
   seuls au boot de l'hôte (Docker doit démarrer en service système). **Aucune commande à relancer.**
   Vérifiez après reboot : `docker compose -f deploy/gluetun.compose.yml ps`. Si un service est en `Exited`
   alors que les autres sont `Up`, voir « Diagnostic après panne » ci-dessous.
+- **Migration depuis une version antérieure à ce changement.** Le nom de projet Compose est
+  désormais fixé à `mulewatch` (avant, il dérivait du nom du dossier, en général `deploy`). Un
+  simple `docker compose up -d` créera donc de NOUVEAUX volumes vides, et le nœud semblera avoir
+  perdu son catalogue. Les données existantes sont toujours là, dans les anciens volumes (listez-les
+  avec `docker volume ls`, préfixe `deploy_`). Avant de relancer, copiez-les vers les nouveaux noms :
+  ```bash
+  docker run --rm -v deploy_catalog-db:/src -v mulewatch_catalog-db:/dst alpine sh -c "cp -a /src/. /dst/"
+  docker run --rm -v deploy_local-db:/src -v mulewatch_local-db:/dst alpine sh -c "cp -a /src/. /dst/"
+  docker run --rm -v deploy_quarantine:/src -v mulewatch_quarantine:/dst alpine sh -c "cp -a /src/. /dst/"
+  docker run --rm -v deploy_amule-state:/src -v mulewatch_amule-state:/dst alpine sh -c "cp -a /src/. /dst/"
+  ```
+  Ajoutez `deploy_clamav-db` (si vous utilisiez le mode download) avec le même patron. Les volumes
+  `deploy_prometheus-data` et `deploy_grafana-data` (historique de métriques, régénérable) ne sont
+  pas critiques : vous pouvez les laisser derrière ou les copier avec la même recette. Vérifiez
+  ensuite avec `docker run --rm -v mulewatch_catalog-db:/d alpine ls -la /d` que le fichier
+  `catalog.db` est bien présent avant de supprimer les anciens volumes `deploy_*`.
 
 ### Diagnostic après panne
 
@@ -195,9 +212,9 @@ redémarrez le verifier, retestez. Si le symptôme persiste, doublez encore.
 
 > **Optionnel.** Cette section ne concerne que les opérateurs qui veulent **scraper** les métriques
 > du nœud depuis un système de monitoring **externe** (Prometheus + Grafana qu'ils gèrent par
-> ailleurs). Si vous voulez juste voir les métriques sur un dashboard sans rien configurer, lancez
-> le profil `monitoring` du compose (cf. [runbook de déploiement § Options orthogonales](deployment.md#options-orthogonales-toutes-stacks))
-> et ouvrez Grafana — le scrape est déjà configuré et le dashboard est livré clé en main.
+> ailleurs). Si vous voulez juste voir les métriques sur un dashboard sans rien configurer : Grafana
+> est déjà inclus par défaut (cf. [runbook de déploiement § Toujours actifs, et profil disponible](deployment.md#toujours-actifs-et-profil-disponible)),
+> ouvrez-le directement, le scrape est déjà configuré et le dashboard est livré clé en main.
 
 Le crawler et le verifier exposent des métriques Prometheus.
 
@@ -300,12 +317,15 @@ accès à aucun réseau applicatif (elle monte uniquement les volumes de bases d
 
 ### Lancer la WebUI
 
-```bash
-# Observer (catalogue seul) + WebUI :
-docker compose -f deploy/gluetun.compose.yml --profile webui up -d
+La WebUI est incluse par défaut, sans profil à ajouter : elle démarre avec n'importe laquelle des
+commandes de lancement du [Runbook de déploiement](deployment.md#4-lancer), observer comme download.
 
-# Download (catalogue + téléchargements) + WebUI :
-docker compose -f deploy/gluetun.compose.yml --profile download --profile webui up -d
+```bash
+# Stack sans VPN, observer (catalogue seul) + WebUI :
+cd deploy && docker compose up -d
+
+# Stack sans VPN, download (catalogue + téléchargements) + WebUI :
+cd deploy && docker compose --profile download up -d
 ```
 
 ### Routes disponibles

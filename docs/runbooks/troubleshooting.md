@@ -226,11 +226,12 @@ Plusieurs causes, à vérifier dans cet ordre :
 - **Cause.** Le crawler tourne en `user: 999`. Les images pré-créent `/data/{catalog,local,quarantine}`
   en `nonroot`, donc un volume nommé **vide** hérite de la bonne propriété. Mais un volume **déjà
   peuplé** (root-owned) garde ses droits.
-- **Solution.** Trouvez d'abord le nom exact de votre volume (il dépend du nom du projet Docker
-  Compose, par défaut le nom du dossier qui contient `deploy/*.compose.yml`) :
+- **Solution.** Le nom de projet Docker Compose est fixé à `mulewatch` (`name: mulewatch` dans
+  `deploy/compose.yaml` et `deploy/gluetun.compose.yml`), donc le volume s'appelle
+  `mulewatch_catalog-db`. Vérifiez avec :
   ```bash
   docker volume ls | grep catalog-db
-  # Exemple de sortie : local  mulewatch_catalog-db
+  # Sortie attendue : local  mulewatch_catalog-db
   ```
   Puis corrigez la propriété :
   ```bash
