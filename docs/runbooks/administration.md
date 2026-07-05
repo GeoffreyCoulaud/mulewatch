@@ -365,10 +365,10 @@ webui.example.com {
 ```
 
 > **Garantie lecture seule de la WebUI.** Les volumes `catalog-db` et `local-db` sont montés en
-> **lecture-écriture** dans les `deploy/{gluetun,direct}.compose.yml`, mais la WebUI applique elle-même la garantie
-> lecture seule au niveau SQL via `PRAGMA query_only=ON` (paramétré dans le code applicatif). Toute
-> tentative d'écriture est refusée par SQLite avant même d'atteindre le disque — votre catalogue
-> est donc protégé contre une régression du code WebUI.
+> **lecture-écriture** dans `deploy/compose.yaml` et `deploy/gluetun.compose.yml`, mais la WebUI
+> applique elle-même la garantie lecture seule au niveau SQL via `PRAGMA query_only=ON` (paramétré
+> dans le code applicatif). Toute tentative d'écriture est refusée par SQLite avant même d'atteindre
+> le disque — votre catalogue est donc protégé contre une régression du code WebUI.
 >
 > *Historique : le montage Docker en `:ro` avait été essayé mais s'est révélé instable avec SQLite
 > en mode WAL (le crawler écrit `-shm` et `-wal` en simultané ; le noyau peut refuser les `mmap` sur

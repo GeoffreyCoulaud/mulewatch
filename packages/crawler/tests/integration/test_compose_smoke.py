@@ -41,6 +41,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import yaml
 
 pytestmark = pytest.mark.compose_integration
 
@@ -53,12 +54,31 @@ _IMAGE_TAG = os.environ.get("IMAGE_TAG")
 _USES_PREBUILT = _IMAGE_TAG is not None
 _BUILD_FLAGS: tuple[str, ...] = () if _USES_PREBUILT else ("--build",)
 
-_ENTRY_POINTS = ("gluetun", "direct")
-_CONFIG_CASES: tuple[tuple[str, tuple[str, ...]], ...] = tuple(
-    (entry, profiles)
-    for entry in _ENTRY_POINTS
-    for profiles in ((), ("download",), ("download", "monitoring"), ("webui",))
+# Explicit (label, path) pairs rather than string-formatting f"{entry}.compose.yml": the two stack
+# files no longer share a common naming pattern (the default stack file is just `compose.yaml`).
+_ENTRY_POINTS: tuple[tuple[str, str], ...] = (
+    ("compose", "deploy/compose.yaml"),
+    ("gluetun", "deploy/gluetun.compose.yml"),
 )
+# `download` is the only remaining compose profile in the deploy stacks (monitoring/webui are gone —
+# webui/prometheus/grafana are now in the DEFAULT service set, no profile needed).
+_PROFILE_CASES: tuple[tuple[str, ...], ...] = ((), ("download",))
+_CONFIG_CASES: tuple[tuple[tuple[str, str], tuple[str, ...]], ...] = tuple(
+    (entry, profiles) for entry in _ENTRY_POINTS for profiles in _PROFILE_CASES
+)
+_CONFIG_CASE_IDS = [
+    f"{label}-{'+'.join(profiles) if profiles else 'none'}"
+    for (label, _path), profiles in _CONFIG_CASES
+]
+
+# Always rendered, with or without --profile download (royal-road: webui/prometheus/grafana are
+# always-on since deploy/compose.yaml + deploy/gluetun.compose.yml stopped gating them behind a
+# profile).
+_ALWAYS_ON_SERVICES = frozenset({"crawler", "amuled", "webui", "prometheus", "grafana"})
+# Gated behind --profile download in base.compose.yml (docker-proxy is gluetun-stack-only, checked
+# separately below).
+_DOWNLOAD_ONLY_SERVICES = frozenset({"verifier", "freshclam"})
+
 _CONFIG_ENV = {
     "WIREGUARD_PRIVATE_KEY": "x",
     "AMULE_EC_PASSWORD": "x",
@@ -272,13 +292,16 @@ def test_download_without_verifier_fails_fast(
     assert exit_code != 0
 
 
-@pytest.mark.parametrize("entry,profiles", _CONFIG_CASES)
-def test_entrypoint_config_renders(entry: str, profiles: tuple[str, ...]) -> None:
-    """`docker compose -f deploy/<entry>.compose.yml --profile … config` renders without error.
+@pytest.mark.parametrize("entry,profiles", _CONFIG_CASES, ids=_CONFIG_CASE_IDS)
+def test_entrypoint_config_renders(entry: tuple[str, str], profiles: tuple[str, ...]) -> None:
+    """`docker compose -f <stack file> [--profile download] config` renders without error.
 
-    Locks in include + forward-refs + anchors/merge + interpolation (no daemon required;
-    the bind-mount sources need not exist for `config`).
+    Locks in include + forward-refs + anchors/merge + interpolation (no daemon required; the
+    bind-mount sources need not exist for `config`). Also asserts the resulting service set: webui/
+    prometheus/grafana render in the DEFAULT set (no profile needed), and `--profile download` is
+    the only lever that adds verifier/freshclam (docker-proxy too, in the gluetun stack).
     """
+    _label, path = entry
     profile_flags: list[str] = []
     for profile in profiles:
         profile_flags += ["--profile", profile]
@@ -286,7 +309,7 @@ def test_entrypoint_config_renders(entry: str, profiles: tuple[str, ...]) -> Non
         "docker",
         "compose",
         "-f",
-        f"deploy/{entry}.compose.yml",
+        path,
         *profile_flags,
         "config",
     ]
@@ -299,6 +322,19 @@ def test_entrypoint_config_renders(entry: str, profiles: tuple[str, ...]) -> Non
         timeout=120,
     )
     assert result.returncode == 0, result.stderr
+
+    rendered = yaml.safe_load(result.stdout)
+    assert isinstance(rendered, dict)
+    services = set(rendered.get("services", {}))
+    assert services >= _ALWAYS_ON_SERVICES, f"{path}: missing always-on services, got {services}"
+    if "download" in profiles:
+        assert services >= _DOWNLOAD_ONLY_SERVICES, (
+            f"{path}: missing download services, got {services}"
+        )
+    else:
+        assert not (_DOWNLOAD_ONLY_SERVICES & services), (
+            f"{path}: download-only services present without --profile download: {services}"
+        )
 
 
 def _yaml_crawler(
