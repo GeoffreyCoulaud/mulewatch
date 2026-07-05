@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for the webui — DDL schemas without importing emule_indexer."""
+"""Shared pytest fixtures for the webui — DDL schemas without importing mulewatch."""
 
 import sqlite3
 from pathlib import Path
