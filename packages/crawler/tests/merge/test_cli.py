@@ -1,4 +1,4 @@
-"""TDD tests for the ``python -m emule_indexer.merge`` CLI (safe-by-default) — design §6/§7.
+"""TDD tests for the ``python -m mulewatch.merge`` CLI (safe-by-default) — design §6/§7.
 
 We call ``main(argv)`` directly (returns an ``int``); usage/merge errors return ``2`` with a
 clear message on ``stderr`` (never a traceback); argparse itself returns ``2`` (via
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.merge.__main__ import main
+from mulewatch.merge.__main__ import main
 
 from .helpers import HASH_A, HASH_B, count, make_catalog
 

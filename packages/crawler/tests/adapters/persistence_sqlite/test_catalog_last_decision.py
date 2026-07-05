@@ -10,9 +10,9 @@ from catalog_matching.engine import (
     Explanation,
     MatchDecision,
 )
-from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
-from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
-from emule_indexer.domain.observation import FileObservation
+from mulewatch.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
+from mulewatch.adapters.persistence_sqlite.connection import open_catalog
+from mulewatch.domain.observation import FileObservation
 
 _HASH = "31d6cfe0d16ae931b73c59d7e0c089c0"
 _NODE = "11111111-2222-3333-4444-555555555555"

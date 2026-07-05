@@ -1,5 +1,5 @@
 from catalog_matching.config import TIERS
-from emule_indexer.domain.retraction import RETRACTED_TIER
+from mulewatch.domain.retraction import RETRACTED_TIER
 
 
 def test_retracted_tier_is_the_string_retracted() -> None:

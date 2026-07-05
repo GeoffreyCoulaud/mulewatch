@@ -1,4 +1,4 @@
-from emule_indexer.domain.search.cycle import Rng, cycle_seed, shuffle_for_cycle
+from mulewatch.domain.search.cycle import Rng, cycle_seed, shuffle_for_cycle
 
 
 class _ReverseRng:

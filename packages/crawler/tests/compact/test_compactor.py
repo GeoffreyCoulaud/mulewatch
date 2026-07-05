@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
-from emule_indexer.compact.compactor import compact_catalog
-from emule_indexer.compact.errors import CompactError
+from mulewatch.adapters.persistence_sqlite.connection import open_catalog
+from mulewatch.compact.compactor import compact_catalog
+from mulewatch.compact.errors import CompactError
 
 from ..merge.helpers import HASH_A, count, make_catalog
 from .helpers import insert_ranges, read_observation_days, read_ranges

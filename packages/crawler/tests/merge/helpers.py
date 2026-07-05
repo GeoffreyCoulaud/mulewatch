@@ -11,7 +11,7 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
+from mulewatch.adapters.persistence_sqlite.connection import open_catalog
 
 # Columns excluding id, in schema order (0001_initial.sql) — for direct INSERTs and
 # natural-key reads in the assertions.

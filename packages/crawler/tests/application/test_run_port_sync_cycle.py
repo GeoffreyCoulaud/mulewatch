@@ -11,21 +11,21 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from emule_indexer.adapters.mule_ec.errors import EcConnectError, EcFailureError
-from emule_indexer.application.edge_state import EdgeState
-from emule_indexer.application.port_sync_loop import (
+from mulewatch.adapters.mule_ec.errors import EcConnectError, EcFailureError
+from mulewatch.application.edge_state import EdgeState
+from mulewatch.application.port_sync_loop import (
     _MISMATCH,
     PortSyncDeps,
     _PortSyncState,
     run_port_sync_cycle,
 )
-from emule_indexer.domain.observability.events import (
+from mulewatch.domain.observability.events import (
     HighIdRecovered,
     PortMismatchUnresolved,
     PortSyncTriggered,
 )
-from emule_indexer.ports.mule_client import KadStatus, NetworkStatus
-from emule_indexer.ports.mule_restarter import RestarterError
+from mulewatch.ports.mule_client import KadStatus, NetworkStatus
+from mulewatch.ports.mule_restarter import RestarterError
 from tests.application.fakes import RecordingTelemetry
 
 

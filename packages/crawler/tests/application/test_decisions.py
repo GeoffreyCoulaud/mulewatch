@@ -14,13 +14,13 @@ import sqlite3
 import pytest
 
 from catalog_matching.engine import DecisionRecord, MatchingEngine
-from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
-from emule_indexer.application.decisions import record_decision_if_changed
-from emule_indexer.application.record_observations import record_observation
-from emule_indexer.application.run_download_cycle import DOWNLOAD_NUDGE_SUBJECT
-from emule_indexer.domain.observability.events import DecisionRecorded
-from emule_indexer.domain.observation import FileObservation
-from emule_indexer.domain.retraction import RETRACTED_TIER
+from mulewatch.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
+from mulewatch.application.decisions import record_decision_if_changed
+from mulewatch.application.record_observations import record_observation
+from mulewatch.application.run_download_cycle import DOWNLOAD_NUDGE_SUBJECT
+from mulewatch.domain.observability.events import DecisionRecorded
+from mulewatch.domain.observation import FileObservation
+from mulewatch.domain.retraction import RETRACTED_TIER
 from tests.application.fakes import RecordingSignal, RecordingTelemetry
 
 _HASH_DL = "31d6cfe0d16ae931b73c59d7e0c089c0"

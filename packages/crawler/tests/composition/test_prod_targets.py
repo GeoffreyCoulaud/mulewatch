@@ -8,7 +8,7 @@ target (segment A); the bi-segment episodes have two.
 from pathlib import Path
 
 from catalog_matching.validation import parse_targets
-from emule_indexer.adapters.config.yaml_loader import load_yaml
+from mulewatch.adapters.config.yaml_loader import load_yaml
 
 _TARGETS = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler" / "targets.yml"
 

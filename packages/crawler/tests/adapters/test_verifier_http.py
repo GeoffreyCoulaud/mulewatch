@@ -15,9 +15,9 @@ import pytest
 import download_verifier.check as check_module
 from download_verifier.app import build_app
 from download_verifier.config import AnalysisConfig
-from emule_indexer.adapters.verifier_http import HttpContentVerifier
-from emule_indexer.ports.content_verifier import VerificationResult
-from emule_indexer.ports.verifier_errors import VerifierUnavailableError
+from mulewatch.adapters.verifier_http import HttpContentVerifier
+from mulewatch.ports.content_verifier import VerificationResult
+from mulewatch.ports.verifier_errors import VerifierUnavailableError
 
 _HASH = "a" * 32
 

@@ -2,7 +2,7 @@ import dataclasses
 
 import pytest
 
-from emule_indexer.ports.local_state_repository import ClaimedTask, LocalStateRepository
+from mulewatch.ports.local_state_repository import ClaimedTask, LocalStateRepository
 
 
 def test_claimed_task_is_frozen_and_holds_fields() -> None:

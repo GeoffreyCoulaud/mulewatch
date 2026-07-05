@@ -1,4 +1,4 @@
-from emule_indexer.domain.download.policy import DownloadVerdict, download_policy
+from mulewatch.domain.download.policy import DownloadVerdict, download_policy
 
 
 def _verdict(

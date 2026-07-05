@@ -3,8 +3,8 @@ from collections.abc import Mapping
 
 import pytest
 
-from emule_indexer.ports.content_verifier import ContentVerifier, VerificationResult
-from emule_indexer.ports.verifier_errors import VerifierUnavailableError
+from mulewatch.ports.content_verifier import ContentVerifier, VerificationResult
+from mulewatch.ports.verifier_errors import VerifierUnavailableError
 
 
 class _StubVerifier:

@@ -1,8 +1,8 @@
 import pytest
 
-from emule_indexer.adapters.mule_ec import codes
-from emule_indexer.adapters.mule_ec.client import AmuleEcClient, salted_password_hash
-from emule_indexer.adapters.mule_ec.codec import (
+from mulewatch.adapters.mule_ec import codes
+from mulewatch.adapters.mule_ec.client import AmuleEcClient, salted_password_hash
+from mulewatch.adapters.mule_ec.codec import (
     EcPacket,
     EcTag,
     encode_packet,
@@ -10,14 +10,14 @@ from emule_indexer.adapters.mule_ec.codec import (
     string_tag,
     uint_tag,
 )
-from emule_indexer.adapters.mule_ec.errors import (
+from mulewatch.adapters.mule_ec.errors import (
     EcAuthError,
     EcConnectError,
     EcFailureError,
     EcProtocolError,
     EcTimeoutError,
 )
-from emule_indexer.ports.mule_client import KadStatus, NetworkStatus, SearchChannel
+from mulewatch.ports.mule_client import KadStatus, NetworkStatus, SearchChannel
 from tests.adapters.mule_ec.ec_fakes import FakeEcServer
 
 _PASSWORD = "secret123"

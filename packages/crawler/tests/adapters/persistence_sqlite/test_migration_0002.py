@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.persistence_sqlite.connection import open_local
+from mulewatch.adapters.persistence_sqlite.connection import open_local
 
 
 @pytest.fixture

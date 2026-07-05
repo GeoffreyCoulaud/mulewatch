@@ -2,8 +2,8 @@ import zlib
 
 import pytest
 
-from emule_indexer.adapters.mule_ec import codes
-from emule_indexer.adapters.mule_ec.codec import (
+from mulewatch.adapters.mule_ec import codes
+from mulewatch.adapters.mule_ec.codec import (
     EcPacket,
     EcTag,
     decode_header,
@@ -14,7 +14,7 @@ from emule_indexer.adapters.mule_ec.codec import (
     string_tag,
     uint_tag,
 )
-from emule_indexer.adapters.mule_ec.errors import EcProtocolError
+from mulewatch.adapters.mule_ec.errors import EcProtocolError
 
 # ---------------------------------------------------------------- builders
 

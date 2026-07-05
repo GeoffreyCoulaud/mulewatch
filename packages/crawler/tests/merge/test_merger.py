@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
-from emule_indexer.merge.errors import MergeError
-from emule_indexer.merge.merger import merge_catalogs
+from mulewatch.adapters.persistence_sqlite.connection import open_catalog
+from mulewatch.merge.errors import MergeError
+from mulewatch.merge.merger import merge_catalogs
 
 from .helpers import (
     FILE_OBSERVATION_COLUMNS,

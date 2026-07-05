@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from emule_indexer.ports.clock import Clock, Rng
+from mulewatch.ports.clock import Clock, Rng
 
 
 class _StubClock:

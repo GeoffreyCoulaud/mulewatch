@@ -15,7 +15,7 @@ import struct
 from collections.abc import Sequence
 from types import TracebackType
 
-from emule_indexer.adapters.mule_ec.codec import EcPacket, decode_header, decode_payload
+from mulewatch.adapters.mule_ec.codec import EcPacket, decode_header, decode_payload
 
 
 class FakeEcServer:

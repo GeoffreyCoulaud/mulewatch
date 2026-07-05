@@ -3,7 +3,7 @@ import dataclasses
 import pytest
 
 from catalog_matching.models import FileCandidate
-from emule_indexer.domain.observation import FileObservation, candidate_from_fields
+from mulewatch.domain.observation import FileObservation, candidate_from_fields
 
 
 def _full_observation() -> FileObservation:

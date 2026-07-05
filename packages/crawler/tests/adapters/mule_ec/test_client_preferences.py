@@ -7,9 +7,9 @@ assertions on the SENT packets + a REAL round-trip via ``FakeEcServer`` (real as
 
 import pytest
 
-from emule_indexer.adapters.mule_ec import codes
-from emule_indexer.adapters.mule_ec.client import AmuleEcClient
-from emule_indexer.adapters.mule_ec.codec import (
+from mulewatch.adapters.mule_ec import codes
+from mulewatch.adapters.mule_ec.client import AmuleEcClient
+from mulewatch.adapters.mule_ec.codec import (
     EcPacket,
     EcTag,
     empty_tag,
@@ -17,7 +17,7 @@ from emule_indexer.adapters.mule_ec.codec import (
     string_tag,
     uint_tag,
 )
-from emule_indexer.adapters.mule_ec.errors import EcConnectError, EcProtocolError
+from mulewatch.adapters.mule_ec.errors import EcConnectError, EcProtocolError
 from tests.adapters.mule_ec.ec_fakes import FakeEcServer
 
 _PASSWORD = "secret123"

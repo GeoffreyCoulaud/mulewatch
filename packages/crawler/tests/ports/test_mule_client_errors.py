@@ -1,11 +1,11 @@
-from emule_indexer.adapters.mule_ec.errors import (
+from mulewatch.adapters.mule_ec.errors import (
     EcAuthError,
     EcConnectError,
     EcFailureError,
     EcProtocolError,
     EcTimeoutError,
 )
-from emule_indexer.ports.mule_client import (
+from mulewatch.ports.mule_client import (
     MuleClientError,
     MuleSearchFailedError,
     MuleUnreachableError,

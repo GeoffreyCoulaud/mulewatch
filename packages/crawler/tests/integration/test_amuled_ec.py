@@ -13,9 +13,9 @@ import pytest
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
-from emule_indexer.adapters.mule_ec.client import AmuleEcClient
-from emule_indexer.adapters.mule_ec.errors import EcAuthError, EcFailureError
-from emule_indexer.ports.mule_client import KadStatus, NetworkStatus, SearchChannel
+from mulewatch.adapters.mule_ec.client import AmuleEcClient
+from mulewatch.adapters.mule_ec.errors import EcAuthError, EcFailureError
+from mulewatch.ports.mule_client import KadStatus, NetworkStatus, SearchChannel
 
 pytestmark = pytest.mark.ec_integration
 

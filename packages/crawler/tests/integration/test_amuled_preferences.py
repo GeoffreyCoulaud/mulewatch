@@ -22,7 +22,7 @@ import pytest
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
-from emule_indexer.adapters.mule_ec.client import AmuleEcClient
+from mulewatch.adapters.mule_ec.client import AmuleEcClient
 
 pytestmark = pytest.mark.ec_integration
 

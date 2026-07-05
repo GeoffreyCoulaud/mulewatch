@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from emule_indexer.adapters.config.crawler_config import (
+from mulewatch.adapters.config.crawler_config import (
     AmuleEndpoint,
     BackoffConfig,
     ConfigError,
@@ -15,7 +15,7 @@ from emule_indexer.adapters.config.crawler_config import (
     VerifyConfig,
     parse_crawler_config,
 )
-from emule_indexer.domain.observability.policy import Audience
+from mulewatch.domain.observability.policy import Audience
 
 
 def _minimal_raw() -> dict[str, Any]:

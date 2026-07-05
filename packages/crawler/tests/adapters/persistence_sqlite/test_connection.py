@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.persistence_sqlite import connection as connection_module
-from emule_indexer.adapters.persistence_sqlite.connection import (
+from mulewatch.adapters.persistence_sqlite import connection as connection_module
+from mulewatch.adapters.persistence_sqlite.connection import (
     _apply_migrations,
     _load_scripts,
     open_catalog,
@@ -13,7 +13,7 @@ from emule_indexer.adapters.persistence_sqlite.connection import (
     utc_iso,
     utc_now,
 )
-from emule_indexer.adapters.persistence_sqlite.errors import MigrationError, PersistenceError
+from mulewatch.adapters.persistence_sqlite.errors import MigrationError, PersistenceError
 
 _CATALOG_TABLES = {
     "files",

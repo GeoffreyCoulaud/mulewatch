@@ -6,8 +6,8 @@ from catalog_matching.engine import (
     Explanation,
     MatchDecision,
 )
-from emule_indexer.domain.observation import FileObservation
-from emule_indexer.ports.catalog_repository import CatalogRepository, ObservedFile, ReevalRow
+from mulewatch.domain.observation import FileObservation
+from mulewatch.ports.catalog_repository import CatalogRepository, ObservedFile, ReevalRow
 
 
 class _StubRepository:

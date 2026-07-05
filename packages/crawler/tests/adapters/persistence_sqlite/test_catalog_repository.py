@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 
 from catalog_matching.engine import DecisionRecord, Explanation, MatchDecision
-from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
-from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
-from emule_indexer.adapters.persistence_sqlite.errors import PersistenceError
-from emule_indexer.domain.observation import FileObservation
-from emule_indexer.domain.retraction import RETRACTED_TIER
-from emule_indexer.ports.catalog_repository import CatalogRepository, ReevalRow
+from mulewatch.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
+from mulewatch.adapters.persistence_sqlite.connection import open_catalog
+from mulewatch.adapters.persistence_sqlite.errors import PersistenceError
+from mulewatch.domain.observation import FileObservation
+from mulewatch.domain.retraction import RETRACTED_TIER
+from mulewatch.ports.catalog_repository import CatalogRepository, ReevalRow
 
 _HASH = "31d6cfe0d16ae931b73c59d7e0c089c0"
 _HASH_B = "b" * 32

@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.persistence_sqlite.connection import open_local
-from emule_indexer.adapters.persistence_sqlite.errors import PersistenceError
-from emule_indexer.adapters.persistence_sqlite.scheduler_state_repository import (
+from mulewatch.adapters.persistence_sqlite.connection import open_local
+from mulewatch.adapters.persistence_sqlite.errors import PersistenceError
+from mulewatch.adapters.persistence_sqlite.scheduler_state_repository import (
     SqliteSchedulerStateRepository,
 )
-from emule_indexer.ports.scheduler_state_repository import ChannelBackoff
+from mulewatch.ports.scheduler_state_repository import ChannelBackoff
 
 _MOMENT = datetime(2026, 6, 12, 9, 30, 0, tzinfo=UTC)
 _MOMENT_ISO = "2026-06-12T09:30:00.000000+00:00"

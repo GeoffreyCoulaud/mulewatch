@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.quarantine_fs import FilesystemQuarantine
+from mulewatch.adapters.quarantine_fs import FilesystemQuarantine
 
 
 def test_promote_moves_the_file_to_quarantine_by_hash(tmp_path: Path) -> None:

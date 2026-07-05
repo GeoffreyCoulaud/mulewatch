@@ -3,8 +3,8 @@
 import apprise
 import pytest
 
-from emule_indexer.adapters.observability.apprise_notifier import AppriseNotifier
-from emule_indexer.domain.observability.policy import Audience, Severity
+from mulewatch.adapters.observability.apprise_notifier import AppriseNotifier
+from mulewatch.domain.observability.policy import Audience, Severity
 
 
 class _FakeApprise:

@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.persistence_sqlite.connection import open_local
-from emule_indexer.adapters.persistence_sqlite.download_repository import SqliteDownloadRepository
-from emule_indexer.adapters.persistence_sqlite.errors import PersistenceError
-from emule_indexer.domain.download.states import DownloadState
+from mulewatch.adapters.persistence_sqlite.connection import open_local
+from mulewatch.adapters.persistence_sqlite.download_repository import SqliteDownloadRepository
+from mulewatch.adapters.persistence_sqlite.errors import PersistenceError
+from mulewatch.domain.download.states import DownloadState
 
 _A = "a" * 32
 _B = "b" * 32

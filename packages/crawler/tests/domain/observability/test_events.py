@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from emule_indexer.domain.observability.events import (
+from mulewatch.domain.observability.events import (
     ObservationRecorded,
     VerificationCompleted,
 )

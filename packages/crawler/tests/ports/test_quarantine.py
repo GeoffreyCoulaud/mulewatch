@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from emule_indexer.ports.quarantine import Quarantine
+from mulewatch.ports.quarantine import Quarantine
 
 
 class _StubQuarantine:

@@ -1,7 +1,7 @@
 """The network label derives from the SearchChannel by construction (E-D6)."""
 
-from emule_indexer.application.networks import ED2K, KAD, network_label
-from emule_indexer.ports.mule_client import SearchChannel
+from mulewatch.application.networks import ED2K, KAD, network_label
+from mulewatch.ports.mule_client import SearchChannel
 
 
 def test_global_is_ed2k() -> None:

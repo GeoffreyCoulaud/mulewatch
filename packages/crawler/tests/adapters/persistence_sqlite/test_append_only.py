@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from emule_indexer.adapters.persistence_sqlite.connection import open_catalog
+from mulewatch.adapters.persistence_sqlite.connection import open_catalog
 
 # Canonical 32-char lowercase hex hash (satisfies the CHECK constraint on files.ed2k_hash).
 _HASH = "a" * 32

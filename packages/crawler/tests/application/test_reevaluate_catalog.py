@@ -11,10 +11,10 @@ import sqlite3
 import pytest
 
 from catalog_matching.engine import MatchingEngine
-from emule_indexer.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
-from emule_indexer.application.reevaluate_catalog import ReevalSummary, reevaluate_catalog
-from emule_indexer.application.run_download_cycle import DOWNLOAD_NUDGE_SUBJECT
-from emule_indexer.domain.observation import FileObservation
+from mulewatch.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
+from mulewatch.application.reevaluate_catalog import ReevalSummary, reevaluate_catalog
+from mulewatch.application.run_download_cycle import DOWNLOAD_NUDGE_SUBJECT
+from mulewatch.domain.observation import FileObservation
 from tests.application.fakes import RecordingSignal, RecordingTelemetry
 
 _HASH_DL = "31d6cfe0d16ae931b73c59d7e0c089c0"

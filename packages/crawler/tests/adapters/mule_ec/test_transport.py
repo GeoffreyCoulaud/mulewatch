@@ -3,14 +3,14 @@ import socket
 
 import pytest
 
-from emule_indexer.adapters.mule_ec import codes
-from emule_indexer.adapters.mule_ec.codec import EcPacket, encode_packet, string_tag
-from emule_indexer.adapters.mule_ec.errors import (
+from mulewatch.adapters.mule_ec import codes
+from mulewatch.adapters.mule_ec.codec import EcPacket, encode_packet, string_tag
+from mulewatch.adapters.mule_ec.errors import (
     EcConnectError,
     EcProtocolError,
     EcTimeoutError,
 )
-from emule_indexer.adapters.mule_ec.transport import open_ec_transport
+from mulewatch.adapters.mule_ec.transport import open_ec_transport
 from tests.adapters.mule_ec.ec_fakes import FakeEcServer
 
 _NOOP = EcPacket(codes.EC_OP_NOOP)

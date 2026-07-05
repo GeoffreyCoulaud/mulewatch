@@ -1,8 +1,8 @@
 """``describe`` is an exhaustive match: one case per event + each conditional branch
 (known/unknown verdict, download/other tier, first_occurrence true/false)."""
 
-from emule_indexer.domain.observability import events as ev
-from emule_indexer.domain.observability.policy import (
+from mulewatch.domain.observability import events as ev
+from mulewatch.domain.observability.policy import (
     Audience,
     MetricInstruction,
     MetricName,

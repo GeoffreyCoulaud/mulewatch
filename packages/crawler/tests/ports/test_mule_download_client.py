@@ -3,8 +3,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from emule_indexer.ports.mule_client import KadStatus, NetworkStatus
-from emule_indexer.ports.mule_download_client import (
+from mulewatch.ports.mule_client import KadStatus, NetworkStatus
+from mulewatch.ports.mule_download_client import (
     DownloadEntry,
     MuleDownloadClient,
     SharedFileEntry,
