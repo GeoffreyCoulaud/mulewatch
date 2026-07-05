@@ -1,21 +1,226 @@
-# Runbook de dépannage — mulewatch
+# Runbook de dépannage : mulewatch
 
-Symptômes courants et leur résolution. Chaque entrée suit le même format : **symptôme → cause →
-solution**. Pour *monter* un nœud, voir le [runbook de déploiement](deployment.md) ; pour
-le *régler*, le [runbook d'administration](administration.md).
+Chaque fiche suit le même format : **symptôme (ce que vous voyez à l'écran) : cause : solution
+(commandes à copier-coller)**. Le runbook est en deux niveaux.
 
-> **À qui ça s'adresse.** La plupart des entrées ci-dessous restent accessibles sans expertise
-> particulière (lecture de logs, redémarrage de service). **Certaines sections — High-ID/port-sync
-> et Stockage & droits — exigent une familiarité Linux/Docker** et sont signalées comme telles à
-> leur ouverture. Si vous bloquez sur une étape qui dépasse votre confort, l'option de repli sûre
-> est presque toujours de *repartir d'un volume propre* (voir « Récupération après panne » plus bas)
-> — vous perdez le catalogue accumulé mais vous redémarrez d'un état connu.
+- **Le déploiement bloque (premiers pas)** : juste en dessous. Les blocages du tout premier
+  déploiement, dans l'ordre de la [voie royale](deployment.md). Chaque fiche prolonge un **Point de
+  contrôle** du guide : ouvrez celle vers laquelle le guide vous renvoie.
+- **Diagnostics avancés (opérateurs)** : plus bas. Mode download, High-ID/port-sync, stockage &
+  droits, verdicts du verifier, récupération après panne. Certaines de ces sections demandent une
+  familiarité Linux/Docker et le signalent à leur ouverture.
+
+Pour *monter* un nœud, voir le [runbook de déploiement](deployment.md) ; pour le *régler*, le
+[runbook d'administration](administration.md).
+
+---
+
+## Le déploiement bloque (premiers pas)
+
+Ces fiches correspondent aux **Points de contrôle** du guide de déploiement, dans l'ordre. Presque
+tout se répare sans expertise : lire un journal, corriger une ligne, relancer une commande.
+
+> **Où lancer ces commandes.** Les commandes `docker compose ...` se lancent depuis le dossier
+> `deploy/` (là où vous a menés l'étape 5). Les commandes qui touchent au fichier `.env`
+> (`nano deploy/.env`, `grep ... deploy/.env`) sont écrites depuis le dossier du projet
+> (`mulewatch-main`) : si vous êtes déjà dans `deploy/`, remplacez `deploy/.env` par `.env`.
+
+### Docker introuvable ou compose v1
+
+- **Symptôme.** `docker compose version` répond `command not found`, ou affiche une version `1.x`
+  du vieil outil `docker-compose` (écrit avec un tiret).
+- **Cause.** Docker n'est pas installé, n'est pas démarré, ou votre système ne fournit que l'ancien
+  `docker-compose` v1 (fréquent dans les paquets des distributions Linux). mulewatch a besoin de la
+  commande moderne `docker compose` (en deux mots, v2).
+- **Solution.**
+  1. Installez Docker **depuis la documentation officielle**, jamais depuis un tutoriel tiers :
+     - Windows ou macOS : Docker Desktop, <https://docs.docker.com/get-started/get-docker/>.
+     - Serveur Linux : Docker Engine, <https://docs.docker.com/engine/install/>.
+  2. Sous Windows ou macOS, **lancez l'application Docker Desktop** et attendez qu'elle affiche
+     qu'elle tourne : `docker compose` ne répond pas tant que le moteur est arrêté.
+  3. Revérifiez :
+     ```
+     docker compose version
+     ```
+     Vous devez lire `Docker Compose version v2.x.x` (un numéro plus récent convient aussi). Si vous
+     ne voyez toujours qu'un `docker-compose` v1, installez Docker Engine (v2) comme ci-dessus : la
+     commande en deux mots est indispensable.
+- **Retour au guide.** [Étape 2 : Installer Docker](deployment.md#2-installer-docker).
+
+### Une valeur change-me est restée dans .env
+
+- **Symptôme.** Au Point de contrôle de l'étape 4, la commande de vérification **affiche une ligne**
+  au lieu de ne rien afficher :
+  ```
+  grep -E '(AMULE_EC_PASSWORD|GRAFANA_PWD)=change-me' deploy/.env
+  ```
+  (elle imprime la ligne fautive, par exemple `GRAFANA_PWD=change-me`). Symptôme possible plus tard :
+  le crawler journalise une erreur d'authentification, ou Grafana refuse votre mot de passe.
+- **Cause.** L'un des deux mots de passe obligatoires est encore la valeur d'exemple `change-me` :
+  vous avez oublié une ligne, ou édité la mauvaise.
+- **Solution.**
+  1. Rouvrez le fichier (c'est un fichier **caché**, le plus sûr est de l'éditer au terminal) :
+     ```
+     nano deploy/.env
+     ```
+     Remplacez la valeur après le `=` sur la ligne signalée : `AMULE_EC_PASSWORD` (au moins 12
+     caractères) et/ou `GRAFANA_PWD`. Enregistrez avec **Ctrl+O** puis **Entrée**, quittez avec
+     **Ctrl+X**.
+  2. Revérifiez : la commande de contrôle ne doit **plus rien afficher**.
+     ```
+     grep -E '(AMULE_EC_PASSWORD|GRAFANA_PWD)=change-me' deploy/.env
+     ```
+  3. Relancez la pile **depuis le dossier `deploy`** : `up -d` ne recrée que ce qui a changé.
+     ```
+     cd deploy
+     docker compose up -d
+     ```
+- **Ce qui n'est PAS un problème.** Il reste normalement d'autres `change-me` dans le fichier (la
+  ligne de commentaire, ou `WIREGUARD_PRIVATE_KEY` réservé au VPN de l'annexe A) : la commande de
+  contrôle ci-dessus les **ignore** exprès. Seuls `AMULE_EC_PASSWORD` et `GRAFANA_PWD` comptent pour
+  la voie royale.
+- **Retour au guide.** [Étape 4 : Choisir ses deux mots de passe](deployment.md#4-choisir-ses-deux-mots-de-passe).
+
+### Un conteneur redémarre en boucle
+
+- **Symptôme.** `docker compose ps` montre un service en **`Restarting`** (ou `Exited`) au lieu de
+  `Up`.
+- **Diagnostic (toujours le même).** Regardez d'abord *quel* service, puis son journal. Depuis le
+  dossier `deploy` :
+  ```
+  docker compose ps
+  ```
+  ```
+  docker compose logs <service>
+  ```
+  (remplacez `<service>` par le nom du conteneur en boucle, par exemple `crawler` ou `grafana`). La
+  dernière page du journal dit presque toujours pourquoi. Causes fréquentes :
+- **Mot de passe EC absent ou incohérent (`crawler`).** Le journal du crawler se termine par une
+  erreur d'authentification (`EcAuthError`, mot de passe EC refusé) et le conteneur redémarre. Sur
+  la voie royale, amuled et le crawler partagent la **même** variable `AMULE_EC_PASSWORD` : ce cas
+  vient donc d'un `AMULE_EC_PASSWORD` resté vide ou `change-me`, ou d'un mot de passe édité à la main
+  dans `deploy/config/crawler/crawler.yml`. Corrigez `.env` (voir la fiche
+  [« Une valeur change-me est restée dans .env »](#une-valeur-change-me-est-restée-dans-env)), puis
+  `docker compose up -d` depuis `deploy/`.
+- **Grafana sans mot de passe (`grafana`).** Si `docker compose up -d` s'arrête tout de suite avec
+  `required variable GRAFANA_PWD is missing a value`, c'est que `GRAFANA_PWD` est vide dans `.env` :
+  renseignez-le (même fiche que ci-dessus), puis relancez.
+- **Crawler en mode download qui attend le verifier (normal).** Si vous avez activé le mode download
+  (annexe B), le crawler **redémarre volontairement pendant 1 à 2 minutes** le temps que le
+  `verifier` devienne sain : c'est attendu, la boucle se stabilise seule. Si elle dure au-delà de
+  5 minutes, voir la fiche opérateur
+  [« Le crawler redémarre en boucle au démarrage (mode download) »](#le-crawler-redémarre-en-boucle-au-démarrage-mode-download).
+- **Retour au guide.** [Étape 5 : Lancer](deployment.md#5-lancer) et
+  [étape 6 : Vérifier que le nœud vit](deployment.md#6-vérifier-que-le-nœud-vit).
+
+### Le port est déjà pris
+
+- **Symptôme.** Au lancement, `docker compose up -d` s'arrête avec un message du type :
+  ```
+  Error ... failed to bind host port for 0.0.0.0:3000: address already in use
+  ```
+  Le mot-clé est **`bind: address already in use`**. Un autre programme occupe déjà ce port sur
+  votre machine.
+- **Cause.** mulewatch publie des ports sur l'hôte ; l'un d'eux est déjà utilisé (un autre service,
+  une ancienne pile...). Le numéro dans le message vous dit lequel :
+
+  | Port par défaut | Variable à changer dans `deploy/.env` | Sert à |
+  |---|---|---|
+  | `8080` | `WEBUI_PORT` | le catalogue web |
+  | `3000` | `GRAFANA_PORT` | les tableaux de bord Grafana |
+  | `4662` | `LISTEN_PORT` | le port eMule (toujours publié ; surtout utile en High-ID, annexe C) |
+
+- **Solution.** Ouvrez `deploy/.env`, donnez au port concerné une valeur libre (par exemple
+  `WEBUI_PORT=8090`), enregistrez, puis relancez depuis `deploy/` :
+  ```
+  nano deploy/.env
+  ```
+  ```
+  cd deploy
+  docker compose up -d
+  ```
+  Pensez ensuite à ouvrir la nouvelle adresse dans le navigateur (par exemple
+  <http://localhost:8090> au lieu de 8080).
+- **Retour au guide.** [Étape 5 : Lancer](deployment.md#5-lancer).
+
+### amuled ne se connecte à rien
+
+- **Symptôme.** Le crawler boucle bien (vous voyez des lignes `cycle ...`) mais reste indéfiniment
+  en `effective_coverage=blind`, avec des avertissements d'injoignabilité : amuled n'atteint ni les
+  serveurs eD2k ni le réseau Kad, donc aucune source.
+- **D'abord, patientez : au premier démarrage c'est normal.** amuled amorce **tout seul** sa liste
+  de serveurs eD2k (`server.met`) et de nœuds Kad (`nodes.dat`) via du DNS et du HTTPS sortant, ce
+  qui prend **1 à 3 minutes**. Pendant ce temps, `effective_coverage=blind` et quelques
+  avertissements sont attendus : cela se résorbe seul. Vous n'avez **aucun serveur à ajouter**.
+- **« Low-ID » n'est pas une panne.** Si les logs d'amuled (`docker compose logs amuled`) mentionnent
+  Low-ID, c'est l'état **normal** par défaut : recherche, catalogage et téléchargement fonctionnent ;
+  seule la joignabilité est sous-optimale. Devenir High-ID est optionnel (annexe C du guide).
+- **Si ça dure au-delà de quelques minutes.**
+  - **(a) Vérifiez la sortie Internet de la machine** : amuled a besoin du port 443 sortant pour
+    l'amorçage.
+  - **(b) Si vous avez ajouté un VPN (annexe A)**, c'est presque toujours le tunnel `gluetun` qui
+    n'est pas monté : amuled **partage le réseau de gluetun**, donc tant que le tunnel est down,
+    amuled n'a aucune sortie. Vérifiez gluetun *avant* amuled (depuis `deploy/`, avec le
+    `-f gluetun.compose.yml` de l'annexe A) :
+    ```
+    docker compose -f gluetun.compose.yml logs gluetun
+    ```
+    Tunnel sain : une ligne `[gluetun] [vpn] connected` et une IP publique VPN
+    (`You are running on the public IP address ...`, pas la vôtre). Tunnel cassé : `cannot connect
+    to ...` puis `retrying in N seconds`. Corrigez alors le VPN (clé WireGuard,
+    `VPN_SERVICE_PROVIDER`, `SERVER_COUNTRIES` dans `.env`), puis, une fois gluetun « connected »,
+    redémarrez amuled :
+    ```
+    docker compose -f gluetun.compose.yml restart amuled
+    ```
+  - **(c) Image amuled inattendue.** Le projet est testé avec `ngosang/amule:3.0.0-1`. Une image
+    `latest` ou `2.3.3-*` casse l'amorçage du premier run **sans erreur évidente**. Ce point est
+    détaillé dans la fiche opérateur
+    [« amuled ne se connecte à aucun serveur ni réseau »](#amuled-ne-se-connecte-à-aucun-serveur-ni-réseau-image--tunnel).
+- **Retour au guide.** [Étape 6 : Vérifier que le nœud vit](deployment.md#6-vérifier-que-le-nœud-vit).
+
+### La webui reste vide
+
+Deux situations très différentes se cachent derrière « la webui est vide » :
+
+- **La page se charge, mais le tableau est vide.** C'est **normal**, surtout les premières heures.
+  Le catalogue se remplit au fil des recherches ; certaines cibles rares (le principe même du lost
+  media) peuvent mettre des jours à réapparaître. **Ce n'est pas une panne.** Vérifiez plutôt que le
+  nœud *vit*, en regardant les cycles du crawler (depuis `deploy/`) :
+  ```
+  docker compose logs crawler
+  ```
+  Vous devez y voir des lignes `cycle ...` jusqu'à `cycle 0 done`. Si oui, tout va bien : laissez
+  tourner. Si le crawler reste `effective_coverage=blind`, voir
+  [« amuled ne se connecte à rien »](#amuled-ne-se-connecte-à-rien).
+- **La page ne se charge pas du tout** (connexion refusée, page inaccessible) : là c'est un vrai
+  problème. Vérifiez d'abord que le service `webui` tourne :
+  ```
+  docker compose ps
+  ```
+  S'il n'est pas `Up`, voir [« Un conteneur redémarre en boucle »](#un-conteneur-redémarre-en-boucle).
+  S'il est `Up` mais la page reste inaccessible, le port est peut-être remappé ou occupé (voir
+  [« Le port est déjà pris »](#le-port-est-déjà-pris)) : confirmez l'adresse, par défaut
+  <http://localhost:8080> (sur un serveur distant, remplacez `localhost` par son IP).
+- **Retour au guide.** [Étape 6 : Vérifier que le nœud vit](deployment.md#6-vérifier-que-le-nœud-vit) et
+  [étape 7 : Voir le catalogue](deployment.md#7-voir-le-catalogue).
+
+---
+
+## Diagnostics avancés (opérateurs)
+
+Les sections qui suivent vont plus loin que le premier déploiement : mode download, High-ID,
+stockage, verdicts, récupération. La plupart restent accessibles (lecture de logs, redémarrage de
+service) ; **High-ID/port-sync et Stockage & droits exigent une familiarité Linux/Docker** et le
+signalent à leur ouverture. Si vous bloquez sur une étape qui dépasse votre confort, l'option de
+repli sûre est presque toujours de *repartir d'un volume propre* (voir « Récupération après panne »
+plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'un état connu.
 
 ---
 
 ## Démarrage & réseau
 
-### amuled ne se connecte à aucun serveur ni réseau (aucune source)
+### amuled ne se connecte à aucun serveur ni réseau (image / tunnel)
 
 - **Cause la plus fréquente.** Au tout premier run, amuled doit amorcer sa liste de serveurs eD2k
   (`server.met`) et de nœuds Kad (`nodes.dat`) en faisant du DNS + HTTPS sortant (443) **à travers le
@@ -141,7 +346,7 @@ Trois causes possibles, de la plus probable à la moins :
 ### Le fichier fini n'est pas récupéré (reste dans l'IncomingDir, non catalogué)
 
 - **Cause.** Une des 4 contraintes du mode download n'est pas respectée. Détail et rationale dans
-  [`reference/2026-06-17-amuled-completion-behavior.md` § Contraintes de déploiement](reference/2026-06-17-amuled-completion-behavior.md#contraintes-de-déploiement-résumé).
+  [`reference/2026-06-17-amuled-completion-behavior.md` § Contraintes de déploiement](../reference/2026-06-17-amuled-completion-behavior.md#contraintes-de-déploiement-résumé).
 - **Solution — vérifier les 4 contraintes dans l'ordre :**
   1. **IncomingDir d'amuled = dossier quarantaine du crawler ?** Vérifier dans la config amuled
      (`amule.conf` → `IncomingDir=`) ; doit pointer sur le même chemin monté que `staging_dir` /
@@ -178,7 +383,7 @@ Plusieurs causes, à vérifier dans cet ordre :
   explicitement (`deploy/gluetun.compose.yml`) : sans cette ligne, le proxy tourne en `nobody` →
   `permission denied` → boucle. Si vous voyez ce symptôme, vérifiez que `user: "0:0"` est bien
   présent. **Rootless** reste hors de portée (socket sous `$XDG_RUNTIME_DIR`, accès par UID —
-  détails + sources : [`docs/reference/2026-06-17-docker-desktop-rootless-socket.md`](reference/2026-06-17-docker-desktop-rootless-socket.md)).
+  détails + sources : [`docs/reference/2026-06-17-docker-desktop-rootless-socket.md`](../reference/2026-06-17-docker-desktop-rootless-socket.md)).
 - **Conteneur amuled mal nommé.** Le proxy n'autorise QUE `POST .../containers/amuled/restart` : le
   conteneur doit s'appeler **exactement `amuled`** (épinglé via `container_name: amuled` dans
   `deploy/gluetun.compose.yml`). Sous un autre nom, le restart fait **404** et le port-sync ne fait rien.
@@ -243,7 +448,7 @@ Plusieurs causes, à vérifier dans cet ordre :
 ### Droits cross-user sur la quarantaine
 
 - **Cause.** `amuled` est une image **tierce** lancée avec **son propre user** : conformément au
-  choix de confinement acté ([CLAUDE.md § Confinement posture](../CLAUDE.md), 2026-06-17), on
+  choix de confinement acté ([CLAUDE.md § Confinement posture](../../CLAUDE.md), 2026-06-17), on
   **n'impose pas** notre durcissement (cap_drop, user dédié, etc.) à amuled. Risque résiduel
   assumé : si amuled était compromis, l'attaquant accéderait au volume quarantaine. C'est un
   **non-objectif assumé pour v0.x**, pas un manque non vu (voir aussi
