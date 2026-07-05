@@ -1,86 +1,77 @@
 # mulewatch
 
-Retrouver le *lost media* **Keroro mission Titar (VF)** en surveillant eMule en continu,
-et cataloguer un maximum de métadonnées au passage.
+mulewatch surveille le réseau eMule (eD2k + Kad) en continu pour retrouver des médias perdus.
+Sa première mission : le doublage français de *Keroro mission Titar* (Teletoon, 2008),
+aujourd'hui en grande partie introuvable.
 
-## Pourquoi ce projet
+Ces épisodes ne disparaissent pas tout à fait. Ils réapparaissent par intermittence, le temps
+qu'un détenteur se connecte, puis s'éclipsent. Une recherche manuelle tombe presque toujours au
+mauvais moment. Une veille permanente et distribuée, non : plusieurs chercheurs font tourner un
+nœud, chacun cherche sans relâche, catalogue ce qu'il croise, et alerte dès qu'un épisode
+manquant refait surface.
 
-Une grande partie du doublage français de *Keroro mission Titar* (diffusé sur Teletoon en 2008)
-est perdue. Les épisodes réapparaissent **par intermittence** sur le réseau eMule, quand un
-détenteur se connecte ; une recherche manuelle ponctuelle les rate presque toujours.
-**mulewatch** transforme ce hasard en **surveillance permanente et distribuée** : plusieurs
-chercheurs font tourner un nœud, chacun cherche en continu, catalogue ce qu'il voit, et alerte
-quand un épisode manquant apparaît.
+> **Éthique.** Le sujet du catalogue est le fichier, jamais la personne. mulewatch ne piste
+> personne et ne cherche à désanonymiser personne : il note qu'un fichier existe, où et quand il
+> a été vu, rien de plus.
 
-> Éthique : le sujet du catalogue est **le fichier**, pas la personne. Pas de pistage ni de
-> désanonymisation — uniquement retrouver des épisodes perdus.
+## Monter un nœud
 
-## Pour les chercheurs (faire tourner un nœud)
+Compter une quinzaine de minutes. Installer Docker est de loin l'étape la plus difficile : le
+reste tient en une commande et deux mots de passe à choisir.
 
-Le mode **observer** ne téléchargera rien : il cherchera, cataloguera et notifiera (avec un lien
-`ed2k://` à ouvrir avec aMule pour récupérer un fichier). Portable sur Linux, macOS, Windows (via
-Docker Desktop) en mode **observer** ; le mode **High-ID** (optimisation des sources) exige Docker
-rootful natif sur **Linux**.
+Par défaut, un nœud tourne en mode **observer** : il ne télécharge rien et ne partage rien. Il
+cherche, catalogue et notifie. Une fois lancé, un catalogue web est disponible sur
+http://localhost:8080 et des tableaux de bord sur http://localhost:3000.
 
-Quatre stacks de déploiement disponibles selon votre besoin :
-- **A** observer derrière VPN (recommandé pour la confidentialité, demande un abonnement VPN avec
-  WireGuard ≈ 2-5 €/mois) ;
-- **B** download + High-ID derrière VPN (demande un VPN à port forwarding) ;
-- **C** observer sans VPN (votre IP domestique est visible des pairs eMule) ;
-- **D** download + High-ID sans VPN, port ouvert sur la box (votre IP domestique exposée).
+Le pas-à-pas complet (secrets à renseigner, variante derrière VPN, mode téléchargement optionnel)
+vit dans le [guide de déploiement](docs/runbooks/deployment.md). En cas de souci, le
+[guide de dépannage](docs/runbooks/troubleshooting.md) va du symptôme à la cause à la solution.
 
-Pour la confidentialité, **préférez A ou B**. Détails et matrice complète dans le
-[runbook de déploiement](docs/runbooks/deployment.md) ; les implications légales et de
-confidentialité sont discutées franchement dans
-[légalité et confidentialité](docs/legal-and-privacy.md).
+## Comment ça marche
 
-> 🐳 Déploiement `docker compose` (profils `observer`/`download`, option `monitoring`)
-> disponible — voir [`docs/runbooks/deployment.md`](docs/runbooks/deployment.md). Pour résoudre un
-> problème : [`docs/runbooks/troubleshooting.md`](docs/runbooks/troubleshooting.md).
+Un nœud répète une boucle simple :
 
-## Pour les curieux (comment ça marche)
+1. **Chercher.** Il embarque un client eMule et lance en continu des recherches dérivées de la
+   liste des épisodes cibles, sur les deux réseaux d'eMule.
+2. **Évaluer.** Chaque fichier vu est confronté à cette liste (titres, numéros, dates de
+   diffusion) et reçoit un score de confiance.
+3. **Cataloguer.** Tout ce qui est vu est consigné : empreinte de contenu, taille, moment de la
+   rencontre.
+4. **Alerter.** Quand une cible manquante apparaît, une notification part avec le lien `ed2k://`
+   pour la récupérer.
+5. **Télécharger (optionnel).** En mode complet, un candidat sûr est téléchargé dans un
+   environnement isolé, vérifié, puis catalogué, sans jamais être re-partagé ni exécuté.
 
-1. Le nœud parle le protocole eMule (eD2k + Kad) via un client aMule piloté en interne.
-2. Il lance en continu des recherches dérivées d'une liste d'épisodes cibles.
-3. Chaque résultat est **scoré** contre cette liste (titres, numéros, dates de diffusion…).
-4. Selon la confiance : on catalogue, on notifie, ou (mode complet) on télécharge dans un
-   environnement **isolé**, sans jamais re-partager ni exécuter le contenu.
-5. Les catalogues de plusieurs chercheurs **fusionnent** sans conflit (chaque fichier est
-   identifié par son empreinte de contenu).
+Les catalogues de plusieurs nœuds **fusionnent sans conflit** : chaque fichier étant identifié par
+son empreinte de contenu, deux chercheurs qui voient le même fichier écrivent la même ligne.
 
-## Pour les développeurs
-
-- **Stack** : Python (`uv`), architecture Clean/Hexagonal, `mypy --strict`, `ruff`, `pytest`.
-- **TDD strict** : les tests sont la spec ; aucun code de prod avant les tests ; **coverage 100 %
-  imposé** (branch).
-
-### Démarrer
-```bash
-git clone <repo> && cd mulewatch
-./scripts/setup-dev.sh   # active les hooks Git (core.hooksPath) + installe l'env (uv sync --dev)
-( cd packages/matching && uv run pytest -q )
-( cd packages/crawler  && uv run pytest -q )
-( cd packages/verifier && uv run pytest -q )
-( cd packages/webui    && uv run pytest -q )
-```
-
-> Les **hooks Git ne sont pas activés automatiquement au clone** (sécurité Git) : `setup-dev.sh`
-> règle `core.hooksPath=.githooks`. Le hook **pré-push** rejoue les checks de la CI (ruff,
-> format, mypy, pytest) — un push ne part pas si un check échoue.
-
-### Conception
-- Spec : [`docs/specs/2026-06-10-crawler-mvp-design.md`](docs/specs/2026-06-10-crawler-mvp-design.md)
-- Plans d'implémentation : [`docs/plans/`](docs/plans/)
-- Déploiement (Docker / compose) : [`docs/runbooks/deployment.md`](docs/runbooks/deployment.md)
-
-## Statut fonctionnel (juin 2026)
+## Statut fonctionnel (juillet 2026)
 
 | Capacité | État | Détails |
 |---|---|---|
-| Observer (recherche + catalogage + WebUI) | ✅ Stable | Sur les 4 stacks. |
-| Download (téléchargement + vérification) | ⚠️ Fonctionnel, non éprouvé en prod réelle | Chaîne complète confirmée par lecture des sources amont d'amuled ; la suite e2e bout-en-bout a été abandonnée, voir [admin § Limites connues](docs/runbooks/administration.md#limites-connues--follow-ups). |
-| High-ID via port-sync (Route A) | ⚠️ Construit, validation bout-en-bout pendante | Exige Docker rootful Linux. Cf. runbook-admin. |
-| High-ID via port-forward manuel (Route B) | ✅ Fonctionnel | N'importe quelle plateforme avec port redirigé. |
-| Antivirus (clamav) | ⚠️ Activé par défaut en download ; rlimits non validés en prod | Hypothèse de calibration à éprouver en homelab, voir [admin § clamav](docs/runbooks/administration.md#analyse-antivirus-clamav--provisioning--réglage). |
-| Multi-instances / fusion catalogues | ✅ Outil `merge` disponible | Cycle de partage hors-ligne, voir [docs/README § Collaboration](docs/README.md#collaboration-entre-chercheurs). |
+| Observer (recherche + catalogage + WebUI) | ✅ Stable | Le mode par défaut, éprouvé. |
+| Download (téléchargement + vérification) | ⚠️ Construit, pas encore éprouvé en prod réelle | Chaîne complète confirmée par lecture des sources d'amuled ; la validation bout-en-bout reste à faire, voir [admin § Limites connues](docs/runbooks/administration.md#limites-connues--follow-ups). |
+| High-ID par port-sync (route A) | ⚠️ Construit, validation bout-en-bout pendante | Exige Docker rootful natif sous Linux. |
+| High-ID par port-forward manuel (route B) | ✅ Fonctionnel | Toute plateforme avec un port redirigé sur la box. |
+| Antivirus (clamav) | ⚠️ Activé par défaut en download, rlimits non validés | Hypothèse de calibration à éprouver en homelab, voir [admin § clamav](docs/runbooks/administration.md#analyse-antivirus-clamav--provisioning--réglage). |
+| Fusion de catalogues (multi-nœuds) | ✅ Outil `merge` disponible | Cycle de partage hors-ligne, voir [docs § Collaboration](docs/README.md#collaboration-entre-chercheurs). |
 | Hub central / notifications inter-nœuds | ❌ Non-objectif v0.x | Non prévu. |
+
+## Pour les développeurs
+
+Python ≥ 3.14, workspace `uv`, architecture Clean/Hexagonal, `mypy --strict`, TDD strict (les
+tests sont la spec), 100 % de couverture de branches par paquet.
+
+```bash
+./scripts/setup-dev.sh   # installe l'environnement (uv sync --dev) et le hook de pré-push
+uv run poe check         # le gate complet : lint, types, SQL, tests
+```
+
+- Conception : [spec MVP du crawler](docs/specs/2026-06-10-crawler-mvp-design.md)
+- Tests : [guide de test](docs/testing-guide.md)
+- Déploiement : [guide de déploiement](docs/runbooks/deployment.md)
+- Éthique et vie privée : [légalité et confidentialité](docs/legal-and-privacy.md)
+
+---
+
+mulewatch est un outil générique. *Keroro mission Titar* (VF) est sa première mission.
