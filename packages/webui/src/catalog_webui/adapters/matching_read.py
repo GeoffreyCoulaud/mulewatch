@@ -5,8 +5,8 @@
 config.
 
 ``size_bytes → size_mb`` conversion: reproduces exactly the logic of
-``emule_indexer.domain.observation.FileObservation.to_candidate`` without importing the
-crawler. Source: ``packages/crawler/src/emule_indexer/domain/observation.py``:
+``mulewatch.domain.observation.FileObservation.to_candidate`` without importing the
+crawler. Source: ``packages/crawler/src/mulewatch/domain/observation.py``:
 
     _BYTES_PER_MIB = 1024 * 1024
     size_mb=self.size_bytes / _BYTES_PER_MIB

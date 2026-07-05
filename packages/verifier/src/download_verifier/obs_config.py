@@ -1,4 +1,4 @@
-"""Verifier observability mini YAML loader (E-D2/E-D10). Imports NOTHING from ``emule_indexer``
+"""Verifier observability mini YAML loader (E-D2/E-D10). Imports NOTHING from ``mulewatch``
 (package boundary). Reads ``observability.log_level`` (default ``INFO``); unknown level →
 ``ObsConfigError`` (fail-fast). ``AnalysisConfig`` (env) stays separate and unchanged."""
 
