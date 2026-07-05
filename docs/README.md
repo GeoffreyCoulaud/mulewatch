@@ -1,6 +1,6 @@
-# Documentation — emule-indexer
+# Documentation — mulewatch
 
-`emule-indexer` surveille en continu le réseau eMule (eD2k + Kad) pour retrouver les épisodes perdus
+`mulewatch` surveille en continu le réseau eMule (eD2k + Kad) pour retrouver les épisodes perdus
 de la VF de *Keroro mission Titar*, en cataloguant les métadonnées disponibles au passage. Contrainte
 de conception : **le sujet du catalogue est le fichier, jamais la personne** (pas de pistage, pas de
 désanonymisation).
@@ -26,7 +26,7 @@ d'être à l'aise avec un **terminal** et **Docker** (orientation Linux/serveur)
 
 ## Collaboration entre chercheurs
 
-`emule-indexer` est conçu pour qu'**un chercheur déploie son propre nœud** ; il n'y a **pas de hub
+`mulewatch` est conçu pour qu'**un chercheur déploie son propre nœud** ; il n'y a **pas de hub
 central** et c'est volontaire (non-objectif pour la v0.x). La collaboration se fait **hors-ligne**,
 en partageant des bases SQLite (`catalog.db`) entre chercheurs qui ont chacun leur propre nœud.
 
@@ -39,7 +39,7 @@ en partageant des bases SQLite (`catalog.db`) entre chercheurs qui ont chacun le
   avec l'outil `merge`.
 
 **Outil de fusion :** chaque chercheur peut fusionner N catalogues collectés vers un seul, avec
-[l'outil `emule_indexer.merge` documenté dans le runbook d'administration § Outils de catalogue](runbooks/administration.md#outils-de-catalogue).
+[l'outil `mulewatch.merge` documenté dans le runbook d'administration § Outils de catalogue](runbooks/administration.md#outils-de-catalogue).
 La fusion est **idempotente** (re-merger le même fichier est un no-op) et **safe-by-default**
 (pas d'écrasement sans `--force`). Chaque fichier est identifié par son **empreinte de contenu
 eD2k** — la fusion ne crée jamais de doublons.
@@ -50,7 +50,7 @@ eD2k** — la fusion ne crée jamais de doublons.
 2. Vous exportez votre `catalog.db` (copie depuis le volume Docker, voir runbooks/administration.md
    § Planification disque).
 3. Vous l'échangez avec d'autres chercheurs via un canal hors-ligne.
-4. Vous re-fusionnez les catalogues reçus dans le vôtre : `python -m emule_indexer.merge --output
+4. Vous re-fusionnez les catalogues reçus dans le vôtre : `python -m mulewatch.merge --output
    catalog-merged.db votre-catalog.db catalog-reçu-de-X.db catalog-reçu-de-Y.db`.
 5. Vous remplacez votre `catalog.db` actif par `catalog-merged.db` (arrêter le crawler, swap,
    redémarrer).

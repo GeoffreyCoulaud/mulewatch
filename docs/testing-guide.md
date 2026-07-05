@@ -1,4 +1,4 @@
-# Guide des tests — emule-indexer
+# Guide des tests — mulewatch
 
 Ce guide décrit **comment lancer les tests d'intégration** (les suites « lourdes » désélectionnées
 par défaut), leurs **prérequis exacts** et **ce qu'on doit attendre** en sortie. Il complète le
@@ -83,7 +83,7 @@ de fil DTO↔réponse + l'écriture durable, sans vrai download.
 
 **Prérequis exacts.**
 - **Aucun outil externe.** Le service `download_verifier` tourne in-process via
-  `httpx.ASGITransport`. Le test importe `download_verifier.app.build_app` et `emule_indexer.*` — les
+  `httpx.ASGITransport`. Le test importe `download_verifier.app.build_app` et `mulewatch.*` — les
   deux paquets doivent être installés (`uv sync --dev`, déjà fait pour le gate).
 - Aucun `skipif` ni variable d'environnement requis pour **cette** suite — elle tourne sur tout
   système où le gate tourne. (Les variables d'environnement listées en §4 concernent d'autres
@@ -252,7 +252,7 @@ file`).
   `AMULE_EC_PASSWORD`, `SERVER_COUNTRIES`) car compose les interpole au parse même si gluetun est
   désactivé — **rien à poser côté opérateur**.
 - Fichiers compose utilisés : `tests/smoke/compose.yaml` (autonome) + overrides temporaires par scénario + `deploy/{gluetun,direct}.compose.yml` pour `test_entrypoint_config_renders` ; configs smoke sous `tests/smoke/`.
-- Le test n'importe **aucun** module `emule_indexer` (préserve le 100 % branch du paquet).
+- Le test n'importe **aucun** module `mulewatch` (préserve le 100 % branch du paquet).
 
 **Commande.**
 ```bash
@@ -318,7 +318,7 @@ Pistes par marqueur (faisabilité GitHub Actions) :
 
 Outils ponctuels destinés au **développeur** (mesure/diagnostic, pas exploitation) :
 
-- **Sonde richesse EC** : `uv run python -m emule_indexer.tools.ec_probe --all-tags …` dumpe **tous**
+- **Sonde richesse EC** : `uv run python -m mulewatch.tools.ec_probe --all-tags …` dumpe **tous**
   les tags bruts d'un résultat de recherche réel (mappés + non mappés) — sert à mesurer le taux de
   remplissage des champs exposés par EC. C'est un outil de **diagnostic** : un déploiement n'en a pas
   besoin (cf. le constat « EC n'expose aucune métadonnée média sur les résultats de recherche »).
