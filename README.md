@@ -46,18 +46,6 @@ Un nœud répète une boucle simple :
 Les catalogues de plusieurs nœuds **fusionnent sans conflit** : chaque fichier étant identifié par
 son empreinte de contenu, deux chercheurs qui voient le même fichier écrivent la même ligne.
 
-## Statut fonctionnel (juillet 2026)
-
-| Capacité | État | Détails |
-|---|---|---|
-| Observer (recherche + catalogage + WebUI) | ✅ Stable | Le mode par défaut, éprouvé. |
-| Download (téléchargement + vérification) | ⚠️ Construit, pas encore éprouvé en prod réelle | Chaîne complète confirmée par lecture des sources d'amuled ; la validation bout-en-bout reste à faire, voir [admin § Limites connues](docs/runbooks/administration.md#limites-connues--follow-ups). |
-| High-ID par port-sync (route A) | ⚠️ Construit, validation bout-en-bout pendante | Exige Docker rootful natif sous Linux. |
-| High-ID par port-forward manuel (route B) | ✅ Fonctionnel | Toute plateforme avec un port redirigé sur la box. |
-| Antivirus (clamav) | ⚠️ Activé par défaut en download, rlimits non validés | Hypothèse de calibration à éprouver en homelab, voir [admin § clamav](docs/runbooks/administration.md#analyse-antivirus-clamav--provisioning--réglage). |
-| Fusion de catalogues (multi-nœuds) | ✅ Outil `merge` disponible | Cycle de partage hors-ligne, voir [docs § Collaboration](docs/README.md#collaboration-entre-chercheurs). |
-| Hub central / notifications inter-nœuds | ❌ Non-objectif v0.x | Non prévu. |
-
 ## Pour les développeurs
 
 Python ≥ 3.14, workspace `uv`, architecture Clean/Hexagonal, `mypy --strict`, TDD strict (les
