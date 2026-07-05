@@ -1,6 +1,6 @@
 # Légalité, confidentialité, éthique — pour l'opérateur d'un nœud
 
-Ce guide s'adresse à **vous qui hébergez un nœud** `emule-indexer` chez vous, sur un VPS, ou dans
+Ce guide s'adresse à **vous qui hébergez un nœud** `mulewatch` chez vous, sur un VPS, ou dans
 une infra que vous administrez. Il répond honnêtement à trois questions :
 
 1. **Qu'est-ce que mon nœud catalogue / stocke / transfère ?** (ce qui finit sur votre disque, ce
@@ -163,7 +163,7 @@ Si vous voulez minimiser votre exposition :
   voir » expose votre IP même via VPN si vous êtes le seul à utiliser ce VPN à cet instant).
 - **Gardez votre système à jour.** Un port entrant ouvert (Route B) ou un conteneur compromis
   élargissent votre surface d'attaque.
-- **Ne mélangez pas usages.** N'utilisez pas ce nœud pour autre chose qu'emule-indexer (pas de
+- **Ne mélangez pas usages.** N'utilisez pas ce nœud pour autre chose que mulewatch (pas de
   bibliothèque P2P partagée pré-existante, pas de tests autres).
 
 Si vous opérez en collaboration avec d'autres chercheurs, voir

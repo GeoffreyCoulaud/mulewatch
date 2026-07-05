@@ -1,4 +1,4 @@
-# Runbook de dépannage — emule-indexer
+# Runbook de dépannage — mulewatch
 
 Symptômes courants et leur résolution. Chaque entrée suit le même format : **symptôme → cause →
 solution**. Pour *monter* un nœud, voir le [runbook de déploiement](deployment.md) ; pour
@@ -147,7 +147,7 @@ Trois causes possibles, de la plus probable à la moins :
      (`amule.conf` → `IncomingDir=`) ; doit pointer sur le même chemin monté que `staging_dir` /
      `quarantine_dir` du crawler. Le plus souvent : `/data/quarantine` côté amuled et côté crawler
      (même volume Docker `quarantine`).
-  2. **Le volume est-il sur un FS Linux ?** `docker inspect emule-indexer_quarantine | grep
+  2. **Le volume est-il sur un FS Linux ?** `docker inspect mulewatch_quarantine | grep
      Mountpoint` puis `stat -f -c %T <mountpoint>` sur l'hôte → doit être `ext2/ext3` (= ext4),
      `btrfs`, `overlayfs`, etc. Pas `vfat`, `ntfs`, `fuseblk`. Si vous êtes sur Docker Desktop
      macOS, le mapping vers HFS+/APFS échoue.
@@ -230,13 +230,13 @@ Plusieurs causes, à vérifier dans cet ordre :
   Compose, par défaut le nom du dossier qui contient `deploy/*.compose.yml`) :
   ```bash
   docker volume ls | grep catalog-db
-  # Exemple de sortie : local  emule-indexer_catalog-db
+  # Exemple de sortie : local  mulewatch_catalog-db
   ```
   Puis corrigez la propriété :
   ```bash
   docker run --rm -v <nom-du-volume>:/d alpine chown -R 999:999 /d
   # Avec le nom trouvé ci-dessus, par ex. :
-  docker run --rm -v emule-indexer_catalog-db:/d alpine chown -R 999:999 /d
+  docker run --rm -v mulewatch_catalog-db:/d alpine chown -R 999:999 /d
   ```
 
 ### Droits cross-user sur la quarantaine
@@ -337,7 +337,7 @@ docker run --rm --entrypoint python <image> -c "import re2, rapidfuzz; print('ok
 ### Valider la configuration sans rien démarrer
 
 ```bash
-uv run python -m emule_indexer validate-config
+uv run python -m mulewatch validate-config
 ```
 
 Charge + valide les 4 configs et sort en erreur (code ≠ 0) si l'une est invalide, **sans rien

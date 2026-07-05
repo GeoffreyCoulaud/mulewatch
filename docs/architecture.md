@@ -1,4 +1,4 @@
-# Architecture & comportement — emule-indexer
+# Architecture & comportement — mulewatch
 
 > Vue d'ensemble lisible du système : sous-systèmes, interactions, et cycles de vie runtime.
 > Pour la **conception détaillée** voir `docs/specs/` (la spec MVP fait foi) ; pour **opérer** un
@@ -9,7 +9,7 @@
 
 ## 1. En une phrase
 
-`emule-indexer` surveille en continu le réseau eMule (eD2k + Kad, via un `amuled` piloté en
+`mulewatch` surveille en continu le réseau eMule (eD2k + Kad, via un `amuled` piloté en
 protocole **EC**) pour retrouver les épisodes VF perdus de *Keroro mission Titar*, en cataloguant
 toute la métadonnée croisée au passage. **Le sujet du catalogue est le fichier, jamais la personne.**
 
@@ -58,13 +58,13 @@ flowchart RL
 
 | Paquet | Dist | Rôle |
 |---|---|---|
-| `emule_indexer` | `emule-indexer` | **Crawler** : pilote `amuled` en EC, boucles recherche/download/vérification, persistance, observabilité. |
+| `mulewatch` | `mulewatch` | **Crawler** : pilote `amuled` en EC, boucles recherche/download/vérification, persistance, observabilité. |
 | `download_verifier` | `download-verifier` | **Verifier** : service HTTP qui analyse un fichier téléchargé dans un process enfant confiné. |
 | `catalog_matching` | `catalog-matching` | **Moteur de matching** (lib partagée) : policy déclarative fichier→épisode. Importée par crawler et webui. |
 | `catalog_webui` | `catalog-webui` | **WebUI** : lecteur *read-only* du catalogue. |
 
 **Frontières strictes** (invariants) : le crawler n'importe jamais `download_verifier` (il l'appelle
-en HTTP) ; le verifier n'importe jamais `emule_indexer` ; seul un test de contrat croise la frontière.
+en HTTP) ; le verifier n'importe jamais `mulewatch` ; seul un test de contrat croise la frontière.
 
 ## 3. Deux modes de fonctionnement
 
@@ -115,7 +115,7 @@ flowchart TB
   quoi que ce soit n'atteigne le domaine.
 - **`application/`** orchestre les use-cases async en parlant à des **ports** (protocols).
 - **`adapters/`** portent toute l'I/O et implémentent les ports structurellement.
-- **`composition/`** (`CrawlerApp`, `python -m emule_indexer`) charge la config, valide *fail-fast*,
+- **`composition/`** (`CrawlerApp`, `python -m mulewatch`) charge la config, valide *fail-fast*,
   câble les adapters concrets, et supervise les boucles.
 
 ## 5. Le cycle de recherche
@@ -298,7 +298,7 @@ flowchart LR
 ```
 
 - **`catalog.db`** : le savoir accumulé, **append-only** (triggers `BEFORE UPDATE/DELETE → ABORT`),
-  donc N nœuds → 1 catalogue par fusion (`python -m emule_indexer.merge`). Les insertions sont
+  donc N nœuds → 1 catalogue par fusion (`python -m mulewatch.merge`). Les insertions sont
   **idempotentes** (`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`) → sûres à un redémarrage mi-écriture.
 - **`local.db`** : l'état runtime du nœud (identité, file de vérification avec bail, suivi des
   downloads, avance du scheduler + backoff). **Jamais fusionné** — propre à chaque nœud.
@@ -349,9 +349,9 @@ verifier sont **absorbées** (dégradation) ; un échec d'un composant 100 %-tes
 
 ## 12. Repères de code
 
-| Sous-système | Emplacement (sous `packages/crawler/src/emule_indexer/` sauf mention) |
+| Sous-système | Emplacement (sous `packages/crawler/src/mulewatch/` sauf mention) |
 |---|---|
-| Boucles & câblage | `composition/app.py` (`CrawlerApp`), `python -m emule_indexer` |
+| Boucles & câblage | `composition/app.py` (`CrawlerApp`), `python -m mulewatch` |
 | Use-cases | `application/run_search_cycle.py`, `run_download_cycle.py`, `run_verification_cycle.py`, `port_sync_loop.py` |
 | Recherche (pur) | `domain/search/` (`keywords`, `cycle`, `backoff`, `coverage`) |
 | Matching | `packages/matching/src/catalog_matching/` (moteur + policy `deploy/config/crawler/matcher.yml`) |

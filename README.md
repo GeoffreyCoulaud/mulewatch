@@ -1,4 +1,4 @@
-# emule-indexer
+# mulewatch
 
 Retrouver le *lost media* **Keroro mission Titar (VF)** en surveillant eMule en continu,
 et cataloguer un maximum de métadonnées au passage.
@@ -8,7 +8,7 @@ et cataloguer un maximum de métadonnées au passage.
 Une grande partie du doublage français de *Keroro mission Titar* (diffusé sur Teletoon en 2008)
 est perdue. Les épisodes réapparaissent **par intermittence** sur le réseau eMule, quand un
 détenteur se connecte ; une recherche manuelle ponctuelle les rate presque toujours.
-**emule-indexer** transforme ce hasard en **surveillance permanente et distribuée** : plusieurs
+**mulewatch** transforme ce hasard en **surveillance permanente et distribuée** : plusieurs
 chercheurs font tourner un nœud, chacun cherche en continu, catalogue ce qu'il voit, et alerte
 quand un épisode manquant apparaît.
 
@@ -56,7 +56,7 @@ confidentialité sont discutées franchement dans
 
 ### Démarrer
 ```bash
-git clone <repo> && cd emule-indexer
+git clone <repo> && cd mulewatch
 ./scripts/setup-dev.sh   # active les hooks Git (core.hooksPath) + installe l'env (uv sync --dev)
 ( cd packages/matching && uv run pytest -q )
 ( cd packages/crawler  && uv run pytest -q )

@@ -1,4 +1,4 @@
-# Runbook d'administration — emule-indexer
+# Runbook d'administration — mulewatch
 
 Ce guide s'adresse à qui **exploite et règle** un nœud déjà monté. Pour *monter* la stack, commencez
 par le **[Runbook de déploiement](deployment.md)** ; pour résoudre un problème concret, le
@@ -55,7 +55,7 @@ vos cibles) :
 - **`amule-state`** : qq Mo (server.met, nodes.dat, prefs).
 
 Si votre VPS / NAS approche de saturation, lancez `docker system df -v` pour identifier le volume
-fautif, puis `python -m emule_indexer.compact` (cf. Outils de catalogue) ou purgez la quarantaine.
+fautif, puis `python -m mulewatch.compact` (cf. Outils de catalogue) ou purgez la quarantaine.
 
 ---
 
@@ -211,10 +211,10 @@ Exemple de `scrape_config` (à coller dans votre `prometheus.yml` externe) :
 
 ```yaml
 scrape_configs:
-  - job_name: 'emule-indexer-crawler'
+  - job_name: 'mulewatch-crawler'
     static_configs:
       - targets: ['crawler:9090']   # port configurable
-  - job_name: 'emule-indexer-verifier'
+  - job_name: 'mulewatch-verifier'
     static_configs:
       - targets: ['verifier:8000']  # même port que le service (/metrics)
 ```
@@ -226,15 +226,15 @@ scrape_configs:
 Tous ces outils sont **opérateurs et ponctuels** (pas de boucle, jamais déclenchés par le crawler) et
 **ne mutent jamais une base en place** : ils lisent une source et écrivent un fichier neuf.
 
-- **Validation de config** : `uv run python -m emule_indexer validate-config` charge + valide les 4
+- **Validation de config** : `uv run python -m mulewatch validate-config` charge + valide les 4
   configs et sort en erreur (code ≠ 0) si l'une est invalide, **sans rien démarrer**. À lancer avant
   un déploiement.
-- **Fusion de catalogues** : `uv run python -m emule_indexer.merge --output catalog-merged.db
+- **Fusion de catalogues** : `uv run python -m mulewatch.merge --output catalog-merged.db
   source-a.db source-b.db …` consolide N `catalog.db` (un par chercheur/campagne) en un seul,
   **idempotent** (re-merger est un no-op) et safe-by-default (pas d'écrasement sans `--force` ;
   `--into <source>` pour fusionner dans une source existante). **Cycle de partage entre chercheurs
   documenté dans [docs/README § Collaboration entre chercheurs](README.md#collaboration-entre-chercheurs).**
-- **Compaction du catalogue** : `uv run python -m emule_indexer.compact catalog.db -o
+- **Compaction du catalogue** : `uv run python -m mulewatch.compact catalog.db -o
   catalog-compact.db [--keep-recent-days 90]` réduit la **seule** table qui croît sans borne,
   `file_observations` (une ligne par fichier observé à chaque cycle). Le brut des `--keep-recent-days`
   derniers jours (90 par défaut) est conservé tel quel ; au-delà, les observations sont **résumées en

@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`emule-indexer` continuously surveils the eMule network (eD2k + Kad, via an aMule client driven over its EC protocol) to recover lost-media episodes of the French dub of *Keroro mission Titar* (aired 2008 on Teletoon), cataloguing all available metadata along the way.
+`mulewatch` continuously surveils the eMule network (eD2k + Kad, via an aMule client driven over its EC protocol) to recover lost-media episodes of the French dub of *Keroro mission Titar* (aired 2008 on Teletoon), cataloguing all available metadata along the way.
 
-It is a **virtual uv workspace** with four packages: `packages/crawler/` (package `emule_indexer`, dist `emule-indexer`), `packages/verifier/` (package `download_verifier`, dist `download-verifier`), `packages/matching/` (package `catalog_matching`, dist `catalog-matching`, shared domain), and `packages/webui/` (package `catalog_webui`, dist `catalog-webui`, read-only catalog viewer).
+It is a **virtual uv workspace** with four packages: `packages/crawler/` (package `mulewatch`, dist `mulewatch`), `packages/verifier/` (package `download_verifier`, dist `download-verifier`), `packages/matching/` (package `catalog_matching`, dist `catalog-matching`, shared domain), and `packages/webui/` (package `catalog_webui`, dist `catalog-webui`, read-only catalog viewer).
 
 ## Orientation — read before substantial work
 
@@ -21,7 +21,7 @@ The live state, history, and recommended next step are deliberately **not** in t
 
 ### Where the code lives
 
-The crawler is Clean/Hexagonal: `domain/` pure, `application/` async use-cases, `adapters/` I/O, `composition/` wiring (`CrawlerApp` + `python -m emule_indexer`). Paths below are under `packages/crawler/src/emule_indexer/` (**c:**) or `packages/verifier/src/download_verifier/` (**v:**) unless noted.
+The crawler is Clean/Hexagonal: `domain/` pure, `application/` async use-cases, `adapters/` I/O, `composition/` wiring (`CrawlerApp` + `python -m mulewatch`). Paths below are under `packages/crawler/src/mulewatch/` (**c:**) or `packages/verifier/src/download_verifier/` (**v:**) unless noted.
 
 | Subsystem | Location | Role |
 |---|---|---|
@@ -35,14 +35,14 @@ The crawler is Clean/Hexagonal: `domain/` pure, `application/` async use-cases, 
 | Analysis checks | v: `checks/` | `type_sniff` (puremagic) + `ffprobe` + opt-in `clamav`; worst-status |
 | Observability | c: `domain/observability/`, `adapters/observability/` | events → policy → dispatcher; Prometheus + apprise |
 | Port-sync (High-ID) | c: `application/` | gluetun port → EC SetPort → restart amuled |
-| Standalone catalog tools | c: `merge/`, `compact/` | `python -m emule_indexer.{merge,compact}` — N→1 fusion / daily rollup |
+| Standalone catalog tools | c: `merge/`, `compact/` | `python -m mulewatch.{merge,compact}` — N→1 fusion / daily rollup |
 | Packaging | `deploy/base.compose.yml` + `deploy/{gluetun,direct}.compose.yml` + `tests/smoke/compose.yaml`, `packages/*/Dockerfile` | observer/download profiles; smoke stack; container hardening (cap_drop, read_only, seccomp) |
 
 ## Design invariants (do not violate)
 
 - **The catalog's subject is the file, never the person** — no tracking, no deanonymization.
 - **The crawler PROD never reads downloaded bytes.** Quarantine promotion is `os.replace` only; bytes are read solely inside the disposable verifier child. Completion is a *positive signal* (amuled's shared-files list), never byte-inference.
-- **Package boundary:** the crawler never imports `download_verifier`; the verifier never imports `emule_indexer`. Only the contract test crosses it.
+- **Package boundary:** the crawler never imports `download_verifier`; the verifier never imports `mulewatch`. Only the contract test crosses it.
 - **Two run modes:** *observer* (`download.enabled: false` or absent in `crawler.yml`) is crawl-only; *download* (`download.enabled: true`) wires the download + verification loops live, fail-fast on a verifier health check.
 - **Standalone tools** (`merge`, `compact`) never touch prod code or mutate a DB in place — they read a source and write a NEW file.
 - **`deploy/config/` is the operator-owned single source of truth for config (decided 2026-07-01)** — `crawler.yml` / `matcher.yml` / `targets.yml` stay editable-by-operator deployment config; it is **forbidden to canonicalize them as code artifacts** (package data, inline policy dicts, or duplicate test fixtures that shadow them). Every consumer *derives from* `deploy/`, never the reverse: the matcher policy has exactly ONE copy (`deploy/config/crawler/matcher.yml`), read by the matching golden corpus + engine unit tests via `parents[N]` — a test-time path coupling to `deploy/`, deliberately accepted (test-only, not an import; the code DAG is unchanged). Do not reintroduce a `canonical_config.yaml` fixture or an inline `_CANONICAL_RAW` policy dict.
