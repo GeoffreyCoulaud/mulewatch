@@ -1,4 +1,4 @@
-# Base fragment (spec §4) — included by deploy/{gluetun,direct}.compose.yml.
+# Base fragment (spec §4) — included by deploy/compose.yaml and deploy/gluetun.compose.yml.
 # Defines everything except amuled and the VPN layer.
 # Validate alone (from repo root):
 #   GRAFANA_PWD=x docker compose -f deploy/base.compose.yml config
@@ -117,7 +117,6 @@ services:
 
   prometheus:
     image: prom/prometheus:v3.1.0
-    profiles: [monitoring]
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -131,7 +130,6 @@ services:
 
   grafana:
     image: grafana/grafana:11.4.0
-    profiles: [monitoring]
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PWD:?}
       GF_USERS_ALLOW_SIGN_UP: "false"
@@ -152,7 +150,6 @@ services:
     build:
       context: ..
       dockerfile: packages/webui/Dockerfile
-    profiles: [webui]
     environment:
       WEBUI_HOST: 0.0.0.0
       WEBUI_PORT: "8080"

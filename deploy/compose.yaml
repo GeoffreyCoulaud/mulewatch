@@ -1,8 +1,10 @@
-# Stack sans VPN. amuled en réseau direct.
+# Stack par défaut (royal road) : sans VPN, amuled en réseau direct.
+# webui + prometheus + grafana sont toujours actifs, sans profil à ajouter.
 # Low-ID par défaut ; High-ID = ouvrir LISTEN_PORT.
-# Lancer :
-#   docker compose -f deploy/direct.compose.yml \
-#     [--profile download|monitoring|webui] up -d
+# Lancer (depuis deploy/) :
+#   docker compose up -d
+#   docker compose --profile download up -d   # + téléchargement et vérification antivirus
+name: mulewatch
 
 include:
   - path: base.compose.yml
