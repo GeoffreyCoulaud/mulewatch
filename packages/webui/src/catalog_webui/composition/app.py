@@ -41,44 +41,49 @@ from catalog_webui.domain.views import (
 
 def _resolve_target_display(
     row: FileRow, segment_by_id: Mapping[str, TargetSegment]
-) -> tuple[str, str]:
-    """Resolve a file row's ``(target_display, title_display)`` (Task 3 resolution rule,
-    cf. ``domain.views.FileRowDisplay`` docstring for the full rule)."""
-    if row.target_id is None or row.tier == "retracted":
-        # A retracted latest decision (crawler sentinel row for a now-excluded file) is
-        # treated exactly like no decision at all — never a badge, never the raw sentinel id.
-        return "·", "·"
-    if row.tier == "catalog":
-        return "unidentified", "·"
-    seg = segment_by_id.get(row.target_id)
-    if seg is None:
-        return row.target_id, "·"
-    locator = seasonal_id(
-        season=seg.season, seasonal_number=seg.seasonal_number, letter=seg.segment
-    )
-    return f"{row.target_id} / {locator}", seg.title
+) -> list[tuple[str, str]]:
+    """Per-decision ``(target_display, title_display)`` pairs for a file row, in the row's
+    decision order (by target_id). Empty when the file has no current decision. The
+    ``catalog → "unidentified"`` mask is applied per decision (``keroro_large`` is the only
+    catalog-tier rule; cf. ``domain.views.FileRowDisplay``)."""
+    resolved: list[tuple[str, str]] = []
+    for dec in row.decisions:
+        if dec.tier == "catalog":
+            resolved.append(("unidentified", "·"))
+            continue
+        seg = segment_by_id.get(dec.target_id)
+        if seg is None:
+            resolved.append((dec.target_id, "·"))
+            continue
+        locator = seasonal_id(
+            season=seg.season, seasonal_number=seg.seasonal_number, letter=seg.segment
+        )
+        resolved.append((f"{dec.target_id} / {locator}", seg.title))
+    return resolved
 
 
 def _to_display_rows(
     file_rows: Iterable[FileRow], segment_by_id: Mapping[str, TargetSegment]
 ) -> list[FileRowDisplay]:
-    """Convert catalog rows into ``FileRowDisplay`` view-models. Shared dedup between
-    ``handle_files`` and ``handle_target`` (code-smell#3 — without it, any column change
-    had to be made in two places)."""
+    """Convert catalog rows into ``FileRowDisplay`` view-models — one row per file, with the
+    file's (usually two) segment decisions aggregated into each cell, joined with ``" · "``.
+    Shared by ``handle_files`` and ``handle_target``."""
     rows = []
     for row in file_rows:
-        target_display, title_display = _resolve_target_display(row, segment_by_id)
-        # A retracted latest decision is treated as no decision at all: never a tier badge,
-        # never "pending", never a stale verdict from before the retraction.
-        retracted = row.tier == "retracted"
-        tier_display = "·" if retracted or row.tier is None else row.tier
-        if retracted:
-            verdict_display = "·"
-        elif row.last_verdict is not None:
-            verdict_display = row.last_verdict
-        elif row.target_id is not None:
-            verdict_display = "pending"
+        if row.decisions:
+            pairs = _resolve_target_display(row, segment_by_id)
+            target_display = " · ".join(target for target, _ in pairs)
+            title_display = " · ".join(title for _, title in pairs)
+            tier_values = {dec.tier for dec in row.decisions}
+            if len(tier_values) == 1:
+                tier_display = row.decisions[0].tier
+            else:
+                tier_display = " · ".join(f"{dec.target_id}: {dec.tier}" for dec in row.decisions)
+            verdict_display = row.last_verdict if row.last_verdict is not None else "pending"
         else:
+            target_display = "·"
+            title_display = "·"
+            tier_display = "·"
             verdict_display = "·"
         rows.append(
             FileRowDisplay(

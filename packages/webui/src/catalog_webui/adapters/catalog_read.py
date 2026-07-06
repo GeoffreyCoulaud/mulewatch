@@ -21,6 +21,7 @@ import sqlite3
 
 from catalog_webui.domain.views import (
     DecisionView,
+    FileDecision,
     FileDetail,
     FileRow,
     ObservationRow,
@@ -61,7 +62,42 @@ AND md.tier != 'retracted'
 ORDER BY md.target_id, md.ed2k_hash
 """
 
-# Shared source: files ⨝ latest observation ⨝ latest decision ⨝ latest verdict.
+# Current decisions per file: latest per (ed2k_hash, target_id), excluding the legacy
+# ``target_id == ''`` sentinel and any target whose latest row is a ``retracted`` marker.
+# ``dec_agg`` folds them to ONE row per hash — target_ids/tiers are ``char(31)``-joined,
+# both ordered by target_id so the two lists stay index-aligned (spec §9, rendering A).
+_SQL_LATEST_DEC_AGG = """\
+WITH latest_dec AS (
+    SELECT
+        md.ed2k_hash,
+        md.target_id,
+        md.tier
+    FROM match_decisions AS md
+    WHERE (
+        SELECT COUNT(*)
+        FROM match_decisions AS md2
+        WHERE
+            md2.ed2k_hash = md.ed2k_hash
+            AND md2.target_id = md.target_id
+            AND (
+                md2.decided_at > md.decided_at
+                OR (md2.decided_at = md.decided_at AND md2.id > md.id)
+            )
+    ) = 0
+    AND md.target_id != ''
+    AND md.tier != 'retracted'
+),
+dec_agg AS (
+    SELECT
+        ld.ed2k_hash,
+        group_concat(ld.target_id, char(31) ORDER BY ld.target_id) AS target_ids,
+        group_concat(ld.tier, char(31) ORDER BY ld.target_id) AS tiers
+    FROM latest_dec AS ld
+    GROUP BY ld.ed2k_hash
+)
+"""
+
+# Shared source: files ⨝ latest observation ⨝ current decisions (aggregated) ⨝ latest verdict.
 _SQL_FILES_SOURCE = """\
 FROM files AS f
 LEFT JOIN file_observations AS obs
@@ -76,18 +112,8 @@ LEFT JOIN file_observations AS obs
                 OR (obs2.observed_at = obs.observed_at AND obs2.id > obs.id)
             )
     ) = 0
-LEFT JOIN match_decisions AS dec
+LEFT JOIN dec_agg AS dec
     ON dec.ed2k_hash = f.ed2k_hash
-    AND (
-        SELECT COUNT(*)
-        FROM match_decisions AS dec2
-        WHERE
-            dec2.ed2k_hash = dec.ed2k_hash
-            AND (
-                dec2.decided_at > dec.decided_at
-                OR (dec2.decided_at = dec.decided_at AND dec2.id > dec.id)
-            )
-    ) = 0
 LEFT JOIN file_verifications AS ver
     ON ver.ed2k_hash = f.ed2k_hash
     AND (
@@ -104,32 +130,31 @@ LEFT JOIN file_verifications AS ver
 
 # Explorer: files + latest joins, driven by files. Optional filters added in list_files().
 _SQL_LIST_FILES_BASE = (
-    """\
+    _SQL_LATEST_DEC_AGG
+    + """\
 SELECT
     f.ed2k_hash,
     f.size_bytes,
     obs.filename,
     obs.source_count,
     obs.observed_at AS last_seen,
-    dec.target_id,
-    dec.tier,
+    dec.target_ids,
+    dec.tiers,
     ver.verdict AS last_verdict
 """
     + _SQL_FILES_SOURCE
 )
 
-# Counter for the /files summary: (total, matched) over the same source + filters,
-# WITHOUT the matched-only clause. "matched" excludes a retracted latest decision (retracted
-# == unmatched); COALESCE guards the empty-catalogue case, where a bare SUM() over zero rows
-# is NULL (unlike COUNT(), which is 0).
+# Counter for the /files summary: file-based totals over the same source + filters (the
+# matched-only clause is deliberately absent). ``matched`` = files with at least one current
+# decision (``dec.target_ids`` is non-NULL). COUNT(DISTINCT …) keeps both counts file-based
+# and yields 0 (not NULL) on an empty catalogue.
 _SQL_COUNT_FILES_BASE = (
-    """\
+    _SQL_LATEST_DEC_AGG
+    + """\
 SELECT
-    COUNT(*) AS total,
-    COALESCE(
-        SUM(CASE WHEN dec.target_id IS NOT NULL AND dec.tier != 'retracted' THEN 1 ELSE 0 END),
-        0
-    ) AS matched
+    COUNT(DISTINCT f.ed2k_hash) AS total,
+    COUNT(DISTINCT CASE WHEN dec.target_ids IS NOT NULL THEN f.ed2k_hash END) AS matched
 """
     + _SQL_FILES_SOURCE
 )
@@ -194,15 +219,23 @@ def _filter_clauses(
 ) -> tuple[list[str], list[str]]:
     """Shared WHERE clauses + params for the explorer list and its counter.
 
-    The matched-only clause and LIMIT/OFFSET are list-specific and are NOT built here.
+    ``target``/``tier`` match a file if ANY of its current decisions matches (EXISTS over the
+    ``latest_dec`` CTE), so a whole-episode file appears under each of its targets. The
+    matched-only clause and LIMIT/OFFSET are list-specific and are NOT built here.
     """
     clauses: list[str] = []
     params: list[str] = []
     if target is not None:
-        clauses.append("dec.target_id = ?")
+        clauses.append(
+            "EXISTS (SELECT 1 FROM latest_dec AS fdt"
+            " WHERE fdt.ed2k_hash = f.ed2k_hash AND fdt.target_id = ?)"
+        )
         params.append(target)
     if tier is not None:
-        clauses.append("dec.tier = ?")
+        clauses.append(
+            "EXISTS (SELECT 1 FROM latest_dec AS fdt"
+            " WHERE fdt.ed2k_hash = f.ed2k_hash AND fdt.tier = ?)"
+        )
         params.append(tier)
     if verdict is not None:
         clauses.append("ver.verdict = ?")
@@ -211,6 +244,12 @@ def _filter_clauses(
         clauses.append("obs.filename LIKE ?")
         params.append(f"%{query}%")
     return clauses, params
+
+
+def _split_concat(concat: str | None) -> list[str]:
+    """Split a ``char(31)``-joined aggregate (``group_concat``) into parts. ``None`` (a file
+    with no current decision → the LEFT JOIN yields NULL) → an empty list."""
+    return concat.split("\x1f") if concat is not None else []
 
 
 # ---------------------------------------------------------------------------
@@ -260,20 +299,20 @@ class CatalogReader:
         """Return a page of ``FileRow`` (size ``_PAGE_SIZE``) with optional filters.
 
         Filters:
-        - ``target`` : filter on ``dec.target_id`` (latest decision).
-        - ``tier``   : filter on ``dec.tier`` (latest decision).
+        - ``target`` : keep a file if ANY of its current decisions matches this target_id.
+        - ``tier``   : keep a file if ANY of its current decisions has this tier.
         - ``verdict``: filter on ``ver.verdict`` (latest verdict).
         - ``query``  : substring of ``obs.filename`` (LIKE ``%query%``).
-        - ``matched_only``: when true, keep only files with a match decision
-          (``dec.target_id IS NOT NULL``) whose latest tier is not ``retracted``
-          (a retraction is treated as no current match). Default false = whole catalogue.
+        - ``matched_only``: when true, keep only files with at least one current decision
+          (retractions and the legacy ``target_id == ''`` sentinel never produce one).
+          Default false = whole catalogue.
         - ``page``   : page number (1-based).
         """
         clauses, str_params = _filter_clauses(target, tier, verdict, query)
         if matched_only:
-            # A retracted latest decision is treated as unmatched (retracted == no current
-            # match): exclude it here too, not just target_id IS NOT NULL.
-            clauses.append("dec.target_id IS NOT NULL AND dec.tier != 'retracted'")
+            # A file is matched iff it has at least one current (non-retracted) decision;
+            # ``dec.target_ids`` is NULL for a file with none.
+            clauses.append("dec.target_ids IS NOT NULL")
         params: list[str | int] = [*str_params]
 
         sql = _SQL_LIST_FILES_BASE
@@ -285,19 +324,25 @@ class CatalogReader:
         params.append((page - 1) * _PAGE_SIZE)
 
         rows = self._conn.execute(sql, params).fetchall()
-        return [
-            FileRow(
-                ed2k_hash=row["ed2k_hash"],
-                size_bytes=row["size_bytes"],
-                filename=row["filename"] or "",
-                source_count=row["source_count"],
-                last_seen=row["last_seen"] or "",
-                target_id=row["target_id"],
-                tier=row["tier"],
-                last_verdict=row["last_verdict"],
+        result: list[FileRow] = []
+        for row in rows:
+            target_ids = _split_concat(row["target_ids"])
+            tiers = _split_concat(row["tiers"])
+            decisions = tuple(
+                FileDecision(target_id=t, tier=ti) for t, ti in zip(target_ids, tiers, strict=True)
             )
-            for row in rows
-        ]
+            result.append(
+                FileRow(
+                    ed2k_hash=row["ed2k_hash"],
+                    size_bytes=row["size_bytes"],
+                    filename=row["filename"] or "",
+                    source_count=row["source_count"],
+                    last_seen=row["last_seen"] or "",
+                    decisions=decisions,
+                    last_verdict=row["last_verdict"],
+                )
+            )
+        return result
 
     def count_files(
         self,
