@@ -47,7 +47,7 @@ def test_open_catalog_creates_the_seven_tables_and_versions_the_schema(tmp_path:
     connection = open_catalog(tmp_path / "catalog.db")
     try:
         assert _table_names(connection) == _CATALOG_TABLES
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
     finally:
         connection.close()
 
@@ -102,7 +102,7 @@ def test_reopen_is_idempotent_and_keeps_data(tmp_path: Path) -> None:
     first.close()
     second = open_catalog(path)  # versions already applied: NO script replays
     try:
-        assert second.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert second.execute("PRAGMA user_version").fetchone()[0] == 3
         assert second.execute("SELECT count(*) FROM files").fetchone()[0] == 1
     finally:
         second.close()
