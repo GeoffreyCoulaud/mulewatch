@@ -41,6 +41,7 @@ from mulewatch.adapters.config.crawler_config import (
     CrawlerConfig,
     DownloadConfig,
 )
+from mulewatch.adapters.crawler_control_loop import LoopCrawlerControl
 from mulewatch.adapters.docker_restart_http import HttpMuleRestarter
 from mulewatch.adapters.gluetun_port import GluetunPortReader
 from mulewatch.adapters.mule_ec.client import AmuleEcClient
@@ -77,6 +78,7 @@ from mulewatch.application.search_worker import (
 from mulewatch.domain.observability.events import CrawlerStarted
 from mulewatch.ports.clock import Clock, Rng
 from mulewatch.ports.content_verifier import ContentVerifier
+from mulewatch.ports.crawler_control import CrawlerControl
 from mulewatch.ports.decision_signal import DecisionSignal
 from mulewatch.ports.mule_client import MuleClient, MuleUnreachableError
 from mulewatch.ports.mule_download_client import MuleDownloadClient
@@ -232,6 +234,13 @@ class CrawlerApp:
         self._metrics_server = metrics_server
         self._webui_server_factory = webui_server_factory
         self._shutdown = asyncio.Event()
+        # Runtime-control events (phase P6a), constructed here (before the loop runs) like
+        # ``_shutdown`` — the established pattern. ``_force_cycle`` interrupts the inter-cycle
+        # sleep; ``_resumed`` is the pause gate, armed (set = un-paused) so the crawler starts
+        # running. The webui mutates both thread-safely via ``LoopCrawlerControl`` (spec §10).
+        self._force_cycle = asyncio.Event()
+        self._resumed = asyncio.Event()
+        self._resumed.set()
         self._signal_count = 0
 
     def _on_signal(self) -> None:
@@ -261,6 +270,10 @@ class CrawlerApp:
         """Cycle loop until the shutdown event (cancelled by the ``TaskGroup``)."""
         cycle_index = scheduler_state.read_cycle_index()
         while not self._shutdown.is_set():
+            # Pause gate (phase P6a): returns at once while running (``_resumed`` set); blocks
+            # here while paused (the current cycle already finished, the crawler idles). A
+            # shutdown cancels the task at this await — clean (never mid DB write).
+            await self._resumed.wait()
             started = self._clock.now()
             await run_search_cycle(
                 workers=workers,
@@ -278,7 +291,27 @@ class CrawlerApp:
             cycle_index += 1
             elapsed = (self._clock.now() - started).total_seconds()
             remaining = max(0.0, self._crawler_config.cycle_interval_seconds - elapsed)
-            await self._clock.sleep(remaining)
+            await self._sleep_or_forced(remaining)
+
+    async def _sleep_or_forced(self, seconds: float) -> None:
+        """Waits ``seconds`` OR the force-cycle event, whichever comes FIRST (spec §10, P6a).
+
+        Modeled EXACTLY on ``run_download_cycle._sleep_or_nudge``: race the clock sleep against
+        ``_force_cycle.wait()`` with ``asyncio.wait(FIRST_COMPLETED)``, cancel the loser in the
+        ``finally``, then CLEAR ``_force_cycle`` so a single force triggers exactly one immediate
+        cycle. A shutdown cancels this await cleanly (the repos are sync, never mid-write).
+        """
+        sleep_task = asyncio.ensure_future(self._clock.sleep(seconds))
+        force_task = asyncio.ensure_future(self._force_cycle.wait())
+        try:
+            await asyncio.wait({sleep_task, force_task}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in (sleep_task, force_task):
+                if not task.done():
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
+            self._force_cycle.clear()
 
     def _port_sync_enabled(self) -> bool:
         """Port-sync activates IFF the ``port_sync`` section is present (``enabled: true``).
@@ -479,6 +512,16 @@ class CrawlerApp:
         unwind at shutdown, AFTER ``_supervise`` returns (see ``_stop_webui``)."""
         webui_config = self._crawler_config.webui
         webui_pkg_dir = Path(mulewatch.webui.__file__).parent
+        # Runtime-control channel (phase P6a): bound to the crawler's OWN loop + events, so the
+        # webui thread hands off intents thread-safely (spec §10). ``_start_webui`` runs within
+        # ``run()``'s loop, so ``get_running_loop()`` is the crawler loop. The webui receives the
+        # PORT (``CrawlerControl``); this concrete adapter holds no DB connection.
+        control: CrawlerControl = LoopCrawlerControl(
+            loop=asyncio.get_running_loop(),
+            force_cycle=self._force_cycle,
+            resumed=self._resumed,
+            shutdown=self._shutdown,
+        )
         app = build_webui_app(
             catalog_db=Path(self._crawler_config.catalog_db_path),
             local_db=Path(self._crawler_config.local_db_path),
@@ -486,6 +529,7 @@ class CrawlerApp:
             targets=self._targets,
             templates_dir=webui_pkg_dir / "adapters" / "templates",
             static_dir=webui_pkg_dir / "adapters" / "static",
+            control=control,
         )
         server = self._webui_server_factory(app, webui_config.host, webui_config.port)
         thread = threading.Thread(

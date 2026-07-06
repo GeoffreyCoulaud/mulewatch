@@ -3,6 +3,7 @@ import logging
 import sqlite3
 import threading
 from pathlib import Path
+from typing import cast
 
 import pytest
 from starlette.applications import Starlette
@@ -23,15 +24,19 @@ from mulewatch.adapters.config.crawler_config import (
     WebuiConfig,
 )
 from mulewatch.adapters.config.yaml_loader import load_yaml
+from mulewatch.adapters.crawler_control_loop import LoopCrawlerControl
 from mulewatch.adapters.persistence_sqlite.connection import open_local
 from mulewatch.adapters.persistence_sqlite.local_state_repository import (
     SqliteLocalStateRepository,
 )
+from mulewatch.application.edge_state import EdgeState
+from mulewatch.application.search_worker import BackoffRegistry
 from mulewatch.composition.app import CrawlerApp, WebuiServer, default_client_factory
 from mulewatch.domain.observation import FileObservation
 from mulewatch.ports.content_verifier import VerificationResult
 from mulewatch.ports.mule_client import KadStatus, MuleUnreachableError, NetworkStatus
 from mulewatch.ports.mule_download_client import DownloadEntry, SharedFileEntry
+from mulewatch.ports.telemetry import Telemetry
 from tests.application.fakes import FakeClock, FakeMuleClient, RecordingSignal
 
 _TARGETS = (
@@ -1373,3 +1378,155 @@ def test_default_webui_server_factory_builds_a_uvicorn_server() -> None:
 
     server = default_webui_server_factory(Starlette(), "127.0.0.1", 8080)
     assert isinstance(server, uvicorn.Server)
+
+
+# ---------------------------------------------------------------------------
+# Runtime controls (phase P6a): the pause gate, the force-cycle race, restart-through-control.
+# ---------------------------------------------------------------------------
+
+
+class _BlockingSleepClock(FakeClock):
+    """Clock whose ``sleep`` BLOCKS forever (models an inter-cycle sleep that would not wake on
+    its own) — so ``_sleep_or_forced`` can only return via the force-cycle event."""
+
+    async def sleep(self, seconds: float) -> None:
+        await asyncio.Event().wait()  # never resolves: exit only via cancellation
+
+
+@pytest.mark.asyncio
+async def test_run_loop_exits_when_shutdown_already_set(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # Deterministic cover of the ``while not self._shutdown.is_set()`` false-exit arc: with the
+    # shutdown already set, ``_run_loop`` reads the cycle index once then exits WITHOUT entering
+    # the body (no cycle runs), so the per-cycle deps are never touched (hence the casts of None).
+    app = _make_app(tmp_path, matcher_config, factory=lambda e: FakeMuleClient())
+    app._shutdown.set()
+    reads: list[int] = []
+
+    class _SchedulerStub:
+        def read_cycle_index(self) -> int:
+            reads.append(1)
+            return 0
+
+    await asyncio.wait_for(
+        app._run_loop(
+            workers=(),
+            clients=(),
+            node_id="n",
+            scheduler_state=_SchedulerStub(),  # type: ignore[arg-type]
+            backoff=cast(BackoffRegistry, None),
+            telemetry=cast(Telemetry, None),
+            edge=cast(EdgeState, None),
+        ),
+        timeout=1.0,
+    )
+    assert reads == [1]  # read the cycle index once, then exited (the loop body never ran)
+
+
+@pytest.mark.asyncio
+async def test_app_starts_unpaused_with_force_event_clear(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # __init__ arms the run gate (``_resumed`` set = un-paused) and leaves ``_force_cycle`` clear.
+    app = _make_app(tmp_path, matcher_config, factory=lambda e: FakeMuleClient())
+    assert app._resumed.is_set()
+    assert not app._force_cycle.is_set()
+
+
+@pytest.mark.asyncio
+async def test_sleep_or_forced_returns_via_force_and_clears_event(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # FORCED path: the clock sleep would block forever, but ``_force_cycle`` set short-circuits
+    # the race; afterwards the event is CLEARED (so one force = exactly one immediate cycle).
+    app = _make_app(
+        tmp_path, matcher_config, factory=lambda e: FakeMuleClient(), clock=_BlockingSleepClock()
+    )
+    app._force_cycle.set()
+    await asyncio.wait_for(app._sleep_or_forced(100.0), timeout=1.0)
+    assert not app._force_cycle.is_set()
+
+
+@pytest.mark.asyncio
+async def test_sleep_or_forced_normal_path_sleeps_and_leaves_event_clear(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # NORMAL path: no force set → the (instant FakeClock) sleep wins; the force event stays clear.
+    clock = FakeClock()
+    app = _make_app(tmp_path, matcher_config, factory=lambda e: FakeMuleClient(), clock=clock)
+    await asyncio.wait_for(app._sleep_or_forced(0.0), timeout=1.0)
+    assert not app._force_cycle.is_set()
+    assert clock.sleeps == [0.0]  # the clock-sleep branch was taken
+
+
+@pytest.mark.asyncio
+async def test_resumed_gate_blocks_when_cleared_and_releases_when_set(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # Focused gate semantics: cleared ``_resumed`` blocks a waiter; setting it releases it.
+    app = _make_app(tmp_path, matcher_config, factory=lambda e: FakeMuleClient())
+    app._resumed.clear()  # paused
+    gate = asyncio.create_task(app._resumed.wait())
+    await asyncio.sleep(0)
+    assert not gate.done()
+    app._resumed.set()  # resume
+    await asyncio.wait_for(gate, timeout=1.0)
+    assert gate.done()
+
+
+class _CountingStatusClient(_ShutdownOnStatusClient):
+    """Counts ``network_status`` polls (a cycle ran) and still fires the shutdown on the first."""
+
+    def __init__(self, app_holder: dict[str, CrawlerApp], polls: list[int]) -> None:
+        super().__init__(app_holder)
+        self._polls = polls
+
+    async def network_status(self) -> NetworkStatus:
+        self._polls.append(1)
+        return await super().network_status()
+
+
+@pytest.mark.asyncio
+async def test_pause_gate_blocks_the_cycle_until_resumed(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # WIRING: a paused app (``_resumed`` cleared before run) blocks at the loop's gate BEFORE any
+    # cycle — the client's ``network_status`` is never polled and the run cannot self-shutdown.
+    # Resuming releases the gate → a cycle runs, polls the status, fires the shutdown, exits.
+    # Without the gate, the cycle would run immediately and the run would finish before resume.
+    holder: dict[str, CrawlerApp] = {}
+    polls: list[int] = []
+    client = _CountingStatusClient(holder, polls)
+    app = _make_app(tmp_path, matcher_config, factory=lambda e: client)
+    holder["app"] = app
+    app._resumed.clear()  # start paused
+    run_task = asyncio.create_task(app.run())
+    for _ in range(100):  # ample ticks for the ungated cycle to have run + shut down
+        await asyncio.sleep(0)
+    assert polls == []  # paused: no cycle ran
+    assert not run_task.done()  # blocked at the gate, no self-shutdown
+    app._resumed.set()  # resume → a cycle runs
+    await asyncio.wait_for(run_task, timeout=5.0)
+    assert polls  # a cycle ran after resume
+
+
+@pytest.mark.asyncio
+async def test_restart_control_triggers_graceful_shutdown(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # Driving ``LoopCrawlerControl.restart()`` (bound to the app's own events + this loop) sets
+    # ``_shutdown`` on the loop thread → an in-flight cycle is cancelled and ``run()`` exits
+    # cleanly, through the control path.
+    app = _make_app(tmp_path, matcher_config, factory=lambda e: _BlockingClient())
+    run_task = asyncio.create_task(app.run())
+    for _ in range(20):  # let the cycle start and block in fetch_results
+        await asyncio.sleep(0)
+    control = LoopCrawlerControl(
+        loop=asyncio.get_running_loop(),
+        force_cycle=app._force_cycle,
+        resumed=app._resumed,
+        shutdown=app._shutdown,
+    )
+    control.restart()
+    await asyncio.wait_for(run_task, timeout=5.0)
