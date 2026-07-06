@@ -73,6 +73,56 @@ def _seed_with_verdict(db: Path) -> None:
         conn.commit()
 
 
+def _seed_whole_episode(db: Path) -> None:
+    """A single whole-episode file (hash a*32) satisfying BOTH segments 072A + 072B (two
+    current decisions at tier ``download``) plus one per-file ``clean`` verdict — the core
+    multi-target fixture (spec §9). Standalone: never combine with ``_seed`` (same hash)."""
+    h = "a" * 32
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)",
+            (h, 170_000_000),
+        )
+        conn.execute(
+            "INSERT INTO file_observations"
+            " (ed2k_hash, filename, size_bytes, source_count,"
+            " complete_source_count, raw_meta, keyword, observed_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                h,
+                "keroro_072.avi",
+                170_000_000,
+                7,
+                3,
+                "[]",
+                "keroro",
+                "2026-07-01T10:00:00.000000+00:00",
+                "n1",
+            ),
+        )
+        for tid in ("072A", "072B"):
+            conn.execute(
+                "INSERT INTO match_decisions"
+                " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    h,
+                    tid,
+                    "numero_nu_confirmed",
+                    "download",
+                    "2026-07-01T10:00:01.000000+00:00",
+                    "n1",
+                ),
+            )
+        conn.execute(
+            "INSERT INTO file_verifications"
+            " (ed2k_hash, verdict, real_meta, checks, verified_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (h, "clean", None, None, "2026-07-01T12:00:00.000000+00:00", "n1"),
+        )
+        conn.commit()
+
+
 # ---------------------------------------------------------------------------
 # Tests: coverage
 # ---------------------------------------------------------------------------
@@ -110,6 +160,35 @@ def test_target_coverage_multiple_files_same_target(catalog_db: Path) -> None:
     reader = CatalogReader(open_ro(catalog_db))
     coverage = reader.target_coverage()
     assert len(coverage["062A"]) == 2
+
+
+def test_target_coverage_whole_episode_contributes_to_both_targets(catalog_db: Path) -> None:
+    _seed_whole_episode(catalog_db)
+    coverage = CatalogReader(open_ro(catalog_db)).target_coverage()
+    assert coverage["072A"] == [("a" * 32, "download")]
+    assert coverage["072B"] == [("a" * 32, "download")]
+
+
+def test_target_coverage_ignores_legacy_empty_target_sentinel(catalog_db: Path) -> None:
+    h = "e" * 32
+    with sqlite3.connect(catalog_db) as conn:
+        conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 100))
+        conn.execute(
+            "INSERT INTO match_decisions"
+            " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (h, "090A", "id_segment_exact", "download", "2026-07-05T10:00:00.000000+00:00", "n1"),
+        )
+        conn.execute(
+            "INSERT INTO match_decisions"
+            " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (h, "", "", "retracted", "2026-07-05T11:00:00.000000+00:00", "n1"),
+        )
+        conn.commit()
+    coverage = CatalogReader(open_ro(catalog_db)).target_coverage()
+    assert coverage["090A"] == [(h, "download")]
+    assert "" not in coverage
 
 
 # ---------------------------------------------------------------------------
@@ -378,9 +457,10 @@ def test_file_detail_observations_include_media_fields_present(catalog_db: Path)
 
 
 def _seed_retracted(db: Path) -> None:
-    """Add a third file (c*32) whose LATEST decision is the crawler's retraction sentinel
-    (``target_id="", rule_name="", tier="retracted"``), appended after a real decision (was
-    matched, then excluded by a policy change) — must be treated as unmatched everywhere."""
+    """Add a third file (c*32) that WAS matched (063A) then had that target retracted
+    per-target: a ``(hash, 063A, tier="retracted")`` marker appended after the real decision
+    (the new per-target retraction model, spec §6). Its latest 063A row is a retraction, so
+    it must be treated as unmatched everywhere."""
     h = "c" * 32
     with sqlite3.connect(db) as conn:
         conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 300))
@@ -411,7 +491,7 @@ def _seed_retracted(db: Path) -> None:
             "INSERT INTO match_decisions"
             " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            (h, "", "", "retracted", "2026-06-22T11:00:00.000000+00:00", "n1"),
+            (h, "063A", "", "retracted", "2026-06-22T11:00:00.000000+00:00", "n1"),
         )
         conn.commit()
 
