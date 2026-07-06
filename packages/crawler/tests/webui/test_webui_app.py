@@ -21,6 +21,27 @@ from mulewatch.webui.domain.views import FileDecision, FileRow
 TEST_HASH = "aabbccdd00112233aabbccdd00112233"
 
 
+class _RecordingControl:
+    """Records runtime-control intents (phase P6a). Satisfies ``CrawlerControl`` structurally;
+    the throwaway instances passed to the read-path fixtures are never invoked, while the
+    controls-route tests inspect ``calls``."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def force_cycle(self) -> None:
+        self.calls.append("force_cycle")
+
+    def pause(self) -> None:
+        self.calls.append("pause")
+
+    def resume(self) -> None:
+        self.calls.append("resume")
+
+    def restart(self) -> None:
+        self.calls.append("restart")
+
+
 def _targets() -> tuple[TargetSegment, ...]:
     return parse_targets(
         yaml.safe_load(
@@ -117,6 +138,7 @@ def populated_app(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
         targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
+        control=_RecordingControl(),
     )
     return app, TEST_HASH
 
@@ -172,6 +194,7 @@ def app_no_decision(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
         targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
+        control=_RecordingControl(),
     )
     return app, TEST_HASH
 
@@ -238,6 +261,7 @@ def app_retracted_decision(catalog_db: Path, local_db: Path) -> tuple[Starlette,
         targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
+        control=_RecordingControl(),
     )
     return app, TEST_HASH
 
@@ -275,6 +299,7 @@ def app_no_observations(catalog_db: Path, local_db: Path) -> tuple[Starlette, st
         targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
+        control=_RecordingControl(),
     )
     return app, TEST_HASH
 
@@ -334,6 +359,7 @@ def app_unknown_target(catalog_db: Path, local_db: Path) -> tuple[Starlette, str
         targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
+        control=_RecordingControl(),
     )
     return app, TEST_HASH
 
@@ -393,6 +419,7 @@ def app_download_tier_known_target(catalog_db: Path, local_db: Path) -> tuple[St
         targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
+        control=_RecordingControl(),
     )
     return app, TEST_HASH
 
@@ -452,6 +479,7 @@ def app_download_tier_unknown_target(catalog_db: Path, local_db: Path) -> tuple[
         targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
+        control=_RecordingControl(),
     )
     return app, TEST_HASH
 
@@ -791,6 +819,7 @@ def app_with_media_obs(catalog_db: Path, local_db: Path) -> tuple[Starlette, str
         targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
+        control=_RecordingControl(),
     )
     return app, TEST_HASH
 
@@ -866,6 +895,7 @@ def app_with_hostile_filename(catalog_db: Path, local_db: Path) -> tuple[Starlet
         targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
+        control=_RecordingControl(),
     )
     return app, TEST_HASH
 
@@ -962,6 +992,7 @@ async def test_files_page_shows_pagination_navigation(catalog_db: Path, local_db
         targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
+        control=_RecordingControl(),
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp1 = await client.get("/files")
@@ -1304,6 +1335,7 @@ def app_whole_episode(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]
         targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
+        control=_RecordingControl(),
     )
     return app, TEST_HASH
 
@@ -1346,3 +1378,165 @@ async def test_file_detail_whole_episode_shows_both_targets(
     assert resp.status_code == 200
     assert "072A" in resp.text
     assert "072B" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Runtime controls (phase P6a): GET renders, each POST dispatches one intent and
+# redirects (PRG), the ?done banner maps a known code to a message (both branches).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def controls_app(catalog_db: Path, local_db: Path) -> tuple[Starlette, _RecordingControl]:
+    """App wired with a recording control, for the runtime-control route tests. The controls
+    routes never read the DB, so no seeding is needed."""
+    matcher_config = _matcher()
+    targets = _targets()
+
+    import mulewatch.webui
+
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
+    control = _RecordingControl()
+    app = build_app(
+        catalog_db=catalog_db,
+        local_db=local_db,
+        matcher_config=matcher_config,
+        targets=targets,
+        templates_dir=templates_dir,
+        static_dir=static_dir,
+        control=control,
+    )
+    return app, control
+
+
+@pytest.mark.asyncio
+async def test_controls_get_renders_the_four_action_forms(
+    controls_app: tuple[Starlette, _RecordingControl],
+) -> None:
+    """GET /controls -> 200 with a POST form for each of the four in-scope controls."""
+    app, _ = controls_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/controls")
+    assert resp.status_code == 200
+    assert 'action="/controls/force-cycle"' in resp.text
+    assert 'action="/controls/pause"' in resp.text
+    assert 'action="/controls/resume"' in resp.text
+    assert 'action="/controls/restart"' in resp.text
+    # P6b controls are explicitly out of scope: no re-evaluate / requeue actions here.
+    assert "reevaluate" not in resp.text
+    assert "requeue" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_controls_nav_link_present_on_a_rendered_page(
+    controls_app: tuple[Starlette, _RecordingControl],
+) -> None:
+    """The base nav gained a Controls link (href="/controls")."""
+    app, _ = controls_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/controls")
+    assert resp.status_code == 200
+    assert 'href="/controls"' in resp.text
+
+
+@pytest.mark.asyncio
+async def test_controls_get_without_done_shows_no_banner(
+    controls_app: tuple[Starlette, _RecordingControl],
+) -> None:
+    """GET /controls (no ?done) renders no status banner (empty messages tuple)."""
+    app, _ = controls_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/controls")
+    assert resp.status_code == 200
+    assert "control-banner" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_controls_get_unknown_done_shows_no_banner(
+    controls_app: tuple[Starlette, _RecordingControl],
+) -> None:
+    """An unknown ?done code maps to no message -> no banner (covers the mapping's miss branch)."""
+    app, _ = controls_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/controls?done=bogus")
+    assert resp.status_code == 200
+    assert "control-banner" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_controls_get_known_done_shows_banner_message(
+    controls_app: tuple[Starlette, _RecordingControl],
+) -> None:
+    """A known ?done code renders its human message in a banner (covers the mapping's hit
+    branch)."""
+    app, _ = controls_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/controls?done=force-cycle")
+    assert resp.status_code == 200
+    assert "control-banner" in resp.text
+    assert "Cycle forced. A new search cycle starts shortly." in resp.text
+
+
+@pytest.mark.asyncio
+async def test_post_force_cycle_dispatches_and_redirects(
+    controls_app: tuple[Starlette, _RecordingControl],
+) -> None:
+    app, control = controls_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/controls/force-cycle")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/controls?done=force-cycle"
+    assert control.calls == ["force_cycle"]
+
+
+@pytest.mark.asyncio
+async def test_post_pause_dispatches_and_redirects(
+    controls_app: tuple[Starlette, _RecordingControl],
+) -> None:
+    app, control = controls_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/controls/pause")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/controls?done=paused"
+    assert control.calls == ["pause"]
+
+
+@pytest.mark.asyncio
+async def test_post_resume_dispatches_and_redirects(
+    controls_app: tuple[Starlette, _RecordingControl],
+) -> None:
+    app, control = controls_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/controls/resume")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/controls?done=resumed"
+    assert control.calls == ["resume"]
+
+
+@pytest.mark.asyncio
+async def test_post_restart_dispatches_and_redirects(
+    controls_app: tuple[Starlette, _RecordingControl],
+) -> None:
+    app, control = controls_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/controls/restart")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/controls?done=restart"
+    assert control.calls == ["restart"]
+
+
+@pytest.mark.asyncio
+async def test_post_force_cycle_followed_lands_on_banner(
+    controls_app: tuple[Starlette, _RecordingControl],
+) -> None:
+    """Following the redirect lands on the controls page with the force-cycle banner (end-to-end
+    PRG)."""
+    app, control = controls_app
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", follow_redirects=True
+    ) as client:
+        resp = await client.post("/controls/force-cycle")
+    assert resp.status_code == 200
+    assert "Cycle forced. A new search cycle starts shortly." in resp.text
+    assert control.calls == ["force_cycle"]

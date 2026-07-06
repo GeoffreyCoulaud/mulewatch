@@ -1,0 +1,55 @@
+"""``LoopCrawlerControl``: thread-safe crawler-control adapter (spec §10, phase P6a).
+
+Concrete ``CrawlerControl`` (satisfied structurally). The webui handlers run on the webui
+thread + loop; the crawler owns its ``asyncio.Event``s on its MAIN loop. The load-bearing
+primitive is ``loop.call_soon_threadsafe``: ``asyncio.Event.set()``/``.clear()`` are NOT safe to
+call directly from another thread (they may need to wake waiters scheduled on the crawler loop,
+and the events are affine to that loop), so every control SCHEDULES its mutation to run ON the
+crawler loop thread. The call returns immediately; the mutation happens on the next crawler loop
+tick.
+
+READ-ONLY BY CONSTRUCTION (spec §4 invariant): this adapter holds NO DB connection and imports
+no persistence. Its ONLY effect is scheduling ``asyncio.Event`` mutations on the crawler loop.
+That is the structural guarantee that the webui can never write to the database through a
+control.
+"""
+
+import asyncio
+
+
+class LoopCrawlerControl:
+    """Forwards each control intent onto the crawler loop via ``call_soon_threadsafe``.
+
+    The four events are the crawler's own (``CrawlerApp``): ``force_cycle`` interrupts the
+    inter-cycle sleep, ``resumed`` is the pause gate (set = running, clear = paused), and
+    ``shutdown`` is the graceful-shutdown signal.
+    """
+
+    def __init__(
+        self,
+        *,
+        loop: asyncio.AbstractEventLoop,
+        force_cycle: asyncio.Event,
+        resumed: asyncio.Event,
+        shutdown: asyncio.Event,
+    ) -> None:
+        self._loop = loop
+        self._force_cycle = force_cycle
+        self._resumed = resumed
+        self._shutdown = shutdown
+
+    def force_cycle(self) -> None:
+        """Interrupt the inter-cycle sleep so the next search cycle starts immediately."""
+        self._loop.call_soon_threadsafe(self._force_cycle.set)
+
+    def pause(self) -> None:
+        """Clear the run gate: the current cycle finishes, then the crawler idles."""
+        self._loop.call_soon_threadsafe(self._resumed.clear)
+
+    def resume(self) -> None:
+        """Set the run gate: the crawler continues cycling."""
+        self._loop.call_soon_threadsafe(self._resumed.set)
+
+    def restart(self) -> None:
+        """Request the crawler's graceful shutdown (the container restarts it)."""
+        self._loop.call_soon_threadsafe(self._shutdown.set)

@@ -12,7 +12,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
@@ -22,6 +22,7 @@ from catalog_matching.config import MatcherConfig
 from catalog_matching.ed2k_link import build_ed2k_link
 from catalog_matching.models import TargetSegment
 from mulewatch.adapters.persistence_sqlite.reader import ReaderProvider
+from mulewatch.ports.crawler_control import CrawlerControl
 from mulewatch.webui.adapters.catalog_read import PAGE_SIZE, CatalogReader
 from mulewatch.webui.adapters.local_read import LocalReader
 from mulewatch.webui.adapters.matching_read import MatchingExplainer
@@ -169,6 +170,17 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# Human status messages shown after a control POST (via the PRG ``?done=<code>`` param). The
+# strings avoid em/en-dashes (project UI rule). A ``done`` code absent from this mapping (or no
+# ``done`` at all) renders NO banner.
+_CONTROL_MESSAGES: dict[str, str] = {
+    "force-cycle": "Cycle forced. A new search cycle starts shortly.",
+    "paused": "Crawl paused. The current cycle finishes, then the crawler idles.",
+    "resumed": "Crawl resumed.",
+    "restart": "Restart requested. The service goes offline briefly, then returns.",
+}
+
+
 def build_app(
     *,
     catalog_db: Path,
@@ -177,13 +189,19 @@ def build_app(
     targets: tuple[TargetSegment, ...],
     templates_dir: Path,
     static_dir: Path,
+    control: CrawlerControl,
 ) -> Starlette:
     """Build and return the wired Starlette application.
 
     ``matcher_config`` + ``targets`` arrive ALREADY PARSED from the caller (``__main__`` for
     the standalone entrypoint, ``CrawlerApp`` in-process later); this module no longer reads
     ``matcher.yml`` / ``targets.yml`` itself. Passing the crawler's own parsed matcher is what
-    keeps the explainer's config from drifting from the persisted decisions (spec §8)."""
+    keeps the explainer's config from drifting from the persisted decisions (spec §8).
+
+    ``control`` is the runtime-control PORT (``CrawlerControl``): the webui depends on the port,
+    never on the concrete adapter (composition wires ``LoopCrawlerControl``). Every control POST
+    dispatches a thread-safe, fire-and-forget intent to the crawler loop; the webui itself holds
+    no write connection (spec §4/§10)."""
 
     templates = Jinja2Templates(directory=templates_dir)
     target_segments = targets
@@ -386,6 +404,36 @@ def build_app(
         )
 
     # ------------------------------------------------------------------
+    # Runtime controls (phase P6a): POST intents dispatched to the crawler loop via
+    # ``control`` (a ``CrawlerControl`` port). Each POST is fire-and-forget then redirects
+    # (PRG) to ``/controls?done=<code>``; GET renders the page + a 0-or-1 message banner.
+    # NO CSRF token: consistent with the no-auth, network-trust-boundary posture (spec §12).
+    # ------------------------------------------------------------------
+
+    async def handle_controls(request: Request) -> Response:
+        done = request.query_params.get("done")
+        message = _CONTROL_MESSAGES.get(done) if done is not None else None
+        # 0-or-1-element tuple the template iterates with {% for %} (no {% if %}, W-D8).
+        messages: tuple[str, ...] = (message,) if message is not None else ()
+        return templates.TemplateResponse(request, "controls.html", {"messages": messages})
+
+    async def handle_force_cycle(request: Request) -> Response:
+        control.force_cycle()
+        return RedirectResponse("/controls?done=force-cycle", status_code=303)
+
+    async def handle_pause(request: Request) -> Response:
+        control.pause()
+        return RedirectResponse("/controls?done=paused", status_code=303)
+
+    async def handle_resume(request: Request) -> Response:
+        control.resume()
+        return RedirectResponse("/controls?done=resumed", status_code=303)
+
+    async def handle_restart(request: Request) -> Response:
+        control.restart()
+        return RedirectResponse("/controls?done=restart", status_code=303)
+
+    # ------------------------------------------------------------------
     # Application
     # ------------------------------------------------------------------
 
@@ -397,6 +445,11 @@ def build_app(
             Route("/files/{ed2k_hash}", handle_file_detail),
             Route("/targets/{target_id}", handle_target),
             Route("/node", handle_node),
+            Route("/controls", handle_controls),
+            Route("/controls/force-cycle", handle_force_cycle, methods=["POST"]),
+            Route("/controls/pause", handle_pause, methods=["POST"]),
+            Route("/controls/resume", handle_resume, methods=["POST"]),
+            Route("/controls/restart", handle_restart, methods=["POST"]),
             Mount("/static", StaticFiles(directory=static_dir)),
         ],
         middleware=[Middleware(_SecurityHeadersMiddleware)],
