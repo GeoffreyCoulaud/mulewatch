@@ -43,6 +43,13 @@ def test_golden_corpus(case: dict[str, Any]) -> None:
     if case.get("discarded", False):
         assert decisions == [], f"{case['id']}: expected discarded, got {decisions}"
         return
+    if "decisions" in case:
+        expected = [
+            (str(d["target_id"]), str(d["tier"]), str(d["rule_name"])) for d in case["decisions"]
+        ]
+        got = [(d.target_id, d.tier, d.rule_name) for d in decisions]
+        assert got == expected, f"{case['id']}: fan-out mismatch: {got} != {expected}"
+        return
     assert len(decisions) == 1, f"{case['id']}: expected one decision, got {decisions}"
     decision = decisions[0]
     assert decision.tier == case["tier"], f"{case['id']}: tier"
@@ -55,6 +62,11 @@ def test_corpus_covers_every_tier_and_a_discard() -> None:
     tiers = {c.get("tier") for c in _CASES if not c.get("discarded", False)}
     assert {"download", "notify", "catalog"} <= tiers
     assert any(c.get("discarded", False) for c in _CASES)
+
+
+def test_corpus_has_a_multi_decision_fan_out_case() -> None:
+    # The fan-out contract (spec §3) is exercised: at least one case emits >1 decision.
+    assert any("decisions" in c and len(c["decisions"]) > 1 for c in _CASES)
 
 
 # --- is_archive token contract (shipped policy) ------------------------------------
