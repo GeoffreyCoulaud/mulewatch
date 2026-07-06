@@ -42,3 +42,17 @@ def test_open_ro_rows_are_dict_addressable(catalog_db: Path) -> None:
         assert row["n"] == 1
     finally:
         conn.close()
+
+
+def test_open_ro_keeps_temp_in_memory(catalog_db: Path) -> None:
+    """The reader must not depend on scratch disk. The hardened webui container mounts a tiny
+    (32 MB) ``/tmp`` tmpfs, while the window-function reads materialize larger temp b-trees;
+    with the default file-backed temp store SQLite spills there, overflows the tmpfs, and
+    raises ``OperationalError: database or disk is full`` (verified on the real 250k-observation
+    catalog). ``temp_store=MEMORY`` (2) keeps temp in the process heap, bounded by the
+    container mem_limit, instead of on a scratch disk it does not have."""
+    conn = open_ro(catalog_db)
+    try:
+        assert conn.execute("PRAGMA temp_store").fetchone()[0] == 2  # 2 == MEMORY
+    finally:
+        conn.close()
