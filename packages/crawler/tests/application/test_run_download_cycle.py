@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from catalog_matching.engine import DownloadCandidate
 from catalog_matching.models import TargetSegment
 from mulewatch.application.run_download_cycle import DownloadDeps, run_download_cycle
 from mulewatch.domain.download.states import DownloadState
-from mulewatch.domain.observability.events import DownloadCompleted, PromotionFailed
+from mulewatch.domain.observability.events import DownloadCompleted, DownloadQueued, PromotionFailed
 from mulewatch.ports.catalog_repository import ObservedFile
 from mulewatch.ports.mule_client import (
     KadStatus,
@@ -225,6 +226,7 @@ def _deps(
     local: FakeLocalRepo,
     disk_cap: int = 1_000_000,
     telemetry: RecordingTelemetry | None = None,
+    targets: Sequence[TargetSegment] | None = None,
 ) -> DownloadDeps:
     return DownloadDeps(
         client=client,
@@ -232,7 +234,7 @@ def _deps(
         downloads=downloads,
         catalog=catalog,
         local=local,
-        targets=_TARGETS,
+        targets=targets if targets is not None else _TARGETS,
         disk_cap_bytes=disk_cap,
         staging_dir=Path("/staging"),
         clock=FakeClock(),
@@ -285,6 +287,20 @@ async def test_already_downloaded_candidate_is_deduped() -> None:
 async def test_two_segment_candidates_same_hash_dedup_to_one_download() -> None:
     # spec §8: a whole-episode file yields BOTH (hash,062A) and (hash,062B) in
     # download_decisions; is_downloaded(hash) dedups them to ONE physical download.
+    #
+    # Both targets are DOWNLOAD-eligible ("lost", not "complete") so the ONLY thing that
+    # can collapse the two candidates is the `is_downloaded(hash)` guard in
+    # _queue_new_candidates — never `_target_status` falling back to its "complete"
+    # default for an absent target (that would be an unrelated skip path, spec §6).
+    targets = (
+        TargetSegment(
+            season=2, seasonal_number=11, absolute_number=62, segment="A", title="t", status="lost"
+        ),
+        TargetSegment(
+            season=2, seasonal_number=12, absolute_number=62, segment="B", title="t", status="lost"
+        ),
+    )
+    telemetry = RecordingTelemetry()
     client = FakeDownloadClient()
     downloads = FakeDownloadRepo()
     catalog = FakeCatalogReads(
@@ -297,11 +313,21 @@ async def test_two_segment_candidates_same_hash_dedup_to_one_download() -> None:
         downloads=downloads,
         catalog=catalog,
         local=FakeLocalRepo(),
+        telemetry=telemetry,
+        targets=targets,
     )
     await run_download_cycle(deps)
     assert list(downloads.states) == [_A]
     assert downloads.states[_A] is DownloadState.QUEUED
     assert len(client.added_links) == 1 and _A in client.added_links[0]
+    # Load-bearing assertion: exactly ONE DownloadQueued event. _queue_new_candidates
+    # emits one per NON-skipped candidate (run_download_cycle.py, end of the loop body);
+    # both candidates are policy-eligible here, so a SECOND event would only appear if the
+    # `is_downloaded` continue-guard were removed — unlike the hash-keyed dict observables
+    # above (states/added_links), which stay collapsed regardless thanks to
+    # FakeDownloadRepo.record_queued's own idempotency guard.
+    queued_events = [e for e in telemetry.events if isinstance(e, DownloadQueued)]
+    assert len(queued_events) == 1
 
 
 @pytest.mark.asyncio
