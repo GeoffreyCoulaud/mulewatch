@@ -8,8 +8,8 @@ from httpx import ASGITransport, AsyncClient
 from starlette.applications import Starlette
 
 from catalog_matching.models import TargetSegment
-from catalog_webui.composition.app import _resolve_target_display, _to_display_rows, build_app
-from catalog_webui.domain.views import FileDecision, FileRow
+from mulewatch.webui.composition.app import _resolve_target_display, _to_display_rows, build_app
+from mulewatch.webui.domain.views import FileDecision, FileRow
 
 # ---------------------------------------------------------------------------
 # Helpers YAML
@@ -102,10 +102,10 @@ def populated_app(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Sta
     targets_path = _write_targets_yaml(tmp_path)
     matcher_path = _write_matcher_yaml(tmp_path)
 
-    import catalog_webui
+    import mulewatch.webui
 
-    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
-    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
 
     app = build_app(
         catalog_db=catalog_db,
@@ -157,10 +157,10 @@ def app_no_decision(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[S
     targets_path = _write_targets_yaml(tmp_path)
     matcher_path = _write_matcher_yaml(tmp_path)
 
-    import catalog_webui
+    import mulewatch.webui
 
-    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
-    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
 
     app = build_app(
         catalog_db=catalog_db,
@@ -225,10 +225,10 @@ def app_retracted_decision(
     targets_path = _write_targets_yaml(tmp_path)
     matcher_path = _write_matcher_yaml(tmp_path)
 
-    import catalog_webui
+    import mulewatch.webui
 
-    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
-    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
 
     app = build_app(
         catalog_db=catalog_db,
@@ -262,10 +262,10 @@ def app_no_observations(catalog_db: Path, local_db: Path, tmp_path: Path) -> tup
     targets_path = _write_targets_yaml(tmp_path)
     matcher_path = _write_matcher_yaml(tmp_path)
 
-    import catalog_webui
+    import mulewatch.webui
 
-    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
-    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
 
     app = build_app(
         catalog_db=catalog_db,
@@ -321,10 +321,10 @@ def app_unknown_target(catalog_db: Path, local_db: Path, tmp_path: Path) -> tupl
     targets_path = _write_targets_yaml(tmp_path)
     matcher_path = _write_matcher_yaml(tmp_path)
 
-    import catalog_webui
+    import mulewatch.webui
 
-    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
-    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
 
     app = build_app(
         catalog_db=catalog_db,
@@ -382,10 +382,10 @@ def app_download_tier_known_target(
     targets_path = _write_targets_yaml(tmp_path)
     matcher_path = _write_matcher_yaml(tmp_path)
 
-    import catalog_webui
+    import mulewatch.webui
 
-    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
-    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
 
     app = build_app(
         catalog_db=catalog_db,
@@ -443,10 +443,10 @@ def app_download_tier_unknown_target(
     targets_path = _write_targets_yaml(tmp_path)
     matcher_path = _write_matcher_yaml(tmp_path)
 
-    import catalog_webui
+    import mulewatch.webui
 
-    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
-    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
 
     app = build_app(
         catalog_db=catalog_db,
@@ -782,10 +782,10 @@ def app_with_media_obs(catalog_db: Path, local_db: Path, tmp_path: Path) -> tupl
     targets_path = _write_targets_yaml(tmp_path)
     matcher_path = _write_matcher_yaml(tmp_path)
 
-    import catalog_webui
+    import mulewatch.webui
 
-    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
-    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
 
     app = build_app(
         catalog_db=catalog_db,
@@ -860,10 +860,10 @@ def app_with_hostile_filename(
         conn.commit()
     targets_path = _write_targets_yaml(tmp_path)
     matcher_path = _write_matcher_yaml(tmp_path)
-    import catalog_webui
+    import mulewatch.webui
 
-    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
-    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
@@ -958,10 +958,10 @@ async def test_files_page_shows_pagination_navigation(
         conn.commit()
     targets_path = _write_targets_yaml(tmp_path)
     matcher_path = _write_matcher_yaml(tmp_path)
-    import catalog_webui
+    import mulewatch.webui
 
-    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
-    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
@@ -1300,10 +1300,10 @@ def app_whole_episode(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple
     targets_path = _write_targets_yaml_ab(tmp_path)
     matcher_path = _write_matcher_yaml(tmp_path)
 
-    import catalog_webui
+    import mulewatch.webui
 
-    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
-    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,

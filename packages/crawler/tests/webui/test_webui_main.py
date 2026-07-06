@@ -1,4 +1,4 @@
-"""TDD tests for the uvicorn entry point (catalog_webui.__main__ — Task 12).
+"""TDD tests for the uvicorn entry point (mulewatch.webui.__main__ — Task 12).
 
 ``uvicorn.run`` is monkeypatched to capture the call without starting a server.
 The SQLite databases are created via the conftest ``catalog_db``/``local_db`` fixtures.
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from starlette.applications import Starlette
 
-from catalog_webui.__main__ import _require_env, main
+from mulewatch.webui.__main__ import _require_env, main
 
 # ---------------------------------------------------------------------------
 # Minimal YAML helpers (same as in test_webui_app.py)
@@ -103,7 +103,7 @@ def test_main_builds_app_and_runs_uvicorn(
     }
 
     with (
-        patch("catalog_webui.__main__.uvicorn") as mock_uvicorn,
+        patch("mulewatch.webui.__main__.uvicorn") as mock_uvicorn,
         patch.dict("os.environ", env, clear=True),
     ):
         mock_uvicorn.run = MagicMock(side_effect=fake_uvicorn_run)
@@ -137,7 +137,7 @@ def test_main_uses_default_host_and_port(
     }
 
     with (
-        patch("catalog_webui.__main__.uvicorn") as mock_uvicorn,
+        patch("mulewatch.webui.__main__.uvicorn") as mock_uvicorn,
         patch.dict("os.environ", env, clear=True),
     ):
         mock_uvicorn.run = MagicMock(side_effect=fake_uvicorn_run)

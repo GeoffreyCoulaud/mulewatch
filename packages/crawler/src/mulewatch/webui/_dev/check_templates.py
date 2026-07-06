@@ -70,7 +70,7 @@ def find_logic_violations(directory: Path) -> list[str]:
 
 
 def main() -> None:
-    """CLI entry point: ``python -m catalog_webui._dev.check_templates <directory>``."""
+    """CLI entry point: ``python -m mulewatch.webui._dev.check_templates <directory>``."""
     if len(sys.argv) < 2:
         sys.exit("usage: check_templates <dir>")
     directory = Path(sys.argv[1])
