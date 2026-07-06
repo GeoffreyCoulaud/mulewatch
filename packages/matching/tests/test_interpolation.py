@@ -46,13 +46,7 @@ def test_interpolate_leaves_regex_quantifier_braces_untouched() -> None:
     assert interpolate(r"keroro\d{2,4}{absolute_number}", _target()) == r"keroro\d{2,4}62"
 
 
-def test_interpolate_mono_gate_empty_for_sole_segment() -> None:
-    t = TargetSegment(
-        season=1, seasonal_number=10, absolute_number=10, segment="a", title="x", sole_segment=True
-    )
-    assert interpolate(r"{mono_gate}KEROW", t) == "KEROW"
-
-
-def test_interpolate_mono_gate_never_match_for_multi_segment() -> None:
-    t = TargetSegment(season=2, seasonal_number=11, absolute_number=62, segment="a", title="x")
-    assert interpolate(r"{mono_gate}KEROW", t) == r"[^\s\S]KEROW"
+def test_interpolate_mono_gate_is_now_unknown() -> None:
+    # {mono_gate} was retired with the multi-target fan-out: now an unknown placeholder.
+    with pytest.raises(InterpolationError, match="mono_gate"):
+        interpolate(r"{mono_gate}KEROW", _target())
