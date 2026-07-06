@@ -1,6 +1,7 @@
 # Corpus golden (cf. spec §16) : noms réels + forgés -> palier/cible/règle attendus.
 # EXTENSIBLE PAR LA COMMUNAUTÉ : ajouter un cas = ajouter une entrée ci-dessous.
-# Un cas : { id, filename, tier, target_id, rule_name } ou { id, filename, discarded: true }.
+# Un cas : { id, filename, tier, target_id, rule_name } ou { id, filename, discarded: true }
+# ou { id, filename, decisions: [{ target_id, tier, rule_name }, ...] } (fan-out multi-cible).
 cases:
   - id: real_62A_full_release
     filename: "[TV] KERORO MISSION TITAR N°062A « Les demoiselles cambrioleuses » [Dimanche 21 septembre 2008 à 16H50 sur TELETOON].avi"
@@ -217,3 +218,32 @@ cases:
     tier: catalog
     target_id: 062A
     rule_name: keroro_large
+
+  # --- Multi-target fan-out (spec §3/§11): a whole-episode file resolves BOTH segments. ---
+  - id: bare_number_fans_out_both_segments
+    # §3 row 1 / §11 clean bare number: no segment-level signal -> 062A + 062B (rule 2).
+    filename: "Keroro 62.avi"
+    decisions:
+      - { target_id: 062A, tier: notify, rule_name: numero_nu }
+      - { target_id: 062B, tier: notify, rule_name: numero_nu }
+
+  - id: bare_number_with_source_marker_fans_out_download
+    # §3 row 3: bare number + source marker -> both segments in download (no tier cap).
+    filename: "Keroro 62 teletoon.avi"
+    decisions:
+      - { target_id: 062A, tier: download, rule_name: numero_nu_confirmed }
+      - { target_id: 062B, tier: download, rule_name: numero_nu_confirmed }
+
+  - id: both_segment_titles_fan_out_both_segments
+    # §11 both titles present: each title pins its own segment (rule 1) -> 062A + 062B.
+    filename: "Keroro Les demoiselles cambrioleuses Le grand combat sous-marin.avi"
+    decisions:
+      - { target_id: 062A, tier: notify, rule_name: title_review }
+      - { target_id: 062B, tier: notify, rule_name: title_review }
+
+  - id: title_a_plus_bare_number_pins_a_only
+    # §3 row 2 / §11: title A cuts the fan-out (rule 1) -> a single decision on 062A.
+    filename: "Keroro 62 Les demoiselles cambrioleuses.avi"
+    tier: notify
+    target_id: 062A
+    rule_name: title_review
