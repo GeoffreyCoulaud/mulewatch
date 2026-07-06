@@ -9,7 +9,7 @@ from starlette.applications import Starlette
 
 from catalog_matching.models import TargetSegment
 from catalog_webui.composition.app import _resolve_target_display, _to_display_rows, build_app
-from catalog_webui.domain.views import FileRow
+from catalog_webui.domain.views import FileDecision, FileRow
 
 # ---------------------------------------------------------------------------
 # Helpers YAML
@@ -177,8 +177,8 @@ def app_no_decision(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[S
 def app_retracted_decision(
     catalog_db: Path, local_db: Path, tmp_path: Path
 ) -> tuple[Starlette, str]:
-    """File whose LATEST decision is the crawler's retraction sentinel
-    (``target_id="", rule_name="", tier="retracted"``) — must be treated exactly like
+    """File whose LATEST decision for target 062A is a per-target retraction sentinel
+    (``target_id="062A", rule_name="", tier="retracted"``) — must be treated exactly like
     ``app_no_decision`` (unmatched), never like a real decision."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
@@ -208,10 +208,10 @@ def app_retracted_decision(
             "INSERT INTO match_decisions VALUES (1, ?, ?, ?, ?, ?, ?)",
             (TEST_HASH, "062A", "high_confidence", "download", "2024-01-01T00:00:00", "node1"),
         )
-        # ...then the crawler's retraction sentinel, now the LATEST row.
+        # ...then the per-target retraction sentinel, now the LATEST row for 062A.
         conn.execute(
             "INSERT INTO match_decisions VALUES (2, ?, ?, ?, ?, ?, ?)",
-            (TEST_HASH, "", "", "retracted", "2024-01-02T00:00:00", "node1"),
+            (TEST_HASH, "062A", "", "retracted", "2024-01-02T00:00:00", "node1"),
         )
         conn.commit()
 
@@ -1009,88 +1009,87 @@ async def test_hostile_filename_is_escaped_in_ed2k_link(
 # ---------------------------------------------------------------------------
 
 _SEGMENT_062A = TargetSegment(
-    season=2,
-    seasonal_number=11,
-    absolute_number=62,
-    segment="a",
-    title="La Grenouille Cosmique",
+    season=2, seasonal_number=11, absolute_number=62, segment="a", title="La Grenouille Cosmique"
+)
+_SEGMENT_062B = TargetSegment(
+    season=2, seasonal_number=11, absolute_number=62, segment="b", title="Duel Contre Giroro"
 )
 _SEGMENT_BY_ID = {_SEGMENT_062A.target_id: _SEGMENT_062A}
+_SEGMENTS_AB = {s.target_id: s for s in (_SEGMENT_062A, _SEGMENT_062B)}
 
 
-def _file_row(
-    *, target_id: str | None, tier: str | None, last_verdict: str | None = None
-) -> FileRow:
+def _file_row(*, decisions: tuple[FileDecision, ...], last_verdict: str | None = None) -> FileRow:
     return FileRow(
         ed2k_hash=TEST_HASH,
         size_bytes=1024,
         filename="f.avi",
         source_count=1,
         last_seen="2024-01-01T00:00:00",
-        target_id=target_id,
-        tier=tier,
+        decisions=decisions,
         last_verdict=last_verdict,
     )
 
 
-def test_resolve_target_display_no_decision_is_all_dashes() -> None:
-    row = _file_row(target_id=None, tier=None)
-    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("·", "·")
+def test_resolve_target_display_empty_decisions_is_empty_list() -> None:
+    assert _resolve_target_display(_file_row(decisions=()), _SEGMENT_BY_ID) == []
 
 
-def test_resolve_target_display_catalog_tier_is_unidentified() -> None:
-    """``keroro_large`` is the only catalog-tier rule — tier=="catalog" always means "not
-    identified to a specific episode", regardless of the (possibly resolvable) target_id it
-    was recorded against."""
-    row = _file_row(target_id="062A", tier="catalog")
-    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("unidentified", "·")
+def test_resolve_target_display_catalog_decision_is_unidentified() -> None:
+    row = _file_row(decisions=(FileDecision(target_id="062A", tier="catalog"),))
+    assert _resolve_target_display(row, _SEGMENT_BY_ID) == [("unidentified", "·")]
 
 
 def test_resolve_target_display_resolvable_id_joins_seasonal_locator_and_title() -> None:
-    row = _file_row(target_id="062A", tier="download")
-    assert _resolve_target_display(row, _SEGMENT_BY_ID) == (
-        "062A / S02E11A",
-        "La Grenouille Cosmique",
-    )
+    row = _file_row(decisions=(FileDecision(target_id="062A", tier="download"),))
+    assert _resolve_target_display(row, _SEGMENT_BY_ID) == [
+        ("062A / S02E11A", "La Grenouille Cosmique")
+    ]
 
 
 def test_resolve_target_display_unknown_id_falls_back_to_raw_id() -> None:
-    """A target_id no longer present in the current targets.yaml (e.g. after an edit)."""
-    row = _file_row(target_id="999Z", tier="download")
-    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("999Z", "·")
+    row = _file_row(decisions=(FileDecision(target_id="999Z", tier="download"),))
+    assert _resolve_target_display(row, _SEGMENT_BY_ID) == [("999Z", "·")]
 
 
-def test_resolve_target_display_retracted_is_all_dashes() -> None:
-    """The crawler's retraction sentinel row (``target_id="", tier="retracted"``) must be
-    treated exactly like no decision at all, never falling back to the raw (empty) id."""
-    row = _file_row(target_id="", tier="retracted")
-    assert _resolve_target_display(row, _SEGMENT_BY_ID) == ("·", "·")
+def test_resolve_target_display_two_segments_returns_a_pair_each() -> None:
+    row = _file_row(decisions=(FileDecision("062A", "download"), FileDecision("062B", "download")))
+    assert _resolve_target_display(row, _SEGMENTS_AB) == [
+        ("062A / S02E11A", "La Grenouille Cosmique"),
+        ("062B / S02E11B", "Duel Contre Giroro"),
+    ]
 
 
-def test_to_display_rows_verdict_dash_when_no_decision() -> None:
-    row = _file_row(target_id=None, tier=None)
-    [display] = _to_display_rows([row], _SEGMENT_BY_ID)
-    assert display.verdict_display == "·"
-
-
-def test_to_display_rows_retracted_shows_dash_tier_and_verdict() -> None:
-    """A retracted latest decision renders "·" for tier and verdict, even if a verdict was
-    recorded before the file was retracted (never a stale badge)."""
-    row = _file_row(target_id="", tier="retracted", last_verdict="clean")
-    [display] = _to_display_rows([row], _SEGMENT_BY_ID)
+def test_to_display_rows_empty_decisions_all_dashes() -> None:
+    [display] = _to_display_rows([_file_row(decisions=())], _SEGMENTS_AB)
+    assert display.target_display == "·"
+    assert display.title_display == "·"
     assert display.tier_display == "·"
     assert display.verdict_display == "·"
 
 
+def test_to_display_rows_two_segments_aggregate_cells_shared_tier() -> None:
+    row = _file_row(decisions=(FileDecision("062A", "download"), FileDecision("062B", "download")))
+    [display] = _to_display_rows([row], _SEGMENTS_AB)
+    assert display.target_display == "062A / S02E11A · 062B / S02E11B"
+    assert display.title_display == "La Grenouille Cosmique · Duel Contre Giroro"
+    assert display.tier_display == "download"
+
+
+def test_to_display_rows_two_segments_differing_tiers_lists_per_target() -> None:
+    row = _file_row(decisions=(FileDecision("062A", "download"), FileDecision("062B", "notify")))
+    [display] = _to_display_rows([row], _SEGMENTS_AB)
+    assert display.tier_display == "062A: download · 062B: notify"
+
+
 def test_to_display_rows_verdict_pending_when_decision_without_verdict() -> None:
-    row = _file_row(target_id="062A", tier="download")
-    [display] = _to_display_rows([row], _SEGMENT_BY_ID)
+    row = _file_row(decisions=(FileDecision("062A", "download"),))
+    [display] = _to_display_rows([row], _SEGMENTS_AB)
     assert display.verdict_display == "pending"
 
 
 def test_to_display_rows_verdict_shows_actual_verdict() -> None:
-    row = _file_row(target_id="062A", tier="download", last_verdict="clean")
-    [display] = _to_display_rows([row], _SEGMENT_BY_ID)
+    row = _file_row(decisions=(FileDecision("062A", "download"),), last_verdict="clean")
+    [display] = _to_display_rows([row], _SEGMENTS_AB)
     assert display.verdict_display == "clean"
 
 
@@ -1101,11 +1100,10 @@ def test_to_display_rows_computes_size_and_last_seen_display() -> None:
         filename="f.avi",
         source_count=1,
         last_seen="2026-07-03T23:45:24.104990+00:00",
-        target_id=None,
-        tier=None,
+        decisions=(),
         last_verdict=None,
     )
-    [display] = _to_display_rows([row], _SEGMENT_BY_ID)
+    [display] = _to_display_rows([row], _SEGMENTS_AB)
     assert display.size_display == "1 KB"
     assert display.last_seen_display == "2026-07-03 23:45Z"
 

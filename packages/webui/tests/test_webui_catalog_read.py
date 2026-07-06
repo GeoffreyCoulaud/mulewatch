@@ -259,6 +259,49 @@ def test_list_files_page_two_is_empty(catalog_db: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tests: list_files / count_files — one row per file, decisions aggregated (spec §9)
+# ---------------------------------------------------------------------------
+
+
+def test_list_files_whole_episode_is_one_row_with_two_decisions(catalog_db: Path) -> None:
+    _seed_whole_episode(catalog_db)
+    rows = CatalogReader(open_ro(catalog_db)).list_files(
+        target=None, tier=None, verdict=None, query=None, page=1
+    )
+    assert len(rows) == 1
+    assert [(d.target_id, d.tier) for d in rows[0].decisions] == [
+        ("072A", "download"),
+        ("072B", "download"),
+    ]
+    assert rows[0].last_verdict == "clean"
+
+
+def test_list_files_filter_by_one_target_returns_whole_episode(catalog_db: Path) -> None:
+    _seed_whole_episode(catalog_db)
+    rows = CatalogReader(open_ro(catalog_db)).list_files(
+        target="072B", tier=None, verdict=None, query=None, page=1
+    )
+    assert len(rows) == 1
+    assert [d.target_id for d in rows[0].decisions] == ["072A", "072B"]
+
+
+def test_list_files_unmatched_file_has_empty_decisions(catalog_db: Path) -> None:
+    _seed_unmatched(catalog_db)
+    [row] = CatalogReader(open_ro(catalog_db)).list_files(
+        target=None, tier=None, verdict=None, query=None, page=1
+    )
+    assert row.decisions == ()
+
+
+def test_count_files_whole_episode_counts_as_one_file(catalog_db: Path) -> None:
+    _seed_whole_episode(catalog_db)
+    matched, total = CatalogReader(open_ro(catalog_db)).count_files(
+        target=None, tier=None, verdict=None, query=None
+    )
+    assert (matched, total) == (1, 1)
+
+
+# ---------------------------------------------------------------------------
 # Tests: detail
 # ---------------------------------------------------------------------------
 

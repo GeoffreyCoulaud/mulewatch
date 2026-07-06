@@ -34,6 +34,18 @@ class TargetCoverageRow:
 
 
 @dataclass(frozen=True)
+class FileDecision:
+    """One current decision on a file: the latest match decision for a given
+    ``(ed2k_hash, target_id)``, already filtered to exclude retractions and the legacy
+    ``target_id == ""`` sentinel (webui spec §9). A whole-episode file carries two (``072A``
+    and ``072B``); an unidentified file carries one (``tier == "catalog"``); a file with no
+    current match carries none."""
+
+    target_id: str
+    tier: str
+
+
+@dataclass(frozen=True)
 class FileRow:
     """Summary view of a file for the explorer (paginated list)."""
 
@@ -42,9 +54,8 @@ class FileRow:
     filename: str  # latest observed name
     source_count: int  # source count (latest observation)
     last_seen: str  # observed_at of the latest observation (ISO-8601 UTC)
-    target_id: str | None  # latest decision
-    tier: str | None  # tier of the latest decision
-    last_verdict: str | None  # latest verification verdict
+    decisions: tuple[FileDecision, ...]  # current decisions, latest per target, 0..N
+    last_verdict: str | None  # latest verification verdict (per file, not per target)
 
 
 # ---------------------------------------------------------------------------
@@ -155,18 +166,24 @@ class NodeState:
 
 @dataclass(frozen=True)
 class FileRowDisplay:
-    """Row of the paginated file list: all fields precomputed (webui spec W-D8, Task 3).
+    """Row of the paginated file list: all fields precomputed (webui spec W-D8, Task 3/9).
 
-    Resolution rule for ``target_display``/``title_display`` (computed by
-    ``composition.app._resolve_target_display``):
-    - no decision (``target_id is None``) → ``"·"`` / ``"·"``.
-    - ``tier == "retracted"`` (crawler sentinel row for a now-excluded file) → ``"·"`` /
-      ``"·"``, exactly like no decision at all.
-    - ``tier == "catalog"`` → ``"unidentified"`` / ``"·"`` (the ``keroro_large`` catch-all,
-      the only catalog-tier rule).
-    - otherwise, the target is looked up in the current catalogue: found → the canonical id
-      joined with its seasonal locator (e.g. ``"062A / S02E11A"``) + the episode title; not
-      found (a target_id no longer in the current targets.yaml) → the raw id + ``"·"``.
+    A file usually carries 0, 1, or 2 current decisions (``FileRow.decisions``, already
+    excluding retractions and the legacy ``target_id == ""`` sentinel — those never reach
+    this layer). Each cell aggregates the per-decision resolution, joined with ``" · "``:
+
+    - no decisions at all → every field is the literal ``"·"``.
+    - per decision, ``target_display``/``title_display`` resolve via
+      ``composition.app._resolve_target_display``: ``tier == "catalog"`` → ``"unidentified"``
+      / ``"·"`` (the ``keroro_large`` catch-all, the only catalog-tier rule); otherwise the
+      target is looked up in the current catalogue: found → the canonical id joined with its
+      seasonal locator (e.g. ``"062A / S02E11A"``) + the episode title; not found (a
+      target_id no longer in the current targets.yaml) → the raw id + ``"·"``.
+    - ``tier_display`` is the shared tier when all decisions agree, else each decision listed
+      as ``"{target_id}: {tier}"`` joined with ``" · "``.
+    - ``verdict_display`` is a single per-file value (verification is per file, not per
+      target): the latest verdict, or ``"pending"`` when at least one decision exists but no
+      verdict has been recorded yet.
     """
 
     ed2k_hash: str
@@ -177,9 +194,9 @@ class FileRowDisplay:
     title_display: str
     size_display: str  # human_size(size_bytes)
     last_seen_display: str  # short_timestamp(last_seen)
-    tier_display: str  # tier or "·"; "·" (not the literal "retracted") when retracted
-    verdict_display: str  # last_verdict; "pending" if a decision exists but no verdict yet;
-    # "·" if there is no decision at all, or if the latest decision is a retraction
+    tier_display: str  # shared tier, or "target_id: tier" per decision joined with " · "
+    verdict_display: str  # last_verdict; "pending" if decisions exist but no verdict yet;
+    # "·" if there are no current decisions at all
     ed2k_link: str
 
 
