@@ -65,9 +65,9 @@ async def test_unchanged_row_is_evaluated_but_not_written(
 ) -> None:
     catalog.record_observation(_obs(_HASH_CAT, _CAT_NAME))
     candidate = _obs(_HASH_CAT, _CAT_NAME).to_candidate()
-    decision = engine.evaluate(candidate)
-    assert decision is not None
-    catalog.record_decision(_HASH_CAT, decision)  # pre-seed the "already correct" verdict
+    decisions = engine.evaluate(candidate)
+    assert decisions  # non-empty
+    catalog.record_decision(_HASH_CAT, decisions[0])  # pre-seed the "already correct" verdict
     telemetry = RecordingTelemetry()
     signal = RecordingSignal()
     summary = await reevaluate_catalog(
@@ -102,7 +102,7 @@ async def test_repository_error_on_one_row_is_absorbed_and_sweep_continues(
     assert summary == ReevalSummary(evaluated=2, written=1)
     rows = catalog_connection.execute("SELECT ed2k_hash, tier FROM match_decisions").fetchall()
     assert rows == [(_HASH_CAT, "catalog")]
-    assert catalog.last_decision(_HASH_DL) is None
+    assert catalog.last_decisions(_HASH_DL) == {}
 
 
 @pytest.mark.asyncio

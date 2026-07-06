@@ -44,7 +44,7 @@ async def test_observation_is_always_recorded_even_when_discarded(
         telemetry=telemetry,
         network="ed2k",
     )
-    assert changed is False
+    assert changed == 0
     assert catalog_connection.execute("SELECT count(*) FROM file_observations").fetchone()[0] == 1
     assert catalog_connection.execute("SELECT count(*) FROM match_decisions").fetchone()[0] == 0
     assert signal.signalled == []
@@ -66,7 +66,7 @@ async def test_new_verdict_is_persisted_and_nudged(
         telemetry=telemetry,
         network="ed2k",
     )
-    assert changed is True
+    assert changed == 1
     assert catalog_connection.execute("SELECT tier FROM match_decisions").fetchone() == (
         "download",
     )
@@ -91,7 +91,7 @@ async def test_unchanged_verdict_is_not_reappended_or_nudged(
             telemetry=telemetry,
             network="ed2k",
         )
-        is True
+        == 1
     )
     # Second observation of the SAME file: same catalog verdict → no re-append.
     assert (
@@ -103,7 +103,7 @@ async def test_unchanged_verdict_is_not_reappended_or_nudged(
             telemetry=telemetry,
             network="ed2k",
         )
-        is False
+        == 0
     )
     assert catalog_connection.execute("SELECT count(*) FROM match_decisions").fetchone()[0] == 1
     # But the observation itself is re-persisted (periodic re-observation = the goal).
@@ -136,7 +136,7 @@ async def test_changed_verdict_is_reappended_and_nudged_again(
         telemetry=telemetry,
         network="ed2k",
     )
-    assert changed is True
+    assert changed == 1
     tiers = [
         row[0]
         for row in catalog_connection.execute(
@@ -168,7 +168,7 @@ async def test_persistence_error_is_absorbed_and_cycle_continues(
         telemetry=telemetry,
         network="ed2k",
     )
-    assert changed is False  # absorbed, the cycle continues
+    assert changed == 0  # absorbed, the cycle continues
     assert signal.signalled == []
 
 
@@ -212,7 +212,7 @@ async def test_download_tier_verdict_also_nudges_the_download_subject(
         telemetry=telemetry,
         network="ed2k",
     )
-    assert changed is True
+    assert changed == 1
     assert signal.signalled == [_HASH_DL, DOWNLOAD_NUDGE_SUBJECT]
 
 
@@ -232,7 +232,7 @@ async def test_non_download_tier_verdict_does_not_nudge_the_download_subject(
         telemetry=telemetry,
         network="ed2k",
     )
-    assert changed is True
+    assert changed == 1
     assert signal.signalled == [_HASH_CAT]
     assert DOWNLOAD_NUDGE_SUBJECT not in signal.signalled
 
@@ -267,3 +267,25 @@ async def test_emits_only_observation_when_discarded(
         network="kad",
     )
     assert [type(e).__name__ for e in telemetry.events] == ["ObservationRecorded"]
+
+
+@pytest.mark.asyncio
+async def test_multi_segment_observation_records_two_rows(
+    catalog: SqliteCatalogRepository,
+    catalog_connection: sqlite3.Connection,
+    engine: MatchingEngine,
+) -> None:
+    telemetry = RecordingTelemetry()
+    signal = RecordingSignal()
+    changed = await record_observation(
+        _obs(_HASH_DL, "Keroro 062 teletoon.avi"),
+        catalog=catalog,
+        engine=engine,
+        signal=signal,
+        telemetry=telemetry,
+        network="ed2k",
+    )
+    assert changed == 2
+    assert catalog_connection.execute(
+        "SELECT target_id FROM match_decisions ORDER BY id"
+    ).fetchall() == [("062A",), ("062B",)]

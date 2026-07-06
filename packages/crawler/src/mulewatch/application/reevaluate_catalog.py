@@ -58,7 +58,7 @@ async def reevaluate_catalog(
             row.filename, row.size_bytes, row.media_length_sec, row.bitrate_kbps
         )
         try:
-            changed = await record_decision_if_changed(
+            count = await record_decision_if_changed(
                 row.ed2k_hash,
                 candidate,
                 catalog=catalog,
@@ -73,6 +73,5 @@ async def reevaluate_catalog(
                 error,
             )
             continue
-        if changed:
-            written += 1
+        written += count
     return ReevalSummary(evaluated=evaluated, written=written)
