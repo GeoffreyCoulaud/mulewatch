@@ -282,6 +282,29 @@ async def test_already_downloaded_candidate_is_deduped() -> None:
 
 
 @pytest.mark.asyncio
+async def test_two_segment_candidates_same_hash_dedup_to_one_download() -> None:
+    # spec §8: a whole-episode file yields BOTH (hash,062A) and (hash,062B) in
+    # download_decisions; is_downloaded(hash) dedups them to ONE physical download.
+    client = FakeDownloadClient()
+    downloads = FakeDownloadRepo()
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_A, "062A"), _candidate(_A, "062B")),
+        observations={_A: ObservedFile(filename="Keroro 062.avi", size_bytes=100)},
+    )
+    deps = _deps(
+        client=client,
+        quarantine=FakeQuarantine(),
+        downloads=downloads,
+        catalog=catalog,
+        local=FakeLocalRepo(),
+    )
+    await run_download_cycle(deps)
+    assert list(downloads.states) == [_A]
+    assert downloads.states[_A] is DownloadState.QUEUED
+    assert len(client.added_links) == 1 and _A in client.added_links[0]
+
+
+@pytest.mark.asyncio
 async def test_complete_target_candidate_is_skipped() -> None:
     client = FakeDownloadClient()
     downloads = FakeDownloadRepo()
