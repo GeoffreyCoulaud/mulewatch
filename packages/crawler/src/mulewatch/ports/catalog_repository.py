@@ -49,6 +49,9 @@ class CatalogRepository(Protocol):
     """Sync catalog write contract (append-only; the adapter reports, it does not decide).
 
     ``last_decision`` (anti-redundancy, spec orchestration §3) returns a :class:`DecisionRecord`.
+    ``last_decisions`` (set-diff anti-redundancy, spec §7) returns the latest
+    :class:`DecisionRecord` PER TARGET for a hash (including a target whose latest tier is
+    ``retracted``; excluding the legacy ``target_id=""`` sentinel), for multi-target matching.
     ``download_decisions`` (spec download §5) returns the :class:`DownloadCandidate` whose
     LATEST verdict is tier=download (to be replayed by the download loop). ``last_observation``
     returns the most recent :class:`ObservedFile` of a hash (name+size for the ed2k link), or
@@ -71,6 +74,8 @@ class CatalogRepository(Protocol):
     def record_retraction(self, ed2k_hash: str) -> None: ...
 
     def last_decision(self, ed2k_hash: str) -> DecisionRecord | None: ...
+
+    def last_decisions(self, ed2k_hash: str) -> dict[str, DecisionRecord]: ...
 
     def download_decisions(self) -> tuple[DownloadCandidate, ...]: ...
 
