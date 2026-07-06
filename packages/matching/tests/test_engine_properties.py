@@ -1,6 +1,6 @@
 import random
 
-from catalog_matching.engine import MatchingEngine
+from catalog_matching.engine import _TIER_RANK, MatchDecision, MatchingEngine
 from catalog_matching.models import FileCandidate, TargetSegment
 from catalog_matching.validation import parse_matcher_config
 
@@ -100,17 +100,16 @@ def test_property_decision_invariant_under_target_reordering() -> None:
             assert got == expected, f"decision depends on target order for {filename!r}"
 
 
-def test_property_higher_priority_rule_never_lowers_tier() -> None:
-    # P2: adding a HIGHER-PRIORITY rule (index 0) with tier >= never lowers the
-    # resulting tier (§16). We compare the canonical config to a variant where we
-    # PREPEND a broad download rule; for any already-decided file, the tier does not drop.
-    from catalog_matching.engine import _TIER_RANK
+def _max_tier(decisions: list[MatchDecision]) -> int | None:
+    return max((_TIER_RANK[d.tier] for d in decisions), default=None)
 
+
+def test_property_higher_priority_rule_never_lowers_tier() -> None:
+    # P2: prepending a higher-priority rule never lowers the strongest resulting tier (§16).
     config_base = parse_matcher_config(_CANONICAL_RAW)
     raw_boosted = {
         "tokens": dict(_CANONICAL_RAW["tokens"]),  # type: ignore[call-overload]
         "rules": [
-            # PREPENDED download rule (index 0): any "keroro" file -> download.
             {"name": "boost_keroro_download", "tier": "download", "any": ["keroro_titar"]},
             *_CANONICAL_RAW["rules"],  # type: ignore[misc]
         ],
@@ -121,11 +120,9 @@ def test_property_higher_priority_rule_never_lowers_tier() -> None:
     engine_boosted = MatchingEngine(config_boosted, targets)
     for filename in _FILENAMES:
         candidate = FileCandidate(filename=filename)
-        base = engine_base.evaluate(candidate)
-        boosted = engine_boosted.evaluate(candidate)
-        if base is None:
-            continue  # nothing to compare: a discarded file may stay discarded
-        assert boosted is not None, f"{filename!r}: decided without boost, discarded with it?!"
-        assert _TIER_RANK[boosted.tier] >= _TIER_RANK[base.tier], (
-            f"{filename!r}: a higher-priority rule LOWERED the tier"
-        )
+        base_tier = _max_tier(engine_base.evaluate(candidate))
+        if base_tier is None:
+            continue  # a discarded file may stay discarded
+        boosted_tier = _max_tier(engine_boosted.evaluate(candidate))
+        assert boosted_tier is not None, f"{filename!r}: decided without boost, discarded with it?!"
+        assert boosted_tier >= base_tier, f"{filename!r}: a higher-priority rule LOWERED the tier"

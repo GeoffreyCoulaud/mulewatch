@@ -162,7 +162,7 @@ class MatchingEngine:
     Brute-force §8.5: each file is evaluated against ALL targets (no funnel heuristic). The
     matcher trees (regexes interpolated+compiled per target) are built ONCE at construction.
     ``max_filename_length`` bounds the filename length before matching (§8.5/§14): a longer
-    name is discarded (``None``).
+    name is discarded (``[]``).
     """
 
     def __init__(
@@ -193,15 +193,15 @@ class MatchingEngine:
             return None
         return _explain(self._config, resolved, candidate)
 
-    def evaluate(self, candidate: FileCandidate) -> MatchDecision | None:
-        """Deterministic file decision (cf. spec §8.5) or ``None`` (file discarded).
+    def evaluate(self, candidate: FileCandidate) -> list[MatchDecision]:
+        """All decisions for ``candidate`` (spec §4); ``[]`` = file discarded.
 
-        Length bounding first. Then, per target, 1st true rule; decision = highest tier,
-        deterministic tie-break by rule index then ``target_id``. No true rule anywhere →
-        ``None``.
+        Length-bound first. Then, per target, its first true rule; the deterministic
+        single winner (highest tier, then smallest rule index, then smallest ``target_id``)
+        is returned wrapped in a one-element list. No true rule anywhere -> ``[]``.
         """
         if len(candidate.filename) > self._max_filename_length:
-            return None
+            return []
         best: tuple[int, int, str] | None = None  # (-tier_rank, rule_index, target_id)
         best_resolved: ResolvedTarget | None = None
         best_rule_name = ""
@@ -222,10 +222,12 @@ class MatchingEngine:
                 best_rule_name = rule_name
                 best_tier = tier
         if best_resolved is None:
-            return None
-        return MatchDecision(
-            target_id=best_resolved.target.target_id,
-            rule_name=best_rule_name,
-            tier=best_tier,
-            explanation=_explain(self._config, best_resolved, candidate),
-        )
+            return []
+        return [
+            MatchDecision(
+                target_id=best_resolved.target.target_id,
+                rule_name=best_rule_name,
+                tier=best_tier,
+                explanation=_explain(self._config, best_resolved, candidate),
+            )
+        ]
