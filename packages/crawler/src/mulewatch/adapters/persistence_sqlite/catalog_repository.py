@@ -84,19 +84,21 @@ SELECT target_id, rule_name, tier FROM (
 ) WHERE rn = 1
 """
 
-# Hashes whose LATEST verdict is tier=download (download spec §5). Window:
-# ROW_NUMBER per hash, order (decided_at, id) DESCENDING (most recent = rank 1); we keep
-# only rank 1 AND tier='download'. Stable sort by hash for a deterministic result.
-# The window currently does a full scan; a covering index
-# (ed2k_hash, decided_at DESC, id DESC) would serve it (premature at MVP scale — note only).
+# Latest verdict per (ed2k_hash, target_id), kept when tier=download (download spec §5,
+# multi-target §6). Window: ROW_NUMBER per (hash, target_id), order (decided_at, id)
+# DESCENDING (most recent = rank 1); keep rank 1 AND tier='download'. PARTITION BY the FULL
+# key so a whole-episode file with BOTH segments in download yields BOTH candidates. Stable
+# sort by (hash, target_id) for a deterministic result.
 _SELECT_DOWNLOAD_DECISIONS = """
 SELECT ed2k_hash, target_id FROM (
     SELECT
         ed2k_hash, target_id, tier,
-        ROW_NUMBER() OVER (PARTITION BY ed2k_hash ORDER BY decided_at DESC, id DESC) AS rn
+        ROW_NUMBER() OVER (
+            PARTITION BY ed2k_hash, target_id ORDER BY decided_at DESC, id DESC
+        ) AS rn
     FROM match_decisions
 ) WHERE rn = 1 AND tier = 'download'
-ORDER BY ed2k_hash
+ORDER BY ed2k_hash, target_id
 """
 
 # Last observation of a hash (name + size for the ed2k link, download spec §5).

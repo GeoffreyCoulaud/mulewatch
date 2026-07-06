@@ -38,13 +38,13 @@ def _obs(hash_hex: str, *, name: str = "Keroro.avi", size: int = 100) -> FileObs
     )
 
 
-def _decision(tier: str) -> MatchDecision:
+def _decision(tier: str, target_id: str = "062A") -> MatchDecision:
     return MatchDecision(
-        target_id="062A",
+        target_id=target_id,
         rule_name="r",
         tier=tier,
         explanation=Explanation(
-            target_id="062A", rules_fired=("r",), tokens_matched=(), coverage_values=()
+            target_id=target_id, rules_fired=("r",), tokens_matched=(), coverage_values=()
         ),
     )
 
@@ -106,6 +106,29 @@ def test_download_decisions_is_empty_with_no_decisions(
 ) -> None:
     repository.record_observation(_obs(_C))
     assert repository.download_decisions() == ()
+
+
+def test_download_decisions_returns_both_segments_of_one_hash(
+    repository: SqliteCatalogRepository,
+) -> None:
+    # spec §6: a whole-episode file both segments in download must NOT lose a candidate.
+    repository.record_observation(_obs(_A))
+    repository.record_decision(_A, _decision("download", "062A"))
+    repository.record_decision(_A, _decision("download", "062B"))
+    assert repository.download_decisions() == (
+        DownloadCandidate(ed2k_hash=_A, target_id="062A"),
+        DownloadCandidate(ed2k_hash=_A, target_id="062B"),
+    )
+
+
+def test_download_decisions_isolates_per_target_within_one_hash(
+    repository: SqliteCatalogRepository,
+) -> None:
+    # same hash, two targets: 062A latest=download, 062B latest=catalog → only 062A.
+    repository.record_observation(_obs(_A))
+    repository.record_decision(_A, _decision("download", "062A"))
+    repository.record_decision(_A, _decision("catalog", "062B"))
+    assert repository.download_decisions() == (DownloadCandidate(ed2k_hash=_A, target_id="062A"),)
 
 
 def test_last_observation_returns_filename_and_size(
