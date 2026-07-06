@@ -409,7 +409,6 @@ def parse_targets(raw: dict[str, Any]) -> tuple[TargetSegment, ...]:
         seasonal_number = int(_require_key(ep, "seasonal_number", "episode"))
         absolute_number = int(_require_key(ep, "absolute_number", "episode"))
         seg_list = ep.get("segments", [])
-        sole = len(seg_list) == 1
         for seg in seg_list:
             seg_map = _require_mapping(seg, "segment")
             segments.append(
@@ -420,7 +419,6 @@ def parse_targets(raw: dict[str, Any]) -> tuple[TargetSegment, ...]:
                     segment=str(_require_key(seg_map, "letter", "segment")),
                     title=str(_require_key(seg_map, "title", "segment")),
                     status=str(seg_map.get("status", "lost")),
-                    sole_segment=sole,
                 )
             )
     result = tuple(segments)

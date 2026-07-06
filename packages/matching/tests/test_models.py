@@ -26,7 +26,6 @@ def test_target_segment_defaults() -> None:
         season=2, seasonal_number=11, absolute_number=62, segment="a", title="Les demoiselles"
     )
     assert target.status == "lost"
-    assert target.sole_segment is False
 
 
 def test_target_segment_target_id_pads_and_uppercases() -> None:
