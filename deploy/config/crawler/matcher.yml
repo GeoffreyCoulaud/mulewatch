@@ -15,7 +15,7 @@ tokens:
   vf:            { regex: "\\b(?:vf|vff|vfb)\\b|version\\s?francaise" }
   source_marker: { any: [teletoon, idf1, vf] }
   segment_id:    { regex: "(?:n[°o]?\\s*0*{absolute_number}|s0*{season}\\s*e0*{seasonal_number}|0*{season}\\s*x\\s*0*{seasonal_number})\\s*{segment}" }
-  segment_id_loose: { regex: "{mono_gate}(?:^|[^0-9A-Za-z])0*(?:{absolute_number}|{seasonal_number})(?:[^0-9A-Za-z]|$)" }
+  segment_id_loose: { regex: "(?:^|[^0-9A-Za-z])0*(?:{absolute_number}|{seasonal_number})(?:[^0-9A-Za-z]|$)" }
   title_hit:     { coverage: title, min: 0.6 }
   is_video:      { regex: "\\.(avi|mkv|mp4|mpg|mpeg|divx|m4v|ogm)$" }
   is_archive:    { regex: "\\.(zip|7z|rar|r\\d\\d|z\\d\\d|part\\d+\\.rar)$" }
