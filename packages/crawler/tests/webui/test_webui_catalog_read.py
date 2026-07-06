@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from catalog_webui.adapters.catalog_read import CatalogReader
-from catalog_webui.adapters.db import open_ro
+from mulewatch.webui.adapters.catalog_read import CatalogReader
+from mulewatch.webui.adapters.db import open_ro
 
 # ---------------------------------------------------------------------------
 # Seed helpers

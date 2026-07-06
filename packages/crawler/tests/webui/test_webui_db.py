@@ -1,11 +1,11 @@
-"""Tests for catalog_webui.adapters.db.open_ro — TDD (spec W-D2 / §16)."""
+"""Tests for mulewatch.webui.adapters.db.open_ro — TDD (spec W-D2 / §16)."""
 
 import sqlite3
 from pathlib import Path
 
 import pytest
 
-from catalog_webui.adapters.db import open_ro
+from mulewatch.webui.adapters.db import open_ro
 
 
 def test_open_ro_reads_rows(catalog_db: Path) -> None:

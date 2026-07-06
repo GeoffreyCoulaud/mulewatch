@@ -21,14 +21,14 @@ from starlette.types import ASGIApp
 
 from catalog_matching.ed2k_link import build_ed2k_link
 from catalog_matching.models import TargetSegment
-from catalog_webui.adapters.catalog_read import PAGE_SIZE, CatalogReader
-from catalog_webui.adapters.db import open_ro
-from catalog_webui.adapters.local_read import LocalReader
-from catalog_webui.adapters.matching_read import MatchingExplainer
-from catalog_webui.adapters.targets_read import load_targets
-from catalog_webui.domain.coverage import coverage_for
-from catalog_webui.domain.format import human_size, seasonal_id, short_hash, short_timestamp
-from catalog_webui.domain.views import (
+from mulewatch.webui.adapters.catalog_read import PAGE_SIZE, CatalogReader
+from mulewatch.webui.adapters.db import open_ro
+from mulewatch.webui.adapters.local_read import LocalReader
+from mulewatch.webui.adapters.matching_read import MatchingExplainer
+from mulewatch.webui.adapters.targets_read import load_targets
+from mulewatch.webui.domain.coverage import coverage_for
+from mulewatch.webui.domain.format import human_size, seasonal_id, short_hash, short_timestamp
+from mulewatch.webui.domain.views import (
     FileDetailDisplay,
     FileRow,
     FileRowDisplay,

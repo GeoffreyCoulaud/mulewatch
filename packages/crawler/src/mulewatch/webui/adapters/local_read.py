@@ -10,7 +10,7 @@ All SQL lives in module constants, parameterized (no value interpolation).
 
 import sqlite3
 
-from catalog_webui.domain.views import DownloadRow, NodeState, VerifTaskRow
+from mulewatch.webui.domain.views import DownloadRow, NodeState, VerifTaskRow
 
 # ---------------------------------------------------------------------------
 # SQL constants

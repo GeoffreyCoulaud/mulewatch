@@ -1,4 +1,4 @@
-from catalog_webui.domain.coverage import coverage_for
+from mulewatch.webui.domain.coverage import coverage_for
 
 
 def test_no_decision_is_none() -> None:

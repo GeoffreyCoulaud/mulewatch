@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from catalog_matching.engine import Explanation
-from catalog_webui.adapters.matching_read import MatchingExplainer
+from mulewatch.webui.adapters.matching_read import MatchingExplainer
 
 # ---------------------------------------------------------------------------
 # YAML minimal helpers

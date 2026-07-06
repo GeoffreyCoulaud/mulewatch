@@ -1,4 +1,4 @@
-"""webui entry point: ``python -m catalog_webui`` (webui spec — Task 12).
+"""webui entry point: ``python -m mulewatch.webui`` (webui spec — Task 12).
 
 Reads the configuration from the environment, resolves the templates/static paths
 relative to the package, builds the application via ``build_app`` and starts uvicorn.
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import uvicorn
 
-from catalog_webui.composition.app import build_app
+from mulewatch.webui.composition.app import build_app
 
 
 def _require_env(env: Mapping[str, str], key: str) -> str:

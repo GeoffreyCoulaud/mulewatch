@@ -94,8 +94,8 @@ def test_is_archive_rejects_comic_book_formats(filename: str) -> None:
     assert _is_archive_matcher().matches(FileCandidate(filename=filename)) is False
 
 
-# --- single-catalog-rule invariant (cross-package: relied on by catalog_webui) -----------
-# catalog_webui.domain.views.FileRowDisplay documents that ANY decision with tier=="catalog"
+# --- single-catalog-rule invariant (cross-package: relied on by mulewatch.webui) ---------
+# mulewatch.webui.domain.views.FileRowDisplay documents that ANY decision with tier=="catalog"
 # is displayed as "unidentified" (target_display) / "—" (title_display) — it relies on the
 # prod policy having exactly ONE catalog-tier rule, the target-agnostic catch-all
 # (keroro_large). If a second catalog-tier rule were ever added, the webui would silently

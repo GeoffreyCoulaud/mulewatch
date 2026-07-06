@@ -1,4 +1,4 @@
-from catalog_webui.domain.format import human_size, seasonal_id, short_hash, short_timestamp
+from mulewatch.webui.domain.format import human_size, seasonal_id, short_hash, short_timestamp
 
 
 def test_short_hash_truncates_with_ellipsis() -> None:

@@ -8,7 +8,7 @@ table — a 4th tier or a rename would have silently skewed the coverage.
 from collections.abc import Sequence
 
 from catalog_matching.config import TIER_RANK
-from catalog_webui.domain.views import CoverageStatus
+from mulewatch.webui.domain.views import CoverageStatus
 
 
 def coverage_for(target_id: str, decisions: Sequence[tuple[str, str]]) -> CoverageStatus:

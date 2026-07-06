@@ -14,11 +14,13 @@ Move `packages/webui/src/catalog_webui/**` -> `packages/crawler/src/mulewatch/we
 uvicorn, still reading its own env vars until P3) so nothing else breaks yet; the single-process
 wiring is P4.
 
-**Keep CI and deploy green (this bounds P1):** the CI `build-and-verify` builds the webui image
-and runs the compose smoke, and the operator's stack has a webui service. So the webui **image
-stays** through P1..P7: repoint its Dockerfile to build from the `mulewatch` package with
-entrypoint `python -m mulewatch.webui` (do NOT delete it here). The image + compose-service
-collapse into the crawler is P8.
+**No separate webui image (decided 2026-07-06):** the code is in `mulewatch`, so the crawler
+image already contains the webui. There is no point publishing a second image. The webui
+compose service uses the **crawler image** with an entrypoint override
+`python -m mulewatch.webui`; the webui image build is removed from CI (`validate.yml`, the
+`docker-image` action) and from Release (`publish-manifest` matrix), and its Dockerfile is
+deleted. The webui stays a separate compose **service** (running the crawler image) only until
+P4 folds it into the crawler process. So: one image from P1; one service from P4.
 
 Config merge to get right: the moved webui tests run under the crawler's pytest, so the
 crawler coverage `source` (`mulewatch`) now spans `mulewatch.webui` and must stay 100%; the
@@ -27,8 +29,9 @@ webui `conftest` (its `catalog_db`/`local_db` fixtures + the autouse connection-
 
 - No behaviour change. The moved webui tests are the guard; they must stay green wholesale.
 - Done when: `catalog-webui` is gone from the workspace, `mulewatch` owns the webui code, the
-  full gate is green, the webui image still builds and `python -m mulewatch.webui` serves the
-  same pages, and the compose smoke still passes.
+  full gate is green, there is no separate webui image (the webui service runs the crawler image
+  via the entrypoint override), `python -m mulewatch.webui` serves the same pages, and the
+  compose smoke still passes.
 
 ## P2. Centralized connection management
 
@@ -58,7 +61,9 @@ derives DB paths / targets / matcher from the parsed crawler config; drop the we
 `python -m mulewatch` starts the crawler loop (main thread, unchanged) AND a webui thread
 running `uvicorn.Server.serve()` on its own loop. Single shutdown path stops both. A webui
 thread crash degrades (loud log, crawler survives). Remove `python -m mulewatch.webui` as the
-deployed entrypoint (may stay as a dev-only convenience).
+deployed entrypoint (may stay as a dev-only convenience). **Remove the separate webui compose
+service** and publish the webui port on the crawler service: this is where "one container" is
+actually reached.
 
 - Tests: composition starts and stops both cleanly; a webui-thread exception does not stop the
   crawler; the crawler's synchronous work never runs on the webui thread and vice versa
@@ -99,10 +104,11 @@ UI: textarea + Run, result table, time + row count, inline errors, CSV export. A
 
 ## P8. Deployment
 
-Remove the `catalog-webui` image, Dockerfile, and compose service. The `mulewatch` image
-serves the webui; the crawler compose service publishes the webui port (behind the operator's
-reverse proxy). Add the `webui:` config; drop the webui env vars from compose. Update runbooks:
-one service, the new inbound port, controls + SQL console under the trust-boundary posture.
+The separate image is already gone (P1) and the separate service folded into the crawler (P4),
+so P8 finalises: drop any remaining webui env vars from compose (now that config is unified,
+P3), confirm the crawler service publishes the webui port behind the operator's reverse proxy,
+and update the runbooks (one service, the new inbound port, controls + SQL console under the
+trust-boundary posture).
 
 - Integration: the compose smoke stack comes up with one service serving HTTP and crawling.
 - Done when: one image, one service; smoke green; runbooks updated.

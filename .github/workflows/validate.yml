@@ -83,16 +83,6 @@ jobs:
           local-tag: ci-${{ github.sha }}
           push: ${{ inputs.push }}
           cache-scope: verifier-${{ matrix.arch }}
-      - name: Build webui — ${{ matrix.arch }}
-        id: webui
-        uses: ./.github/actions/docker-image
-        with:
-          package: webui
-          platform: linux/${{ matrix.arch }}
-          image: ${{ env.IMAGE_PREFIX }}-webui
-          local-tag: ci-${{ github.sha }}
-          push: ${{ inputs.push }}
-          cache-scope: webui-${{ matrix.arch }}
       - name: Integration — compose smoke stack (${{ matrix.arch }})
         run: ( cd packages/crawler && uv run pytest -m compose_integration --no-cov -q )
         env:
@@ -100,14 +90,12 @@ jobs:
       - name: Export digests
         if: ${{ inputs.push }}
         run: |
-          mkdir -p /tmp/digests/crawler /tmp/digests/verifier /tmp/digests/webui
+          mkdir -p /tmp/digests/crawler /tmp/digests/verifier
           touch "/tmp/digests/crawler/${CRAWLER_DIGEST#sha256:}"
           touch "/tmp/digests/verifier/${VERIFIER_DIGEST#sha256:}"
-          touch "/tmp/digests/webui/${WEBUI_DIGEST#sha256:}"
         env:
           CRAWLER_DIGEST: ${{ steps.crawler.outputs.digest }}
           VERIFIER_DIGEST: ${{ steps.verifier.outputs.digest }}
-          WEBUI_DIGEST: ${{ steps.webui.outputs.digest }}
       - name: Upload crawler digest
         if: ${{ inputs.push }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -122,14 +110,6 @@ jobs:
         with:
           name: digest-verifier-${{ matrix.arch }}
           path: /tmp/digests/verifier/*
-          if-no-files-found: error
-          retention-days: 1
-      - name: Upload webui digest
-        if: ${{ inputs.push }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: digest-webui-${{ matrix.arch }}
-          path: /tmp/digests/webui/*
           if-no-files-found: error
           retention-days: 1
 

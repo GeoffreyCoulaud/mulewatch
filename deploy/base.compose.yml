@@ -146,10 +146,11 @@ services:
     restart: unless-stopped
 
   webui:
-    image: ghcr.io/geoffreycoulaud/mulewatch-webui:${IMAGE_TAG:-latest}
-    build:
-      context: ..
-      dockerfile: packages/webui/Dockerfile
+    # Same image as the crawler: the webui code lives in mulewatch.webui, only the entrypoint
+    # differs, so there is no separate published image. It runs as its own service until the
+    # single-process integration (spec P4) folds it into the crawler process.
+    image: ghcr.io/geoffreycoulaud/mulewatch-crawler:${IMAGE_TAG:-latest}
+    entrypoint: ["python", "-m", "mulewatch.webui"]
     environment:
       WEBUI_HOST: 0.0.0.0
       WEBUI_PORT: "8080"

@@ -6,7 +6,7 @@ import pytest
 
 from catalog_matching.models import TargetSegment
 from catalog_matching.validation import ConfigError
-from catalog_webui.adapters.targets_read import load_targets
+from mulewatch.webui.adapters.targets_read import load_targets
 
 # ---------------------------------------------------------------------------
 # YAML minimal helper
