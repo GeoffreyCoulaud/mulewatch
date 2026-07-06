@@ -18,13 +18,13 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from starlette.types import ASGIApp
 
+from catalog_matching.config import MatcherConfig
 from catalog_matching.ed2k_link import build_ed2k_link
 from catalog_matching.models import TargetSegment
 from mulewatch.adapters.persistence_sqlite.reader import ReaderProvider
 from mulewatch.webui.adapters.catalog_read import PAGE_SIZE, CatalogReader
 from mulewatch.webui.adapters.local_read import LocalReader
 from mulewatch.webui.adapters.matching_read import MatchingExplainer
-from mulewatch.webui.adapters.targets_read import load_targets
 from mulewatch.webui.domain.coverage import coverage_for
 from mulewatch.webui.domain.format import human_size, seasonal_id, short_hash, short_timestamp
 from mulewatch.webui.domain.views import (
@@ -173,16 +173,21 @@ def build_app(
     *,
     catalog_db: Path,
     local_db: Path,
-    targets: Path,
-    matcher: Path,
+    matcher_config: MatcherConfig,
+    targets: tuple[TargetSegment, ...],
     templates_dir: Path,
     static_dir: Path,
 ) -> Starlette:
-    """Build and return the wired Starlette application."""
+    """Build and return the wired Starlette application.
+
+    ``matcher_config`` + ``targets`` arrive ALREADY PARSED from the caller (``__main__`` for
+    the standalone entrypoint, ``CrawlerApp`` in-process later); this module no longer reads
+    ``matcher.yml`` / ``targets.yml`` itself. Passing the crawler's own parsed matcher is what
+    keeps the explainer's config from drifting from the persisted decisions (spec §8)."""
 
     templates = Jinja2Templates(directory=templates_dir)
-    target_segments = load_targets(targets)
-    explainer = MatchingExplainer(matcher_yaml=matcher, targets_yaml=targets)
+    target_segments = targets
+    explainer = MatchingExplainer(matcher_config=matcher_config, targets=targets)
 
     # Centralized read-only connection management (spec §7): one reused, thread-affine
     # connection per DB per thread — warm page cache, no per-request cold open. Handlers
