@@ -39,11 +39,12 @@ _CASES = _corpus_cases()
 @pytest.mark.parametrize("case", _CASES, ids=[str(c["id"]) for c in _CASES])
 def test_golden_corpus(case: dict[str, Any]) -> None:
     engine = _engine()
-    decision = engine.evaluate(FileCandidate(filename=str(case["filename"])))
+    decisions = engine.evaluate(FileCandidate(filename=str(case["filename"])))
     if case.get("discarded", False):
-        assert decision is None, f"{case['id']}: expected discarded, got {decision}"
+        assert decisions == [], f"{case['id']}: expected discarded, got {decisions}"
         return
-    assert decision is not None, f"{case['id']}: expected a decision, got None"
+    assert len(decisions) == 1, f"{case['id']}: expected one decision, got {decisions}"
+    decision = decisions[0]
     assert decision.tier == case["tier"], f"{case['id']}: tier"
     assert decision.target_id == case["target_id"], f"{case['id']}: target"
     assert decision.rule_name == case["rule_name"], f"{case['id']}: rule"
