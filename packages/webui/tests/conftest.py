@@ -1,7 +1,10 @@
 """Shared pytest fixtures for the webui — DDL schemas without importing mulewatch."""
 
+import contextlib
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -119,3 +122,31 @@ def local_db(tmp_path: Path) -> Path:
         _apply_local_schema(conn)
         conn.commit()
     return path
+
+
+@pytest.fixture(autouse=True)
+def _close_test_connections(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Close every SQLite connection a test opens.
+
+    The suite pervasively uses ``with sqlite3.connect(...) as conn`` (seeds/fixtures) and
+    ``CatalogReader(open_ro(db))`` (readers) without closing. ``sqlite3.Connection.__exit__``
+    only ends the transaction, it does NOT close, so each connection lingers until GC and
+    surfaces as ``ResourceWarning: unclosed database``. This wraps ``sqlite3.connect`` for the
+    duration of each test, tracks every connection it hands out (``open_ro`` opens through it
+    too), and closes them at teardown. The app's own per-request connections pass through here
+    as well; it already closes them via ``contextlib.closing`` during the request, so the
+    teardown close is a harmless no-op.
+    """
+    opened: list[sqlite3.Connection] = []
+    real_connect = sqlite3.connect
+
+    def tracking_connect(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+        connection: sqlite3.Connection = real_connect(*args, **kwargs)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", tracking_connect)
+    yield
+    for connection in opened:
+        with contextlib.suppress(sqlite3.Error):
+            connection.close()
