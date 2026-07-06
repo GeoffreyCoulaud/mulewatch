@@ -214,15 +214,15 @@ votre connexion. C'est normal, laissez faire.
 docker compose ps
 ```
 
-Vous devez voir **cinq services**, chacun avec un statut qui commence par `Up` :
+Vous devez voir **quatre services**, chacun avec un statut qui commence par `Up` :
 
 - `crawler`
 - `amuled`
-- `webui`
 - `prometheus`
 - `grafana`
 
-(`webui` peut afficher `Up (healthy)` après quelques secondes : c'est le mieux.) Si un service est
+(`crawler` peut afficher `Up (healthy)` après quelques secondes : son healthcheck sonde la webui
+servie en intra-processus, sur `/health` ; c'est le mieux.) Si un service est
 en `Restarting` ou `Exited`, ouvrez la fiche
 [« Un conteneur redémarre en boucle »](troubleshooting.md#un-conteneur-redémarre-en-boucle). Si le
 lancement s'est interrompu avec un message d'adresse ou de port déjà utilisé, ouvrez la fiche
@@ -475,7 +475,7 @@ Détail des métriques et exposition derrière un reverse proxy :
 
 | Terme | Signification |
 |---|---|
-| **service** | Une brique du nœud : un conteneur géré par `docker compose` (par exemple `crawler`, `amuled`, `webui`). |
+| **service** | Une brique du nœud : un conteneur géré par `docker compose` (par exemple `crawler`, `amuled`, `grafana`). |
 | **eD2k / Kad** | Les deux réseaux d'eMule surveillés : eDonkey2000 (serveurs centralisés) et Kademlia (décentralisé, sans serveur). |
 | **Low-ID / High-ID** | La joignabilité de votre nœud sur eD2k. High-ID = la machine est accessible de l'extérieur (plus de sources directes). Low-ID fonctionne aussi, en moins optimal. |
 | **EC** | *External Connection* : le protocole TCP interne par lequel le crawler pilote le client `amuled`. |

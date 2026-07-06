@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `mulewatch` continuously surveils the eMule network (eD2k + Kad, via an aMule client driven over its EC protocol) to recover lost-media episodes of the French dub of *Keroro mission Titar* (aired 2008 on Teletoon), cataloguing all available metadata along the way.
 
-It is a **virtual uv workspace** with four packages: `packages/crawler/` (package `mulewatch`, dist `mulewatch`), `packages/verifier/` (package `download_verifier`, dist `download-verifier`), `packages/matching/` (package `catalog_matching`, dist `catalog-matching`, shared domain), and `packages/webui/` (package `catalog_webui`, dist `catalog-webui`, read-only catalog viewer).
+It is a **virtual uv workspace** with three packages: `packages/crawler/` (package `mulewatch`, dist `mulewatch`), `packages/verifier/` (package `download_verifier`, dist `download-verifier`), and `packages/matching/` (package `catalog_matching`, dist `catalog-matching`, shared domain). The crawler package `mulewatch` also contains the in-process webui subpackage `mulewatch.webui` (read-only catalog viewer + light runtime controls + read-only SQL console), served on its own thread by `python -m mulewatch` (one image, one compose service `crawler`, one process).
 
 ## Orientation — read before substantial work
 
@@ -25,7 +25,8 @@ The crawler is Clean/Hexagonal: `domain/` pure, `application/` async use-cases, 
 
 | Subsystem | Location | Role |
 |---|---|---|
-| Matching engine | `packages/matching/src/catalog_matching/` | declarative YAML-policy file→episode matcher (see Architecture) — shared by crawler and future webui |
+| Matching engine | `packages/matching/src/catalog_matching/` | declarative YAML-policy file→episode matcher (see Architecture) — shared by the crawler and the in-process webui |
+| WebUI (in-process) | c: `webui/` | read-only catalog viewer + runtime controls (`/controls`) + read-only SQL console (`/console`); Starlette/Jinja2 served on its own thread by `python -m mulewatch`, bound per `crawler.yml`'s `webui:` section |
 | EC adapter | c: `adapters/mule_ec/` | aMule EC codec/transport/client; `tools/ec_probe.py` |
 | Persistence | c: `adapters/persistence_sqlite/` | append-only catalog.db + local.db; `.sql` migrations; sync repos |
 | Search / crawl loop | c: `domain/search/`, `application/` | keywords/cycle/backoff/coverage; worker pool, persisted backoff |
@@ -65,7 +66,7 @@ Gate sub-tasks, runnable in isolation: `lint` · `format-check` · `type-check` 
 
 **Before hand-fixing lint / formatting / SQL, run `uv run poe fix`** — don't spend turns rewriting by hand what a fixer applies mechanically; review its diff instead.
 
-**The gate is PER PACKAGE** (`cd packages/<pkg> && uv run pytest`). The intent: each package owns its own pytest config and 100 % branch coverage in isolation — a root run would mix coverage data across packages and break the per-package threshold. A bare `uv run pytest` from the repo root is also blocked mechanically (the root has no `[tool.pytest.ini_options]` and a root `conftest.py` sets `collect_ignore_glob = ["packages/*"]` → exit 5 with zero collected). Tooling split: `[tool.ruff]` / `[tool.mypy]` at root span all four packages; `[tool.pytest]` / `[tool.coverage]` / `[tool.sqlfluff]` are per-package; one root `uv.lock`. Deployment artifacts live under `deploy/` (compose + `config/` + `deploy/.env.example`); the smoke stack under `tests/smoke/`.
+**The gate is PER PACKAGE** (`cd packages/<pkg> && uv run pytest`). The intent: each package owns its own pytest config and 100 % branch coverage in isolation — a root run would mix coverage data across packages and break the per-package threshold. A bare `uv run pytest` from the repo root is also blocked mechanically (the root has no `[tool.pytest.ini_options]` and a root `conftest.py` sets `collect_ignore_glob = ["packages/*"]` → exit 5 with zero collected). Tooling split: `[tool.ruff]` / `[tool.mypy]` at root span all three packages; `[tool.pytest]` / `[tool.coverage]` / `[tool.sqlfluff]` are per-package; one root `uv.lock`. Deployment artifacts live under `deploy/` (compose + `config/` + `deploy/.env.example`); the smoke stack under `tests/smoke/`.
 
 **Single test** (the package-wide `--cov-fail-under=100` makes a lone test "fail" — disable coverage):
 

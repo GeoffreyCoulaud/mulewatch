@@ -310,21 +310,25 @@ n'écrit une ligne que sur un vrai changement) et tourne dans les deux modes (ob
 
 ## WebUI (consultation du catalogue)
 
-La WebUI est une interface de **lecture seule** qui expose le catalogue SQLite via un serveur HTTP
-Starlette/Jinja2. Elle n'a **aucune authentification** — l'auth/TLS sont délégués au reverse proxy
-amont (nginx, Caddy, Traefik, etc.) que vous mettez devant. Elle ne modifie aucune donnée et n'a
-accès à aucun réseau applicatif (elle monte uniquement les volumes de bases de données en lecture).
+La WebUI est une interface de **lecture seule** servie **en intra-processus** par le crawler (même
+image, même service `crawler`, sur un thread dédié) et exposant le catalogue SQLite via un serveur
+HTTP Starlette/Jinja2. Elle n'a **aucune authentification** : l'auth/TLS sont délégués au reverse
+proxy amont (nginx, Caddy, Traefik, etc.) que vous mettez devant. Elle ne modifie jamais les bases :
+elle ouvre ses propres connexions SQLite en lecture seule (`mode=ro` + `PRAGMA query_only=ON`) via
+son `ReaderProvider`, jamais une connexion en écriture.
 
 ### Lancer la WebUI
 
-La WebUI est incluse par défaut, sans profil à ajouter : elle démarre avec n'importe laquelle des
-commandes de lancement du [Runbook de déploiement](deployment.md#4-lancer), observer comme download.
+Rien de spécial à lancer : la WebUI est servie **en intra-processus** par le service `crawler`, donc
+elle démarre et s'arrête **avec lui**, sans service ni profil dédié. N'importe laquelle des commandes
+de lancement du [Runbook de déploiement](deployment.md#4-lancer) la met en ligne, observer comme
+download.
 
 ```bash
-# Stack sans VPN, observer (catalogue seul) + WebUI :
+# Stack sans VPN, observer (catalogue seul) : la WebUI est servie par le crawler
 cd deploy && docker compose up -d
 
-# Stack sans VPN, download (catalogue + téléchargements) + WebUI :
+# Stack sans VPN, download (catalogue + téléchargements) : idem
 cd deploy && docker compose --profile download up -d
 ```
 
@@ -337,18 +341,33 @@ cd deploy && docker compose --profile download up -d
 | `/files/{ed2k_hash}` | Détail d'un fichier (observations, décisions, vérifications, explication du matching) |
 | `/targets/{target_id}` | Fichiers d'une cible (alias de `/files?target=`) |
 | `/node` | État du nœud CRAWLER : `node_id` + entrées du `scheduler_state` (last_full_cycle_at, etc.). N'expose PAS l'état réseau amuled (l'EC n'est pas joignable depuis le webui). |
-| `/health` | Healthcheck JSON — répond `{"status": "ok"}` si le service est opérationnel |
+| `/controls` | Contrôles d'exécution : forcer une passe de recherche maintenant, mettre en pause / reprendre la surveillance, redémarrer le service (sortie de processus propre ; le `restart: unless-stopped` du conteneur le relance). Ce sont des POST qui **modifient l'état**, sans jeton CSRF ni authentification, par conception. |
+| `/console` | Console SQL **en lecture seule** : exécute un unique `SELECT` sur `catalog.db` ou `local.db`, affiche le tableau de résultats + le temps d'exécution + le nombre de lignes, export CSV. Toujours active. |
+| `/health` | Healthcheck JSON : répond `{"status": "ok"}` si le service est opérationnel |
 
-### Variables d'environnement
+> **Posture des surfaces `/controls` et `/console`.** `/controls` déclenche des actions qui
+> **modifient l'état** (passe forcée, pause/reprise, redémarrage) : pas de jeton CSRF, pas
+> d'authentification, par conception. `/console` est **structurellement en lecture seule**
+> (`mode=ro` + `query_only`) et bornée contre le DoS (timeout mur, plafond de lignes rendues, une
+> seule instruction). Les deux ne sont défendables que **derrière le périmètre de l'opérateur** :
+> réseau privé, VPN ou reverse proxy authentifié, **jamais exposées sur Internet**. La
+> ré-évaluation et la remise en file n'ont délibérément **pas** été construites (une ré-évaluation
+> à chaud est un no-op sans rechargement de config, et la remise en file dépend du réglage des
+> décisions de téléchargement, différé).
 
-| Variable | Valeur par défaut | Rôle |
-|---|---|---|
-| `CATALOG_DB` | `/data/catalog/catalog.db` | Chemin vers la base catalogue |
-| `LOCAL_DB` | `/data/local/local.db` | Chemin vers la base état local |
-| `TARGETS_CONFIG` | `/app/config/targets.yaml` | Config cibles (montée depuis `./config/crawler/targets.yaml`) |
-| `MATCHER_CONFIG` | `/app/config/matcher.yaml` | Config matcher (montée depuis `./config/crawler/matcher.yaml`) |
-| `WEBUI_HOST` | `127.0.0.1` | Adresse d'écoute (loopback par défaut ; le binding sur l'interface du host se règle au niveau du compose, pas de l'app). |
-| `WEBUI_PORT` | `8080` | Port d'écoute (exposé via `${WEBUI_PORT:-8080}:8080`) |
+### Adresse d'écoute et chemins de bases
+
+Servie en intra-processus, la WebUI ne lit **aucune** variable d'environnement dédiée : elle dérive
+tout de la config opérateur du crawler (`crawler.yml` + arguments de lancement). La seule variable
+d'environnement en jeu est `WEBUI_PORT`, et uniquement côté hôte.
+
+| Réglage | Où | Valeur par défaut | Rôle |
+|---|---|---|---|
+| `catalog_db_path` | `crawler.yml` | `/data/catalog/catalog.db` | Base catalogue, lue en lecture seule par la WebUI |
+| `local_db_path` | `crawler.yml` | `/data/local/local.db` | Base état local, lue en lecture seule par la WebUI |
+| `webui.host` | `crawler.yml`, section `webui:` | `0.0.0.0` | Interface d'écoute HTTP **dans** le conteneur |
+| `webui.port` | `crawler.yml`, section `webui:` | `8080` | Port d'écoute HTTP **dans** le conteneur |
+| `WEBUI_PORT` | `deploy/.env` (env) | `8080` | Port **publié côté hôte** dans le mapping compose `"${WEBUI_PORT:-8080}:8080"` (hôte:conteneur). Ne change PAS le port d'écoute interne. |
 
 ### Exposition derrière un reverse proxy
 
@@ -360,19 +379,22 @@ webui.example.com {
     basicauth /* {
         alice $2a$14$...  # bcrypt généré par caddy hash-password
     }
-    reverse_proxy webui:8080
+    reverse_proxy crawler:8080
 }
 ```
 
-> **Garantie lecture seule de la WebUI.** Les volumes `catalog-db` et `local-db` sont montés en
-> **lecture-écriture** dans `deploy/compose.yaml` et `deploy/gluetun.compose.yml`, mais la WebUI
-> applique elle-même la garantie lecture seule au niveau SQL via `PRAGMA query_only=ON` (paramétré
-> dans le code applicatif). Toute tentative d'écriture est refusée par SQLite avant même d'atteindre
-> le disque — votre catalogue est donc protégé contre une régression du code WebUI.
+> **Garantie lecture seule de la WebUI.** Servie **en intra-processus**, la WebUI partage les
+> volumes `catalog-db` et `local-db` du crawler (montés en **lecture-écriture** pour le crawler),
+> mais elle ouvre **ses propres** connexions SQLite en lecture seule via son `ReaderProvider` :
+> `mode=ro` **et** `PRAGMA query_only=ON`, jamais une connexion en écriture. Toute tentative
+> d'écriture est refusée par SQLite avant même d'atteindre le disque : votre catalogue est protégé
+> contre une régression du code WebUI.
 >
-> *Historique : le montage Docker en `:ro` avait été essayé mais s'est révélé instable avec SQLite
-> en mode WAL (le crawler écrit `-shm` et `-wal` en simultané ; le noyau peut refuser les `mmap` sur
-> un FS monté `ro`). Le `PRAGMA` applicatif est aussi sûr et plus robuste. Voir
+> *Historique : quand la WebUI était un conteneur séparé, un montage Docker en `:ro` avait été
+> essayé puis abandonné (instable avec SQLite en mode WAL : le crawler écrit `-shm` et `-wal` en
+> simultané, le noyau peut refuser les `mmap` sur un FS monté `ro`). En intra-processus, ce
+> raisonnement de montage est **caduc** (plus de conteneur séparé à monter) ; la garantie repose
+> désormais entièrement sur `mode=ro` + `query_only`. Voir
 > [`reference/2026-06-22-webui-wal-readonly.md`](reference/2026-06-22-webui-wal-readonly.md).*
 
 ---
@@ -413,8 +435,9 @@ webui.example.com {
   (IncomingDir = quarantaine, FS Linux, pas de catégories, amuled dédié) sont décrites dans la
   [référence amuled-completion-behavior](reference/2026-06-17-amuled-completion-behavior.md#contraintes-de-déploiement-résumé)
   (source unique) et signalées dans le [runbook de déploiement](deployment.md) (mode download).
-- **WebUI — montage WAL `:ro` inter-conteneurs** : **point empirique clos (2026-06-25)** — le
-  montage Docker `:ro` a été retiré en faveur du `PRAGMA query_only=ON` applicatif (aussi sûr,
-  plus robuste). Voir section « WebUI » plus haut et
+- **WebUI (lecture seule)** : **point clos**. La WebUI est désormais servie **en intra-processus**
+  par le crawler (plus de conteneur séparé, donc plus de montage inter-conteneurs). La garantie
+  lecture seule repose sur `mode=ro` + `PRAGMA query_only=ON` ; l'ancien montage Docker `:ro` WAL
+  est caduc. Voir section « WebUI » plus haut et
   [`docs/reference/2026-06-22-webui-wal-readonly.md`](reference/2026-06-22-webui-wal-readonly.md).
 - **Hub central / rétention** : non planifiés à ce stade.

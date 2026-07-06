@@ -176,7 +176,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
 
   | Port par défaut | Variable à changer dans `deploy/.env` | Sert à |
   |---|---|---|
-  | `8080` | `WEBUI_PORT` | le catalogue web |
+  | `8080` | `WEBUI_PORT` | le catalogue web (servi en intra-processus par le service `crawler`) |
   | `3000` | `GRAFANA_PORT` | les tableaux de bord Grafana |
   | `4662` | `LISTEN_PORT` | le port eMule (toujours publié ; surtout utile en High-ID, annexe C) |
 
@@ -244,7 +244,8 @@ Deux situations très différentes se cachent derrière « la webui est vide » 
   tourner. Si le crawler reste `effective_coverage=blind`, voir
   [« amuled ne se connecte à rien »](#amuled-ne-se-connecte-à-rien).
 - **La page ne se charge pas du tout** (connexion refusée, page inaccessible) : là c'est un vrai
-  problème. Vérifiez d'abord que le service `webui` tourne :
+  problème. La webui est servie **en intra-processus** par le service `crawler` (il n'y a pas de
+  service `webui` séparé) ; vérifiez d'abord que le service `crawler` tourne :
   ```
   docker compose ps
   ```
