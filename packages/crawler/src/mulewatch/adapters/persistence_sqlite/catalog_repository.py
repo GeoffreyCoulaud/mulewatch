@@ -69,6 +69,21 @@ ORDER BY decided_at DESC, id DESC
 LIMIT 1
 """
 
+# Latest verdict per (ed2k_hash, target_id) for one hash (set-diff anti-redundancy, spec §7).
+# ROW_NUMBER per target, order (decided_at, id) DESCENDING (most recent = rank 1); keep rank 1.
+# INCLUDES a target whose latest tier is 'retracted' (no tier filter); EXCLUDES the legacy
+# target_id='' sentinel (not a real target). The idx_match_decisions_ed2k_hash index serves
+# the filter.
+_SELECT_LAST_DECISIONS = """
+SELECT target_id, rule_name, tier FROM (
+    SELECT
+        target_id, rule_name, tier,
+        ROW_NUMBER() OVER (PARTITION BY target_id ORDER BY decided_at DESC, id DESC) AS rn
+    FROM match_decisions
+    WHERE ed2k_hash = ? AND target_id <> ''
+) WHERE rn = 1
+"""
+
 # Hashes whose LATEST verdict is tier=download (download spec §5). Window:
 # ROW_NUMBER per hash, order (decided_at, id) DESCENDING (most recent = rank 1); we keep
 # only rank 1 AND tier='download'. Stable sort by hash for a deterministic result.
@@ -206,6 +221,20 @@ class SqliteCatalogRepository:
         if row is None:
             return None
         return DecisionRecord(target_id=row[0], rule_name=row[1], tier=row[2])
+
+    def last_decisions(self, ed2k_hash: str) -> dict[str, DecisionRecord]:
+        """Latest verdict per target for this hash (set-diff anti-redundancy, spec §7) — READ.
+
+        Maps ``target_id`` → its latest :class:`DecisionRecord`. INCLUDES a target whose latest
+        tier is ``retracted`` (the application's set-diff skips re-retracting it); EXCLUDES the
+        legacy ``target_id=""`` sentinel. The hash is NOT validated canonical (harmless read: a
+        non-canonical hash matches nothing → ``{}``).
+        """
+        with wrap_sqlite_errors():
+            rows = self._connection.execute(_SELECT_LAST_DECISIONS, (ed2k_hash,)).fetchall()
+        return {
+            row[0]: DecisionRecord(target_id=row[0], rule_name=row[1], tier=row[2]) for row in rows
+        }
 
     def download_decisions(self) -> tuple[DownloadCandidate, ...]:
         """Hashes whose LATEST verdict is tier=download, to replay (download §5) — READ."""

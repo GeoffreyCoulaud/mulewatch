@@ -31,6 +31,9 @@ class _StubRepository:
     def last_decision(self, ed2k_hash: str) -> DecisionRecord | None:
         return None
 
+    def last_decisions(self, ed2k_hash: str) -> dict[str, DecisionRecord]:
+        return {}
+
     def download_decisions(self) -> tuple[DownloadCandidate, ...]:
         return ()
 
@@ -83,6 +86,7 @@ def test_protocol_is_satisfied_structurally() -> None:
     repository.record_decision(observation.ed2k_hash, decision)
     repository.record_retraction(observation.ed2k_hash)
     assert repository.last_decision(observation.ed2k_hash) is None
+    assert repository.last_decisions(observation.ed2k_hash) == {}
     assert repository.download_decisions() == ()
     assert repository.last_observation(observation.ed2k_hash) is None
     assert tuple(repository.iter_reevaluation_rows()) == (
