@@ -3,7 +3,10 @@
 ``CatalogReader`` exposes four reads:
 
 - ``target_coverage()`` — per ``target_id``, the list of ``(ed2k_hash, tier)`` from each
-  file's LATEST match decision (ROW_NUMBER window PARTITION BY ed2k_hash).
+  file's LATEST match decision **per target** (ROW_NUMBER window PARTITION BY
+  ``(ed2k_hash, target_id)``), so a whole-episode file contributes to every target it
+  matches. The legacy ``target_id=''`` sentinel and per-target ``retracted`` rows are
+  excluded.
 - ``list_files()`` — filtered paginated explorer (files ⨝ latest observation ⨝
   latest decision ⨝ latest verdict, optional filters + LIMIT/OFFSET).
 - ``count_files()`` — ``(matched, total)`` counts over the same filtered source, for the
@@ -31,9 +34,11 @@ from catalog_webui.domain.views import (
 PAGE_SIZE = 50
 _PAGE_SIZE = PAGE_SIZE  # historical alias (internal) — the public value is used by the handler
 
-# Latest decision per file via ROW_NUMBER window. A "retracted" latest decision (the
-# crawler's sentinel row for a now-excluded file) is dropped: retracted == unmatched, so it
-# must not contribute to any target's coverage.
+# Latest decision per (hash, target_id) via ROW_NUMBER window: a whole-episode file holds
+# one CURRENT decision per target it satisfies, so it must contribute to each of them, not
+# just the single most-recent row across all its targets. The legacy target_id='' sentinel
+# (pre-per-target retraction model) is excluded, and a per-target "retracted" latest decision
+# (retracted == unmatched for that target) is dropped too.
 _SQL_COVERAGE = """\
 SELECT
     md.ed2k_hash,
@@ -45,11 +50,13 @@ WHERE (
     FROM match_decisions AS md2
     WHERE
         md2.ed2k_hash = md.ed2k_hash
+        AND md2.target_id = md.target_id
         AND (
             md2.decided_at > md.decided_at
             OR (md2.decided_at = md.decided_at AND md2.id > md.id)
         )
 ) = 0
+AND md.target_id != ''
 AND md.tier != 'retracted'
 ORDER BY md.target_id, md.ed2k_hash
 """
@@ -223,7 +230,8 @@ class CatalogReader:
 
     def target_coverage(self) -> dict[str, list[tuple[str, str]]]:
         """Return, for each ``target_id``, the list of ``(ed2k_hash, tier)``
-        from each file's LATEST match decision.
+        from each file's LATEST match decision **per target** (a whole-episode
+        file appears under every target it currently matches).
         """
         rows = self._conn.execute(_SQL_COVERAGE).fetchall()
         result: dict[str, list[tuple[str, str]]] = {}
