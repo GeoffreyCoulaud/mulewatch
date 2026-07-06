@@ -1,6 +1,7 @@
 # Stack VPN (gluetun). amuled partage la netns de gluetun ;
 # docker-proxy pour le port-sync.
-# webui + prometheus + grafana sont toujours actifs, sans profil à ajouter.
+# La webui est servie in-process par le crawler (port 8080) ; prometheus + grafana sont
+# toujours actifs, sans profil à ajouter.
 # High-ID auto : VPN_PORT_FORWARDING=on (.env)
 #   + port_sync.enabled: true (crawler.yml).
 # Lancer :

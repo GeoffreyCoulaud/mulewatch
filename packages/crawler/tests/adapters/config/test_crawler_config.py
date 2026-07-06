@@ -13,6 +13,7 @@ from mulewatch.adapters.config.crawler_config import (
     ObservabilityConfig,
     PortSyncConfig,
     VerifyConfig,
+    WebuiConfig,
     parse_crawler_config,
 )
 from mulewatch.domain.observability.policy import Audience
@@ -560,3 +561,78 @@ def test_notification_url_interpolated_substring() -> None:
     cfg = parse_crawler_config(raw, _env() | {"WID": "1", "WTOK": "t"})
     assert cfg.observability is not None
     assert cfg.observability.notifications[0].url == "discord://1/t"
+
+
+# ------------------------------------------------------------------- webui
+
+
+def test_webui_absent_defaults_to_enabled_on_localhost() -> None:
+    # No webui section → the in-process webui is ON by default, bound to 127.0.0.1:8080.
+    cfg = parse_crawler_config(_minimal_raw(), _env())
+    assert cfg.webui == WebuiConfig(enabled=True, host="127.0.0.1", port=8080)
+
+
+def test_webui_section_all_fields_parsed() -> None:
+    raw = _minimal_raw() | {"webui": {"enabled": True, "host": "0.0.0.0", "port": 9000}}
+    assert parse_crawler_config(raw, _env()).webui == WebuiConfig(
+        enabled=True, host="0.0.0.0", port=9000
+    )
+
+
+def test_webui_enabled_defaults_true_when_key_absent_in_section() -> None:
+    # Section present but no `enabled` key → default True (missing-key branch of _bool_default).
+    raw = _minimal_raw() | {"webui": {"host": "0.0.0.0", "port": 9000}}
+    assert parse_crawler_config(raw, _env()).webui.enabled is True
+
+
+def test_webui_disabled_keeps_host_and_port_defaults() -> None:
+    raw = _minimal_raw() | {"webui": {"enabled": False}}
+    assert parse_crawler_config(raw, _env()).webui == WebuiConfig(
+        enabled=False, host="127.0.0.1", port=8080
+    )
+
+
+def test_webui_host_defaults_when_absent() -> None:
+    raw = _minimal_raw() | {"webui": {"port": 9000}}
+    assert parse_crawler_config(raw, _env()).webui.host == "127.0.0.1"
+
+
+def test_webui_port_defaults_when_absent() -> None:
+    raw = _minimal_raw() | {"webui": {"host": "0.0.0.0"}}
+    assert parse_crawler_config(raw, _env()).webui.port == 8080
+
+
+def test_webui_host_interpolated_from_env() -> None:
+    raw = _minimal_raw() | {"webui": {"host": "${WEBUI_BIND}"}}
+    cfg = parse_crawler_config(raw, _env() | {"WEBUI_BIND": "0.0.0.0"})
+    assert cfg.webui.host == "0.0.0.0"
+
+
+def test_webui_section_must_be_a_mapping() -> None:
+    raw = _minimal_raw() | {"webui": [1, 2]}
+    with pytest.raises(ConfigError, match="section 'webui'"):
+        parse_crawler_config(raw, _env())
+
+
+def test_webui_enabled_non_bool_is_fatal() -> None:
+    raw = _minimal_raw() | {"webui": {"enabled": "yes"}}
+    with pytest.raises(ConfigError, match="boolean expected"):
+        parse_crawler_config(raw, _env())
+
+
+def test_webui_host_non_string_is_fatal() -> None:
+    raw = _minimal_raw() | {"webui": {"host": 1234}}
+    with pytest.raises(ConfigError, match="non-empty string"):
+        parse_crawler_config(raw, _env())
+
+
+def test_webui_out_of_range_port_is_fatal() -> None:
+    raw = _minimal_raw() | {"webui": {"port": 70000}}
+    with pytest.raises(ConfigError, match="1..65535"):
+        parse_crawler_config(raw, _env())
+
+
+def test_webui_bool_port_is_rejected() -> None:
+    raw = _minimal_raw() | {"webui": {"port": True}}
+    with pytest.raises(ConfigError, match="1..65535"):
+        parse_crawler_config(raw, _env())

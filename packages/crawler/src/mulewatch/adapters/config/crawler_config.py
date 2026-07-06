@@ -106,6 +106,23 @@ class PortSyncConfig:
     restarter_url: str
 
 
+@dataclass(frozen=True)
+class WebuiConfig:
+    """In-process read-only webui HTTP surface (monolith-consolidation spec §8).
+
+    ``enabled`` gates the WHOLE HTTP surface (``false`` ⇒ headless crawler, no port); ``host``/
+    ``port`` are the uvicorn bind. The section is OPTIONAL: absent ⇒ enabled on 127.0.0.1:8080.
+    Unlike ``download``/``port_sync`` it is NOT lazy (it carries no secret): every field is read
+    (with defaults) whatever ``enabled`` is.
+    """
+
+    enabled: bool
+    host: str
+    port: int
+
+
+_DEFAULT_WEBUI = WebuiConfig(enabled=True, host="127.0.0.1", port=8080)
+
 _LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
 
@@ -162,6 +179,7 @@ class CrawlerConfig:
     observability: ObservabilityConfig | None = None
     download: DownloadConfig | None = None
     port_sync: PortSyncConfig | None = None
+    webui: WebuiConfig = _DEFAULT_WEBUI
 
 
 def _require_mapping(value: Any, what: str) -> dict[str, Any]:
@@ -356,6 +374,22 @@ def _parse_port_sync(raw: dict[str, Any], env: Mapping[str, str]) -> PortSyncCon
     )
 
 
+def _parse_webui(raw: dict[str, Any], env: Mapping[str, str]) -> WebuiConfig:
+    """`webui` section (optional). Absent ⇒ enabled on 127.0.0.1:8080. Present ⇒ ``enabled``
+    (default True), ``host`` (interpolated, default 127.0.0.1), ``port`` (1..65535, default
+    8080)."""
+    if "webui" not in raw:
+        return _DEFAULT_WEBUI
+    section = _require_mapping(raw["webui"], "section 'webui'")
+    host = _require_str(section, "host", "webui", env) if "host" in section else "127.0.0.1"
+    port = _require_port(section, "webui") if "port" in section else 8080
+    return WebuiConfig(
+        enabled=_bool_default(section, "enabled", True, "webui"),
+        host=host,
+        port=port,
+    )
+
+
 def parse_crawler_config(raw: dict[str, Any], env: Mapping[str, str]) -> CrawlerConfig:
     """Builds a validated ``CrawlerConfig`` from the parsed YAML dict + the ``env`` environment
     (interpolation of ``${NAME}``). Fail-fast §5/§14: any inconsistency → ``ConfigError``."""
@@ -419,4 +453,5 @@ def parse_crawler_config(raw: dict[str, Any], env: Mapping[str, str]) -> Crawler
         observability=observability,
         download=_parse_download(raw, env),
         port_sync=_parse_port_sync(raw, env),
+        webui=_parse_webui(raw, env),
     )

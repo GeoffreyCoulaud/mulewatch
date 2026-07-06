@@ -60,8 +60,8 @@ _ENTRY_POINTS: tuple[tuple[str, str], ...] = (
     ("compose", "deploy/compose.yaml"),
     ("gluetun", "deploy/gluetun.compose.yml"),
 )
-# `download` is the only remaining compose profile in the deploy stacks (monitoring/webui are gone —
-# webui/prometheus/grafana are now in the DEFAULT service set, no profile needed).
+# `download` is the only remaining compose profile in the deploy stacks (monitoring gone — the
+# webui is served in-process by the crawler now; prometheus/grafana are in the DEFAULT service set).
 _PROFILE_CASES: tuple[tuple[str, ...], ...] = ((), ("download",))
 _CONFIG_CASES: tuple[tuple[tuple[str, str], tuple[str, ...]], ...] = tuple(
     (entry, profiles) for entry in _ENTRY_POINTS for profiles in _PROFILE_CASES
@@ -71,10 +71,10 @@ _CONFIG_CASE_IDS = [
     for (label, _path), profiles in _CONFIG_CASES
 ]
 
-# Always rendered, with or without --profile download (royal-road: webui/prometheus/grafana are
+# Always rendered, with or without --profile download (royal-road: prometheus/grafana are
 # always-on since deploy/compose.yaml + deploy/gluetun.compose.yml stopped gating them behind a
-# profile).
-_ALWAYS_ON_SERVICES = frozenset({"crawler", "amuled", "webui", "prometheus", "grafana"})
+# profile). The webui is no longer a service — the crawler serves it in-process (spec P4).
+_ALWAYS_ON_SERVICES = frozenset({"crawler", "amuled", "prometheus", "grafana"})
 # Gated behind --profile download in base.compose.yml (docker-proxy is gluetun-stack-only and
 # asserted in test_entrypoint_config_renders).
 _DOWNLOAD_ONLY_SERVICES = frozenset({"verifier", "freshclam"})
@@ -194,6 +194,35 @@ def _wait_state(
     raise AssertionError(f"{service} did not reach {target!r} (last state: {last})")
 
 
+def _wait_webui_health(files: tuple[Path, ...], *, attempts: int = 20, delay: float = 1.5) -> None:
+    """Poll the crawler's in-process webui ``/health`` until 200 (readiness probe).
+
+    The webui runs on its OWN thread inside the crawler; the container reaches ``running`` before
+    uvicorn has bound its socket, so a one-shot check races startup. On exhaustion, attach the
+    crawler logs so a real crash (the webui thread degrading) is diagnosable, not a bare error.
+    """
+    check = (
+        "exec",
+        "-T",
+        "crawler",
+        "python",
+        "-c",
+        "import urllib.request;print(urllib.request.urlopen('http://localhost:8080/health').status)",
+    )
+    last = "<never ran>"
+    for _ in range(attempts):
+        health = _run(*check, files=files, timeout=60)
+        if health.returncode == 0 and health.stdout.strip() == "200":
+            return
+        last = f"rc={health.returncode} out={health.stdout.strip()!r} err={health.stderr.strip()!r}"
+        time.sleep(delay)
+    logs = _run("logs", "--no-color", "--tail", "60", "crawler", files=files, timeout=60)
+    raise AssertionError(
+        f"crawler webui /health never returned 200 (last: {last})\n"
+        f"--- crawler logs ---\n{logs.stdout}{logs.stderr}"
+    )
+
+
 @pytest.fixture
 def project_files() -> Iterator[tuple[Path, ...]]:
     """Standalone smoke compose file + surrounding tear-down."""
@@ -250,6 +279,12 @@ def test_download_verifier_healthy_and_crawler_up(
     assert health.returncode == 0, health.stderr
     assert health.stdout.strip() == "200"
 
+    # The crawler now ALSO serves the read-only webui in-process (spec P4). Poll its /health from
+    # inside the crawler container (exec; no host port needed): the webui thread binds shortly
+    # AFTER the container is `running`, so this is a readiness probe, not a one-shot check. Proves
+    # the single process crawls AND serves HTTP without a separate service.
+    _wait_webui_health(files)
+
 
 def test_observer_starts_without_verifier(project_files: tuple[Path, ...], tmp_path: Path) -> None:
     override = _write_override(
@@ -297,9 +332,10 @@ def test_entrypoint_config_renders(entry: tuple[str, str], profiles: tuple[str, 
     """`docker compose -f <stack file> [--profile download] config` renders without error.
 
     Locks in include + forward-refs + anchors/merge + interpolation (no daemon required; the
-    bind-mount sources need not exist for `config`). Also asserts the resulting service set: webui/
-    prometheus/grafana render in the DEFAULT set (no profile needed), and `--profile download` is
-    the only lever that adds verifier/freshclam (docker-proxy too, in the gluetun stack).
+    bind-mount sources need not exist for `config`). Also asserts the resulting service set:
+    prometheus/grafana render in the DEFAULT set (no profile needed; the crawler serves the webui
+    in-process), and `--profile download` is the only lever that adds verifier/freshclam
+    (docker-proxy too, in the gluetun stack).
     """
     label, path = entry
     profile_flags: list[str] = []
