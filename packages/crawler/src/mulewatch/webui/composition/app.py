@@ -4,7 +4,6 @@
 routes. The handlers are closures capturing the dependencies — no ``app.state``.
 """
 
-import contextlib
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from urllib.parse import urlencode
@@ -21,8 +20,8 @@ from starlette.types import ASGIApp
 
 from catalog_matching.ed2k_link import build_ed2k_link
 from catalog_matching.models import TargetSegment
+from mulewatch.adapters.persistence_sqlite.reader import ReaderProvider
 from mulewatch.webui.adapters.catalog_read import PAGE_SIZE, CatalogReader
-from mulewatch.webui.adapters.db import open_ro
 from mulewatch.webui.adapters.local_read import LocalReader
 from mulewatch.webui.adapters.matching_read import MatchingExplainer
 from mulewatch.webui.adapters.targets_read import load_targets
@@ -185,6 +184,13 @@ def build_app(
     target_segments = load_targets(targets)
     explainer = MatchingExplainer(matcher_yaml=matcher, targets_yaml=targets)
 
+    # Centralized read-only connection management (spec §7): one reused, thread-affine
+    # connection per DB per thread — warm page cache, no per-request cold open. Handlers
+    # obtain a connection via ``provider.connection()`` and NEVER close it (the point is
+    # reuse); ``quiesce()`` is the seam livrable 3's maintenance swap will use.
+    catalog_reader = ReaderProvider(catalog_db)
+    local_reader = ReaderProvider(local_db)
+
     # Title by target_id (quick access)
     _title_by_id = {seg.target_id: seg.title for seg in target_segments}
     # Full segment by target_id (Task 3: seasonal locator + title resolution on /files)
@@ -198,12 +204,10 @@ def build_app(
         return JSONResponse({"status": "ok"})
 
     async def handle_dashboard(request: Request) -> Response:
-        with contextlib.closing(open_ro(catalog_db)) as catalog_conn:
-            catalog = CatalogReader(catalog_conn)
-            coverage_data = catalog.target_coverage()
-        with contextlib.closing(open_ro(local_db)) as local_conn:
-            local = LocalReader(local_conn)
-            node_state = local.node_state()
+        catalog = CatalogReader(catalog_reader.connection())
+        coverage_data = catalog.target_coverage()
+        local = LocalReader(local_reader.connection())
+        node_state = local.node_state()
 
         rows = []
         for seg in target_segments:
@@ -242,22 +246,21 @@ def build_app(
         # ``max(1, ...)`` (webui-security#2) — ``?page=0`` → OFFSET=-50 which SQLite treats as 0.
         page = max(1, page)
 
-        with contextlib.closing(open_ro(catalog_db)) as catalog_conn:
-            catalog = CatalogReader(catalog_conn)
-            file_rows = catalog.list_files(
-                target=target_param,
-                tier=tier_param,
-                verdict=verdict_param,
-                query=query_param,
-                page=page,
-                matched_only=not show_unmatched,
-            )
-            matched, total = catalog.count_files(
-                target=target_param,
-                tier=tier_param,
-                verdict=verdict_param,
-                query=query_param,
-            )
+        catalog = CatalogReader(catalog_reader.connection())
+        file_rows = catalog.list_files(
+            target=target_param,
+            tier=tier_param,
+            verdict=verdict_param,
+            query=query_param,
+            page=page,
+            matched_only=not show_unmatched,
+        )
+        matched, total = catalog.count_files(
+            target=target_param,
+            tier=tier_param,
+            verdict=verdict_param,
+            query=query_param,
+        )
 
         display_rows = _to_display_rows(file_rows, _segment_by_id)
         # Filters shared by the toggle link and the page nav.
@@ -287,9 +290,8 @@ def build_app(
     async def handle_file_detail(request: Request) -> Response:
         ed2k_hash: str = request.path_params["ed2k_hash"]
 
-        with contextlib.closing(open_ro(catalog_db)) as catalog_conn:
-            catalog = CatalogReader(catalog_conn)
-            detail = catalog.file_detail(ed2k_hash)
+        catalog = CatalogReader(catalog_reader.connection())
+        detail = catalog.file_detail(ed2k_hash)
 
         if detail is None:
             return templates.TemplateResponse(request, "404.html", {}, status_code=404)
@@ -344,15 +346,14 @@ def build_app(
 
     async def handle_target(request: Request) -> Response:
         target_id: str = request.path_params["target_id"]
-        with contextlib.closing(open_ro(catalog_db)) as catalog_conn:
-            catalog = CatalogReader(catalog_conn)
-            file_rows = catalog.list_files(
-                target=target_id,
-                tier=None,
-                verdict=None,
-                query=None,
-                page=1,
-            )
+        catalog = CatalogReader(catalog_reader.connection())
+        file_rows = catalog.list_files(
+            target=target_id,
+            tier=None,
+            verdict=None,
+            query=None,
+            page=1,
+        )
 
         display_rows = _to_display_rows(file_rows, _segment_by_id)
         # No pagination here (target view: we expect few) — empty nav.
@@ -366,9 +367,8 @@ def build_app(
         )
 
     async def handle_node(request: Request) -> Response:
-        with contextlib.closing(open_ro(local_db)) as local_conn:
-            local = LocalReader(local_conn)
-            node_state = local.node_state()
+        local = LocalReader(local_reader.connection())
+        node_state = local.node_state()
 
         scheduler_entries = tuple(
             SchedulerEntry(key=k, value=v) for k, v in node_state.scheduler.items()
