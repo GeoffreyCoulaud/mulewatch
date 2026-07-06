@@ -180,3 +180,43 @@ pre {
 
 .th-tip-host:hover .th-tip,
 .th-tip-host:focus-within .th-tip { display: block; }
+
+/* SQL console */
+.console-form { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }
+.console-form label { font-weight: 600; font-size: 0.9rem; }
+.console-form select { align-self: flex-start; padding: 0.3rem 0.5rem; }
+.console-form textarea {
+  width: 100%;
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 0.85rem;
+  padding: 0.6rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  resize: vertical;
+}
+.console-actions { display: flex; gap: 0.6rem; }
+.console-actions button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #adb5bd;
+  border-radius: 4px;
+  background: #e9ecef;
+  cursor: pointer;
+  font: inherit;
+}
+.console-actions button:hover { background: #dee2e6; }
+.console-error {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #f1aeb5;
+  border-radius: 4px;
+  background: #fce8ea;
+  color: #842029;
+}
+.console-meta { color: #6c757d; font-size: 0.9rem; margin-bottom: 0.2rem; }
+.console-truncated {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #ffe69c;
+  border-radius: 4px;
+  background: #fff8e1;
+  color: #664d03;
+}
+.console-table { overflow-x: auto; display: block; }
