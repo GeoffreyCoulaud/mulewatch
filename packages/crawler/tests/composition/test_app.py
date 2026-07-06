@@ -1,9 +1,11 @@
 import asyncio
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 
 import pytest
+from starlette.applications import Starlette
 
 from catalog_matching.config import MatcherConfig
 from catalog_matching.models import TargetSegment
@@ -18,13 +20,14 @@ from mulewatch.adapters.config.crawler_config import (
     ObservabilityConfig,
     PortSyncConfig,
     VerifyConfig,
+    WebuiConfig,
 )
 from mulewatch.adapters.config.yaml_loader import load_yaml
 from mulewatch.adapters.persistence_sqlite.connection import open_local
 from mulewatch.adapters.persistence_sqlite.local_state_repository import (
     SqliteLocalStateRepository,
 )
-from mulewatch.composition.app import CrawlerApp, default_client_factory
+from mulewatch.composition.app import CrawlerApp, WebuiServer, default_client_factory
 from mulewatch.domain.observation import FileObservation
 from mulewatch.ports.content_verifier import VerificationResult
 from mulewatch.ports.mule_client import KadStatus, MuleUnreachableError, NetworkStatus
@@ -45,6 +48,10 @@ _DL_NAME = "Keroro N°062A Les demoiselles cambrioleuses.avi"
 # Arbitrary policy fingerprint for tests that do not exercise the backfill gate itself
 # (Task 6 tests below construct their OWN fingerprint to drive the "ran"/"skipped" branches).
 _FP = "test-policy-fingerprint"
+# Existing app tests do not exercise the webui: keep it OFF by default so run() never builds a
+# real uvicorn server. The webui-specific tests below opt in with an enabled config + a fake
+# server factory (no real HTTP).
+_WEBUI_OFF = WebuiConfig(enabled=False, host="127.0.0.1", port=8080)
 
 
 class _NoopRng:
@@ -71,6 +78,7 @@ def _crawler_config(
     observability: ObservabilityConfig | None = None,
     download: DownloadConfig | None = None,
     port_sync: PortSyncConfig | None = None,
+    webui: WebuiConfig = _WEBUI_OFF,
 ) -> CrawlerConfig:
     return CrawlerConfig(
         cycle_interval_seconds=300.0,
@@ -91,6 +99,7 @@ def _crawler_config(
         observability=observability,
         download=download,
         port_sync=port_sync,
+        webui=webui,
     )
 
 
@@ -1214,3 +1223,153 @@ def test_default_mule_restarter_factory_builds_an_http_restarter() -> None:
 
     restarter = default_mule_restarter_factory("http://docker-proxy:2375")
     assert isinstance(restarter, HttpMuleRestarter)
+
+
+# ---------------------------------------------------------------------------
+# WebUI in-process (spec §5/§17.1): own thread + loop, degrade on crash
+# ---------------------------------------------------------------------------
+
+
+class _FakeWebuiServer:
+    """Fake uvicorn-shaped server: ``serve()`` awaits on its OWN loop until ``should_exit`` is
+    set (from the main thread by ``_stop_webui``), then returns — mirroring the real graceful
+    stop. Records that it started and that it returned, so the test can prove start + stop."""
+
+    def __init__(self) -> None:
+        self.should_exit = False
+        self.served = threading.Event()
+        self.stopped = threading.Event()
+
+    async def serve(self) -> None:
+        self.served.set()
+        while not self.should_exit:
+            await asyncio.sleep(0.01)
+        self.stopped.set()
+
+
+class _CrashingWebuiServer:
+    """Fake server whose ``serve()`` raises immediately: models a webui-thread crash. The
+    crawler must DEGRADE (log loudly, keep running), not propagate (spec §17.1)."""
+
+    def __init__(self) -> None:
+        self.should_exit = False
+
+    async def serve(self) -> None:
+        raise RuntimeError("webui boom")
+
+
+@pytest.mark.asyncio
+async def test_webui_starts_on_own_thread_and_stops_at_shutdown(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # webui.enabled → run() builds the ASGI app, calls the factory with (app, host, port), and
+    # serves it on a daemon thread. At shutdown, _stop_webui sets should_exit + joins the thread.
+    holder: dict[str, CrawlerApp] = {}
+    server = _FakeWebuiServer()
+    captured: dict[str, object] = {}
+
+    def fake_factory(app: Starlette, host: str, port: int) -> _FakeWebuiServer:
+        captured["app"] = app
+        captured["host"] = host
+        captured["port"] = port
+        return server
+
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(holder)
+
+    app = CrawlerApp(
+        crawler_config=_crawler_config(
+            tmp_path, webui=WebuiConfig(enabled=True, host="0.0.0.0", port=9876)
+        ),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
+        client_factory=factory,
+        webui_server_factory=fake_factory,
+    )
+    holder["app"] = app
+    await asyncio.wait_for(app.run(), timeout=5.0)
+    assert isinstance(captured["app"], Starlette)  # the built webui ASGI app was passed
+    assert captured["host"] == "0.0.0.0"
+    assert captured["port"] == 9876
+    assert server.served.is_set()  # serve() ran on the webui thread
+    assert server.should_exit is True  # _stop_webui asked it to exit at shutdown
+    assert server.stopped.is_set()  # serve() returned → the thread joined cleanly
+
+
+@pytest.mark.asyncio
+async def test_webui_not_started_when_disabled(
+    tmp_path: Path, matcher_config: MatcherConfig
+) -> None:
+    # webui.enabled=False → the factory is NEVER called and no thread is started. We prove it
+    # with a factory that would fail the test if invoked.
+    holder: dict[str, CrawlerApp] = {}
+
+    def boom_factory(app: Starlette, host: str, port: int) -> WebuiServer:
+        raise AssertionError("the webui factory must not be called when disabled")
+
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(holder)
+
+    app = CrawlerApp(
+        crawler_config=_crawler_config(
+            tmp_path, webui=WebuiConfig(enabled=False, host="127.0.0.1", port=8080)
+        ),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
+        client_factory=factory,
+        webui_server_factory=boom_factory,
+    )
+    holder["app"] = app
+    await asyncio.wait_for(app.run(), timeout=5.0)  # does not raise (factory never called)
+    assert not any(t.name == "webui" for t in threading.enumerate())  # no webui thread left
+
+
+@pytest.mark.asyncio
+async def test_webui_crash_degrades_and_crawler_shuts_down_cleanly(
+    tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A webui-thread crash (serve() raises) must NOT propagate out of run(): the crawler logs
+    # loudly and keeps crawling to a clean shutdown (DECISION spec §17.1: degrade).
+    holder: dict[str, CrawlerApp] = {}
+    server = _CrashingWebuiServer()
+
+    def crash_factory(app: Starlette, host: str, port: int) -> _CrashingWebuiServer:
+        return server
+
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(holder)
+
+    app = CrawlerApp(
+        crawler_config=_crawler_config(
+            tmp_path, webui=WebuiConfig(enabled=True, host="127.0.0.1", port=8080)
+        ),
+        targets=_TARGETS,
+        matcher_config=matcher_config,
+        clock=FakeClock(),
+        rng=_NoopRng(),
+        signal_hub=RecordingSignal(),
+        policy_fingerprint=_FP,
+        client_factory=factory,
+        webui_server_factory=crash_factory,
+    )
+    holder["app"] = app
+    with caplog.at_level(logging.ERROR, logger="mulewatch.composition.app"):
+        await asyncio.wait_for(app.run(), timeout=5.0)  # crash does NOT propagate
+    assert any("webui thread crashed" in r.getMessage() for r in caplog.records)
+
+
+def test_default_webui_server_factory_builds_a_uvicorn_server() -> None:
+    import uvicorn
+
+    from mulewatch.composition.app import default_webui_server_factory
+
+    server = default_webui_server_factory(Starlette(), "127.0.0.1", 8080)
+    assert isinstance(server, uvicorn.Server)

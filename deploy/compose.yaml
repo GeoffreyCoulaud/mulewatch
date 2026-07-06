@@ -1,5 +1,6 @@
 # Stack par défaut (royal road) : sans VPN, amuled en réseau direct.
-# webui + prometheus + grafana sont toujours actifs, sans profil à ajouter.
+# La webui est servie in-process par le crawler (port 8080) ; prometheus + grafana sont
+# toujours actifs, sans profil à ajouter.
 # Low-ID par défaut ; High-ID = ouvrir LISTEN_PORT.
 # Lancer (depuis deploy/) :
 #   docker compose up -d

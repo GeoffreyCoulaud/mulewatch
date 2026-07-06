@@ -26,6 +26,12 @@ search:
 catalog_db_path: /data/catalog/catalog.db
 local_db_path: /data/local/local.db
 
+# webui servie in-process par le crawler (spec P4) — 0.0.0.0 pour l'atteindre via docker exec.
+webui:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
+
 download:
   enabled: true
   poll_interval_seconds: 3.0

@@ -48,6 +48,26 @@ services:
       - catalog-db:/data/catalog
       - local-db:/data/local
       - quarantine:/data/quarantine
+    # The crawler now ALSO serves the read-only webui in-process (same image, spec §5): the
+    # webui runs on its own thread, bound per crawler.yml's `webui:` section (0.0.0.0:8080). This
+    # is the crawler container's ONLY inbound port — front it with the operator's reverse proxy /
+    # VPN (no built-in auth). A webui crash degrades (crawler keeps crawling), so the healthcheck
+    # is a liveness signal for the HTTP surface, not a crawl-health gate.
+    ports:
+      - "${WEBUI_PORT:-8080}:8080"
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - |
+          import urllib.request, sys
+          r = urllib.request.urlopen("http://localhost:8080/health")
+          sys.exit(0 if r.status == 200 else 1)
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
   verifier:
     image: ghcr.io/geoffreycoulaud/mulewatch-verifier:${IMAGE_TAG:-latest}
@@ -143,52 +163,6 @@ services:
       - ec
     depends_on:
       - prometheus
-    restart: unless-stopped
-
-  webui:
-    # Same image as the crawler: the webui code lives in mulewatch.webui, only the entrypoint
-    # differs, so there is no separate published image. It runs as its own service until the
-    # single-process integration (spec P4) folds it into the crawler process.
-    image: ghcr.io/geoffreycoulaud/mulewatch-crawler:${IMAGE_TAG:-latest}
-    entrypoint: ["python", "-m", "mulewatch.webui"]
-    environment:
-      WEBUI_HOST: 0.0.0.0
-      WEBUI_PORT: "8080"
-      CATALOG_DB: /data/catalog/catalog.db
-      LOCAL_DB: /data/local/local.db
-      TARGETS_CONFIG: /app/config/targets.yml
-      MATCHER_CONFIG: /app/config/matcher.yml
-    volumes:
-      # RO via PRAGMA query_only (WAL-safe, not :ro — webui-wal-readonly.md)
-      - catalog-db:/data/catalog
-      - local-db:/data/local
-      - ./config/crawler/targets.yml:/app/config/targets.yml:ro
-      - ./config/crawler/matcher.yml:/app/config/matcher.yml:ro
-    ports:
-      - "${WEBUI_PORT:-8080}:8080"
-    user: "999:999"
-    read_only: true
-    tmpfs:
-      - /tmp:size=32m
-    cap_drop:
-      - ALL
-    security_opt:
-      - "no-new-privileges:true"
-    pids_limit: 128
-    mem_limit: 256m
-    healthcheck:
-      test:
-        - "CMD"
-        - "python"
-        - "-c"
-        - |
-          import urllib.request, sys
-          r = urllib.request.urlopen("http://localhost:8080/health")
-          sys.exit(0 if r.status == 200 else 1)
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
     restart: unless-stopped
 
 networks:
