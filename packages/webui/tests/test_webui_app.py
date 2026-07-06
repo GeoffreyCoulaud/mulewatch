@@ -1228,3 +1228,128 @@ async def test_target_page_resolves_title_via_segment_mapping(
     assert resp.status_code == 200
     assert "062A / S02E11A" in resp.text
     assert "La Grenouille Cosmique" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Whole-episode end-to-end (Task 4 — the multi-target headline behavior):
+# one recovered whole-episode file resolves BOTH lost segments, renders as
+# ONE <tr> with an aggregated Target/Title/Tier cell, and appears under EACH
+# of its targets.
+# ---------------------------------------------------------------------------
+
+
+def _write_targets_yaml_ab(path: Path) -> Path:
+    (path / "targets_ab.yaml").write_text(
+        """\
+episodes:
+  - season: 3
+    seasonal_number: 6
+    absolute_number: 72
+    segments:
+      - letter: a
+        title: "Le Defi"
+      - letter: b
+        title: "Duel Contre Giroro"
+""",
+        encoding="utf-8",
+    )
+    return path / "targets_ab.yaml"
+
+
+@pytest.fixture
+def app_whole_episode(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
+    """One file matched to BOTH 072A and 072B (two current decisions, tier download) against a
+    two-segment targets.yaml — the core multi-target end-to-end fixture (spec §9)."""
+    with sqlite3.connect(catalog_db) as conn:
+        conn.execute("INSERT INTO files VALUES (?, ?, ?)", (TEST_HASH, 170_000_000, None))
+        conn.execute(
+            "INSERT INTO file_observations VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                TEST_HASH,
+                "keroro_072_vf.avi",
+                170_000_000,
+                7,
+                3,
+                None,
+                None,
+                None,
+                None,
+                "{}",
+                "keroro",
+                "2024-01-01T00:00:00",
+                "node1",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO match_decisions VALUES (1, ?, ?, ?, ?, ?, ?)",
+            (TEST_HASH, "072A", "numero_nu_confirmed", "download", "2024-01-01T00:00:00", "node1"),
+        )
+        conn.execute(
+            "INSERT INTO match_decisions VALUES (2, ?, ?, ?, ?, ?, ?)",
+            (TEST_HASH, "072B", "numero_nu_confirmed", "download", "2024-01-01T00:00:00", "node1"),
+        )
+        conn.commit()
+
+    with sqlite3.connect(local_db) as conn:
+        conn.execute("INSERT INTO node_runtime VALUES (?, ?)", ("node_id", "node-whole"))
+        conn.execute(
+            "INSERT INTO node_runtime VALUES (?, ?)", ("created_at", "2024-01-01T00:00:00")
+        )
+        conn.commit()
+
+    targets_path = _write_targets_yaml_ab(tmp_path)
+    matcher_path = _write_matcher_yaml(tmp_path)
+
+    import catalog_webui
+
+    templates_dir = Path(catalog_webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(catalog_webui.__file__).parent / "adapters" / "static"
+    app = build_app(
+        catalog_db=catalog_db,
+        local_db=local_db,
+        targets=targets_path,
+        matcher=matcher_path,
+        templates_dir=templates_dir,
+        static_dir=static_dir,
+    )
+    return app, TEST_HASH
+
+
+@pytest.mark.asyncio
+async def test_files_whole_episode_renders_one_row_with_aggregated_targets(
+    app_whole_episode: tuple[Starlette, str],
+) -> None:
+    app, hash_ = app_whole_episode
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files")
+    assert resp.status_code == 200
+    assert hash_[:8] in resp.text
+    assert "<td>072A / S03E06A · 072B / S03E06B</td>" in resp.text
+    assert "<td>Le Defi · Duel Contre Giroro</td>" in resp.text
+    assert "<td>download</td>" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_whole_episode_appears_under_each_target(
+    app_whole_episode: tuple[Starlette, str],
+) -> None:
+    app, hash_ = app_whole_episode
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp_a = await client.get("/targets/072A")
+        resp_b = await client.get("/targets/072B")
+    assert resp_a.status_code == 200
+    assert resp_b.status_code == 200
+    assert hash_[:8] in resp_a.text
+    assert hash_[:8] in resp_b.text
+
+
+@pytest.mark.asyncio
+async def test_file_detail_whole_episode_shows_both_targets(
+    app_whole_episode: tuple[Starlette, str],
+) -> None:
+    app, hash_ = app_whole_episode
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(f"/files/{hash_}")
+    assert resp.status_code == 200
+    assert "072A" in resp.text
+    assert "072B" in resp.text
