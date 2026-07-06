@@ -321,3 +321,82 @@ def test_explanation_single_rule_fired_and_no_coverage_token() -> None:
     assert decisions[0].explanation.rules_fired == ("only",)
     assert decisions[0].explanation.coverage_values == ()
     assert decisions[0].explanation.tokens_matched == ("is_video", "seg")
+
+
+# --- Multi-target fan-out (spec §3/§4/§11) ------------------------------------------------
+_TARGET_94A = TargetSegment(
+    season=2,
+    seasonal_number=43,
+    absolute_number=94,
+    segment="a",
+    title="La Terre est à nous !",
+)
+
+
+def _fanout_engine() -> MatchingEngine:
+    # Canonical prod policy over a bi-segment episode (62A/62B) plus a mono episode (94A):
+    # enough to exercise every §3/§11 fan-out branch against the shipped matcher.yml.
+    config = parse_matcher_config(_CANONICAL_RAW)
+    return MatchingEngine(config, (_TARGET_62A, _TARGET_62B, _TARGET_94A))
+
+
+def _triples(decisions: list[MatchDecision]) -> list[tuple[str, str, str]]:
+    return [(d.target_id, d.tier, d.rule_name) for d in decisions]
+
+
+def test_evaluate_bare_number_fans_out_to_both_segments() -> None:
+    # §11 clean bare number: no segment-level signal -> both segments emitted (rule 2).
+    decisions = _fanout_engine().evaluate(FileCandidate(filename="Keroro 62.avi"))
+    assert _triples(decisions) == [
+        ("062A", "notify", "numero_nu"),
+        ("062B", "notify", "numero_nu"),
+    ]
+
+
+def test_evaluate_title_a_plus_bare_number_pins_segment_a_only() -> None:
+    # §11 title A + bare number: the segment-level title cuts the fan-out (rule 1) -> A only.
+    decisions = _fanout_engine().evaluate(
+        FileCandidate(filename="Keroro 62 Les demoiselles cambrioleuses.avi")
+    )
+    assert _triples(decisions) == [("062A", "notify", "title_review")]
+
+
+def test_evaluate_both_segment_titles_emit_both_segments() -> None:
+    # §11 both titles present: each title pins its own segment (rule 1) -> both emitted.
+    decisions = _fanout_engine().evaluate(
+        FileCandidate(
+            filename="Keroro Les demoiselles cambrioleuses Le grand combat sous-marin.avi"
+        )
+    )
+    assert _triples(decisions) == [
+        ("062A", "notify", "title_review"),
+        ("062B", "notify", "title_review"),
+    ]
+
+
+def test_evaluate_bare_number_with_source_marker_fans_out_to_download() -> None:
+    # §3 row 3: bare number + source marker -> both segments in download (no tier cap).
+    decisions = _fanout_engine().evaluate(FileCandidate(filename="Keroro 62 teletoon.avi"))
+    assert _triples(decisions) == [
+        ("062A", "download", "numero_nu_confirmed"),
+        ("062B", "download", "numero_nu_confirmed"),
+    ]
+
+
+def test_evaluate_mono_episode_bare_number_emits_single_segment() -> None:
+    # §11 mono episode: a single-segment episode fans out to exactly one segment.
+    decisions = _fanout_engine().evaluate(FileCandidate(filename="Keroro 94.avi"))
+    assert _triples(decisions) == [("094A", "notify", "numero_nu")]
+
+
+def test_evaluate_out_of_range_number_falls_back_to_catalog() -> None:
+    # §11 out of range: no number rule matches any target -> step-6 fallback -> keroro_large,
+    # tie-broken to the smallest target_id (062A).
+    decisions = _fanout_engine().evaluate(FileCandidate(filename="Keroro 130.avi"))
+    assert _triples(decisions) == [("062A", "catalog", "keroro_large")]
+
+
+def test_evaluate_lettered_segment_pins_that_segment_only() -> None:
+    # §3 row 4: a lettered number (N°062A) is segment-level -> only that segment (rule 1).
+    decisions = _fanout_engine().evaluate(FileCandidate(filename="Keroro N°062A.avi"))
+    assert _triples(decisions) == [("062A", "download", "id_segment_exact")]
