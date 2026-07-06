@@ -307,13 +307,14 @@ def build_app(
         explanation_tokens_matched: tuple[str, ...] = ()
         explanation_notes: tuple[str, ...] = ()
 
-        if detail.decision is not None and last_obs is not None:
+        first_decision = detail.decisions[0] if detail.decisions else None
+        if first_decision is not None and last_obs is not None:
             explanation = explainer.explain(
                 filename=last_obs.filename,
                 size_bytes=last_obs.size_bytes,
                 media_length_sec=last_obs.media_length_sec,
                 bitrate_kbps=last_obs.bitrate_kbps,
-                target_id=detail.decision.target_id,
+                target_id=first_decision.target_id,
             )
             if explanation is not None:
                 explanation_target_id = explanation.target_id
@@ -321,14 +322,12 @@ def build_app(
                 explanation_tokens_matched = explanation.tokens_matched
                 explanation_notes = ("Evaluated against the current configuration",)
 
-        decisions = (detail.decision,) if detail.decision is not None else ()
-
         display = FileDetailDisplay(
             ed2k_hash=detail.ed2k_hash,
             size_bytes=detail.size_bytes,
             aich_hash_display=detail.aich_hash if detail.aich_hash is not None else "·",
             observations=detail.observations,
-            decisions=decisions,
+            decisions=detail.decisions,
             verifications=detail.verifications,
             ed2k_link=link,
             explanation_target_id=explanation_target_id,
