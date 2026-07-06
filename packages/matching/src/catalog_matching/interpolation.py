@@ -15,12 +15,9 @@ class InterpolationError(Exception):
 
 def interpolate(pattern: str, target: TargetSegment) -> str:
     """Substitutes the whitelist ``{season} {seasonal_number} {absolute_number} {segment}
-    {title} {mono_gate}``.
+    {title}``.
 
-    All values are inserted ``re.escape``-d (literal), EXCEPT ``{mono_gate}`` which
-    injects a **raw** (unescaped) regex fragment: ``""`` if ``target.sole_segment`` (the
-    target has a single segment), otherwise ``[^\\s\\S]`` (empty regex class, never-match —
-    neutralizes the carrier token for bi-segment targets). Any other placeholder raises
+    All values are inserted ``re.escape``-d (literal). Any other placeholder raises
     :class:`InterpolationError`.
     """
 
@@ -36,8 +33,6 @@ def interpolate(pattern: str, target: TargetSegment) -> str:
             return str(re.escape(target.segment.upper()))
         if name == "title":
             return str(re.escape(target.title))
-        if name == "mono_gate":
-            return "" if target.sole_segment else r"[^\s\S]"
         raise InterpolationError(f"unknown placeholder: {{{name}}}")
 
     return _PLACEHOLDER.sub(replace, pattern)
