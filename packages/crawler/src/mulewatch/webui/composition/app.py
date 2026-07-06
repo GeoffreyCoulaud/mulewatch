@@ -4,11 +4,14 @@
 routes. The handlers are closures capturing the dependencies — no ``app.state``.
 """
 
+import csv
+import io
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -26,9 +29,18 @@ from mulewatch.ports.crawler_control import CrawlerControl
 from mulewatch.webui.adapters.catalog_read import PAGE_SIZE, CatalogReader
 from mulewatch.webui.adapters.local_read import LocalReader
 from mulewatch.webui.adapters.matching_read import MatchingExplainer
+from mulewatch.webui.adapters.sql_console import (
+    ROW_CAP,
+    TIMEOUT_SECONDS,
+    ConsoleOutcome,
+    run_query,
+)
 from mulewatch.webui.domain.coverage import coverage_for
 from mulewatch.webui.domain.format import human_size, seasonal_id, short_hash, short_timestamp
 from mulewatch.webui.domain.views import (
+    ConsoleResult,
+    ConsoleRow,
+    DbOption,
     FileDetailDisplay,
     FileRow,
     FileRowDisplay,
@@ -179,6 +191,54 @@ _CONTROL_MESSAGES: dict[str, str] = {
     "resumed": "Crawl resumed.",
     "restart": "Restart requested. The service goes offline briefly, then returns.",
 }
+
+
+# SQL console (spec §11). The two selectable databases, in display order: value (allowlist key)
+# + human label. Both are non-sensitive (the catalog's subject is the file, never a person), so
+# read-only exposure of either is fine.
+_CONSOLE_DB_LABELS: tuple[tuple[str, str], ...] = (
+    ("catalog", "catalog.db"),
+    ("local", "local.db"),
+)
+_CONSOLE_UNKNOWN_DB = "Unknown database. Choose catalog.db or local.db."
+_CONSOLE_TRUNCATED = f"Results truncated to the first {ROW_CAP:,} rows."
+
+
+def _console_db_options(selected: str) -> tuple[DbOption, ...]:
+    """Precompute the DB picker options, marking ``selected`` (W-D8: no template logic). An
+    unknown ``selected`` (e.g. a bogus form value echoed back) marks none."""
+    return tuple(
+        DbOption(
+            value=value,
+            label=label,
+            selected_attr="selected" if value == selected else "",
+        )
+        for value, label in _CONSOLE_DB_LABELS
+    )
+
+
+async def _read_console_form(request: Request) -> tuple[str, str]:
+    """Read the console form's ``sql`` + ``db`` fields from the urlencoded POST body.
+
+    Parsed with stdlib ``parse_qs`` on purpose: Starlette's ``request.form()`` would pull in
+    ``python-multipart``, an extra dependency the read-only console does not need (the form is a
+    plain ``application/x-www-form-urlencoded`` submit, no file uploads)."""
+    raw = await request.body()
+    parsed = parse_qs(raw.decode("utf-8"), keep_blank_values=True)
+    return parsed.get("sql", [""])[0], parsed.get("db", [""])[0]
+
+
+def _to_console_result(outcome: ConsoleOutcome) -> ConsoleResult:
+    """Build the console result view-model from a successful ``run_query`` outcome. ``truncated``
+    becomes a 0-or-1 message tuple for the logic-free banner."""
+    truncated = (_CONSOLE_TRUNCATED,) if outcome.truncated else ()
+    return ConsoleResult(
+        columns=outcome.columns,
+        rows=tuple(ConsoleRow(cells=cells) for cells in outcome.rows),
+        row_count=outcome.row_count,
+        elapsed_ms=outcome.elapsed_ms,
+        truncated=truncated,
+    )
 
 
 def build_app(
@@ -434,6 +494,95 @@ def build_app(
         return RedirectResponse("/controls?done=restart", status_code=303)
 
     # ------------------------------------------------------------------
+    # SQL console (spec §11): a read-only power-user console over either DB.
+    # ``run_query`` opens its OWN fresh ``mode=ro`` + ``query_only`` connection with a per-query
+    # progress-handler timeout, so a runaway query cannot write and cannot disturb the reused
+    # page-serving readers. It runs OFF the event loop via ``run_in_threadpool`` so a slow query
+    # (up to the timeout) blocks neither the crawler thread nor the webui loop, only its pool slot.
+    # NO CSRF token: consistent with the no-auth, network-trust-boundary posture (spec §12).
+    # ------------------------------------------------------------------
+
+    _console_db_paths = {"catalog": catalog_db, "local": local_db}
+
+    async def handle_console(request: Request) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "console.html",
+            {
+                "sql": "",
+                "db_options": _console_db_options("catalog"),
+                "results": (),
+                "errors": (),
+            },
+        )
+
+    async def handle_console_run(request: Request) -> Response:
+        sql, db = await _read_console_form(request)
+        db_options = _console_db_options(db)
+        if db not in _console_db_paths:
+            return templates.TemplateResponse(
+                request,
+                "console.html",
+                {
+                    "sql": sql,
+                    "db_options": db_options,
+                    "results": (),
+                    "errors": (_CONSOLE_UNKNOWN_DB,),
+                },
+            )
+        outcome = await run_in_threadpool(
+            run_query,
+            db_path=_console_db_paths[db],
+            sql=sql,
+            row_cap=ROW_CAP,
+            timeout_seconds=TIMEOUT_SECONDS,
+        )
+        if outcome.error is not None:
+            return templates.TemplateResponse(
+                request,
+                "console.html",
+                {
+                    "sql": sql,
+                    "db_options": db_options,
+                    "results": (),
+                    "errors": (outcome.error,),
+                },
+            )
+        return templates.TemplateResponse(
+            request,
+            "console.html",
+            {
+                "sql": sql,
+                "db_options": db_options,
+                "results": (_to_console_result(outcome),),
+                "errors": (),
+            },
+        )
+
+    async def handle_console_csv(request: Request) -> Response:
+        sql, db = await _read_console_form(request)
+        if db not in _console_db_paths:
+            return Response(_CONSOLE_UNKNOWN_DB, status_code=400, media_type="text/plain")
+        outcome = await run_in_threadpool(
+            run_query,
+            db_path=_console_db_paths[db],
+            sql=sql,
+            row_cap=ROW_CAP,
+            timeout_seconds=TIMEOUT_SECONDS,
+        )
+        if outcome.error is not None:
+            return Response(outcome.error, status_code=400, media_type="text/plain")
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(outcome.columns)
+        writer.writerows(outcome.rows)
+        return Response(
+            buffer.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="query.csv"'},
+        )
+
+    # ------------------------------------------------------------------
     # Application
     # ------------------------------------------------------------------
 
@@ -450,6 +599,9 @@ def build_app(
             Route("/controls/pause", handle_pause, methods=["POST"]),
             Route("/controls/resume", handle_resume, methods=["POST"]),
             Route("/controls/restart", handle_restart, methods=["POST"]),
+            Route("/console", handle_console),
+            Route("/console", handle_console_run, methods=["POST"]),
+            Route("/console.csv", handle_console_csv, methods=["POST"]),
             Mount("/static", StaticFiles(directory=static_dir)),
         ],
         middleware=[Middleware(_SecurityHeadersMiddleware)],

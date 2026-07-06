@@ -230,6 +230,44 @@ class FilesSummary:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# SQL console (spec §11) — precomputed for the logic-free template
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ConsoleRow:
+    """One result row: its cells already stringified (NULL rendered as the literal "NULL")."""
+
+    cells: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ConsoleResult:
+    """A successful console query result, all fields precomputed for the template (W-D8).
+
+    ``truncated`` is a 0-or-1 element message tuple so the template can render the truncation
+    banner with ``{% for t in res.truncated %}`` (the guard forbids ``{% if %}``).
+    """
+
+    columns: tuple[str, ...]
+    rows: tuple[ConsoleRow, ...]
+    row_count: int
+    elapsed_ms: int
+    truncated: tuple[str, ...]  # 0 or 1 message: the truncation banner text
+
+
+@dataclass(frozen=True)
+class DbOption:
+    """One ``<select>`` option for the console DB picker. ``selected_attr`` is precomputed as the
+    literal ``"selected"`` or ``""`` so the template renders ``{{ o.selected_attr }}`` with no
+    logic."""
+
+    value: str
+    label: str
+    selected_attr: str  # "selected" or ""
+
+
 @dataclass(frozen=True)
 class FileDetailDisplay:
     """Full view of a file: all fields precomputed for the template.
