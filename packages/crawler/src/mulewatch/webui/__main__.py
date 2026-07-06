@@ -18,6 +18,8 @@ from pathlib import Path
 
 import uvicorn
 
+from catalog_matching.validation import parse_matcher_config, parse_targets
+from mulewatch.adapters.config.yaml_loader import load_yaml
 from mulewatch.webui.composition.app import build_app
 
 
@@ -35,8 +37,15 @@ def main() -> None:
 
     catalog_db = Path(_require_env(env, "CATALOG_DB"))
     local_db = Path(_require_env(env, "LOCAL_DB"))
-    targets = Path(_require_env(env, "TARGETS_CONFIG"))
-    matcher = Path(_require_env(env, "MATCHER_CONFIG"))
+    targets_path = Path(_require_env(env, "TARGETS_CONFIG"))
+    matcher_path = Path(_require_env(env, "MATCHER_CONFIG"))
+
+    # Parse the matcher + targets HERE (the parsing that used to live in ``build_app``):
+    # ``build_app`` now takes the already-parsed config. Reuse the crawler's canonical
+    # ``load_yaml`` + ``parse_*`` so the standalone entrypoint reads them exactly as the
+    # crawler core does.
+    matcher_config = parse_matcher_config(load_yaml(matcher_path))
+    targets = parse_targets(load_yaml(targets_path))
 
     host = env.get("WEBUI_HOST", "127.0.0.1")
     port = int(env.get("WEBUI_PORT", "8080"))
@@ -47,8 +56,8 @@ def main() -> None:
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
+        matcher_config=matcher_config,
         targets=targets,
-        matcher=matcher,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )

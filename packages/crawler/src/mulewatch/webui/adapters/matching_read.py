@@ -1,8 +1,11 @@
-"""Recompute a match explanation from the current config (spec W-D7 / Task 9).
+"""Recompute a match explanation from an already-parsed config (spec W-D7 / Task 9).
 
-``MatchingExplainer`` loads ``matcher.yaml`` + ``targets.yaml`` at construction time
-(once) and exposes ``explain()`` to recompute a file's explanation against the CURRENT
-config.
+Since P4a ``MatchingExplainer`` takes the crawler's ALREADY-PARSED ``MatcherConfig`` +
+``targets`` tuple at construction time (the YAML → config parsing moved UP into the caller —
+``__main__`` for the standalone entrypoint, ``CrawlerApp`` in-process later). It builds the
+:class:`MatchingEngine` ONCE and exposes ``explain()`` to recompute a file's explanation
+against that config. Sharing the crawler's own parsed matcher is what kills the matcher-drift
+bug structurally (spec §8).
 
 ``size_bytes → size_mb`` (and the trivial ``int → float`` casts) reuse the crawler's ONE
 canonical converter, ``mulewatch.domain.observation.candidate_from_fields`` (which encodes
@@ -13,28 +16,22 @@ observation always has a size), while ``explain()``'s contract still permits ``N
 path builds the ``FileCandidate`` directly.
 """
 
-from pathlib import Path
-
-import yaml
-
+from catalog_matching.config import MatcherConfig
 from catalog_matching.engine import Explanation, MatchingEngine
 from catalog_matching.models import FileCandidate, TargetSegment
-from catalog_matching.validation import parse_matcher_config, parse_targets
 from mulewatch.domain.observation import candidate_from_fields
 
 
 class MatchingExplainer:
-    """Build and cache a :class:`MatchingEngine` from the YAML files.
+    """Build and cache a :class:`MatchingEngine` from a parsed config.
 
     The engine is resolved ONCE (matcher trees pre-compiled per target) at
     construction. Successive calls to ``explain()`` reuse the same engine.
     """
 
-    def __init__(self, *, matcher_yaml: Path, targets_yaml: Path) -> None:
-        matcher_raw = yaml.safe_load(matcher_yaml.read_text(encoding="utf-8"))
-        targets_raw = yaml.safe_load(targets_yaml.read_text(encoding="utf-8"))
-        matcher_config = parse_matcher_config(matcher_raw)
-        targets: tuple[TargetSegment, ...] = parse_targets(targets_raw)
+    def __init__(
+        self, *, matcher_config: MatcherConfig, targets: tuple[TargetSegment, ...]
+    ) -> None:
         self._engine = MatchingEngine(matcher_config, targets)
 
     def explain(

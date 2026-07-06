@@ -4,23 +4,27 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+import yaml
 from httpx import ASGITransport, AsyncClient
 from starlette.applications import Starlette
 
+from catalog_matching.config import MatcherConfig
 from catalog_matching.models import TargetSegment
+from catalog_matching.validation import parse_matcher_config, parse_targets
 from mulewatch.webui.composition.app import _resolve_target_display, _to_display_rows, build_app
 from mulewatch.webui.domain.views import FileDecision, FileRow
 
 # ---------------------------------------------------------------------------
-# Helpers YAML
+# Parsed-config helpers (since P4a build_app takes already-parsed config)
 # ---------------------------------------------------------------------------
 
 TEST_HASH = "aabbccdd00112233aabbccdd00112233"
 
 
-def _write_targets_yaml(path: Path) -> Path:
-    (path / "targets.yaml").write_text(
-        """\
+def _targets() -> tuple[TargetSegment, ...]:
+    return parse_targets(
+        yaml.safe_load(
+            """\
 episodes:
   - season: 2
     seasonal_number: 11
@@ -28,15 +32,15 @@ episodes:
     segments:
       - letter: a
         title: "La Grenouille Cosmique"
-""",
-        encoding="utf-8",
+"""
+        )
     )
-    return path / "targets.yaml"
 
 
-def _write_matcher_yaml(path: Path) -> Path:
-    (path / "matcher.yaml").write_text(
-        """\
+def _matcher() -> MatcherConfig:
+    return parse_matcher_config(
+        yaml.safe_load(
+            """\
 tokens:
   keroro:
     keyword: keroro
@@ -45,10 +49,9 @@ rules:
     tier: catalog
     any:
       - keroro
-""",
-        encoding="utf-8",
+"""
+        )
     )
-    return path / "matcher.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +60,7 @@ rules:
 
 
 @pytest.fixture
-def populated_app(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
+def populated_app(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """Insert test data and build the Starlette app."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
@@ -99,8 +102,8 @@ def populated_app(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Sta
         )
         conn.commit()
 
-    targets_path = _write_targets_yaml(tmp_path)
-    matcher_path = _write_matcher_yaml(tmp_path)
+    matcher_config = _matcher()
+    targets = _targets()
 
     import mulewatch.webui
 
@@ -110,8 +113,8 @@ def populated_app(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Sta
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
-        targets=targets_path,
-        matcher=matcher_path,
+        matcher_config=matcher_config,
+        targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
@@ -119,7 +122,7 @@ def populated_app(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Sta
 
 
 @pytest.fixture
-def app_no_decision(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
+def app_no_decision(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """File without a match decision (decision=None branch)."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
@@ -154,8 +157,8 @@ def app_no_decision(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[S
         )
         conn.commit()
 
-    targets_path = _write_targets_yaml(tmp_path)
-    matcher_path = _write_matcher_yaml(tmp_path)
+    matcher_config = _matcher()
+    targets = _targets()
 
     import mulewatch.webui
 
@@ -165,8 +168,8 @@ def app_no_decision(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[S
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
-        targets=targets_path,
-        matcher=matcher_path,
+        matcher_config=matcher_config,
+        targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
@@ -174,9 +177,7 @@ def app_no_decision(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[S
 
 
 @pytest.fixture
-def app_retracted_decision(
-    catalog_db: Path, local_db: Path, tmp_path: Path
-) -> tuple[Starlette, str]:
+def app_retracted_decision(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """File whose LATEST decision for target 062A is a per-target retraction sentinel
     (``target_id="062A", rule_name="", tier="retracted"``) — must be treated exactly like
     ``app_no_decision`` (unmatched), never like a real decision."""
@@ -222,8 +223,8 @@ def app_retracted_decision(
         )
         conn.commit()
 
-    targets_path = _write_targets_yaml(tmp_path)
-    matcher_path = _write_matcher_yaml(tmp_path)
+    matcher_config = _matcher()
+    targets = _targets()
 
     import mulewatch.webui
 
@@ -233,8 +234,8 @@ def app_retracted_decision(
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
-        targets=targets_path,
-        matcher=matcher_path,
+        matcher_config=matcher_config,
+        targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
@@ -242,7 +243,7 @@ def app_retracted_decision(
 
 
 @pytest.fixture
-def app_no_observations(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
+def app_no_observations(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """File without observations (last_obs=None branch → link='')."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
@@ -259,8 +260,8 @@ def app_no_observations(catalog_db: Path, local_db: Path, tmp_path: Path) -> tup
         )
         conn.commit()
 
-    targets_path = _write_targets_yaml(tmp_path)
-    matcher_path = _write_matcher_yaml(tmp_path)
+    matcher_config = _matcher()
+    targets = _targets()
 
     import mulewatch.webui
 
@@ -270,8 +271,8 @@ def app_no_observations(catalog_db: Path, local_db: Path, tmp_path: Path) -> tup
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
-        targets=targets_path,
-        matcher=matcher_path,
+        matcher_config=matcher_config,
+        targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
@@ -279,7 +280,7 @@ def app_no_observations(catalog_db: Path, local_db: Path, tmp_path: Path) -> tup
 
 
 @pytest.fixture
-def app_unknown_target(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
+def app_unknown_target(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """File with a decision for a target_id unknown to the current config."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
@@ -318,8 +319,8 @@ def app_unknown_target(catalog_db: Path, local_db: Path, tmp_path: Path) -> tupl
         )
         conn.commit()
 
-    targets_path = _write_targets_yaml(tmp_path)
-    matcher_path = _write_matcher_yaml(tmp_path)
+    matcher_config = _matcher()
+    targets = _targets()
 
     import mulewatch.webui
 
@@ -329,8 +330,8 @@ def app_unknown_target(catalog_db: Path, local_db: Path, tmp_path: Path) -> tupl
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
-        targets=targets_path,
-        matcher=matcher_path,
+        matcher_config=matcher_config,
+        targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
@@ -338,9 +339,7 @@ def app_unknown_target(catalog_db: Path, local_db: Path, tmp_path: Path) -> tupl
 
 
 @pytest.fixture
-def app_download_tier_known_target(
-    catalog_db: Path, local_db: Path, tmp_path: Path
-) -> tuple[Starlette, str]:
+def app_download_tier_known_target(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """A non-catalog decision (tier=download) on a target_id resolvable in the current
     targets.yaml — Task 3 resolution rule: the "resolvable id" case."""
     with sqlite3.connect(catalog_db) as conn:
@@ -379,8 +378,8 @@ def app_download_tier_known_target(
         )
         conn.commit()
 
-    targets_path = _write_targets_yaml(tmp_path)
-    matcher_path = _write_matcher_yaml(tmp_path)
+    matcher_config = _matcher()
+    targets = _targets()
 
     import mulewatch.webui
 
@@ -390,8 +389,8 @@ def app_download_tier_known_target(
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
-        targets=targets_path,
-        matcher=matcher_path,
+        matcher_config=matcher_config,
+        targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
@@ -399,9 +398,7 @@ def app_download_tier_known_target(
 
 
 @pytest.fixture
-def app_download_tier_unknown_target(
-    catalog_db: Path, local_db: Path, tmp_path: Path
-) -> tuple[Starlette, str]:
+def app_download_tier_unknown_target(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """A non-catalog decision (tier=download) on a target_id NOT in the current
     targets.yaml — Task 3 resolution rule: the "unknown id" case."""
     with sqlite3.connect(catalog_db) as conn:
@@ -440,8 +437,8 @@ def app_download_tier_unknown_target(
         )
         conn.commit()
 
-    targets_path = _write_targets_yaml(tmp_path)
-    matcher_path = _write_matcher_yaml(tmp_path)
+    matcher_config = _matcher()
+    targets = _targets()
 
     import mulewatch.webui
 
@@ -451,8 +448,8 @@ def app_download_tier_unknown_target(
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
-        targets=targets_path,
-        matcher=matcher_path,
+        matcher_config=matcher_config,
+        targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
@@ -741,7 +738,7 @@ async def test_node_page_renders_scheduler_state(
 
 
 @pytest.fixture
-def app_with_media_obs(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
+def app_with_media_obs(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """File with an observation having non-null media_length_sec and bitrate_kbps."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
@@ -779,8 +776,8 @@ def app_with_media_obs(catalog_db: Path, local_db: Path, tmp_path: Path) -> tupl
         )
         conn.commit()
 
-    targets_path = _write_targets_yaml(tmp_path)
-    matcher_path = _write_matcher_yaml(tmp_path)
+    matcher_config = _matcher()
+    targets = _targets()
 
     import mulewatch.webui
 
@@ -790,8 +787,8 @@ def app_with_media_obs(catalog_db: Path, local_db: Path, tmp_path: Path) -> tupl
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
-        targets=targets_path,
-        matcher=matcher_path,
+        matcher_config=matcher_config,
+        targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
@@ -824,9 +821,7 @@ async def test_file_detail_unknown_hash_returns_styled_404(
 
 
 @pytest.fixture
-def app_with_hostile_filename(
-    catalog_db: Path, local_db: Path, tmp_path: Path
-) -> tuple[Starlette, str]:
+def app_with_hostile_filename(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """File whose name contains a ``|`` (eD2k link separator) — webui-security#0
     regression: without percent-encoding, the ``|`` in the name shifts size/hash and the
     link points elsewhere."""
@@ -858,8 +853,8 @@ def app_with_hostile_filename(
             "INSERT INTO node_runtime VALUES (?, ?)", ("created_at", "2024-01-01T00:00:00")
         )
         conn.commit()
-    targets_path = _write_targets_yaml(tmp_path)
-    matcher_path = _write_matcher_yaml(tmp_path)
+    matcher_config = _matcher()
+    targets = _targets()
     import mulewatch.webui
 
     templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
@@ -867,8 +862,8 @@ def app_with_hostile_filename(
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
-        targets=targets_path,
-        matcher=matcher_path,
+        matcher_config=matcher_config,
+        targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
@@ -917,9 +912,7 @@ async def test_security_headers_are_set_on_every_response(
 
 
 @pytest.mark.asyncio
-async def test_files_page_shows_pagination_navigation(
-    catalog_db: Path, local_db: Path, tmp_path: Path
-) -> None:
+async def test_files_page_shows_pagination_navigation(catalog_db: Path, local_db: Path) -> None:
     # webui-security#1: the page lists 50 files max; when it is FULL, a "Next →" link
     # must be rendered (heuristic: we don't have the total count).
     with sqlite3.connect(catalog_db) as conn:
@@ -956,8 +949,8 @@ async def test_files_page_shows_pagination_navigation(
             "INSERT INTO node_runtime VALUES (?, ?)", ("created_at", "2024-01-01T00:00:00")
         )
         conn.commit()
-    targets_path = _write_targets_yaml(tmp_path)
-    matcher_path = _write_matcher_yaml(tmp_path)
+    matcher_config = _matcher()
+    targets = _targets()
     import mulewatch.webui
 
     templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
@@ -965,8 +958,8 @@ async def test_files_page_shows_pagination_navigation(
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
-        targets=targets_path,
-        matcher=matcher_path,
+        matcher_config=matcher_config,
+        targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
@@ -1238,9 +1231,10 @@ async def test_target_page_resolves_title_via_segment_mapping(
 # ---------------------------------------------------------------------------
 
 
-def _write_targets_yaml_ab(path: Path) -> Path:
-    (path / "targets_ab.yaml").write_text(
-        """\
+def _targets_ab() -> tuple[TargetSegment, ...]:
+    return parse_targets(
+        yaml.safe_load(
+            """\
 episodes:
   - season: 3
     seasonal_number: 6
@@ -1250,14 +1244,13 @@ episodes:
         title: "Le Defi"
       - letter: b
         title: "Duel Contre Giroro"
-""",
-        encoding="utf-8",
+"""
+        )
     )
-    return path / "targets_ab.yaml"
 
 
 @pytest.fixture
-def app_whole_episode(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple[Starlette, str]:
+def app_whole_episode(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """One file matched to BOTH 072A and 072B (two current decisions, tier download) against a
     two-segment targets.yaml — the core multi-target end-to-end fixture (spec §9)."""
     with sqlite3.connect(catalog_db) as conn:
@@ -1297,8 +1290,8 @@ def app_whole_episode(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple
         )
         conn.commit()
 
-    targets_path = _write_targets_yaml_ab(tmp_path)
-    matcher_path = _write_matcher_yaml(tmp_path)
+    matcher_config = _matcher()
+    targets = _targets_ab()
 
     import mulewatch.webui
 
@@ -1307,8 +1300,8 @@ def app_whole_episode(catalog_db: Path, local_db: Path, tmp_path: Path) -> tuple
     app = build_app(
         catalog_db=catalog_db,
         local_db=local_db,
-        targets=targets_path,
-        matcher=matcher_path,
+        matcher_config=matcher_config,
+        targets=targets,
         templates_dir=templates_dir,
         static_dir=static_dir,
     )
