@@ -102,13 +102,13 @@ class VerificationRow:
 
 @dataclass(frozen=True)
 class FileDetail:
-    """Full view of a file: timeline + decision + verdicts."""
+    """Full view of a file: timeline + current decisions + verdicts."""
 
     ed2k_hash: str
     size_bytes: int
     aich_hash: str | None
     observations: tuple[ObservationRow, ...]
-    decision: DecisionView | None  # None if no decision
+    decisions: tuple[DecisionView, ...]  # current decisions, latest per target, 0..N
     verifications: tuple[VerificationRow, ...]
 
 
@@ -234,7 +234,8 @@ class FilesSummary:
 class FileDetailDisplay:
     """Full view of a file: all fields precomputed for the template.
 
-    ``decisions`` is a tuple of 0 or 1 element to allow the iteration
+    ``decisions`` holds 0..N current decisions (latest per target, excluding retractions and
+    the legacy ``target_id == ""`` sentinel) to allow the iteration
     ``{% for d in file.decisions %}`` in the template (the guard forbids {% if %}).
     ``explanation_notes`` is empty if there is no explanation, containing a single element
     (the text note) otherwise — allows conditional iteration without {% if %}.
@@ -244,7 +245,7 @@ class FileDetailDisplay:
     size_bytes: int
     aich_hash_display: str  # aich_hash or "·"
     observations: tuple[ObservationRow, ...]
-    decisions: tuple[DecisionView, ...]  # 0 or 1 element — for template iteration
+    decisions: tuple[DecisionView, ...]  # 0..N elements — for template iteration
     verifications: tuple[VerificationRow, ...]
     ed2k_link: str  # precomputed from the latest observation
     # Explanation fields (None if no explanation available)

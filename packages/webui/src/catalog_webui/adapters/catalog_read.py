@@ -11,8 +11,8 @@
   latest decision ⨝ latest verdict, optional filters + LIMIT/OFFSET).
 - ``count_files()`` — ``(matched, total)`` counts over the same filtered source, for the
   /files summary line.
-- ``file_detail()`` — all observations + latest decision + all verdicts for a given
-  hash; ``None`` if the hash is unknown.
+- ``file_detail()`` — all observations + current decisions (latest per target) + all
+  verdicts for a given hash; ``None`` if the hash is unknown.
 
 All SQL lives in module constants, parameterized (no value interpolation).
 """
@@ -177,18 +177,31 @@ WHERE ed2k_hash = ?
 ORDER BY observed_at ASC, id ASC
 """
 
-# Latest decision of a file.
-_SQL_LAST_DECISION = """\
+# All current decisions of a file: latest per (ed2k_hash, target_id), excluding the legacy
+# ``target_id == ''`` sentinel and any target whose latest row is a ``retracted`` marker.
+_SQL_FILE_DECISIONS = """\
 SELECT
-    target_id,
-    rule_name,
-    tier,
-    decided_at,
-    node_id
-FROM match_decisions
-WHERE ed2k_hash = ?
-ORDER BY decided_at DESC, id DESC
-LIMIT 1
+    md.target_id,
+    md.rule_name,
+    md.tier,
+    md.decided_at,
+    md.node_id
+FROM match_decisions AS md
+WHERE md.ed2k_hash = ?
+AND md.target_id != ''
+AND md.tier != 'retracted'
+AND (
+    SELECT COUNT(*)
+    FROM match_decisions AS md2
+    WHERE
+        md2.ed2k_hash = md.ed2k_hash
+        AND md2.target_id = md.target_id
+        AND (
+            md2.decided_at > md.decided_at
+            OR (md2.decided_at = md.decided_at AND md2.id > md.id)
+        )
+) = 0
+ORDER BY md.target_id
 """
 
 # All verdicts of a file, chronological order.
@@ -378,20 +391,19 @@ class CatalogReader:
             return None
 
         obs_rows = self._conn.execute(_SQL_OBSERVATIONS, (ed2k_hash,)).fetchall()
-        dec_row = self._conn.execute(_SQL_LAST_DECISION, (ed2k_hash,)).fetchone()
+        dec_rows = self._conn.execute(_SQL_FILE_DECISIONS, (ed2k_hash,)).fetchall()
         ver_rows = self._conn.execute(_SQL_VERIFICATIONS, (ed2k_hash,)).fetchall()
 
-        # A retracted latest decision is treated as no decision at all (retracted == unmatched,
-        # spec §9): the earlier, pre-retraction real decision must never leak through here.
-        decision: DecisionView | None = None
-        if dec_row is not None and dec_row["tier"] != "retracted":
-            decision = DecisionView(
-                target_id=dec_row["target_id"],
-                rule_name=dec_row["rule_name"],
-                tier=dec_row["tier"],
-                decided_at=dec_row["decided_at"],
-                node_id=dec_row["node_id"],
+        decisions = tuple(
+            DecisionView(
+                target_id=row["target_id"],
+                rule_name=row["rule_name"],
+                tier=row["tier"],
+                decided_at=row["decided_at"],
+                node_id=row["node_id"],
             )
+            for row in dec_rows
+        )
 
         return FileDetail(
             ed2k_hash=file_row["ed2k_hash"],
@@ -412,7 +424,7 @@ class CatalogReader:
                 )
                 for row in obs_rows
             ),
-            decision=decision,
+            decisions=decisions,
             verifications=tuple(
                 VerificationRow(
                     id=row["id"],

@@ -306,13 +306,13 @@ def test_count_files_whole_episode_counts_as_one_file(catalog_db: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_file_detail_carries_observations_and_decision(catalog_db: Path) -> None:
+def test_file_detail_carries_observations_and_decisions(catalog_db: Path) -> None:
     _seed(catalog_db)
     detail = CatalogReader(open_ro(catalog_db)).file_detail("a" * 32)
     assert detail is not None
     assert detail.size_bytes == 100
-    assert detail.decision is not None
-    assert detail.decision.target_id == "062A"
+    assert len(detail.decisions) == 1
+    assert detail.decisions[0].target_id == "062A"
     assert len(detail.observations) == 1
 
 
@@ -329,14 +329,14 @@ def test_file_detail_with_verifications(catalog_db: Path) -> None:
     assert detail.verifications[0].verdict == "ok"
 
 
-def test_file_detail_retracted_latest_decision_is_no_decision(catalog_db: Path) -> None:
+def test_file_detail_retracted_target_is_no_decision(catalog_db: Path) -> None:
     """A file whose LATEST decision is the crawler's retraction sentinel exposes NO decision
     from ``file_detail`` — identical to an unmatched file (spec §9). The earlier
     (pre-retraction) real decision must not leak through."""
     _seed_retracted(catalog_db)
     detail = CatalogReader(open_ro(catalog_db)).file_detail("c" * 32)
     assert detail is not None
-    assert detail.decision is None
+    assert detail.decisions == ()
 
 
 def test_file_detail_no_decision(catalog_db: Path) -> None:
@@ -366,8 +366,15 @@ def test_file_detail_no_decision(catalog_db: Path) -> None:
         conn.commit()
     detail = CatalogReader(open_ro(catalog_db)).file_detail("b" * 32)
     assert detail is not None
-    assert detail.decision is None
+    assert detail.decisions == ()
     assert detail.size_bytes == 200
+
+
+def test_file_detail_whole_episode_lists_both_decisions(catalog_db: Path) -> None:
+    _seed_whole_episode(catalog_db)
+    detail = CatalogReader(open_ro(catalog_db)).file_detail("a" * 32)
+    assert detail is not None
+    assert [d.target_id for d in detail.decisions] == ["072A", "072B"]
 
 
 # ---------------------------------------------------------------------------
