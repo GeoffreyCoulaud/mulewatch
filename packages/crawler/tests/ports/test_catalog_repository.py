@@ -28,9 +28,6 @@ class _StubRepository:
     def record_retraction(self, ed2k_hash: str, target_id: str) -> None:
         self.retractions.append((ed2k_hash, target_id))
 
-    def last_decision(self, ed2k_hash: str) -> DecisionRecord | None:
-        return None
-
     def last_decisions(self, ed2k_hash: str) -> dict[str, DecisionRecord]:
         return {}
 
@@ -85,7 +82,6 @@ def test_protocol_is_satisfied_structurally() -> None:
     repository.record_observation(observation)
     repository.record_decision(observation.ed2k_hash, decision)
     repository.record_retraction(observation.ed2k_hash, "062A")
-    assert repository.last_decision(observation.ed2k_hash) is None
     assert repository.last_decisions(observation.ed2k_hash) == {}
     assert repository.download_decisions() == ()
     assert repository.last_observation(observation.ed2k_hash) is None

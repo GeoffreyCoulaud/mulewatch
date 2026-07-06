@@ -58,17 +58,6 @@ INSERT INTO file_verifications (ed2k_hash, verdict, real_meta, checks, verified_
 VALUES (?, ?, ?, ?, ?, ?)
 """
 
-# Last known verdict for a hash (anti-redundancy, orchestration spec §3). Sorted by
-# (decided_at, id) DESCENDING: fixed-width decided_at makes lexicographic order
-# chronological; id breaks a tie between two decisions of the same microsecond (the most
-# recent INSERT has the largest id). The idx_match_decisions_ed2k_hash index serves the filter.
-_SELECT_LAST_DECISION = """
-SELECT target_id, rule_name, tier FROM match_decisions
-WHERE ed2k_hash = ?
-ORDER BY decided_at DESC, id DESC
-LIMIT 1
-"""
-
 # Latest verdict per (ed2k_hash, target_id) for one hash (set-diff anti-redundancy, spec §7).
 # ROW_NUMBER per target, order (decided_at, id) DESCENDING (most recent = rank 1); keep rank 1.
 # INCLUDES a target whose latest tier is 'retracted' (no tier filter); EXCLUDES the legacy
@@ -209,20 +198,6 @@ class SqliteCatalogRepository:
                 _INSERT_DECISION,
                 (ed2k_hash, target_id, "", RETRACTED_TIER, utc_iso(self._clock()), self._node_id),
             )
-
-    def last_decision(self, ed2k_hash: str) -> DecisionRecord | None:
-        """Last known verdict for this hash, or ``None`` (never decided) — READ.
-
-        Anti-redundancy (orchestration spec §3): the application compares this
-        ``DecisionRecord`` to the fresh verdict and only re-``record_decision`` if it differs.
-        The hash is NOT validated canonical here: it is a harmless read (a non-canonical
-        hash simply matches nothing → ``None``).
-        """
-        with wrap_sqlite_errors():
-            row = self._connection.execute(_SELECT_LAST_DECISION, (ed2k_hash,)).fetchone()
-        if row is None:
-            return None
-        return DecisionRecord(target_id=row[0], rule_name=row[1], tier=row[2])
 
     def last_decisions(self, ed2k_hash: str) -> dict[str, DecisionRecord]:
         """Latest verdict per target for this hash (set-diff anti-redundancy, spec §7) — READ.

@@ -48,7 +48,6 @@ class ReevalRow:
 class CatalogRepository(Protocol):
     """Sync catalog write contract (append-only; the adapter reports, it does not decide).
 
-    ``last_decision`` (anti-redundancy, spec orchestration §3) returns a :class:`DecisionRecord`.
     ``last_decisions`` (set-diff anti-redundancy, spec §7) returns the latest
     :class:`DecisionRecord` PER TARGET for a hash (including a target whose latest tier is
     ``retracted``; excluding the legacy ``target_id=""`` sentinel), for multi-target matching.
@@ -71,8 +70,6 @@ class CatalogRepository(Protocol):
     def record_decision(self, ed2k_hash: str, decision: MatchDecision) -> None: ...
 
     def record_retraction(self, ed2k_hash: str, target_id: str) -> None: ...
-
-    def last_decision(self, ed2k_hash: str) -> DecisionRecord | None: ...
 
     def last_decisions(self, ed2k_hash: str) -> dict[str, DecisionRecord]: ...
 

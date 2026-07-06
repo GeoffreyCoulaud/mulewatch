@@ -98,7 +98,7 @@ class CatalogReader(Protocol):
 
     Subset of ``CatalogRepository`` (download_decisions + last_observation): the loop
     depends ONLY on what it reads, so the minimal test fake satisfies it without implementing
-    record_observation/record_decision/last_decision. The real ``SqliteCatalogRepository``
+    record_observation/record_decision. The real ``SqliteCatalogRepository``
     satisfies it too (it has these two methods). Stubs on ONE line.
     """
 
