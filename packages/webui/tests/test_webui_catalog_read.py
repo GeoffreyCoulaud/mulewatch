@@ -686,3 +686,64 @@ def test_count_files_empty_catalogue_matched_is_zero_not_none(catalog_db: Path) 
     reader = CatalogReader(open_ro(catalog_db))
     matched, total = reader.count_files(target=None, tier=None, verdict=None, query=None)
     assert (matched, total) == (0, 0)
+
+
+# ---------------------------------------------------------------------------
+# Tests: latest verdict — "last verification wins" (tie-break on verified_at then id)
+# ---------------------------------------------------------------------------
+
+
+def test_list_files_shows_latest_verdict(catalog_db: Path) -> None:
+    """Same hash with two verdicts (T1 < T2) → list_files shows the most recent one."""
+    h = "a" * 32
+    with sqlite3.connect(catalog_db) as conn:
+        conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 100))
+        conn.execute(
+            "INSERT INTO file_observations"
+            " (ed2k_hash, filename, size_bytes, source_count,"
+            " complete_source_count, raw_meta, keyword, observed_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (h, "keroro.avi", 100, 1, 0, "[]", "keroro", "2026-06-22T10:00:00.000000+00:00", "n1"),
+        )
+        for verdict, ts in (
+            ("suspicious", "2026-06-22T11:00:00.000000+00:00"),
+            ("ok", "2026-06-22T12:00:00.000000+00:00"),
+        ):
+            conn.execute(
+                "INSERT INTO file_verifications"
+                " (ed2k_hash, verdict, real_meta, checks, verified_at, node_id)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (h, verdict, None, None, ts, "n1"),
+            )
+        conn.commit()
+    [row] = CatalogReader(open_ro(catalog_db)).list_files(
+        target=None, tier=None, verdict=None, query=None, page=1
+    )
+    assert row.last_verdict == "ok"
+
+
+def test_list_files_verdict_tie_break_on_id(catalog_db: Path) -> None:
+    """Two verdicts with the SAME verified_at → the larger id (later row) wins."""
+    h = "b" * 32
+    ts = "2026-06-22T10:00:00.000000+00:00"
+    with sqlite3.connect(catalog_db) as conn:
+        conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 200))
+        conn.execute(
+            "INSERT INTO file_observations"
+            " (ed2k_hash, filename, size_bytes, source_count,"
+            " complete_source_count, raw_meta, keyword, observed_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (h, "x.avi", 200, 1, 0, "[]", "keroro", ts, "n1"),
+        )
+        for verdict in ("suspicious", "ok"):
+            conn.execute(
+                "INSERT INTO file_verifications"
+                " (ed2k_hash, verdict, real_meta, checks, verified_at, node_id)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (h, verdict, None, None, ts, "n1"),
+            )
+        conn.commit()
+    [row] = CatalogReader(open_ro(catalog_db)).list_files(
+        target=None, tier=None, verdict=None, query=None, page=1
+    )
+    assert row.last_verdict == "ok"  # same verified_at → larger id wins

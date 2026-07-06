@@ -42,50 +42,50 @@ _PAGE_SIZE = PAGE_SIZE  # historical alias (internal) — the public value is us
 # (retracted == unmatched for that target) is dropped too.
 _SQL_COVERAGE = """\
 SELECT
-    md.ed2k_hash,
-    md.target_id,
-    md.tier
-FROM match_decisions AS md
-WHERE (
-    SELECT COUNT(*)
-    FROM match_decisions AS md2
-    WHERE
-        md2.ed2k_hash = md.ed2k_hash
-        AND md2.target_id = md.target_id
-        AND (
-            md2.decided_at > md.decided_at
-            OR (md2.decided_at = md.decided_at AND md2.id > md.id)
-        )
-) = 0
-AND md.target_id != ''
-AND md.tier != 'retracted'
-ORDER BY md.target_id, md.ed2k_hash
-"""
-
-# Current decisions per file: latest per (ed2k_hash, target_id), excluding the legacy
-# ``target_id == ''`` sentinel and any target whose latest row is a ``retracted`` marker.
-# ``dec_agg`` folds them to ONE row per hash — target_ids/tiers are ``char(31)``-joined,
-# both ordered by target_id so the two lists stay index-aligned (spec §9, rendering A).
-_SQL_LATEST_DEC_AGG = """\
-WITH latest_dec AS (
+    ed2k_hash,
+    target_id,
+    tier
+FROM (
     SELECT
         md.ed2k_hash,
         md.target_id,
-        md.tier
+        md.tier,
+        ROW_NUMBER() OVER (
+            PARTITION BY md.ed2k_hash, md.target_id
+            ORDER BY md.decided_at DESC, md.id DESC
+        ) AS rn
     FROM match_decisions AS md
-    WHERE (
-        SELECT COUNT(*)
-        FROM match_decisions AS md2
-        WHERE
-            md2.ed2k_hash = md.ed2k_hash
-            AND md2.target_id = md.target_id
-            AND (
-                md2.decided_at > md.decided_at
-                OR (md2.decided_at = md.decided_at AND md2.id > md.id)
-            )
-    ) = 0
-    AND md.target_id != ''
-    AND md.tier != 'retracted'
+)
+WHERE rn = 1
+AND target_id != ''
+AND tier != 'retracted'
+ORDER BY target_id, ed2k_hash
+"""
+
+# The "latest per group" CTEs shared by the explorer list + counter. Each folds an
+# append-only table to its current rows with a ROW_NUMBER() window (latest wins, tie-break on
+# id), replacing the earlier correlated COUNT(*)=0 subqueries (quadratic on accumulated
+# history). ``latest_dec`` keeps the latest decision per (hash, target_id), dropping the legacy
+# ``target_id == ''`` sentinel and any target whose latest row is a ``retracted`` marker;
+# ``dec_agg`` folds those to ONE row per hash, target_ids/tiers ``char(31)``-joined and both
+# ordered by target_id so the two lists stay index-aligned (spec §9, rendering A).
+_SQL_CTES = """\
+WITH latest_dec AS (
+    SELECT ed2k_hash, target_id, tier
+    FROM (
+        SELECT
+            md.ed2k_hash,
+            md.target_id,
+            md.tier,
+            ROW_NUMBER() OVER (
+                PARTITION BY md.ed2k_hash, md.target_id
+                ORDER BY md.decided_at DESC, md.id DESC
+            ) AS rn
+        FROM match_decisions AS md
+    )
+    WHERE rn = 1
+    AND target_id != ''
+    AND tier != 'retracted'
 ),
 dec_agg AS (
     SELECT
@@ -94,43 +94,51 @@ dec_agg AS (
         group_concat(ld.tier, char(31) ORDER BY ld.target_id) AS tiers
     FROM latest_dec AS ld
     GROUP BY ld.ed2k_hash
+),
+latest_obs AS (
+    SELECT ed2k_hash, filename, source_count, observed_at
+    FROM (
+        SELECT
+            obs.ed2k_hash,
+            obs.filename,
+            obs.source_count,
+            obs.observed_at,
+            ROW_NUMBER() OVER (
+                PARTITION BY obs.ed2k_hash
+                ORDER BY obs.observed_at DESC, obs.id DESC
+            ) AS rn
+        FROM file_observations AS obs
+    )
+    WHERE rn = 1
+),
+latest_ver AS (
+    SELECT ed2k_hash, verdict
+    FROM (
+        SELECT
+            ver.ed2k_hash,
+            ver.verdict,
+            ROW_NUMBER() OVER (
+                PARTITION BY ver.ed2k_hash
+                ORDER BY ver.verified_at DESC, ver.id DESC
+            ) AS rn
+        FROM file_verifications AS ver
+    )
+    WHERE rn = 1
 )
 """
 
-# Shared source: files ⨝ latest observation ⨝ current decisions (aggregated) ⨝ latest verdict.
+# Shared source: files ⨝ latest observation ⨝ current decisions (aggregated) ⨝ latest verdict,
+# all pre-folded by the CTEs above, so this is a plain star-join driven by ``files``.
 _SQL_FILES_SOURCE = """\
 FROM files AS f
-LEFT JOIN file_observations AS obs
-    ON obs.ed2k_hash = f.ed2k_hash
-    AND (
-        SELECT COUNT(*)
-        FROM file_observations AS obs2
-        WHERE
-            obs2.ed2k_hash = obs.ed2k_hash
-            AND (
-                obs2.observed_at > obs.observed_at
-                OR (obs2.observed_at = obs.observed_at AND obs2.id > obs.id)
-            )
-    ) = 0
-LEFT JOIN dec_agg AS dec
-    ON dec.ed2k_hash = f.ed2k_hash
-LEFT JOIN file_verifications AS ver
-    ON ver.ed2k_hash = f.ed2k_hash
-    AND (
-        SELECT COUNT(*)
-        FROM file_verifications AS ver2
-        WHERE
-            ver2.ed2k_hash = ver.ed2k_hash
-            AND (
-                ver2.verified_at > ver.verified_at
-                OR (ver2.verified_at = ver.verified_at AND ver2.id > ver.id)
-            )
-    ) = 0
+LEFT JOIN latest_obs AS obs ON obs.ed2k_hash = f.ed2k_hash
+LEFT JOIN dec_agg AS dec ON dec.ed2k_hash = f.ed2k_hash
+LEFT JOIN latest_ver AS ver ON ver.ed2k_hash = f.ed2k_hash
 """
 
 # Explorer: files + latest joins, driven by files. Optional filters added in list_files().
 _SQL_LIST_FILES_BASE = (
-    _SQL_LATEST_DEC_AGG
+    _SQL_CTES
     + """\
 SELECT
     f.ed2k_hash,
@@ -150,7 +158,7 @@ SELECT
 # decision (``dec.target_ids`` is non-NULL). COUNT(DISTINCT …) keeps both counts file-based
 # and yields 0 (not NULL) on an empty catalogue.
 _SQL_COUNT_FILES_BASE = (
-    _SQL_LATEST_DEC_AGG
+    _SQL_CTES
     + """\
 SELECT
     COUNT(DISTINCT f.ed2k_hash) AS total,
@@ -180,28 +188,25 @@ ORDER BY observed_at ASC, id ASC
 # All current decisions of a file: latest per (ed2k_hash, target_id), excluding the legacy
 # ``target_id == ''`` sentinel and any target whose latest row is a ``retracted`` marker.
 _SQL_FILE_DECISIONS = """\
-SELECT
-    md.target_id,
-    md.rule_name,
-    md.tier,
-    md.decided_at,
-    md.node_id
-FROM match_decisions AS md
-WHERE md.ed2k_hash = ?
-AND md.target_id != ''
-AND md.tier != 'retracted'
-AND (
-    SELECT COUNT(*)
-    FROM match_decisions AS md2
-    WHERE
-        md2.ed2k_hash = md.ed2k_hash
-        AND md2.target_id = md.target_id
-        AND (
-            md2.decided_at > md.decided_at
-            OR (md2.decided_at = md.decided_at AND md2.id > md.id)
-        )
-) = 0
-ORDER BY md.target_id
+SELECT target_id, rule_name, tier, decided_at, node_id
+FROM (
+    SELECT
+        md.target_id,
+        md.rule_name,
+        md.tier,
+        md.decided_at,
+        md.node_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY md.target_id
+            ORDER BY md.decided_at DESC, md.id DESC
+        ) AS rn
+    FROM match_decisions AS md
+    WHERE md.ed2k_hash = ?
+)
+WHERE rn = 1
+AND target_id != ''
+AND tier != 'retracted'
+ORDER BY target_id
 """
 
 # All verdicts of a file, chronological order.
