@@ -131,10 +131,10 @@ Any non-documentation change reaches `main` **through a PR** (see Wrap) so CI's 
 
 Once the gate is green and code reviewed:
 
-1. **Integrate.** **Push the branch and open a PR** for any change touching code, config, tests, `deploy/`, or CI: `main`'s branch protection requires the `validate / gate` check, but `enforce_admins: false` means a local admin merge silently bypasses CI — don't. Wait for the gate green, then merge (linear history is required → **squash or rebase**, not a merge commit). **Exception — documentation-only** (diff touches only `docs/**` + root `*.md`): a local merge/commit to `main` is fine, no PR needed. "Leave as-is" stays available when the user wants to handle it later.
-2. **Tag** annotated `vX.Y.Z-<name>` (not pushed), one per subsystem.
-3. **Clean up** branch and/or worktree if applicable.
-4. **Write the handoff** in `docs/handoffs/<ISO date> - handoff - <context>.md`: current state, what was just built, learned pitfalls, suggested next step, what is NOT validated against real hardware. The handoff is committed and pushed on `main`.
+1. **Write the handoff** in `docs/handoffs/<ISO date> - handoff - <context>.md`: current state, what was just built, learned pitfalls, suggested next step, what is NOT validated against real hardware. The handoff is committed before continuing the wrap phase.
+2. **Integrate.** **Push the branch and open a PR** for any change touching code, config, tests, `deploy/`, or CI: `main`'s branch protection requires the `validate / gate` check, but `enforce_admins: false` means a local admin merge silently bypasses CI — don't. Wait for the gate green, then merge (linear history is required → **squash or rebase**, not a merge commit). **Exception — documentation-only** (diff touches only `docs/**` + root `*.md`): a local merge/commit to `main` is fine, no PR needed. "Leave as-is" stays available when the user wants to handle it later.
+3. **Tag** annotated `vX.Y.Z-<name>` (not pushed), one per subsystem.
+4. **Clean up** branch and/or worktree if applicable.
 
 Use the `finishing-a-development-branch` skill to guide this phase.
 
