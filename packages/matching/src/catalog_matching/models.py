@@ -22,10 +22,8 @@ class FileCandidate:
 class TargetSegment:
     """A target episode segment (segment granularity, cf. spec §7).
 
-    Provides ``{season} {seasonal_number} {absolute_number} {segment} {title}`` to
-    the interpolation of regex patterns. ``sole_segment`` is NOT read from YAML: it is
-    derived by ``parse_targets`` (``True`` iff the episode has a single segment) and
-    drives the ``{mono_gate}`` placeholder (cf. interpolation.py).
+    Provides ``{season} {seasonal_number} {absolute_number} {segment} {title}`` to the
+    interpolation of regex patterns.
     """
 
     season: int
@@ -34,7 +32,6 @@ class TargetSegment:
     segment: str
     title: str
     status: str = "lost"
-    sole_segment: bool = False
 
     @property
     def target_id(self) -> str:

@@ -318,7 +318,7 @@ def test_parse_targets_duplicate_target_id_raises() -> None:
         )
 
 
-def test_parse_targets_marks_sole_segment_for_mono_episode() -> None:
+def test_parse_targets_builds_mono_episode_target() -> None:
     targets = parse_targets(
         {
             "episodes": [
@@ -331,10 +331,10 @@ def test_parse_targets_marks_sole_segment_for_mono_episode() -> None:
             ]
         }
     )
-    assert targets[0].sole_segment is True
+    assert [t.target_id for t in targets] == ["010A"]
 
 
-def test_parse_targets_two_segments_are_not_sole() -> None:
+def test_parse_targets_builds_two_segment_targets() -> None:
     targets = parse_targets(
         {
             "episodes": [
@@ -350,7 +350,7 @@ def test_parse_targets_two_segments_are_not_sole() -> None:
             ]
         }
     )
-    assert [t.sole_segment for t in targets] == [False, False]
+    assert [t.target_id for t in targets] == ["062A", "062B"]
 
 
 def test_regex_with_date_alt_placeholder_is_rejected() -> None:
