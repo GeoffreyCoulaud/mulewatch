@@ -54,7 +54,7 @@ SELECT value FROM node_runtime WHERE key = ?
 
 
 class LocalReader:
-    """Read-only access to local.db via a SQLite connection (open_ro)."""
+    """Read-only access to local.db via a SQLite connection (see ``reader.open_reader``)."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._conn = connection
