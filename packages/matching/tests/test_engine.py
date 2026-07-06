@@ -6,6 +6,9 @@ import yaml
 
 from catalog_matching.config import TIERS, MatcherConfig
 from catalog_matching.engine import (
+    _ATTRIBUTABLE,
+    _EPISODE_LEVEL,
+    _SEGMENT_LEVEL,
     _TIER_RANK,
     Explanation,
     MatchDecision,
@@ -30,6 +33,19 @@ def test_tier_rank_catalog_is_lowest() -> None:
 def test_tier_rank_covers_exactly_the_valid_tiers() -> None:
     # Consistency: every licit tier (TIERS) has a rank, and no orphan rank.
     assert set(_TIER_RANK) == TIERS
+
+
+def test_attributable_is_the_union_of_segment_and_episode_level() -> None:
+    assert _ATTRIBUTABLE == _SEGMENT_LEVEL | _EPISODE_LEVEL
+
+
+def test_segment_and_episode_level_sets_are_disjoint() -> None:
+    assert _SEGMENT_LEVEL.isdisjoint(_EPISODE_LEVEL)
+
+
+def test_attributable_names_match_the_spec() -> None:
+    assert frozenset({"id_segment_exact", "title_confirmed", "title_review"}) == _SEGMENT_LEVEL
+    assert frozenset({"numero_nu_confirmed", "numero_nu"}) == _EPISODE_LEVEL
 
 
 def test_explanation_is_frozen_and_holds_fields() -> None:

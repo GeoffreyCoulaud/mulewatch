@@ -99,6 +99,16 @@ class DownloadCandidate:
 _TIER_RANK = TIER_RANK
 
 
+# Rule-name sets driving the multi-target fan-out (spec §4). A rule is ATTRIBUTABLE when its
+# win pins the file to a concrete target via a number/title video signal. SEGMENT_LEVEL rules
+# pin one specific segment (a title, or a lettered number); EPISODE_LEVEL rules designate the
+# whole episode (a bare number) and thus every one of its segments. ATTRIBUTABLE is exactly
+# their union.
+_SEGMENT_LEVEL: frozenset[str] = frozenset({"id_segment_exact", "title_confirmed", "title_review"})
+_EPISODE_LEVEL: frozenset[str] = frozenset({"numero_nu_confirmed", "numero_nu"})
+_ATTRIBUTABLE: frozenset[str] = _SEGMENT_LEVEL | _EPISODE_LEVEL
+
+
 def _first_matching_rule(
     config: MatcherConfig,
     resolved: ResolvedTarget,
