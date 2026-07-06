@@ -193,21 +193,21 @@ class SqliteCatalogRepository:
                 ),
             )
 
-    def record_retraction(self, ed2k_hash: str) -> None:
-        """Appends a sentinel ``retracted`` decision (spec re-evaluation §5).
+    def record_retraction(self, ed2k_hash: str, target_id: str) -> None:
+        """Appends a per-target ``retracted`` decision (spec §7).
 
-        Mirrors ``record_decision`` exactly (same canonical-hash guard, same bare
-        autocommit ``INSERT``): a file that no longer matches any target gets an
-        appended ``(target_id="", rule_name="", tier=RETRACTED_TIER)`` row instead of a
-        mutation, per the append-only invariant. Unknown file → FK violated →
-        ``PersistenceError``.
+        Mirrors ``record_decision`` (same canonical-hash guard, same autocommit ``INSERT``): a
+        file that no longer matches ``target_id`` gets an appended
+        ``(target_id, rule_name="", tier=RETRACTED_TIER)`` row instead of a mutation, per the
+        append-only invariant. Retracting one target leaves the file's other targets intact.
+        Unknown file → FK violated → ``PersistenceError``.
         """
         if not _CANONICAL_HASH_RE.fullmatch(ed2k_hash):
             raise PersistenceError(f"non-canonical eD2k hash: {ed2k_hash!r}")
         with wrap_sqlite_errors():
             self._connection.execute(
                 _INSERT_DECISION,
-                (ed2k_hash, "", "", RETRACTED_TIER, utc_iso(self._clock()), self._node_id),
+                (ed2k_hash, target_id, "", RETRACTED_TIER, utc_iso(self._clock()), self._node_id),
             )
 
     def last_decision(self, ed2k_hash: str) -> DecisionRecord | None:
@@ -239,7 +239,11 @@ class SqliteCatalogRepository:
         }
 
     def download_decisions(self) -> tuple[DownloadCandidate, ...]:
-        """Hashes whose LATEST verdict is tier=download, to replay (download §5) — READ."""
+        """``(hash, target_id)`` whose LATEST verdict is tier=download, to replay (download §5).
+
+        Keyed per ``(hash, target_id)``: a whole-episode file matching both segments now yields
+        MULTIPLE :class:`DownloadCandidate` for the SAME hash (one per target). READ.
+        """
         with wrap_sqlite_errors():
             rows = self._connection.execute(_SELECT_DOWNLOAD_DECISIONS).fetchall()
         return tuple(DownloadCandidate(ed2k_hash=row[0], target_id=row[1]) for row in rows)

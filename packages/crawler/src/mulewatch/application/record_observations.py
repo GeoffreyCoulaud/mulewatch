@@ -12,7 +12,7 @@ APPLICATION layer (orchestration spec §4): orchestrates PORTS (sync repos + pur
 The repos are SYNCHRONOUS, called DIRECTLY (spec §3: sub-ms, no ``to_thread`` in the
 MVP; accepted consequence: DB writes are de facto serialized on the event loop).
 A ``RepositoryError`` (a PORT contract, never an adapter) on ONE observation is
-LOGGED and ABSORBED here: the function returns ``False`` and the cycle continues (spec §7) — a
+LOGGED and ABSORBED here: the function returns ``0`` and the cycle continues (spec §7) — a
 single corrupt/failed obs does not bring down the whole sweep, but the failure stays
 VISIBLE (``error``-level log, so a persistent failure gets noticed).
 """
@@ -39,12 +39,11 @@ async def record_observation(
     signal: DecisionSignal,
     telemetry: Telemetry,
     network: str,
-) -> bool:
-    """Process ONE observation (spec §4). Returns ``True`` iff a NEW verdict was persisted.
+) -> int:
+    """Process ONE observation (spec §7). Returns the number of rows written (0..N).
 
-    Emits ``ObservationRecorded`` as soon as it is recorded (always), and ``DecisionRecorded`` on
-    a verdict change (or a retraction). A ``RepositoryError`` is absorbed (log + ``False``),
-    the cycle continues (spec §7)."""
+    Emits ``ObservationRecorded`` (always) and one ``DecisionRecorded`` per recorded verdict /
+    retraction. A ``RepositoryError`` is absorbed (log + ``0``), the cycle continues (spec §7)."""
     try:
         catalog.record_observation(observation)
         await telemetry.emit(ObservationRecorded(network=network))
@@ -62,4 +61,4 @@ async def record_observation(
             observation.ed2k_hash,
             error,
         )
-        return False
+        return 0

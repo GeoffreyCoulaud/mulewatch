@@ -16,7 +16,7 @@ class _StubRepository:
     def __init__(self) -> None:
         self.observations: list[FileObservation] = []
         self.decisions: list[tuple[str, MatchDecision]] = []
-        self.retractions: list[str] = []
+        self.retractions: list[tuple[str, str]] = []
         self.verifications: list[tuple[str, str, dict[str, object], list[object]]] = []
 
     def record_observation(self, observation: FileObservation) -> None:
@@ -25,8 +25,8 @@ class _StubRepository:
     def record_decision(self, ed2k_hash: str, decision: MatchDecision) -> None:
         self.decisions.append((ed2k_hash, decision))
 
-    def record_retraction(self, ed2k_hash: str) -> None:
-        self.retractions.append(ed2k_hash)
+    def record_retraction(self, ed2k_hash: str, target_id: str) -> None:
+        self.retractions.append((ed2k_hash, target_id))
 
     def last_decision(self, ed2k_hash: str) -> DecisionRecord | None:
         return None
@@ -84,7 +84,7 @@ def test_protocol_is_satisfied_structurally() -> None:
     )
     repository.record_observation(observation)
     repository.record_decision(observation.ed2k_hash, decision)
-    repository.record_retraction(observation.ed2k_hash)
+    repository.record_retraction(observation.ed2k_hash, "062A")
     assert repository.last_decision(observation.ed2k_hash) is None
     assert repository.last_decisions(observation.ed2k_hash) == {}
     assert repository.download_decisions() == ()
@@ -101,5 +101,5 @@ def test_protocol_is_satisfied_structurally() -> None:
     repository.record_verification(observation.ed2k_hash, "unverified", {"k": 1}, ["c"])
     assert stub.observations == [observation]
     assert stub.decisions == [(observation.ed2k_hash, decision)]
-    assert stub.retractions == [observation.ed2k_hash]
+    assert stub.retractions == [(observation.ed2k_hash, "062A")]
     assert stub.verifications == [(observation.ed2k_hash, "unverified", {"k": 1}, ["c"])]

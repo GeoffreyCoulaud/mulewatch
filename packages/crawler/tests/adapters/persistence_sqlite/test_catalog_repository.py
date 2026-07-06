@@ -274,21 +274,21 @@ def test_record_retraction_round_trip(
     repository: SqliteCatalogRepository, connection: sqlite3.Connection
 ) -> None:
     repository.record_observation(_observation())
-    repository.record_retraction(_HASH)
+    repository.record_retraction(_HASH, "062A")
     row = connection.execute(
         "SELECT ed2k_hash, target_id, rule_name, tier, decided_at, node_id FROM match_decisions"
     ).fetchone()
-    assert row == (_HASH, "", "", RETRACTED_TIER, _FROZEN_ISO, _NODE)
-    assert repository.last_decision(_HASH) == DecisionRecord(
-        target_id="", rule_name="", tier=RETRACTED_TIER
-    )
+    assert row == (_HASH, "062A", "", RETRACTED_TIER, _FROZEN_ISO, _NODE)
+    assert repository.last_decisions(_HASH) == {
+        "062A": DecisionRecord(target_id="062A", rule_name="", tier=RETRACTED_TIER)
+    }
 
 
 def test_record_retraction_rejects_non_canonical_hash(
     repository: SqliteCatalogRepository, connection: sqlite3.Connection
 ) -> None:
     with pytest.raises(PersistenceError, match="non-canonical eD2k hash"):
-        repository.record_retraction("NOTAHASH")
+        repository.record_retraction("NOTAHASH", "062A")
     assert connection.execute("SELECT count(*) FROM match_decisions").fetchone()[0] == 0
 
 
@@ -297,22 +297,22 @@ def test_record_retraction_for_unknown_file_raises_persistence_error(
 ) -> None:
     # FK violated (file never observed): mirrors record_decision's own guard.
     with pytest.raises(PersistenceError, match="FOREIGN KEY"):
-        repository.record_retraction("0" * 32)
+        repository.record_retraction("0" * 32, "062A")
 
 
 def test_record_retraction_row_is_append_only(
     repository: SqliteCatalogRepository, connection: sqlite3.Connection
 ) -> None:
     repository.record_observation(_observation())
-    repository.record_retraction(_HASH)
+    repository.record_retraction(_HASH, "062A")
     with pytest.raises(sqlite3.IntegrityError, match="match_decisions is append-only"):
         connection.execute("UPDATE match_decisions SET tier = 'catalog'")
     with pytest.raises(sqlite3.IntegrityError, match="match_decisions is append-only"):
         connection.execute("DELETE FROM match_decisions")
-    # The sentinel row SURVIVED both attempts, untouched.
-    assert repository.last_decision(_HASH) == DecisionRecord(
-        target_id="", rule_name="", tier=RETRACTED_TIER
-    )
+    # The retracted row SURVIVED both attempts, untouched.
+    assert repository.last_decisions(_HASH) == {
+        "062A": DecisionRecord(target_id="062A", rule_name="", tier=RETRACTED_TIER)
+    }
 
 
 def test_iter_reevaluation_rows_returns_the_latest_observation_per_hash(
