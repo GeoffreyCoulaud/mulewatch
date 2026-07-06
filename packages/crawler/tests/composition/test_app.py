@@ -56,7 +56,7 @@ _FP = "test-policy-fingerprint"
 # Existing app tests do not exercise the webui: keep it OFF by default so run() never builds a
 # real uvicorn server. The webui-specific tests below opt in with an enabled config + a fake
 # server factory (no real HTTP).
-_WEBUI_OFF = WebuiConfig(enabled=False, host="127.0.0.1", port=8080)
+_WEBUI_OFF = WebuiConfig(enabled=False)
 
 
 class _NoopRng:
@@ -1265,27 +1265,24 @@ class _CrashingWebuiServer:
 
 @pytest.mark.asyncio
 async def test_webui_starts_on_own_thread_and_stops_at_shutdown(
-    tmp_path: Path, matcher_config: MatcherConfig
+    tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # webui.enabled → run() builds the ASGI app, calls the factory with (app, host, port), and
-    # serves it on a daemon thread. At shutdown, _stop_webui sets should_exit + joins the thread.
+    # webui.enabled → run() builds the ASGI app, calls the factory with (app,), and serves it on
+    # a daemon thread bound to the FIXED 0.0.0.0:8080. At shutdown, _stop_webui sets should_exit
+    # + joins the thread.
     holder: dict[str, CrawlerApp] = {}
     server = _FakeWebuiServer()
     captured: dict[str, object] = {}
 
-    def fake_factory(app: Starlette, host: str, port: int) -> _FakeWebuiServer:
+    def fake_factory(app: Starlette) -> _FakeWebuiServer:
         captured["app"] = app
-        captured["host"] = host
-        captured["port"] = port
         return server
 
     def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
         return _ShutdownOnStatusClient(holder)
 
     app = CrawlerApp(
-        crawler_config=_crawler_config(
-            tmp_path, webui=WebuiConfig(enabled=True, host="0.0.0.0", port=9876)
-        ),
+        crawler_config=_crawler_config(tmp_path, webui=WebuiConfig(enabled=True)),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -1296,10 +1293,12 @@ async def test_webui_starts_on_own_thread_and_stops_at_shutdown(
         webui_server_factory=fake_factory,
     )
     holder["app"] = app
-    await asyncio.wait_for(app.run(), timeout=5.0)
+    with caplog.at_level(logging.INFO, logger="mulewatch.composition.app"):
+        await asyncio.wait_for(app.run(), timeout=5.0)
     assert isinstance(captured["app"], Starlette)  # the built webui ASGI app was passed
-    assert captured["host"] == "0.0.0.0"
-    assert captured["port"] == 9876
+    assert any(  # the log reports the FIXED in-container bind
+        "webui serving on 0.0.0.0:8080" in r.getMessage() for r in caplog.records
+    )
     assert server.served.is_set()  # serve() ran on the webui thread
     assert server.should_exit is True  # _stop_webui asked it to exit at shutdown
     assert server.stopped.is_set()  # serve() returned → the thread joined cleanly
@@ -1313,16 +1312,14 @@ async def test_webui_not_started_when_disabled(
     # with a factory that would fail the test if invoked.
     holder: dict[str, CrawlerApp] = {}
 
-    def boom_factory(app: Starlette, host: str, port: int) -> WebuiServer:
+    def boom_factory(app: Starlette) -> WebuiServer:
         raise AssertionError("the webui factory must not be called when disabled")
 
     def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
         return _ShutdownOnStatusClient(holder)
 
     app = CrawlerApp(
-        crawler_config=_crawler_config(
-            tmp_path, webui=WebuiConfig(enabled=False, host="127.0.0.1", port=8080)
-        ),
+        crawler_config=_crawler_config(tmp_path, webui=WebuiConfig(enabled=False)),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -1346,16 +1343,14 @@ async def test_webui_crash_degrades_and_crawler_shuts_down_cleanly(
     holder: dict[str, CrawlerApp] = {}
     server = _CrashingWebuiServer()
 
-    def crash_factory(app: Starlette, host: str, port: int) -> _CrashingWebuiServer:
+    def crash_factory(app: Starlette) -> _CrashingWebuiServer:
         return server
 
     def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
         return _ShutdownOnStatusClient(holder)
 
     app = CrawlerApp(
-        crawler_config=_crawler_config(
-            tmp_path, webui=WebuiConfig(enabled=True, host="127.0.0.1", port=8080)
-        ),
+        crawler_config=_crawler_config(tmp_path, webui=WebuiConfig(enabled=True)),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -1376,8 +1371,10 @@ def test_default_webui_server_factory_builds_a_uvicorn_server() -> None:
 
     from mulewatch.composition.app import default_webui_server_factory
 
-    server = default_webui_server_factory(Starlette(), "127.0.0.1", 8080)
+    server = default_webui_server_factory(Starlette())
     assert isinstance(server, uvicorn.Server)
+    assert server.config.host == "0.0.0.0"  # FIXED in-container bind
+    assert server.config.port == 8080
 
 
 # ---------------------------------------------------------------------------

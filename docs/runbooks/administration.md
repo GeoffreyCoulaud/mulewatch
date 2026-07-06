@@ -358,15 +358,15 @@ cd deploy && docker compose --profile download up -d
 ### Adresse d'écoute et chemins de bases
 
 Servie en intra-processus, la WebUI ne lit **aucune** variable d'environnement dédiée : elle dérive
-tout de la config opérateur du crawler (`crawler.yml` + arguments de lancement). La seule variable
-d'environnement en jeu est `WEBUI_PORT`, et uniquement côté hôte.
+tout de la config opérateur du crawler (`crawler.yml` + arguments de lancement). L'adresse d'écoute
+interne est **figée à `0.0.0.0:8080` dans le code** (non configurable) : c'est l'exposition via
+compose (port publié + réseaux) qui gouverne l'accès, pas une adresse de bind applicative. La seule
+variable d'environnement en jeu est `WEBUI_PORT`, et uniquement côté hôte.
 
 | Réglage | Où | Valeur par défaut | Rôle |
 |---|---|---|---|
 | `catalog_db_path` | `crawler.yml` | `/data/catalog/catalog.db` | Base catalogue, lue en lecture seule par la WebUI |
 | `local_db_path` | `crawler.yml` | `/data/local/local.db` | Base état local, lue en lecture seule par la WebUI |
-| `webui.host` | `crawler.yml`, section `webui:` | `0.0.0.0` | Interface d'écoute HTTP **dans** le conteneur |
-| `webui.port` | `crawler.yml`, section `webui:` | `8080` | Port d'écoute HTTP **dans** le conteneur |
 | `WEBUI_PORT` | `deploy/.env` (env) | `8080` | Port **publié côté hôte** dans le mapping compose `"${WEBUI_PORT:-8080}:8080"` (hôte:conteneur). Ne change PAS le port d'écoute interne. |
 
 ### Exposition derrière un reverse proxy

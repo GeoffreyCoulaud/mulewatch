@@ -155,9 +155,18 @@ class WebuiServer(Protocol):
     async def serve(self) -> None: ...  # one line (branch-coverage gotcha, see CLAUDE.md)
 
 
-# Injectable webui-server factory (fake in test): (built ASGI app, host, port) → uvicorn-shaped
-# server. The default builds a real ``uvicorn.Server``; unit tests inject a fake (no real HTTP).
-WebuiServerFactory = Callable[[Starlette, str, int], WebuiServer]
+# Injectable webui-server factory (fake in test): (built ASGI app) → uvicorn-shaped server. The
+# default builds a real ``uvicorn.Server``; unit tests inject a fake (no real HTTP).
+WebuiServerFactory = Callable[[Starlette], WebuiServer]
+
+# FIXED in-container webui bind. WHY 0.0.0.0: Docker cannot route a published port to the
+# container's internal loopback, so a 127.0.0.1 bind would be unreachable from outside; the
+# container's network namespace IS the isolation boundary and exposure is governed by compose
+# (published port + networks), not by an app-level bind address. WHY 8080 not 80: port 80 is
+# privileged and needs CAP_NET_BIND_SERVICE, which collides with the ``cap_drop: ALL`` + non-root
+# hardening floor (an unprivileged process cannot bind it).
+_WEBUI_BIND_HOST = "0.0.0.0"
+_WEBUI_BIND_PORT = 8080
 
 # Bound on the webui-thread join at shutdown. Set ``should_exit`` then join: uvicorn's serve
 # loop polls ``should_exit`` (~0.1 s) and returns with no active connections, so the join
@@ -166,10 +175,12 @@ WebuiServerFactory = Callable[[Starlette, str, int], WebuiServer]
 _WEBUI_JOIN_TIMEOUT_SECONDS = 5.0
 
 
-def default_webui_server_factory(app: Starlette, host: str, port: int) -> uvicorn.Server:
-    """A real ``uvicorn.Server`` bound to ``host:port`` serving the webui ASGI ``app`` (own
-    thread + loop). Constructing it opens no socket (that happens in ``serve()``)."""
-    return uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="info"))
+def default_webui_server_factory(app: Starlette) -> uvicorn.Server:
+    """A real ``uvicorn.Server`` bound to the fixed 0.0.0.0:8080 serving the webui ASGI ``app``
+    (own thread + loop). Constructing it opens no socket (that happens in ``serve()``)."""
+    return uvicorn.Server(
+        uvicorn.Config(app, host=_WEBUI_BIND_HOST, port=_WEBUI_BIND_PORT, log_level="info")
+    )
 
 
 def _human(message: str) -> None:
@@ -510,7 +521,6 @@ class CrawlerApp:
         event loop nor its writer connections. The thread is a daemon (never blocks process
         exit); its graceful stop is registered on ``stack`` so it runs during the normal LIFO
         unwind at shutdown, AFTER ``_supervise`` returns (see ``_stop_webui``)."""
-        webui_config = self._crawler_config.webui
         webui_pkg_dir = Path(mulewatch.webui.__file__).parent
         # Runtime-control channel (phase P6a): bound to the crawler's OWN loop + events, so the
         # webui thread hands off intents thread-safely (spec §10). ``_start_webui`` runs within
@@ -531,13 +541,13 @@ class CrawlerApp:
             static_dir=webui_pkg_dir / "adapters" / "static",
             control=control,
         )
-        server = self._webui_server_factory(app, webui_config.host, webui_config.port)
+        server = self._webui_server_factory(app)
         thread = threading.Thread(
             target=self._serve_webui, args=(server,), name="webui", daemon=True
         )
         thread.start()
         stack.push_async_callback(self._stop_webui, server, thread)
-        _logger.info("webui serving on %s:%d (own thread)", webui_config.host, webui_config.port)
+        _logger.info("webui serving on %s:%d (own thread)", _WEBUI_BIND_HOST, _WEBUI_BIND_PORT)
 
     def _serve_webui(self, server: WebuiServer) -> None:
         """Webui thread body: run the server on a FRESH loop in THIS thread. A crash DEGRADES

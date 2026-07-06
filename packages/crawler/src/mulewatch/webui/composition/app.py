@@ -164,11 +164,13 @@ def _build_summary(
 class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Defense-in-depth security headers (webui-security#3).
 
-    Jinja2 autoescape already neutralizes XSS and the 127.0.0.1 bind limits exposure by
-    default. CSP ``default-src 'self'`` prevents an injected fragment from loading an
-    external asset (a net under autoescape). ``X-Content-Type-Options: nosniff`` prevents a
-    browser from re-guessing the MIME type. ``Referrer-Policy: no-referrer`` avoids leaking
-    the eD2k hash to any third-party asset (paranoia consistent with the project's spirit).
+    The webui has no built-in auth and binds 0.0.0.0 in-container, so exposure is governed by
+    the operator's compose (published port + networks) plus a reverse proxy / VPN, not by the
+    bind address. Jinja2 autoescape already neutralizes XSS. CSP ``default-src 'self'`` prevents
+    an injected fragment from loading an external asset (a net under autoescape).
+    ``X-Content-Type-Options: nosniff`` prevents a browser from re-guessing the MIME type.
+    ``Referrer-Policy: no-referrer`` avoids leaking the eD2k hash to any third-party asset
+    (paranoia consistent with the project's spirit).
     """
 
     def __init__(self, app: ASGIApp) -> None:
