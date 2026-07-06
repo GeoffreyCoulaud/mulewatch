@@ -49,10 +49,11 @@ services:
       - local-db:/data/local
       - quarantine:/data/quarantine
     # The crawler now ALSO serves the read-only webui in-process (same image, spec §5): the
-    # webui runs on its own thread, bound per crawler.yml's `webui:` section (0.0.0.0:8080). This
-    # is the crawler container's ONLY inbound port — front it with the operator's reverse proxy /
-    # VPN (no built-in auth). A webui crash degrades (crawler keeps crawling), so the healthcheck
-    # is a liveness signal for the HTTP surface, not a crawl-health gate.
+    # webui runs on its own thread. The bind is fixed at 0.0.0.0:8080 in-process; `webui.enabled`
+    # toggles the whole HTTP surface; the published port + networks control exposure (no built-in
+    # auth). This is the crawler container's ONLY inbound port - front it with the operator's
+    # reverse proxy / VPN. A webui crash degrades (crawler keeps crawling), so the healthcheck is
+    # a liveness signal for the HTTP surface, not a crawl-health gate.
     ports:
       - "${WEBUI_PORT:-8080}:8080"
     healthcheck:

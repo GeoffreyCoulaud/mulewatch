@@ -27,13 +27,11 @@ search:
 catalog_db_path: /data/catalog/catalog.db
 local_db_path: /data/local/local.db
 
-# Read-only webui served in-process by the crawler (own thread). 0.0.0.0 so the published
-# container port reaches it; no built-in auth -> front it with the reverse proxy / VPN.
+# Read-only webui served in-process by the crawler (own thread). The bind is fixed at
+# 0.0.0.0:8080 in code; no built-in auth -> front it with the reverse proxy / VPN.
 # enabled: false => headless crawler, no HTTP surface.
 webui:
   enabled: true
-  host: 0.0.0.0
-  port: 8080
 
 observability:
   log_level: INFO
