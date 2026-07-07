@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `mulewatch` continuously surveils the eMule network (eD2k + Kad, via an aMule client driven over its EC protocol) to recover lost-media episodes of the French dub of *Keroro mission Titar* (aired 2008 on Teletoon), cataloguing all available metadata along the way.
 
-It is a **virtual uv workspace** with three packages: `packages/crawler/` (package `mulewatch`, dist `mulewatch`), `packages/verifier/` (package `download_verifier`, dist `download-verifier`), and `packages/matching/` (package `catalog_matching`, dist `catalog-matching`, shared domain). The crawler package `mulewatch` also contains the in-process webui subpackage `mulewatch.webui` (read-only catalog viewer + light runtime controls + read-only SQL console), served on its own thread by `python -m mulewatch` (one image, one compose service `crawler`, one process).
+It is a **virtual uv workspace** with four packages: `packages/crawler/` (package `mulewatch`, dist `mulewatch`), `packages/verifier/` (package `download_verifier`, dist `download-verifier`), `packages/matching/` (package `catalog_matching`, dist `catalog-matching`, shared domain), and `packages/vex_guards/` (package `vex_guards`, dist `vex-guards`, dev/CI tooling that reads `security/*.vex.openvex.json` to keep our OpenVEX claims honest; never shipped in a prod image). The crawler package `mulewatch` also contains the in-process webui subpackage `mulewatch.webui` (read-only catalog viewer + light runtime controls + read-only SQL console), served on its own thread by `python -m mulewatch` (one image, one compose service `crawler`, one process).
 
 ## Orientation — read before substantial work
 

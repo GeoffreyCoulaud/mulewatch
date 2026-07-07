@@ -11,6 +11,7 @@ members = [
     "catalog-matching",
     "download-verifier",
     "mulewatch",
+    "vex-guards",
 ]
 
 [manifest.dependency-groups]
@@ -27,6 +28,7 @@ dev = [
     { name = "sqlfluff", specifier = ">=3.0" },
     { name = "testcontainers", specifier = ">=4.10" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20260518" },
+    { name = "vex-guards", editable = "packages/vex_guards" },
 ]
 
 [[package]]
@@ -932,6 +934,17 @@ sdist = { url = "https://files.pythonhosted.org/packages/c4/1f/fa18009dea8469069
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/fa/e1388bbcf24ef3274f45c0c1c7b501fd14971037c1b6ee23610553307497/uvicorn-0.49.0-py3-none-any.whl", hash = "sha256:ba3d14c3ee7e41c6c654c46c9eb489d33213cdd30aa1696eab1374337c13f68f", size = 71376, upload-time = "2026-06-03T22:01:29.037Z" },
 ]
+
+[[package]]
+name = "vex-guards"
+version = "0.1.0"
+source = { editable = "packages/vex_guards" }
+dependencies = [
+    { name = "packaging" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "packaging", specifier = ">=24" }]
 
 [[package]]
 name = "wrapt"
