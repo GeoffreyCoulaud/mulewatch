@@ -7,7 +7,7 @@ into two families: ``source`` guards assert something about our own code path,
 """
 
 from dataclasses import dataclass
-from typing import Literal, assert_never
+from typing import Literal, TypeGuard, assert_never
 
 
 @dataclass(frozen=True)
@@ -61,3 +61,7 @@ def family(guard: Guard) -> Family:
             return "image"
         case _:  # pragma: no cover
             assert_never(guard)
+
+
+def is_source_guard(guard: Guard) -> TypeGuard[SourceGuard]:
+    return family(guard) == "source"
