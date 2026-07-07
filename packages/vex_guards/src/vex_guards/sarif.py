@@ -19,11 +19,7 @@ def build_sarif(rule_id: str, violations: list[Violation], vex_relpath: str) -> 
                         "level": "error",
                         "message": {"text": f"{v.cve}: {v.message}"},
                         "locations": [
-                            {
-                                "physicalLocation": {
-                                    "artifactLocation": {"uri": vex_relpath}
-                                }
-                            }
+                            {"physicalLocation": {"artifactLocation": {"uri": vex_relpath}}}
                         ],
                     }
                     for v in violations
