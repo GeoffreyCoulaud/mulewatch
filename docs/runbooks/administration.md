@@ -399,6 +399,48 @@ webui.example.com {
 
 ---
 
+## Vérifier l'authenticité d'une image
+
+Chaque image publiée est signée et attestée par la CI (cosign, keyless OIDC). Avant de
+lancer une image tirée de GHCR, on peut vérifier qu'elle vient bien de notre pipeline.
+
+Prérequis : [cosign](https://github.com/sigstore/cosign) installé.
+
+L'identité attendue est le workflow de release du dépôt :
+
+```sh
+IMAGE=ghcr.io/geoffreycoulaud/mulewatch-crawler:latest   # ou mulewatch-verifier
+IDENTITY='^https://github.com/GeoffreyCoulaud/mulewatch/.github/workflows/release.yml@refs/'
+ISSUER=https://token.actions.githubusercontent.com
+```
+
+Vérifier la **signature** de l'image :
+
+```sh
+cosign verify \
+  --certificate-identity-regexp "$IDENTITY" \
+  --certificate-oidc-issuer "$ISSUER" \
+  "$IMAGE"
+```
+
+Vérifier une **attestation** (SBOM ou VEX ; `--type` parmi `cyclonedx`,
+`https://syft.dev/bom`, `openvex`) :
+
+```sh
+cosign verify-attestation \
+  --type openvex \
+  --certificate-identity-regexp "$IDENTITY" \
+  --certificate-oidc-issuer "$ISSUER" \
+  "$IMAGE"
+```
+
+Une commande qui réussit prouve que ce digest a été signé/attesté par notre CI : un digest
+substitué (image malveillante) n'aurait pas d'attestation signée par notre identité OIDC.
+La signature étant `--recursive`, la vérification fonctionne aussi bien par tag (index) que
+par digest d'architecture. Le détail de la chaîne et du triage VEX est dans `SECURITY.md`.
+
+---
+
 ## Limites connues / follow-ups
 
 - **Sandbox noyau — choix actés (2026-06-17, updated 2026-06-29)** : la sandbox optionnelle gVisor
