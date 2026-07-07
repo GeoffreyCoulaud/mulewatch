@@ -1,4 +1,4 @@
-# Spec — supply-chain artefact posture: SBOM, cosign signing/attestation, Grype + VEX
+# Spec: supply-chain artefact posture: SBOM, cosign signing/attestation, Grype + VEX
 
 > Status: proposed (2026-07-07). Operator review before the implementation plan.
 
@@ -18,15 +18,15 @@ and pushed *by tag*, so it attests right after the build. mulewatch publishes **
 (`crawler`, `verifier`), built **per-arch on native runners**, pushed **by digest**, then fanned into
 a **multi-arch manifest per package** in `publish-manifest` (the only step that creates a consumable
 tag). "Where to attest" and "how many VEX documents" are therefore real design questions, resolved in
-§5–§7.
+§5-§7.
 
 ## 2. Decision
 
 1. **Sign + attest the multi-arch index digest**, inside `release.yml` → job `publish-manifest`
-   (matrix `[crawler, verifier]`). Not the per-arch child digests (Option A, rejected — §11).
+   (matrix `[crawler, verifier]`). Not the per-arch child digests (Option A, rejected, §11).
 2. **`cosign sign --recursive`** the index (signs the index *and* both child manifests). Keyless OIDC.
 3. **Two SBOM formats per image**: CycloneDX (portable, external consumers) + Syft-JSON (preserves
-   image source identity, required for image-scoped VEX). **Single-platform (linux/amd64)** — traced
+   image source identity, required for image-scoped VEX). **Single-platform (linux/amd64)**: traced
    decision, §11.
 4. **Three signed attestations per image** via `cosign attest`: CycloneDX, Syft-JSON, OpenVEX.
 5. **Two OpenVEX documents**, one per image (`security/crawler.vex.openvex.json`,
@@ -42,19 +42,19 @@ tag). "Where to attest" and "how many VEX documents" are therefore real design q
 
 ## 3. Scope
 
-**In scope** — the artefact chain and its documentation:
+**In scope**: the artefact chain and its documentation:
 
 - `.github/workflows/release.yml` (extend `publish-manifest`).
 - `.github/workflows/grype-scan.yml` (new).
 - `security/crawler.vex.openvex.json`, `security/verifier.vex.openvex.json` (new).
 - `SECURITY.md` (new, English).
-- `docs/runbooks/administration.md` (new section, French — the doc keeps its language).
+- `docs/runbooks/administration.md` (new section, French, the doc keeps its language).
 - `AGENTS.md` (one invariant line).
 
-**Out of scope** (already done — see §4, do not redo): base-image digest pinning, third-party action
+**Out of scope** (already done, see §4, do not redo): base-image digest pinning, third-party action
 SHA pinning, Dependabot, non-root users, least-privilege `permissions:`, container hardening. Also out:
-deployment-side admission control (runtime signature enforcement) — the operator chose documentation
-only. And the *first VEX triage* (no CVEs are known until the first scan runs — §11).
+deployment-side admission control (runtime signature enforcement). The operator chose documentation
+only. And the *first VEX triage* (no CVEs are known until the first scan runs, §11).
 
 ## 4. Baseline already in place (delta boundary)
 
@@ -71,7 +71,7 @@ work:
 | Container hardening (cap_drop, read_only, seccomp) | ✅ documented in AGENTS.md |
 | Push-by-digest → manifest fan-in, integration gate before tag publish | ✅ existing pipeline |
 
-## 5. Signing & attestation — `release.yml` / `publish-manifest`
+## 5. Signing & attestation: `release.yml` / `publish-manifest`
 
 The `publish-manifest` job already: downloads per-arch digests, sets up buildx, logs into ghcr, and
 runs `docker buildx imagetools create` to build+push the multi-arch manifest with all tags. It is the
@@ -79,14 +79,14 @@ runs `docker buildx imagetools create` to build+push the multi-arch manifest wit
 
 Per matrix leg (`crawler`, `verifier`), added steps:
 
-1. **`actions/checkout`** — new. Required to read the per-package VEX file from the repo (the current
+1. **`actions/checkout`**: new. Required to read the per-package VEX file from the repo (the current
    job checks nothing out).
 2. **Capture the index digest** after `imagetools create`:
    `docker buildx imagetools inspect <tag> --format '{{.Manifest.Digest}}'`. All subsequent steps
-   operate on `ghcr.io/geoffreycoulaud/mulewatch-<pkg>@<index-digest>`, **never on a tag** — signing a
+   operate on `ghcr.io/geoffreycoulaud/mulewatch-<pkg>@<index-digest>`, **never on a tag**: signing a
    digest once means every tag pointing at it inherits the signature.
 3. **Install cosign** (`sigstore/cosign-installer`, SHA-pinned).
-4. **`cosign sign --recursive --yes <image>@<digest>`** — keyless OIDC. `--recursive` signs the index
+4. **`cosign sign --recursive --yes <image>@<digest>`**: keyless OIDC. `--recursive` signs the index
    *and* each child manifest, so verification works both by tag (→ index) and by arch digest (→ child).
 5. **Generate SBOMs** (`anchore/sbom-action`, SHA-pinned), single-platform (linux/amd64, §11):
    - CycloneDX JSON → `/tmp/sbom.cyclonedx.json`
@@ -105,10 +105,10 @@ no reliable recursive form, so the three attestations attach to the **index dige
 consistent with the single-platform SBOM (§11): the attested SBOM describes one platform, and the
 image signature (recursive) covers all of them.
 
-## 6. Daily scan — `grype-scan.yml` (new)
+## 6. Daily scan: `grype-scan.yml` (new)
 
 Triggers: `schedule:` (daily cron, morning UTC) + `workflow_dispatch:`. Matrix `[crawler, verifier]`.
-It **checks nothing out** — every input comes from the image's own signed attestations.
+It **checks nothing out**: every input comes from the image's own signed attestations.
 
 Per matrix leg:
 
@@ -123,7 +123,7 @@ Per matrix leg:
 3. **`anchore/scan-action`** (SHA-pinned): `sbom:` the extracted Syft-JSON, `vex:` the extracted
    OpenVEX, `fail-build: "false"`, `output-format: sarif`. Findings are a signal, not a gate.
 4. **`github/codeql-action/upload-sarif`** (SHA-pinned) with a **distinct `category` per image**
-   (`grype-crawler` / `grype-verifier`) — without it, the two matrix legs' SARIF uploads overwrite each
+   (`grype-crawler` / `grype-verifier`). Without it, the two matrix legs' SARIF uploads overwrite each
    other in Code scanning.
 
 Job `permissions`: `contents: read`, `packages: read`, `security-events: write`.
@@ -142,8 +142,8 @@ differ:
 - `security/verifier.vex.openvex.json` → product `pkg:oci/mulewatch-verifier`
 
 Each is a well-formed OpenVEX v0.2.0 document with `statements: []` (a frozen `timestamp`, an `author`,
-a stable `@id`). A statement is added later, after triage, using the **image-scoped** form — product
-`pkg:oci/mulewatch-<pkg>` with the vulnerable package as a `subcomponent` PURL **without a version** —
+a stable `@id`). A statement is added later, after triage, using the **image-scoped** form (product
+`pkg:oci/mulewatch-<pkg>` with the vulnerable package as a `subcomponent` PURL **without a version**)
 so it is safe to attach and redistribute (a downstream consumer's unrelated packages are never
 suppressed) and survives package bumps. This is the only VEX form the sibling project uses, for the
 same reasons.
@@ -156,7 +156,7 @@ statement via `vexctl` (image-scoped, versionless subcomponent, PR-reviewed, no 
 local verification with `--vex`; and GitHub private vulnerability reporting. Names both images and both
 VEX files.
 
-## 9. Runbook — image authenticity verification (French)
+## 9. Runbook: image authenticity verification (French)
 
 A new `##` section in `docs/runbooks/administration.md` (kept French), "Vérifier l'authenticité d'une
 image", showing operators how to verify a pulled image:
@@ -165,14 +165,14 @@ image", showing operators how to verify a pulled image:
   `--certificate-identity-regexp` (the release workflow) + `--certificate-oidc-issuer` (GitHub OIDC).
 - **Attestations (SBOM/VEX)**: `cosign verify-attestation --type ...` with the same identity flags.
 
-This is documentation only — no runtime admission control is added (operator decision).
+This is documentation only: no runtime admission control is added (operator decision).
 
 ## 10. Action pinning
 
 The four new third-party actions are SHA-pinned with a trailing `# vX.Y.Z` comment, matching the
 existing convention: `sigstore/cosign-installer`, `anchore/sbom-action`, `anchore/scan-action`,
 `github/codeql-action/upload-sarif`. Exact SHAs are resolved at implementation time (real, verified
-values — never invented). Dependabot's existing `github-actions` group (`patterns: ["*"]`) already
+values, never invented). Dependabot's existing `github-actions` group (`patterns: ["*"]`) already
 covers them.
 
 ## 11. Traced decisions & non-goals
@@ -185,7 +185,7 @@ is therefore an exact representative of the CVE surface of both arches. Confirme
 `anchore/sbom-action` cannot target a platform (one image per run, no `platform` input), so "per
 platform" would mean the Syft CLI + a multi-predicate loop in `grype-scan.yml` (2×2 SBOMs, doubled
 SARIF categories) for ~zero additional CVE detection. **Revisit only if** a future arch uses a
-different base or package manager (e.g. a non-Alpine variant) — then package sets genuinely diverge and
+different base or package manager (e.g. a non-Alpine variant). Then package sets genuinely diverge and
 per-platform SBOMs become necessary.
 
 **`cosign sign --recursive` but attestations on the index only.** `--recursive` (cheap: index + two
@@ -196,7 +196,7 @@ form; attestations stay on the index, consistent with the single-platform SBOM.
 dishonest. The first triage is follow-up work, not part of this deliverable, and follows the
 `SECURITY.md` process.
 
-**Non-goals**: per-arch attestation in `build-and-verify` (Option A — attestations on child digests are
+**Non-goals**: per-arch attestation in `build-and-verify` (Option A: attestations on child digests are
 invisible to `cosign verify <tag>`, and the daily scan would quadruple); a separate SLSA build
 provenance attestation (the sibling has none); a `.grype.yaml` (VEX comes from the attestation in CI
 and via explicit `--vex` locally, matching the sibling's final state); runtime admission control.
@@ -204,7 +204,7 @@ and via explicit `--vex` locally, matching the sibling's final state); runtime a
 ## 12. Validation & what stays unvalidated
 
 **No Python source is touched.** The gate `uv run poe check` (per-package 100% branch coverage, ruff,
-mypy, sqlfluff, template check) must stay green **without any new unit test** — coverage is unaffected.
+mypy, sqlfluff, template check) must stay green **without any new unit test**: coverage is unaffected.
 Local validation of the new artefacts is **syntactic**: YAML lint / parse of the two workflows, JSON
 parse of the two OpenVEX documents (valid OpenVEX shape).
 
