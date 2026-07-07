@@ -12,6 +12,7 @@ from vex_guards.descriptors import (
     SourceGuard,
     SubprocessDenies,
     family,
+    is_image_guard,
     is_source_guard,
 )
 
@@ -45,3 +46,8 @@ def test_guard_union_covers_both_families() -> None:
 def test_is_source_guard_matches_only_the_source_family() -> None:
     assert is_source_guard(ModuleNotImported("tarfile")) is True
     assert is_source_guard(PackageAbsent("nghttp2")) is False
+
+
+def test_is_image_guard_matches_only_the_image_family() -> None:
+    assert is_image_guard(PackageAbsent("nghttp2")) is True
+    assert is_image_guard(ModuleNotImported("tarfile")) is False

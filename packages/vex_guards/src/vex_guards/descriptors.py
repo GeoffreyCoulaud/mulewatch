@@ -65,3 +65,7 @@ def family(guard: Guard) -> Family:
 
 def is_source_guard(guard: Guard) -> TypeGuard[SourceGuard]:
     return family(guard) == "source"
+
+
+def is_image_guard(guard: Guard) -> TypeGuard[ImageGuard]:
+    return family(guard) == "image"
