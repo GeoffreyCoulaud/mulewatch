@@ -56,7 +56,7 @@ jobs:
           verify openvex                > /tmp/vex.openvex.json
 
       # Scans the SBOM (not the live image) so results are reproducible, applying the
-      # OpenVEX pulled from the image. fail-build is false — findings are surfaced via
+      # OpenVEX pulled from the image. fail-build is false: findings are surfaced via
       # SARIF, not a job failure; triage happens through VEX.
       - name: Run Grype against the attested SBOM
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
