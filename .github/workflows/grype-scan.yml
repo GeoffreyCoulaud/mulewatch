@@ -1,0 +1,76 @@
+name: Grype daily SBOM scan
+
+on:
+  schedule:
+    # Every morning at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  security-events: write  # required to upload SARIF to GitHub code scanning
+
+env:
+  IMAGE_PREFIX: ghcr.io/geoffreycoulaud/mulewatch
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [crawler, verifier]
+    steps:
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Everything the scan needs comes from the image's own signed attestations, so this
+      # workflow checks nothing out. verify-attestation (not merely fetch) proves the SBOM
+      # and VEX were produced by OUR release.yml for THIS image digest. jq decodes the DSSE
+      # payload and extracts the raw predicate.
+      #   - Syft-JSON SBOM (type https://syft.dev/bom): scanned instead of CycloneDX because
+      #     it preserves the image source identity image-scoped OpenVEX matching needs.
+      #   - OpenVEX (type openvex): applied via Grype's --vex.
+      - name: Extract SBOM and VEX from image attestations
+        env:
+          CERT_REGEXP: "^${{ github.server_url }}/${{ github.repository }}/.github/workflows/release.yml@refs/"
+        run: |
+          IMAGE="${IMAGE_PREFIX}-${{ matrix.package }}:latest"
+          verify() {  # $1 = predicate type -> stdout: the raw predicate JSON
+            cosign verify-attestation \
+              --type "$1" \
+              --certificate-identity-regexp "${CERT_REGEXP}" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "${IMAGE}" \
+              | jq -rs '.[0].payload | @base64d | fromjson | .predicate'
+          }
+          verify "https://syft.dev/bom" > /tmp/sbom.syft.json
+          verify openvex                > /tmp/vex.openvex.json
+
+      # Scans the SBOM (not the live image) so results are reproducible, applying the
+      # OpenVEX pulled from the image. fail-build is false — findings are surfaced via
+      # SARIF, not a job failure; triage happens through VEX.
+      - name: Run Grype against the attested SBOM
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        id: scan
+        with:
+          sbom: /tmp/sbom.syft.json
+          vex: /tmp/vex.openvex.json
+          fail-build: "false"
+          output-format: sarif
+
+      # Distinct category per image: without it, the two matrix legs' SARIF uploads
+      # overwrite each other in Code scanning.
+      - name: Upload SARIF to GitHub code scanning
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: grype-${{ matrix.package }}
