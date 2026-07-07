@@ -38,6 +38,7 @@ The crawler is Clean/Hexagonal: `domain/` pure, `application/` async use-cases, 
 | Port-sync (High-ID) | c: `application/` | gluetun port → EC SetPort → restart amuled |
 | Standalone catalog tools | c: `merge/`, `compact/` | `python -m mulewatch.{merge,compact}` — N→1 fusion / daily rollup |
 | Packaging | `deploy/base.compose.yml` + `deploy/{gluetun,direct}.compose.yml` + `tests/smoke/compose.yaml`, `packages/*/Dockerfile` | observer/download profiles; smoke stack; container hardening (cap_drop, read_only, seccomp) |
+| Supply-chain artefacts | `security/` + `.github/workflows/grype-scan.yml` + `release.yml` (`publish-manifest`) | keyless cosign signature + 3 signed attestations (CycloneDX/Syft-JSON SBOM, OpenVEX) per image on the multi-arch index; daily Grype scan → Code scanning. See `SECURITY.md`. |
 
 ## Design invariants (do not violate)
 
