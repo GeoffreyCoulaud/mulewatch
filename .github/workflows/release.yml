@@ -31,11 +31,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write  # keyless OIDC for cosign sign/attest
     strategy:
       fail-fast: false
       matrix:
         package: [crawler, verifier]
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Download digests — ${{ matrix.package }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -65,5 +67,49 @@ jobs:
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.IMAGE_PREFIX }}-${{ matrix.package }}@sha256:%s ' *)
+      # The signature/attestations bind to the pushed index digest (not a tag): every
+      # tag pointing at this digest inherits them. imagetools inspect resolves the tag
+      # to the multi-arch index descriptor; .Manifest.Digest is that index's digest.
+      - name: Capture pushed index digest
+        id: digest
+        run: |
+          ref="${{ env.IMAGE_PREFIX }}-${{ matrix.package }}:${{ steps.meta.outputs.version }}"
+          digest=$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')
+          echo "ref=${{ env.IMAGE_PREFIX }}-${{ matrix.package }}@${digest}" >> "$GITHUB_OUTPUT"
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      # --recursive signs the index AND each child manifest, so verification works both
+      # by tag (-> index) and by arch digest (-> child). attest has no recursive form;
+      # the three attestations below bind to the index only (consistent with the
+      # single-platform SBOM — see spec 2026-07-07-supply-chain-attestation-vex §11).
+      - name: Sign the image (keyless OIDC, recursive over the index)
+        run: cosign sign --yes --recursive "${{ steps.digest.outputs.ref }}"
+      - name: Generate CycloneDX SBOM (portable, external consumers)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ steps.digest.outputs.ref }}
+          format: cyclonedx-json
+          output-file: /tmp/sbom.cyclonedx.json
+          upload-artifact: "false"
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate Syft-JSON SBOM (native, for the VEX-aware daily scan)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ steps.digest.outputs.ref }}
+          format: syft-json
+          output-file: /tmp/sbom.syft.json
+          upload-artifact: "false"
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Attest SBOMs and VEX (keyless OIDC)
+        run: |
+          ref='${{ steps.digest.outputs.ref }}'
+          cosign attest --yes --type cyclonedx \
+            --predicate /tmp/sbom.cyclonedx.json "$ref"
+          cosign attest --yes --type https://syft.dev/bom \
+            --predicate /tmp/sbom.syft.json "$ref"
+          cosign attest --yes --type openvex \
+            --predicate security/${{ matrix.package }}.vex.openvex.json "$ref"
       - name: Inspect
         run: docker buildx imagetools inspect ${{ env.IMAGE_PREFIX }}-${{ matrix.package }}:${{ steps.meta.outputs.version }}
