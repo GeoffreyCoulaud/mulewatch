@@ -10,12 +10,17 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 
 # Couche deps : sync SANS le projet/workspace (cache des deps independant des sources).
+# The vex_guards tooling package is never installed (it is not named in any uv sync
+# --package line). This bind-mount only exists so uv sync --locked can see every
+# workspace member's pyproject.toml, which it requires. Dropping it in favor of
+# uv sync --frozen is a tracked follow-up.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=packages/crawler/pyproject.toml,target=packages/crawler/pyproject.toml \
     --mount=type=bind,source=packages/verifier/pyproject.toml,target=packages/verifier/pyproject.toml \
     --mount=type=bind,source=packages/matching/pyproject.toml,target=packages/matching/pyproject.toml \
+    --mount=type=bind,source=packages/vex_guards/pyproject.toml,target=packages/vex_guards/pyproject.toml \
     uv sync --locked --no-install-workspace --package download-verifier
 
 # Sources + sync du SEUL membre verifier, non-editable (venv autonome, sans les sources).
