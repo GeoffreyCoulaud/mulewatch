@@ -13,7 +13,7 @@ from vex_guards.descriptors import (
     is_source_guard,
 )
 from vex_guards.registry import GUARDS
-from vex_guards.source_scan import _imported_modules, evaluate
+from vex_guards.source_scan import _imported_modules, _rel, evaluate
 
 
 def _src_dir(tmp_path: Path, files: dict[str, str]) -> Path:
@@ -26,6 +26,15 @@ def _src_dir(tmp_path: Path, files: dict[str, str]) -> Path:
 
 def _dockerfile(tmp_path: Path, text: str) -> Path:
     path = tmp_path / "Dockerfile"
+    path.write_text(text)
+    return path
+
+
+def _named_dockerfile(tmp_path: Path, name: str, text: str) -> Path:
+    """A Dockerfile under its own subdir so several coexist with distinct paths."""
+    directory = tmp_path / name
+    directory.mkdir()
+    path = directory / "Dockerfile"
     path.write_text(text)
     return path
 
@@ -103,6 +112,32 @@ def test_base_image_is_alpine_flags_when_last_from_is_not_alpine(tmp_path: Path)
     df = _dockerfile(tmp_path, "FROM alpine AS build\nRUN true\nFROM python:3.14-slim\n")
     guards: dict[str, SourceGuard] = {"CVE-A": BaseImageIsAlpine()}
     assert [v.cve for v in evaluate(guards, [], [df])] == ["CVE-A"]
+
+
+def test_base_image_is_alpine_flags_only_the_non_alpine_dockerfile_among_two(
+    tmp_path: Path,
+) -> None:
+    # One image is alpine, the other drifted to slim: the guard must flag the
+    # drifted one specifically (the old "any alpine passes" logic wrongly stayed green).
+    alpine_df = _named_dockerfile(tmp_path, "crawler", "FROM python:3.14-alpine\n")
+    slim_df = _named_dockerfile(tmp_path, "verifier", "FROM python:3.14-slim\n")
+    guards: dict[str, SourceGuard] = {"CVE-A": BaseImageIsAlpine()}
+    violations = evaluate(guards, [], [alpine_df, slim_df])
+    assert [v.cve for v in violations] == ["CVE-A"]
+    assert violations[0].location == _rel(slim_df)
+
+
+def test_base_image_is_alpine_passes_when_both_dockerfiles_are_alpine(tmp_path: Path) -> None:
+    a = _named_dockerfile(tmp_path, "crawler", "FROM python:3.14-alpine\n")
+    b = _named_dockerfile(tmp_path, "verifier", "FROM alpine:3.20\n")
+    guards: dict[str, SourceGuard] = {"CVE-A": BaseImageIsAlpine()}
+    assert evaluate(guards, [], [a, b]) == []
+
+
+def test_base_image_is_alpine_passes_when_no_dockerfiles(tmp_path: Path) -> None:
+    # An empty Dockerfile list is vacuously satisfied: no violation, no IndexError.
+    guards: dict[str, SourceGuard] = {"CVE-A": BaseImageIsAlpine()}
+    assert evaluate(guards, [], []) == []
 
 
 def test_imported_modules_detects_and_ignores_dynamic_import_forms() -> None:
