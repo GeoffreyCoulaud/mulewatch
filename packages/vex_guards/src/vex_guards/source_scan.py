@@ -112,11 +112,22 @@ def _word_violation(cve: str, word: str, parsed: list[tuple[Path, ast.AST]]) -> 
     return None
 
 
-def _alpine_violation(cve: str, dockerfiles: list[Path]) -> Violation | None:
+def _alpine_violations(cve: str, dockerfiles: list[Path]) -> list[Violation]:
+    """One violation per Dockerfile whose last ``FROM`` is not an Alpine base.
+
+    The claim is that EVERY runtime image is built on Alpine, so each Dockerfile
+    is judged on its own last ``FROM``; a drifted image is flagged individually.
+    An empty list is vacuously satisfied.
+    """
+    violations: list[Violation] = []
     for dockerfile in dockerfiles:
-        if "alpine" in _runtime_from(dockerfile).lower():
-            return None
-    return Violation(cve, "runtime base image is not Alpine", _rel(dockerfiles[0]))
+        runtime_from = _runtime_from(dockerfile)
+        if "alpine" not in runtime_from.lower():
+            rel = _rel(dockerfile)
+            violations.append(
+                Violation(cve, f"runtime base image of {rel} is not Alpine ({runtime_from!r})", rel)
+            )
+    return violations
 
 
 def evaluate(
@@ -135,7 +146,8 @@ def evaluate(
             case SubprocessDenies(program=program):
                 found = _word_violation(cve, program, parsed)
             case BaseImageIsAlpine():
-                found = _alpine_violation(cve, dockerfiles)
+                violations.extend(_alpine_violations(cve, dockerfiles))
+                continue
             case _:  # pragma: no cover
                 assert_never(guard)
         if found is not None:
