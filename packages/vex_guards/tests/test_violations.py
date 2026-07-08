@@ -19,4 +19,4 @@ def test_violation_carries_cve_message_and_location() -> None:
 def test_violation_is_frozen() -> None:
     violation = Violation(cve="CVE-2026-11940", message="boom", location="a/b.py")
     with pytest.raises(dataclasses.FrozenInstanceError):
-        violation.cve = "CVE-2026-11972"  # type: ignore[misc]
+        setattr(violation, "cve", "CVE-2026-11972")
