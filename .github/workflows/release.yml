@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    # A markdown-only push (a handoff or other doc) changes no image, so skip the whole
+    # rebuild-sign-attest release when every file in the push is markdown.
+    paths-ignore:
+      - "**/*.md"
 
 permissions:
   contents: read
