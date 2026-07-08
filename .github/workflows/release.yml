@@ -23,8 +23,10 @@ jobs:
       push: true
 
   # Fan-in: combine the per-arch digests into one multi-arch manifest per package and tag it.
-  # This is the only step that publishes a consumable tag, and it runs only after `validate`
-  # (build + integration) succeeded, so a tag never points at an un-integration-tested image.
+  # A consumable tag, its signature, and its attestations are all published only AFTER the VEX
+  # honesty gate below passes. `validate` (build + integration) has already succeeded, and the
+  # per-arch layers exist in ghcr by digest only (no tag, no signature), so nothing a consumer
+  # can trust is ever published for an image whose VEX claims fail.
   publish-manifest:
     needs: validate
     runs-on: ubuntu-latest
@@ -37,29 +39,38 @@ jobs:
       matrix:
         package: [crawler, verifier]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: ./.github/actions/setup-uv-env
+      - name: Check out the repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up uv and sync the dev environment
+        uses: ./.github/actions/setup-uv-env
         with:
-          save-cache: 'false'  # restore only; validate is the writer
-      - name: Install Grype CLI (pinned)
+          save-cache: 'false'  # restore only; validate is the x86 cache writer
+
+      - name: Install Grype CLI (pinned) for the stale-claims check
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/fa8b7e2a528cf1f8b098123f256c61db9e5df69c/install.sh \
             | sh -s -- -b "$HOME/.local/bin" v0.115.0
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - name: Download digests (${{ matrix.package }})
+
+      - name: Download the per-arch image digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: digest-${{ matrix.package }}-*
           path: /tmp/digests
           merge-multiple: true
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
       - name: Log in to ghcr.io
         uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Image tags (${{ matrix.package }})
+
+      - name: Compute the image tags
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
@@ -69,67 +80,91 @@ jobs:
             type=sha
             type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
-      - name: Create manifest list and push
+
+      # --- Pre-publish VEX honesty gate ------------------------------------------------------
+      # The per-arch images already exist in ghcr by digest (pushed, gated behind integration,
+      # by the `validate` job). We generate the SBOMs from one of those digests so the four VEX
+      # checks below run BEFORE any consumable tag, signature, or attestation is published. Our
+      # two arches share one Dockerfile and identical apk/python versions, so either arch's SBOM
+      # carries the same package set; picking the first digest deterministically is sufficient.
+
+      - name: Resolve a per-arch image reference to scan before publishing
+        id: prepublish
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.IMAGE_PREFIX }}-${{ matrix.package }}@sha256:%s ' *)
-      # The signature/attestations bind to the pushed index digest (not a tag): every
-      # tag pointing at this digest inherits them. imagetools inspect resolves the tag
-      # to the multi-arch index descriptor; .Manifest.Digest is that index's digest.
-      - name: Capture pushed index digest
-        id: digest
-        run: |
-          ref="${{ env.IMAGE_PREFIX }}-${{ matrix.package }}:${{ steps.meta.outputs.version }}"
-          digest=$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')
-          echo "ref=${{ env.IMAGE_PREFIX }}-${{ matrix.package }}@${digest}" >> "$GITHUB_OUTPUT"
-      - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      # --recursive signs the index AND each child manifest, so verification works both
-      # by tag (-> index) and by arch digest (-> child). attest has no recursive form;
-      # the three attestations below bind to the index only (consistent with the
-      # single-platform SBOM, see spec 2026-07-07-supply-chain-attestation-vex §11).
-      - name: Sign the image (keyless OIDC, recursive over the index)
-        run: cosign sign --yes --recursive "${{ steps.digest.outputs.ref }}"
-      - name: Generate CycloneDX SBOM (portable, external consumers)
+          digest=$(ls | sort | head -1)
+          echo "ref=${{ env.IMAGE_PREFIX }}-${{ matrix.package }}@sha256:${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate the Syft-JSON SBOM (native, for the checks and the VEX-aware daily scan)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
-          image: ${{ steps.digest.outputs.ref }}
-          format: cyclonedx-json
-          output-file: /tmp/sbom.cyclonedx.json
-          upload-artifact: "false"
-          registry-username: ${{ github.actor }}
-          registry-password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Generate Syft-JSON SBOM (native, for the VEX-aware daily scan)
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
-        with:
-          image: ${{ steps.digest.outputs.ref }}
+          image: ${{ steps.prepublish.outputs.ref }}
           format: syft-json
           output-file: /tmp/sbom.syft.json
           upload-artifact: "false"
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
-      # Gate the release on VEX honesty: if any not_affected claim is no longer justified
-      # (source reaches exempt code, a claim/guard is unpaired, the SBOM contradicts an
-      # image claim, or Grype no longer reports a suppressed CVE), fail BEFORE signing.
-      - name: VEX source claims hold
+
+      - name: Generate the CycloneDX SBOM (portable, for external consumers)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ steps.prepublish.outputs.ref }}
+          format: cyclonedx-json
+          output-file: /tmp/sbom.cyclonedx.json
+          upload-artifact: "false"
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Gate that our source never reaches the exempted code paths
         run: uv run poe vex-source-claims
-      - name: Every VEX claim is guarded
+
+      - name: Gate that every VEX claim maps to a guard and back
         run: uv run poe vex-claim-coverage
-      - name: Image-family VEX claims hold against the SBOM
+
+      - name: Gate that image-family VEX claims hold against the SBOM
         run: >
           uv run python -m vex_guards.check_image_claims
           --sbom /tmp/sbom.syft.json
           --vex security/${{ matrix.package }}.vex.openvex.json
           --format fail
-      - name: No stale VEX entries
+
+      - name: Gate that no VEX entry is stale
         run: >
           uv run python -m vex_guards.check_stale_claims
           --sbom /tmp/sbom.syft.json
           --vex security/${{ matrix.package }}.vex.openvex.json
           --format fail
-      - name: Attest SBOMs and VEX (keyless OIDC)
+
+      # --- Publish (reached only when every gate above passed) -------------------------------
+
+      - name: Create the multi-arch manifest list and push the tags
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.IMAGE_PREFIX }}-${{ matrix.package }}@sha256:%s ' *)
+
+      # The signature and attestations bind to the pushed index digest (not a tag): every tag
+      # pointing at this digest inherits them. imagetools inspect resolves the tag to the
+      # multi-arch index descriptor; .Manifest.Digest is that index's digest.
+      - name: Capture the pushed index digest
+        id: digest
+        run: |
+          ref="${{ env.IMAGE_PREFIX }}-${{ matrix.package }}:${{ steps.meta.outputs.version }}"
+          digest=$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')
+          echo "ref=${{ env.IMAGE_PREFIX }}-${{ matrix.package }}@${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # --recursive signs the index AND each child manifest, so verification works both by tag
+      # (-> index) and by arch digest (-> child). attest has no recursive form; the three
+      # attestations below bind to the index only (consistent with the single-platform SBOM,
+      # see spec 2026-07-07-supply-chain-attestation-vex section 11).
+      - name: Sign the image (keyless OIDC, recursive over the index)
+        run: cosign sign --yes --recursive "${{ steps.digest.outputs.ref }}"
+
+      - name: Attest the SBOMs and the VEX (keyless OIDC)
         run: |
           ref='${{ steps.digest.outputs.ref }}'
           cosign attest --yes --type cyclonedx \
@@ -138,5 +173,6 @@ jobs:
             --predicate /tmp/sbom.syft.json "$ref"
           cosign attest --yes --type openvex \
             --predicate security/${{ matrix.package }}.vex.openvex.json "$ref"
-      - name: Inspect
+
+      - name: Inspect the published manifest
         run: docker buildx imagetools inspect ${{ env.IMAGE_PREFIX }}-${{ matrix.package }}:${{ steps.meta.outputs.version }}

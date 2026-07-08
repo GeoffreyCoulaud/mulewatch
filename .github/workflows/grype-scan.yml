@@ -22,15 +22,20 @@ jobs:
       matrix:
         package: [crawler, verifier]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: ./.github/actions/setup-uv-env
+      - name: Check out the repository (for the vex_guards consistency checks)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up uv and sync the dev environment
+        uses: ./.github/actions/setup-uv-env
         with:
-          save-cache: 'false'  # restore only; validate/release are the writers
-      - name: Install Grype CLI (pinned)
+          save-cache: 'false'  # restore only; validate is the x86 cache writer
+
+      - name: Install Grype CLI (pinned) for the stale-claims check
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/fa8b7e2a528cf1f8b098123f256c61db9e5df69c/install.sh \
             | sh -s -- -b "$HOME/.local/bin" v0.115.0
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
@@ -41,10 +46,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Everything the scan needs comes from the image's own signed attestations, so this
-      # workflow checks nothing out. verify-attestation (not merely fetch) proves the SBOM
-      # and VEX were produced by OUR release.yml for THIS image digest. jq decodes the DSSE
-      # payload and extracts the raw predicate.
+      # The main scan's SBOM and VEX come from the image's own signed attestations (the repo
+      # checkout above serves only the vex_guards consistency checks below). verify-attestation
+      # (not merely fetch) proves the SBOM and VEX were produced by OUR release.yml for THIS
+      # image digest. jq decodes the DSSE payload and extracts the raw predicate.
       #   - Syft-JSON SBOM (type https://syft.dev/bom): scanned instead of CycloneDX because
       #     it preserves the image source identity image-scoped OpenVEX matching needs.
       #   - OpenVEX (type openvex): applied via Grype's --vex.
@@ -64,24 +69,29 @@ jobs:
           verify "https://syft.dev/bom" > /tmp/sbom.syft.json
           verify openvex                > /tmp/vex.openvex.json
 
+      # The two vex_guards image checks run in SARIF mode against the versioned VEX: they always
+      # exit 0, so a drift surfaces in Code scanning rather than failing this daily job.
       - name: Check image-family VEX claims against the SBOM
         run: >
           uv run python -m vex_guards.check_image_claims
           --sbom /tmp/sbom.syft.json
           --vex security/${{ matrix.package }}.vex.openvex.json
           --format sarif --output /tmp/image-claims.sarif
+
       - name: Upload image-claims SARIF to code scanning
         if: always()
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: /tmp/image-claims.sarif
           category: vex-image-claims-${{ matrix.package }}
+
       - name: Check for stale VEX entries no longer reported by Grype
         run: >
           uv run python -m vex_guards.check_stale_claims
           --sbom /tmp/sbom.syft.json
           --vex security/${{ matrix.package }}.vex.openvex.json
           --format sarif --output /tmp/stale.sarif
+
       - name: Upload stale-claims SARIF to code scanning
         if: always()
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
