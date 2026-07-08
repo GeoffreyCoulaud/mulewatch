@@ -13,6 +13,13 @@ def repo_root() -> Path:
     return _ROOT
 
 
+def display_path(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(_ROOT))
+    except ValueError:
+        return str(path)
+
+
 def source_dirs() -> list[Path]:
     return sorted(d for d in (_ROOT / "packages").glob("*/src") if d.parent.name != "vex_guards")
 
