@@ -236,3 +236,37 @@ cases:
     tier: notify
     target_id: 062A
     rule_name: title_review
+
+  # --- Bare-number precision (spec 2026-07-08): date veto + dropped seasonal collision ---
+  - id: bare_21_no_date_pins_absolute_only
+    # Dropped {seasonal_number}: bare "21" is only episode 21, not also 72 (S2E21).
+    filename: "Keroro 21.avi"
+    decisions:
+      - { target_id: 021A, tier: notify, rule_name: numero_nu }
+      - { target_id: 021B, tier: notify, rule_name: numero_nu }
+
+  - id: numeric_date_veto_pins_exact_only
+    # "21/09/2008" is a broadcast date, not episode numbers: only the exact N°062A stands.
+    filename: "[TV] KERORO MISSION TITAR N°062A x 21/09/2008 TELETOON.avi"
+    tier: download
+    target_id: 062A
+    rule_name: id_segment_exact
+
+  - id: abbrev_month_date_veto_pins_exact_only
+    # The abbreviated month "sept" still vetoes the day-of-month "21".
+    filename: "KERORO N°062A x 21 sept 2008 TELETOON.avi"
+    tier: download
+    target_id: 062A
+    rule_name: id_segment_exact
+
+  - id: bare_date_only_is_unidentified
+    # A broadcast date with no episode id no longer fabricates episodes 21/72.
+    filename: "KERORO MISSION TITAR 21 septembre 2008 TELETOON.avi"
+    unidentified: true
+
+  - id: month_like_word_not_date_vetoed
+    # The \b anchor: "marseille" starts like "mars" but is not a month, so 62 still matches.
+    filename: "Keroro 62 marseille.avi"
+    decisions:
+      - { target_id: 062A, tier: notify, rule_name: numero_nu }
+      - { target_id: 062B, tier: notify, rule_name: numero_nu }

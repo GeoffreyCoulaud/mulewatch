@@ -15,6 +15,9 @@ _HASH_DL = "31d6cfe0d16ae931b73c59d7e0c089c0"
 _HASH_CAT = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 _HASH_DISCARD = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 _DL_NAME = "Keroro N°062A Les demoiselles cambrioleuses.avi"
+# Pins a STABLE target via its unique title (062A/notify/title_review), unlike the catch-all
+# "keroro something.avi" whose target_id is an arbitrary min-key over the present targets.
+_NOTIFY_NAME = "Keroro Les demoiselles cambrioleuses.avi"
 
 
 def _obs(ed2k_hash: str, filename: str) -> FileObservation:
@@ -120,7 +123,7 @@ async def test_changed_verdict_is_reappended_and_nudged_again(
     telemetry = RecordingTelemetry()
     signal = RecordingSignal()
     await record_observation(
-        _obs(_HASH_DL, "keroro something.avi"),
+        _obs(_HASH_DL, _NOTIFY_NAME),
         catalog=catalog,
         engine=engine,
         signal=signal,
@@ -143,7 +146,7 @@ async def test_changed_verdict_is_reappended_and_nudged_again(
             "SELECT tier FROM match_decisions ORDER BY id"
         ).fetchall()
     ]
-    assert tiers == ["catalog", "download"]
+    assert tiers == ["notify", "download"]
     assert signal.signalled == [_HASH_DL, _HASH_DL, DOWNLOAD_NUDGE_SUBJECT]
 
 

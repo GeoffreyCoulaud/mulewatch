@@ -53,7 +53,9 @@ def test_golden_corpus(case: dict[str, Any]) -> None:
     if case.get("unidentified", False):
         assert len(decisions) == 1, f"{case['id']}: expected one decision, got {decisions}"
         decision = decisions[0]
-        assert decision.tier == "catalog", f"{case['id']}: expected catalog tier, got {decision.tier}"
+        assert decision.tier == "catalog", (
+            f"{case['id']}: expected catalog tier, got {decision.tier}"
+        )
         assert decision.rule_name == "keroro_large", (
             f"{case['id']}: expected keroro_large, got {decision.rule_name}"
         )

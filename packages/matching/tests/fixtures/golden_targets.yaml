@@ -14,3 +14,17 @@ episodes:
     absolute_number: 94
     segments:
       - { letter: A, title: "La Terre est à nous !" }
+  # Collision pair for the bare-number precision guards: absolute 21 (S1E21) and absolute 72
+  # (S2E21) share seasonal_number 21. Both two-segment.
+  - season: 1
+    seasonal_number: 21
+    absolute_number: 21
+    segments:
+      - { letter: A, title: "Economie d'énergie" }
+      - { letter: B, title: "Keroro part à la campagne" }
+  - season: 2
+    seasonal_number: 21
+    absolute_number: 72
+    segments:
+      - { letter: A, title: "Le défi des chefs cuisiniers" }
+      - { letter: B, title: "Duel contre le plus puissant des combattants" }
