@@ -124,6 +124,26 @@ def test_sarif_mode_with_no_stale_claim_writes_empty_results(tmp_path: Path) -> 
     assert runs[0]["results"] == []
 
 
+def test_sarif_mode_without_output_errors_cleanly(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # --output is required with --format sarif; its absence must be an argparse
+    # usage error (exit 2), not a TypeError from Path(None). The gate runs before
+    # Grype, so a stub runner is enough (it is never reached).
+    vex = _write_vex(tmp_path, ["CVE-A"])
+    runner = _FakeGrypeRunner({"CVE-A"})
+
+    with pytest.raises(SystemExit) as exc:
+        check_stale_claims.main(
+            ["--sbom", str(tmp_path / "sbom.json"), "--vex", str(vex), "--format", "sarif"],
+            runner=runner,
+        )
+
+    assert exc.value.code == 2
+    assert "--output" in capsys.readouterr().err
+
+
 def test_runner_defaults_to_subprocess_grype_runner_when_none(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

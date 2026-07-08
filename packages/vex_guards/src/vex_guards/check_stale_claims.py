@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None, runner: GrypeRunner | None = None) -> in
     parser.add_argument("--format", choices=("fail", "sarif"), default="fail")
     parser.add_argument("--output", help="SARIF output path (required by --format sarif)")
     args = parser.parse_args(argv)
+    if args.format == "sarif" and args.output is None:
+        parser.error("--output is required with --format sarif")
 
     runner = runner or SubprocessGrypeRunner()
     reported = runner.run(Path(args.sbom))

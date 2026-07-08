@@ -148,6 +148,23 @@ def test_sarif_mode_with_violation_writes_matching_results(tmp_path: Path) -> No
     assert artifact["uri"] == _VERIFIER_VEX_RELPATH
 
 
+def test_sarif_mode_without_output_errors_cleanly(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # --output is required with --format sarif; its absence must be an argparse
+    # usage error (exit 2), not a TypeError from Path(None).
+    sbom = _clean_sbom(tmp_path)
+
+    with pytest.raises(SystemExit) as exc:
+        check_image_claims.main(
+            ["--sbom", str(sbom), "--vex", str(_VERIFIER_VEX), "--format", "sarif"]
+        )
+
+    assert exc.value.code == 2
+    assert "--output" in capsys.readouterr().err
+
+
 def test_sarif_mode_on_a_clean_sbom_writes_empty_results(tmp_path: Path) -> None:
     sbom = _clean_sbom(tmp_path)
     output = tmp_path / "out.sarif"
