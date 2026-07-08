@@ -54,6 +54,17 @@ jobs:
           path: /tmp/digests
           merge-multiple: true
 
+      # A second copy of just the amd64 digest, isolated, so the pre-publish SBOM scans the amd64
+      # image specifically. This runner is amd64, and each per-arch digest is a single-platform
+      # index (buildx wraps the image with its provenance attestation): Syft would fail on the
+      # arm64 index with "no child with platform linux/amd64". The merged /tmp/digests above keeps
+      # both arches for the manifest-list creation later.
+      - name: Download the amd64 digest for the pre-publish SBOM
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: digest-${{ matrix.package }}-amd64
+          path: /tmp/amd64-digest
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
@@ -77,19 +88,19 @@ jobs:
 
       # --- Pre-publish VEX honesty gate ------------------------------------------------------
       # The per-arch images already exist in ghcr by digest (pushed, gated behind integration,
-      # by the `validate` job). We generate the SBOM from one of those digests so the three VEX
+      # by the `validate` job). We generate the SBOM from the amd64 digest so the three VEX
       # checks below run BEFORE any consumable tag, signature, or attestation is published. Our
-      # two arches share one Dockerfile and identical apk/python versions, so either arch's SBOM
-      # carries the same package set; picking the first digest deterministically is sufficient.
-      # Staleness is deliberately NOT gated here: a suppressed CVE that Grype stops reporting has
-      # been fixed upstream, which never makes the image less safe. The daily grype-scan surfaces
-      # it as a non-blocking SARIF signal so the VEX gets pruned, without failing a release.
+      # two arches share one Dockerfile and identical apk/python versions, so the amd64 SBOM
+      # carries the same package set the arm64 image would. Staleness is deliberately NOT gated
+      # here: a suppressed CVE that Grype stops reporting has been fixed upstream, which never
+      # makes the image less safe. The daily grype-scan surfaces it as a non-blocking SARIF
+      # signal so the VEX gets pruned, without failing a release.
 
-      - name: Resolve a per-arch image reference to scan before publishing
+      - name: Resolve the amd64 image reference to scan before publishing
         id: prepublish
-        working-directory: /tmp/digests
+        working-directory: /tmp/amd64-digest
         run: |
-          digest=$(ls | sort | head -1)
+          digest=$(ls | head -1)
           echo "ref=${{ env.IMAGE_PREFIX }}-${{ matrix.package }}@sha256:${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Generate the Syft-JSON SBOM (native, for the checks and the VEX-aware daily scan)
