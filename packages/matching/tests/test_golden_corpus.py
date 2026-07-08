@@ -50,6 +50,14 @@ def test_golden_corpus(case: dict[str, Any]) -> None:
         got = [(d.target_id, d.tier, d.rule_name) for d in decisions]
         assert got == expected, f"{case['id']}: fan-out mismatch: {got} != {expected}"
         return
+    if case.get("unidentified", False):
+        assert len(decisions) == 1, f"{case['id']}: expected one decision, got {decisions}"
+        decision = decisions[0]
+        assert decision.tier == "catalog", f"{case['id']}: expected catalog tier, got {decision.tier}"
+        assert decision.rule_name == "keroro_large", (
+            f"{case['id']}: expected keroro_large, got {decision.rule_name}"
+        )
+        return
     assert len(decisions) == 1, f"{case['id']}: expected one decision, got {decisions}"
     decision = decisions[0]
     assert decision.tier == case["tier"], f"{case['id']}: tier"
@@ -59,7 +67,10 @@ def test_golden_corpus(case: dict[str, Any]) -> None:
 
 def test_corpus_covers_every_tier_and_a_discard() -> None:
     # Completeness guard: the corpus exercises the 3 tiers + at least one discard.
-    tiers = {c.get("tier") for c in _CASES if not c.get("discarded", False)}
+    # An ``unidentified`` case IS the catalog tier (it just does not pin the arbitrary target_id).
+    tiers = {c["tier"] for c in _CASES if "tier" in c}
+    if any(c.get("unidentified", False) for c in _CASES):
+        tiers.add("catalog")
     assert {"download", "notify", "catalog"} <= tiers
     assert any(c.get("discarded", False) for c in _CASES)
 
@@ -96,7 +107,7 @@ def test_is_archive_rejects_comic_book_formats(filename: str) -> None:
 
 # --- single-catalog-rule invariant (cross-package: relied on by mulewatch.webui) ---------
 # mulewatch.webui.domain.views.FileRowDisplay documents that ANY decision with tier=="catalog"
-# is displayed as "unidentified" (target_display) / "—" (title_display) — it relies on the
+# is displayed as "unidentified" (target_display) / "·" (title_display), and it relies on the
 # prod policy having exactly ONE catalog-tier rule, the target-agnostic catch-all
 # (keroro_large). If a second catalog-tier rule were ever added, the webui would silently
 # mislabel a real, identified episode as "unidentified" instead of showing its title. This
