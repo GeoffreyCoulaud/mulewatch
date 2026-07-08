@@ -483,30 +483,36 @@ def test_default_verifier_factory_builds_an_http_verifier() -> None:
     assert isinstance(verifier, HttpContentVerifier)
 
 
-# Close that drags FAR BEYOND the armed bound (0.05 s), but FAR WITHIN the external
-# guard (5 s): so only the INTERNAL bound (armed by ``reschedule``) can cut the
-# close. If ``reschedule`` regressed, ``aclose`` would block ~1 s then EXIT
-# cleanly (no TimeoutError) — the test would then fail fail-closed, instead of
-# "passing" slowly via the external guard.
-_SLOW_CLOSE_SECONDS = 1.0
+# A close that drags FAR beyond the armed bound (0.05 s) and FAR beyond the assertion
+# threshold (3 s), yet stays BELOW the external guard (30 s). Only the INTERNAL bound
+# (armed by ``reschedule``) can cut a close this slow fast enough to land under the
+# threshold. If ``reschedule`` regressed, ``aclose`` would block ~10 s then EXIT cleanly
+# (no TimeoutError, since the slow close stays below the external guard) and
+# ``pytest.raises`` would fail: the test is fail-closed, never "passing" via the guard.
+# The 10 s / 3 s separation gives the assertion generous headroom over CI startup jitter
+# (``elapsed`` spans the WHOLE run, app setup included), which is why the tighter original
+# bounds (1 s / 0.5 s) were flaky under load.
+_SLOW_CLOSE_SECONDS = 10.0
 
 
 class _SlowCloseClient(_ShutdownOnStatusClient):
     """Client whose ``close`` drags beyond the armed bound → the INTERNAL bound cuts it."""
 
     async def close(self) -> None:
-        await asyncio.sleep(_SLOW_CLOSE_SECONDS)  # > armed bound (0.05 s), < external guard (5 s)
+        await asyncio.sleep(_SLOW_CLOSE_SECONDS)  # > armed bound (0.05 s), < external guard (30 s)
 
 
 @pytest.mark.asyncio
 async def test_shutdown_deadline_forces_exit(tmp_path: Path, matcher_config: MatcherConfig) -> None:
     # Close that drags + tiny shutdown deadline → the INTERNAL bound (armed by
     # ``reschedule`` at shutdown) raises TimeoutError (spec §6: the app must NOT appear stuck).
-    # ROBUSTNESS: we measure the real elapsed time and require the raise to come FAST — well
-    # below the external guard AND below the slow close duration — to prove it is the ARMED
-    # bound (~0.05 s) that fired, not the external ``wait_for`` (5 s) nor the close end (1 s).
+    # ROBUSTNESS: we measure the real elapsed time and require the raise to come FAST (well
+    # below the slow close and the external guard) to prove it is the ARMED bound (~0.05 s)
+    # that fired, not the external ``wait_for`` (30 s) nor the close end (10 s).
     # A ``reschedule`` regression (bound never armed) would let ``aclose`` exit cleanly
-    # after ~1 s WITHOUT TimeoutError → ``pytest.raises`` would fail (fail-closed).
+    # after ~10 s WITHOUT TimeoutError → ``pytest.raises`` would fail (fail-closed).
+    # ``elapsed`` spans the WHOLE run (app setup included), so the threshold sits at 3 s: far
+    # above any plausible CI startup jitter, far below the 10 s slow close.
     app_holder: dict[str, CrawlerApp] = {}
 
     def factory(endpoint: AmuleEndpoint) -> _SlowCloseClient:
@@ -517,11 +523,11 @@ async def test_shutdown_deadline_forces_exit(tmp_path: Path, matcher_config: Mat
     loop = asyncio.get_running_loop()
     started = loop.time()
     with pytest.raises(TimeoutError):
-        await asyncio.wait_for(app.run(), timeout=5.0)
+        await asyncio.wait_for(app.run(), timeout=30.0)
     elapsed = loop.time() - started
-    # < 0.5 s: well below the slow close (1 s) and the external guard (5 s) → it is indeed the
+    # < 3 s: well below the slow close (10 s) and the external guard (30 s) → it is indeed the
     # armed bound (~0.05 s) that cut the close, not some other delay.
-    assert elapsed < 0.5, f"the armed bound must cut fast, elapsed={elapsed:.3f}s"
+    assert elapsed < 3.0, f"the armed bound must cut fast, elapsed={elapsed:.3f}s"
 
 
 @pytest.mark.asyncio
