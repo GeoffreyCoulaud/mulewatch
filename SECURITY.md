@@ -87,6 +87,30 @@ The PR description must explain the triage rationale, and a reviewer must approv
 add CVEs to ignore lists without a VEX statement: this keeps all suppressions auditable and
 signed.
 
+### Keeping the VEX claims honest: the four consistency checks
+
+A `not_affected` claim is a promise about how the image is built and run. Over time source
+and base images drift, so four checks (the `vex_guards` package) assert those promises still
+hold. They run as a non-blocking PR job (only `validate / gate` is required to merge) and as
+hard-fail steps in the release, before anything is signed or attested:
+
+- **`check_source_claims`** (PR job, release hard-fail): fails if our own source starts
+  reaching code a `vulnerable_code_not_in_execute_path` claim says we never execute, for
+  example importing `tarfile`, `configparser`, `imaplib`, or `poplib`, invoking `wget` or
+  `ffmpeg`, or a runtime base image that is not Alpine.
+- **`check_claim_coverage`** (PR job, release hard-fail): fails if a VEX `not_affected` claim
+  has no guard in the registry, a guard has no claim, or a justification does not match its
+  guard family. It keeps the VEX and the guard registry in bijection.
+- **`check_image_claims`** (daily Grype scan as SARIF, release hard-fail): fails if the built
+  image's SBOM contradicts an image-scoped claim, for example a package that should be absent
+  is present, or is below the minimum version a claim relies on.
+- **`check_stale_claims`** (daily Grype scan as SARIF, release hard-fail): flags VEX entries
+  Grype no longer reports for the image, so obsolete suppressions get pruned.
+
+In the daily scan the last two run in SARIF mode: drift surfaces in Code scanning without
+failing the workflow. In the release all four hard-fail, so a stale or unjustified claim
+stops the image from being signed.
+
 ## Reporting a security issue
 
 To report a vulnerability privately, use GitHub's

@@ -38,6 +38,14 @@ jobs:
         package: [crawler, verifier]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-uv-env
+        with:
+          save-cache: 'false'  # restore only; validate is the writer
+      - name: Install Grype CLI (pinned)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/fa8b7e2a528cf1f8b098123f256c61db9e5df69c/install.sh \
+            | sh -s -- -b "$HOME/.local/bin" v0.115.0
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Download digests (${{ matrix.package }})
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -102,6 +110,25 @@ jobs:
           upload-artifact: "false"
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
+      # Gate the release on VEX honesty: if any not_affected claim is no longer justified
+      # (source reaches exempt code, a claim/guard is unpaired, the SBOM contradicts an
+      # image claim, or Grype no longer reports a suppressed CVE), fail BEFORE signing.
+      - name: VEX source claims hold
+        run: uv run poe vex-source-claims
+      - name: Every VEX claim is guarded
+        run: uv run poe vex-claim-coverage
+      - name: Image-family VEX claims hold against the SBOM
+        run: >
+          uv run python -m vex_guards.check_image_claims
+          --sbom /tmp/sbom.syft.json
+          --vex security/${{ matrix.package }}.vex.openvex.json
+          --format fail
+      - name: No stale VEX entries
+        run: >
+          uv run python -m vex_guards.check_stale_claims
+          --sbom /tmp/sbom.syft.json
+          --vex security/${{ matrix.package }}.vex.openvex.json
+          --format fail
       - name: Attest SBOMs and VEX (keyless OIDC)
         run: |
           ref='${{ steps.digest.outputs.ref }}'
