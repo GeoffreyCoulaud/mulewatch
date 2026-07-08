@@ -22,6 +22,15 @@ jobs:
       matrix:
         package: [crawler, verifier]
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-uv-env
+        with:
+          save-cache: 'false'  # restore only; validate/release are the writers
+      - name: Install Grype CLI (pinned)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/fa8b7e2a528cf1f8b098123f256c61db9e5df69c/install.sh \
+            | sh -s -- -b "$HOME/.local/bin" v0.115.0
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
@@ -55,6 +64,31 @@ jobs:
           verify "https://syft.dev/bom" > /tmp/sbom.syft.json
           verify openvex                > /tmp/vex.openvex.json
 
+      - name: Check image-family VEX claims against the SBOM
+        run: >
+          uv run python -m vex_guards.check_image_claims
+          --sbom /tmp/sbom.syft.json
+          --vex security/${{ matrix.package }}.vex.openvex.json
+          --format sarif --output /tmp/image-claims.sarif
+      - name: Upload image-claims SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: /tmp/image-claims.sarif
+          category: vex-image-claims-${{ matrix.package }}
+      - name: Check for stale VEX entries no longer reported by Grype
+        run: >
+          uv run python -m vex_guards.check_stale_claims
+          --sbom /tmp/sbom.syft.json
+          --vex security/${{ matrix.package }}.vex.openvex.json
+          --format sarif --output /tmp/stale.sarif
+      - name: Upload stale-claims SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: /tmp/stale.sarif
+          category: vex-stale-claims-${{ matrix.package }}
+
       # Scans the SBOM (not the live image) so results are reproducible, applying the
       # OpenVEX pulled from the image. fail-build is false: findings are surfaced via
       # SARIF, not a job failure; triage happens through VEX.
@@ -70,6 +104,7 @@ jobs:
       # Distinct category per image: without it, the two matrix legs' SARIF uploads
       # overwrite each other in Code scanning.
       - name: Upload SARIF to GitHub code scanning
+        if: always()
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}

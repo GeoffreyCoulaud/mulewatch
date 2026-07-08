@@ -14,7 +14,7 @@ jobs:
   validate:
     # The reusable `image` job statically declares `packages: write` (it pushes by digest on
     # release). A called workflow may not request more permissions than the caller grants, or
-    # the run fails at startup — so grant it here too. Nothing is pushed from a PR: the push
+    # the run fails at startup, so grant it here too. Nothing is pushed from a PR: the push
     # steps are gated on `push`, which is false here.
     permissions:
       contents: read
@@ -22,3 +22,20 @@ jobs:
     uses: ./.github/workflows/validate.yml
     with:
       push: false
+
+  # Non-blocking VEX hygiene: keeps the not_affected claims honest as source changes. These
+  # do not gate the PR (branch protection requires only `validate / gate`); a failure here
+  # flags that a claim needs revisiting, not that the feature under review is broken.
+  vex-checks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-uv-env
+        with:
+          save-cache: 'false'  # validate.yml's lint job is the x86 cache writer; restore only
+      - name: VEX source claims hold
+        run: uv run poe vex-source-claims
+      - name: Every VEX claim is guarded
+        run: uv run poe vex-claim-coverage
