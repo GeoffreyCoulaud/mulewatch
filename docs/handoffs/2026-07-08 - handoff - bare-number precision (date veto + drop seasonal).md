@@ -65,24 +65,24 @@ Not a problem, confirmed on the data: the ~1200 discarded files are foreign-lang
 - **The `\b` after each month is a real guard**: it stops a longer word (`marseille`, `novateur`,
   `octet`) from being vetoed by a month-abbreviation prefix. Proven by a characterization case.
 
-## NOT validated against real hardware
+## Validated against real hardware (2026-07-08)
 
-Everything is validated by unit tests (100% branch) and by re-running the engine locally over the
-real `targets.yml` + real filenames. NOT yet exercised on the live node:
-
-- **The startup backfill re-evaluating the real `catalog.db`.** On the next deploy the
-  `matcher.yml` fingerprint changes, so `run_backfill_if_policy_changed` re-evaluates the catalogue
-  and should per-target-retract the stale `021A/021B/072A/072B` rows of the real 062A file. Watch
-  the `catalogue re-evaluated: N files, M rows written` log line, then confirm in the webui that
-  the file renders `062A` alone (it currently shows `021A · 021B · 062A · 072A · 072B`).
+Confirmed by the operator on the real catalogue. After editing the matcher config and **restarting
+the node**, the startup backfill re-evaluated the existing `catalog.db` under the new policy and the
+previously mis-matched files now resolve correctly (the real 062A Teletoon rip no longer fans out to
+021/072). The date/collision class is closed end to end. CI Release on `main` is green and the
+signed images/SBOM/VEX attestations are published (a timing-flaky
+`test_shutdown_deadline_forces_exit` failed the first Release run and passed on rerun; unrelated to
+this change).
 
 ## Suggested next step
 
-Deploy to the observer node, let the backfill run, confirm the real 062A file resolves to `062A`
-alone. Then revisit the deferred multi-match tuning (`multi-match-needs-real-catalog-tuning`): this
-fix closes the date/collision class; watch the re-evaluated catalogue for any remaining odd
-decisions. Out of scope by operator decision (2026-07-08): mojibake filenames (`NÂ°062A`) losing
-their exact-id match; additional date forms (`le 21` prefix, other locales).
+Deploy done and confirmed (see above). Next: watch the re-evaluated catalogue for any remaining odd
+decisions beyond the date/collision class this fix closed (the broader
+`multi-match-needs-real-catalog-tuning` follow-up). Out of scope by operator decision (2026-07-08):
+mojibake filenames (`NÂ°062A`) losing their exact-id match; additional date forms (`le 21` prefix,
+other locales). Optional test-hardening chore noted separately: the timing-flaky
+`test_shutdown_deadline_forces_exit` (widen the armed-bound vs slow-close separation).
 
 ## Adjacent cleanup noted (not done)
 
