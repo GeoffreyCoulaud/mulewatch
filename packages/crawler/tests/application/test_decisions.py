@@ -29,6 +29,9 @@ _DL_NAME = "Keroro N°062A Les demoiselles cambrioleuses.avi"
 _CAT_NAME = "keroro something.avi"
 _DISCARD_NAME = "random.txt"
 _MULTI_NAME = "Keroro 062 teletoon.avi"  # bare number + source marker → 062A + 062B download
+# A file that pins a STABLE, specific target via its unique title (062A/notify/title_review),
+# unlike _CAT_NAME whose catch-all target_id is an arbitrary min-key over the present targets.
+_NOTIFY_NAME = "Keroro Les demoiselles cambrioleuses.avi"
 
 
 def _obs(ed2k_hash: str, filename: str) -> FileObservation:
@@ -115,9 +118,9 @@ async def test_changed_decision_is_reappended_emitted_and_nudged(
     catalog_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
-    catalog.record_observation(_obs(_HASH_DL, _CAT_NAME))
+    catalog.record_observation(_obs(_HASH_DL, _NOTIFY_NAME))
     telemetry, signal = RecordingTelemetry(), RecordingSignal()
-    await _record(_HASH_DL, _CAT_NAME, catalog, engine, signal, telemetry)
+    await _record(_HASH_DL, _NOTIFY_NAME, catalog, engine, signal, telemetry)
     written = await _record(_HASH_DL, _DL_NAME, catalog, engine, signal, telemetry)
     assert written == 1
     tiers = [
@@ -126,7 +129,7 @@ async def test_changed_decision_is_reappended_emitted_and_nudged(
             "SELECT tier FROM match_decisions ORDER BY id"
         ).fetchall()
     ]
-    assert tiers == ["catalog", "download"]
+    assert tiers == ["notify", "download"]
     assert [type(e).__name__ for e in telemetry.events] == ["DecisionRecorded", "DecisionRecorded"]
     assert signal.signalled == [_HASH_DL, _HASH_DL, DOWNLOAD_NUDGE_SUBJECT]
 
@@ -152,9 +155,9 @@ async def test_was_matched_then_none_retracts_that_target_without_nudge(
     catalog: SqliteCatalogRepository,
     engine: MatchingEngine,
 ) -> None:
-    catalog.record_observation(_obs(_HASH_CAT, _CAT_NAME))
+    catalog.record_observation(_obs(_HASH_CAT, _NOTIFY_NAME))
     telemetry, signal = RecordingTelemetry(), RecordingSignal()
-    await _record(_HASH_CAT, _CAT_NAME, catalog, engine, signal, telemetry)
+    await _record(_HASH_CAT, _NOTIFY_NAME, catalog, engine, signal, telemetry)
     signalled_before = list(signal.signalled)
     written = await _record(_HASH_CAT, _DISCARD_NAME, catalog, engine, signal, telemetry)
     assert written == 1
