@@ -28,13 +28,12 @@ cases:
     filename: "KERORO N°062A Les demoiselles cambrioleuses.txt"
     discarded: true
 
-  - id: keroro_only_catalog_tiebreak_target_id
-    # "Keroro" seul -> keroro_large (catalog) sur 62A ET 62B ; départage target_id -> 62A.
-    # NB : filler neutre (pas "Gunso", désormais veto-é comme titre japonais).
+  - id: keroro_only_is_unidentified
+    # "Keroro" alone -> keroro_large (catalog) over every target -> unidentified.
+    # The winning target_id is an arbitrary min-key artefact, deliberately not asserted.
+    # NB: neutral filler (not "Gunso", now vetoed as a Japanese title).
     filename: "Keroro rediffusion.mkv"
-    tier: catalog
-    target_id: 062A
-    rule_name: keroro_large
+    unidentified: true
 
   - id: decoy_non_keroro_naruto
     filename: "Naruto épisode 062 VF.avi"
@@ -69,18 +68,14 @@ cases:
     rule_name: id_segment_exact
 
   - id: seasonal_episode_no_segment_falls_back_to_catalog
-    # "S2E11" sans lettre -> segment_id NE matche PAS (précision A/B) ; keroro -> catalog, 62A (départage).
+    # "S2E11" with no letter -> segment_id does NOT match (A/B precision) -> keroro_large (unidentified).
     filename: "Keroro S2E11.mkv"
-    tier: catalog
-    target_id: 062A
-    rule_name: keroro_large
+    unidentified: true
 
   - id: decoy_resolution_not_a_segment
     # "1920x1080" ne doit pas déclencher la branche NxM ; keroro -> catalog, PAS download.
     filename: "Keroro 1920x1080 BDRip.mkv"
-    tier: catalog
-    target_id: 062A
-    rule_name: keroro_large
+    unidentified: true
 
   - id: title_review_notify_without_source_marker
     # Titre proche, sans segment_id ni marqueur de source -> title_review (notify).
@@ -114,9 +109,7 @@ cases:
     # Titre proche MAIS "opening" -> not_episode -> is_episode faux -> pas title_review ;
     # keroro_large (catalog) reste (permissif).
     filename: "Keroro Les demoiselles cambrioleuses opening.avi"
-    tier: catalog
-    target_id: 062A
-    rule_name: keroro_large
+    unidentified: true
 
   # --- Gate média (2026-07-02) : le catalogue permissif keroro_large exige is_video OU
   #     is_archive. cbz/cbr sont des formats COMICS (ZIP/RAR déguisés), volontairement HORS
@@ -145,9 +138,7 @@ cases:
     # Archive GÉNÉRIQUE (.zip) sans preuve d'épisode -> keroro_large (catalog) via la
     # branche is_archive du gate (une archive peut contenir l'épisode).
     filename: "Keroro rediffusion.zip"
-    tier: catalog
-    target_id: 062A
-    rule_name: keroro_large
+    unidentified: true
 
   - id: decoy_dino_riders_via_titar
     # titar remonte ce Dino-Riders ES ; "dino-riders" -> foreign_lang -> écarté (même avec titar).
@@ -215,9 +206,7 @@ cases:
     # Before 1b: segment_id_loose matched 094 -> numero_nu (notify) on mono 094A.
     # After 1b: the hex-bordered number no longer matches -> keroro_large catch-all.
     filename: "Keroro rediffusion [7C094A47].avi"
-    tier: catalog
-    target_id: 062A
-    rule_name: keroro_large
+    unidentified: true
 
   # --- Multi-target fan-out (spec §3/§11): a whole-episode file resolves BOTH segments. ---
   - id: bare_number_fans_out_both_segments
