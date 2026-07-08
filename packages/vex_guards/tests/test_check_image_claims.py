@@ -12,7 +12,7 @@ from vex_guards.repo import repo_root
 # CVE-2016-1405 -> PackageMinVersion("clamav", "0.99")) and source-family ones,
 # so it exercises both is_image_guard branches; the crawler VEX has no image
 # claim at all, so it drives the scoping (no image guards apply) path. Both live
-# under the repo, so they take the in-repo relative _display_path branch.
+# under the repo, so they take the in-repo relative repo.display_path branch.
 _VERIFIER_VEX = repo_root() / "security" / "verifier.vex.openvex.json"
 _CRAWLER_VEX = repo_root() / "security" / "crawler.vex.openvex.json"
 _VERIFIER_VEX_RELPATH = "security/verifier.vex.openvex.json"
@@ -65,7 +65,7 @@ def test_fail_mode_flags_a_present_package_and_prints_the_cve(
     assert rc == 1
     out = capsys.readouterr().out
     assert "::error::CVE-2026-58055" in out
-    # The in-repo relative _display_path branch: the location renders repo-relative.
+    # The in-repo relative repo.display_path branch: the location renders repo-relative.
     assert f"({_VERIFIER_VEX_RELPATH})" in out
 
 
@@ -99,7 +99,7 @@ def test_fail_mode_renders_an_out_of_repo_vex_path_verbatim(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # The _display_path ValueError fallback: a VEX outside the repo (CI /tmp) must
+    # The repo.display_path ValueError fallback: a VEX outside the repo (CI /tmp) must
     # not crash; its raw path is echoed as-is in the violation location.
     vex = _write_vex(tmp_path, "CVE-2026-58055", "vulnerable_code_not_present")
     sbom = _violating_sbom(tmp_path)
