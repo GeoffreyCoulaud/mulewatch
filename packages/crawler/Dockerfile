@@ -9,18 +9,14 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# The vex_guards tooling package is never installed (it is not named in any uv sync
-# --package line). This bind-mount only exists so uv sync --locked can see every
-# workspace member's pyproject.toml, which it requires. Dropping it in favor of
-# uv sync --frozen is a tracked follow-up.
+# Deps layer: install straight from uv.lock, independent of the sources. --frozen skips lock
+# revalidation, so it needs only uv.lock + the root pyproject.toml, not each member's
+# pyproject.toml (the vex_guards tooling package is likewise never installed). The --locked
+# sync below, after COPY . /app, revalidates the lock against every workspace member.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    --mount=type=bind,source=packages/crawler/pyproject.toml,target=packages/crawler/pyproject.toml \
-    --mount=type=bind,source=packages/verifier/pyproject.toml,target=packages/verifier/pyproject.toml \
-    --mount=type=bind,source=packages/matching/pyproject.toml,target=packages/matching/pyproject.toml \
-    --mount=type=bind,source=packages/vex_guards/pyproject.toml,target=packages/vex_guards/pyproject.toml \
-    uv sync --locked --no-install-workspace --package mulewatch
+    uv sync --frozen --no-install-workspace --package mulewatch
 
 COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
