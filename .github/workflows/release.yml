@@ -47,12 +47,6 @@ jobs:
         with:
           save-cache: 'false'  # restore only; validate is the x86 cache writer
 
-      - name: Install Grype CLI (pinned) for the stale-claims check
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/fa8b7e2a528cf1f8b098123f256c61db9e5df69c/install.sh \
-            | sh -s -- -b "$HOME/.local/bin" v0.115.0
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
       - name: Download the per-arch image digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -83,10 +77,13 @@ jobs:
 
       # --- Pre-publish VEX honesty gate ------------------------------------------------------
       # The per-arch images already exist in ghcr by digest (pushed, gated behind integration,
-      # by the `validate` job). We generate the SBOMs from one of those digests so the four VEX
+      # by the `validate` job). We generate the SBOM from one of those digests so the three VEX
       # checks below run BEFORE any consumable tag, signature, or attestation is published. Our
       # two arches share one Dockerfile and identical apk/python versions, so either arch's SBOM
       # carries the same package set; picking the first digest deterministically is sufficient.
+      # Staleness is deliberately NOT gated here: a suppressed CVE that Grype stops reporting has
+      # been fixed upstream, which never makes the image less safe. The daily grype-scan surfaces
+      # it as a non-blocking SARIF signal so the VEX gets pruned, without failing a release.
 
       - name: Resolve a per-arch image reference to scan before publishing
         id: prepublish
@@ -124,13 +121,6 @@ jobs:
       - name: Gate that image-family VEX claims hold against the SBOM
         run: >
           uv run python -m vex_guards.check_image_claims
-          --sbom /tmp/sbom.syft.json
-          --vex security/${{ matrix.package }}.vex.openvex.json
-          --format fail
-
-      - name: Gate that no VEX entry is stale
-        run: >
-          uv run python -m vex_guards.check_stale_claims
           --sbom /tmp/sbom.syft.json
           --vex security/${{ matrix.package }}.vex.openvex.json
           --format fail

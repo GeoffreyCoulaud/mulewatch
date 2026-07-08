@@ -91,8 +91,9 @@ signed.
 
 A `not_affected` claim is a promise about how the image is built and run. Over time source
 and base images drift, so four checks (the `vex_guards` package) assert those promises still
-hold. They run as a non-blocking PR job (only `validate / gate` is required to merge) and as
-hard-fail steps in the release, before anything is signed or attested:
+hold. They run as a non-blocking PR job (only `validate / gate` is required to merge) and, for
+the three that catch a genuinely false claim, as hard-fail steps in the release before anything
+is signed or attested:
 
 - **`check_source_claims`** (PR job, release hard-fail): fails if our own source starts
   reaching code a `vulnerable_code_not_in_execute_path` claim says we never execute, for
@@ -104,12 +105,15 @@ hard-fail steps in the release, before anything is signed or attested:
 - **`check_image_claims`** (daily Grype scan as SARIF, release hard-fail): fails if the built
   image's SBOM contradicts an image-scoped claim, for example a package that should be absent
   is present, or is below the minimum version a claim relies on.
-- **`check_stale_claims`** (daily Grype scan as SARIF, release hard-fail): flags VEX entries
-  Grype no longer reports for the image, so obsolete suppressions get pruned.
+- **`check_stale_claims`** (daily Grype scan as SARIF, non-blocking): flags VEX entries Grype no
+  longer reports for the image, so obsolete suppressions get pruned. Staleness never blocks a
+  release: a suppressed CVE that Grype stops reporting has been fixed upstream, which does not
+  make the image less safe, so it is surfaced for cleanup rather than gated.
 
-In the daily scan the last two run in SARIF mode: drift surfaces in Code scanning without
-failing the workflow. In the release all four hard-fail, so a stale or unjustified claim
-stops the image from being signed.
+In the daily scan `check_image_claims` and `check_stale_claims` run in SARIF mode: drift surfaces
+in Code scanning without failing the workflow. In the release the first three hard-fail, so a
+false source, coverage, or image claim stops the image from being tagged, signed, or attested;
+staleness is left to the daily scan.
 
 ## Reporting a security issue
 
