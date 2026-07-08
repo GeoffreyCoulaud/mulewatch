@@ -145,7 +145,7 @@
       ],
       "status": "not_affected",
       "justification": "vulnerable_code_not_present",
-      "impact_statement": "The 2016 libclamav OLE2 defect was fixed upstream in ClamAV 0.99 (Debian fixed 0.99+dfsg-1). This image ships ClamAV 1.4.4, a decade past the fix. The NVD record uses an unbounded clamav:clamav:* CPE that over-matches modern releases."
+      "impact_statement": "The 2016 libclamav OLE2 defect was fixed upstream in ClamAV 0.99 (Debian fixed 0.99+dfsg-1). This image ships ClamAV >= 0.99, well past the fix. The NVD record uses an unbounded clamav:clamav:* CPE that over-matches modern releases."
     },
     {
       "vulnerability": { "name": "CVE-2026-58055" },
