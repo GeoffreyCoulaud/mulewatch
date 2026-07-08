@@ -32,12 +32,15 @@ def _top_level(dotted: str) -> str:
 def _dynamic_import_target(call: ast.Call) -> str | None:
     """The literal module name a dynamic import call names, or ``None``.
 
-    Recognises ``importlib.import_module("x")`` (an attribute call named
-    ``import_module``) and ``__import__("x")`` (a name call), but only when the
-    first argument is a constant string.
+    Recognises ``importlib.import_module("x")`` (an attribute call), the bare-name
+    alias ``import_module("x")`` (``from importlib import import_module``) and
+    ``__import__("x")`` (a name call), but only when the first argument is a
+    constant string.
     """
     func = call.func
-    is_import_module = isinstance(func, ast.Attribute) and func.attr == "import_module"
+    is_import_module = (isinstance(func, ast.Attribute) and func.attr == "import_module") or (
+        isinstance(func, ast.Name) and func.id == "import_module"
+    )
     is_dunder_import = isinstance(func, ast.Name) and func.id == "__import__"
     if not (is_import_module or is_dunder_import):
         return None

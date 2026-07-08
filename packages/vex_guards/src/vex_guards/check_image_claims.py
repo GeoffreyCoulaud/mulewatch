@@ -31,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--format", choices=("fail", "sarif"), default="fail")
     parser.add_argument("--output", help="SARIF output path (required by --format sarif)")
     args = parser.parse_args(argv)
+    if args.format == "sarif" and args.output is None:
+        parser.error("--output is required with --format sarif")
 
     claims = load_claims(Path(args.vex))
     # Iterate GUARDS so the value binds the narrowed loop variable: is_image_guard

@@ -40,13 +40,14 @@ def _named_dockerfile(tmp_path: Path, name: str, text: str) -> Path:
 
 
 # Every form that makes the module reachable: plain, from-import, alias, dotted,
-# and the two dynamic-import spellings the scanner also has to see.
+# and the three dynamic-import spellings the scanner also has to see.
 IMPORT_FAILS = [
     "import tarfile",
     "from tarfile import TarFile",
     "import tarfile as t",
     "import tarfile.something",
     'importlib.import_module("tarfile")',
+    'import_module("tarfile")',  # bare-name alias: from importlib import import_module
     '__import__("tarfile")',
 ]
 
@@ -142,13 +143,14 @@ def test_base_image_is_alpine_passes_when_no_dockerfiles(tmp_path: Path) -> None
 
 def test_imported_modules_detects_and_ignores_dynamic_import_forms() -> None:
     code = (
-        'importlib.import_module("tarfile")\n'  # attribute call, constant string
-        '__import__("configparser")\n'  # name call, constant string
+        'importlib.import_module("tarfile")\n'  # importlib.import_module attribute call
+        'import_module("configparser")\n'  # bare-name import_module alias call
+        '__import__("csv")\n'  # __import__ name call
         "importlib.import_module(name)\n"  # non-constant argument, ignored
         "importlib.import_module()\n"  # no argument, ignored
         'subprocess.run(["ls"])\n'  # not an import call at all, ignored
     )
-    assert _imported_modules(ast.parse(code)) == {"tarfile", "configparser"}
+    assert _imported_modules(ast.parse(code)) == {"tarfile", "configparser", "csv"}
 
 
 def test_real_source_tree_has_no_source_claim_violations() -> None:
