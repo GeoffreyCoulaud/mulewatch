@@ -107,39 +107,39 @@ never shipped in a prod image**, plus the 19 authored OpenVEX statements and the
   ghcr by digest after `build-and-verify`; scanning one digest lets the release gate run before
   the tag/signature exist. This is the trick that made the "gate before publish" reorder possible.
 
-## What is NOT validated against real hardware
+## Post-merge validation (2026-07-08, real CI) - PASSED
 
-- **The empirical VEX suppression was NOT run this session** (no Docker/syft/grype available on the
-  dev box or in the sandbox). Specifically unverified:
-  - That `grype v0.115.0 --vex security/<image>.vex.openvex.json` actually suppresses every
-    triaged CVE for the built image (the subcomponent PURL forms may need the qualified
-    `?arch=&distro=` variant instead of the base PURL; spec section 3 flags this as the Act-phase
-    reconciliation that still owes an outcome).
-  - That Grype v0.115.0 still reports every one of the 11 CVEs for the freshly built image under
-    the SAME id we authored. Riskiest case: `GHSA-cq8v-f236-94qc` (cargo `rand` inside
-    `librav1e`) may be reported under a RUSTSEC alias. If so, the daily grype-scan's
-    `check_stale_claims` SARIF will flag it (non-blocking) and the VEX entry should be re-keyed.
-  - `check_image_claims` is indirectly reassured by the prior session's empirical SBOM (149 apk
-    packages, `nghttp2` absent / only `nghttp2-libs`, `clamav 1.4.4-r0`), and the runtime
-    Dockerfiles did not change on this branch, so its two guards should pass. Still, the release
-    hard-fails on it, so confirm on the first release run.
-- **The three workflow additions are exercised only by real CI** (OIDC, a pushed image, the daily
-  cron). None can run locally. The first release and the next daily grype-scan are the real proof.
-- **The Dockerfile bind-mount** (`packages/vex_guards/pyproject.toml`) is validated only by a host
-  `uv sync --locked` resolve; a real image build is the compose integration suite's job.
+Everything the dev box could not run (no Docker/syft/grype) was validated by real CI after merge:
+
+- **One release.yml bug found and fixed.** The pre-publish SBOM step picked an arbitrary per-arch
+  digest; each per-arch digest is a single-platform index (buildx wraps the image with its
+  provenance attestation), so Syft on the amd64 runner failed on the arm64 index ("no child with
+  platform linux/amd64"). Fixed by scanning the amd64 digest specifically (commit `8df77f2`, PR
+  #33). Thanks to the gate-before-publish order, the failed first release published nothing.
+- **Release run `28912272941` succeeded.** The three hard-fail gates (source, coverage, image) all
+  passed against the real amd64 SBOM, which empirically confirms `check_image_claims` (nghttp2-libs
+  only, clamav 1.4.4 on the real image). The images were then tagged, signed, and attested with the
+  19-statement OpenVEX (`cosign attest --type openvex`).
+- **Grype scan run `28912462652` (against the newly published image) confirms the VEX is honest:**
+  - No open Code-scanning alerts from our `vex-consistency` tool -> `check_stale_claims` produced an
+    empty SARIF, i.e. Grype v0.115.0 reports all 11 triaged CVEs under the exact ids we authored
+    (no RUSTSEC-alias problem for `GHSA-cq8v-f236-94qc`), and `check_image_claims` found no
+    contradiction.
+  - None of the 11 triaged CVEs appear as open Grype alerts -> `--vex` suppresses all 11, so the
+    base subcomponent PURL forms we authored actually match Grype's matching (no `?arch=&distro=`
+    qualifier needed).
+- **The Dockerfile bind-mount** (`packages/vex_guards/pyproject.toml`) built cleanly on both arches
+  in `build-and-verify`, so the real image build is validated too.
+
+Nothing remains unvalidated. The daily grype-scan keeps watching for future drift.
 
 ## Suggested next step
 
-1. **First release / first daily scan is the validation.** Watch the first `release.yml` run: the
-   three hard-fail gates must pass (they should, per the above). Watch the next `grype-scan.yml`:
-   confirm `vex-image-claims-*` and `vex-stale-claims-*` categories are clean, and that the main
-   Grype scan shows our 11 CVEs suppressed by the VEX. If a stale entry or a PURL mismatch shows
-   up, reconcile the VEX (re-key an alias, or qualify a PURL) and re-run `poe vex-claim-coverage`.
-2. **`uv sync --frozen` Dockerfile cleanup (tracked debt).** Both prod Dockerfiles still bind-mount
+1. **`uv sync --frozen` Dockerfile cleanup (tracked debt).** Both prod Dockerfiles still bind-mount
    every workspace member's `pyproject.toml` (now including `vex_guards`) only to satisfy
    `uv sync --locked`. Switching the deps layer to `uv sync --frozen` would drop all these mounts,
    including the pre-existing `verifier`-in-`crawler` one. Deferred deliberately (accepted cost).
-3. **Optional hardening (Minor, logged in the holistic review):** `check_image_claims` /
+2. **Optional hardening (Minor, logged in the holistic review):** `check_image_claims` /
    `check_stale_claims` `--format sarif` without `--output` would `TypeError` on `Path(None)` (our
    workflows always pass `--output`, so untested); and `source_scan._imported_modules` does not
    detect the `from importlib import import_module; import_module("x")` alias form (out of scope,
