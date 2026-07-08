@@ -24,13 +24,6 @@ from vex_guards.vex_io import load_claims
 _RULE_ID = "unsatisfied-image-claim"
 
 
-def _display_path(path: Path) -> str:
-    try:
-        return str(path.resolve().relative_to(repo.repo_root()))
-    except ValueError:
-        return str(path)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sbom", required=True, help="Syft JSON SBOM of the built image")
@@ -46,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         cve: guard for cve, guard in GUARDS.items() if cve in claims and is_image_guard(guard)
     }
     packages = load_apk_packages(Path(args.sbom))
-    vex_relpath = _display_path(Path(args.vex))
+    vex_relpath = repo.display_path(Path(args.vex))
     raw = evaluate_image_guards(guards, packages)
     violations = [dataclasses.replace(v, location=vex_relpath) for v in raw]
 
