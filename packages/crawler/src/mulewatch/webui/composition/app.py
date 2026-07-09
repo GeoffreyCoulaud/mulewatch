@@ -41,6 +41,7 @@ from mulewatch.webui.domain.views import (
     ConsoleResult,
     ConsoleRow,
     DbOption,
+    DecisionCell,
     FileDetailDisplay,
     FileRow,
     FileRowDisplay,
@@ -77,15 +78,15 @@ def _resolve_target_display(
 def _to_display_rows(
     file_rows: Iterable[FileRow], segment_by_id: Mapping[str, TargetSegment]
 ) -> list[FileRowDisplay]:
-    """Convert catalog rows into ``FileRowDisplay`` view-models — one row per file, with the
-    file's (usually two) segment decisions aggregated into each cell, joined with ``" · "``.
+    """Convert catalog rows into ``FileRowDisplay`` view-models: one row per file, the file's
+    (usually two) segment decisions surfaced as one ``DecisionCell`` each in ``decisions_display``
+    while ``tier_display`` still aggregates (shared tier, or per-target joined with ``" · "``).
     Shared by ``handle_files`` and ``handle_target``."""
     rows = []
     for row in file_rows:
         if row.decisions:
             pairs = _resolve_target_display(row, segment_by_id)
-            target_display = " · ".join(target for target, _ in pairs)
-            title_display = " · ".join(title for _, title in pairs)
+            decisions_display = tuple(DecisionCell(target=t, title=ti) for t, ti in pairs)
             tier_values = {dec.tier for dec in row.decisions}
             if len(tier_values) == 1:
                 tier_display = row.decisions[0].tier
@@ -93,8 +94,7 @@ def _to_display_rows(
                 tier_display = " · ".join(f"{dec.target_id}: {dec.tier}" for dec in row.decisions)
             verdict_display = row.last_verdict if row.last_verdict is not None else "pending"
         else:
-            target_display = "·"
-            title_display = "·"
+            decisions_display = ()
             tier_display = "·"
             verdict_display = "·"
         rows.append(
@@ -103,8 +103,7 @@ def _to_display_rows(
                 short_hash=short_hash(row.ed2k_hash),
                 filename=row.filename,
                 source_count=row.source_count,
-                target_display=target_display,
-                title_display=title_display,
+                decisions_display=decisions_display,
                 size_display=human_size(row.size_bytes),
                 last_seen_display=short_timestamp(row.last_seen),
                 tier_display=tier_display,

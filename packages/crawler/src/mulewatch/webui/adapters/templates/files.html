@@ -66,8 +66,8 @@
       <td>{{ row.size_display }}</td>
       <td>{{ row.source_count }}</td>
       <td>{{ row.last_seen_display }}</td>
-      <td>{{ row.target_display }}</td>
-      <td>{{ row.title_display }}</td>
+      <td>{% for d in row.decisions_display %}<div class="cell-line">{{ d.target }}</div>{% else %}·{% endfor %}</td>
+      <td>{% for d in row.decisions_display %}<div class="cell-line cell-title" title="{{ d.title }}">{{ d.title }}</div>{% else %}·{% endfor %}</td>
       <td>{{ row.tier_display }}</td>
       <td>{{ row.verdict_display }}</td>
     </tr>
