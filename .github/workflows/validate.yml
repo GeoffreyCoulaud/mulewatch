@@ -83,6 +83,10 @@ jobs:
           local-tag: ci-${{ github.sha }}
           push: ${{ inputs.push }}
           cache-scope: verifier-${{ matrix.arch }}
+          # Unique per build so the verifier's apk-plan probe stage always re-runs and re-resolves
+          # the live Alpine index; the real apk layer then busts only when versions actually change.
+          build-args: |
+            APK_PROBE_NONCE=${{ github.run_id }}-${{ github.run_attempt }}
       - name: Integration — compose smoke stack (${{ matrix.arch }})
         run: ( cd packages/crawler && uv run pytest -m compose_integration --no-cov -q )
         env:
