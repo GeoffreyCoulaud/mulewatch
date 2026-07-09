@@ -160,7 +160,7 @@ class NodeState:
 
 
 # ---------------------------------------------------------------------------
-# File explorer — display row (precomputed)
+# File explorer: display row (precomputed)
 # ---------------------------------------------------------------------------
 
 

@@ -191,9 +191,8 @@ pre {
 /* One stacked line per decision in the Target / Title cells. */
 .files-table .cell-line { white-space: nowrap; }
 
-/* The two unbounded fields truncate with an ellipsis; full text lives in the title= tooltip. */
-.files-table .cell-name,
-.files-table .cell-title {
+/* The filename truncates with an ellipsis; full text lives in the title= tooltip. */
+.files-table .cell-name {
   display: inline-block;
   max-width: 22rem;
   overflow: hidden;
@@ -202,7 +201,15 @@ pre {
   vertical-align: bottom;
 }
 
-.files-table .cell-title { max-width: 20rem; }
+/* Each stacked title truncates too, but stays a block so the segments stack and line up
+   with the Target column. */
+.files-table .cell-title {
+  display: block;
+  max-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* SQL console */
 .console-form { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }

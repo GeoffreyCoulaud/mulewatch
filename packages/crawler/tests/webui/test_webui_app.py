@@ -1152,7 +1152,7 @@ async def test_files_catalog_tier_shows_unidentified_and_pending(
     assert hash_[:8] in resp.text
     # Scoped to the table cell (not the static tier legend, which also mentions the word).
     assert '<div class="cell-line">unidentified</div>' in resp.text
-    assert "pending" in resp.text
+    assert "<td>pending</td>" in resp.text
     assert "La Grenouille Cosmique" not in resp.text
 
 
@@ -1366,8 +1366,11 @@ async def test_files_whole_episode_renders_one_row_with_aggregated_targets(
     assert hash_[:8] in resp.text
     assert '<div class="cell-line">072A / S03E06A</div>' in resp.text
     assert '<div class="cell-line">072B / S03E06B</div>' in resp.text
-    assert "Le Defi" in resp.text
-    assert "Duel Contre Giroro" in resp.text
+    assert '<div class="cell-line cell-title" title="Le Defi">Le Defi</div>' in resp.text
+    assert (
+        '<div class="cell-line cell-title" title="Duel Contre Giroro">Duel Contre Giroro</div>'
+        in resp.text
+    )
     assert "<td>download</td>" in resp.text
 
 
