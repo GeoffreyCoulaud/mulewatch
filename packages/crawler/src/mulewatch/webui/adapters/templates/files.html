@@ -10,6 +10,7 @@
 </p>
 {% endfor %}
 
+<div class="files-scroll">
 <table class="files-table">
   <thead>
     <tr>
@@ -62,7 +63,7 @@
     {% for row in rows %}
     <tr>
       <td><a href="/files/{{ row.ed2k_hash }}">{{ row.short_hash }}</a></td>
-      <td>{{ row.filename }}</td>
+      <td class="col-name"><span class="cell-name" title="{{ row.filename }}">{{ row.filename }}</span></td>
       <td>{{ row.size_display }}</td>
       <td>{{ row.source_count }}</td>
       <td>{{ row.last_seen_display }}</td>
@@ -76,6 +77,7 @@
     {% endfor %}
   </tbody>
 </table>
+</div>
 
 {% for url in (nav.prev_url,) if url %}
 <a href="{{ url }}">← Previous</a>
