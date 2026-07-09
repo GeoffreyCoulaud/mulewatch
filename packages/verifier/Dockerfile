@@ -1,4 +1,11 @@
 # syntax=docker/dockerfile:1
+
+# Single source of truth for the runtime apk package list. The apk-plan probe AND the runtime
+# install below both reference $APK_PACKAGES, so they cannot drift out of sync: it is one
+# variable, not two lists to keep aligned. A shared cross-stage ARG must be declared before the
+# first FROM (Docker rule), then re-declared without a value in each stage that uses it.
+ARG APK_PACKAGES="ffmpeg clamav libseccomp"
+
 # --- Builder : installe download-verifier (membre du workspace VIRTUEL) via uv ---
 FROM ghcr.io/astral-sh/uv:python3.14-alpine@sha256:e852e37cfaffb287f2d78de0d4f27e28bf0722ccbf0d6948dbdf19a0b4de7bc7 AS builder
 
@@ -23,20 +30,41 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-editable --package download-verifier
 
-# --- Runtime : python alpine + ffmpeg (ffprobe) + clamav (clamscan), non-root, venv copie ---
+# --- apk-plan: fingerprint the LIVE apk resolution of $APK_PACKAGES WITHOUT installing anything.
+#     APK_PROBE_NONCE is passed unique per build (CI: the run id) so this cheap stage always
+#     re-runs and re-resolves the live Alpine index; --simulate --no-cache fetches only the index,
+#     no packages. The /apk-plan.sha256 it writes then gates the real `apk add` below: that
+#     expensive layer is re-run ONLY when the resolved version set changed (an upstream security
+#     fix, a new transitive dep, ...). This replaces the old manual `clamav>=X` cache-bust floor:
+#     freshness is now automatic, no per-CVE version bump to maintain. pipefail makes the build
+#     fail loudly if a package vanishes or apk's output format drifts, rather than silently
+#     freezing the fingerprint (which would resurrect the stale-cache bug, invisibly).
+#     This base digest MUST stay in sync with the runtime base below: both resolve $APK_PACKAGES
+#     against the same Alpine release, so the fingerprint reflects what the runtime installs. (It
+#     is a literal, not a shared ARG/stage alias, because the vex_guards source scan checks the
+#     last FROM textually for "alpine" and any indirection would defeat that guard.)
+FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92 AS apk-plan
+ARG APK_PACKAGES
+ARG APK_PROBE_NONCE
+RUN set -eo pipefail; \
+    apk add --no-cache --simulate $APK_PACKAGES 2>&1 \
+      | grep -i installing | sort | sha256sum > /apk-plan.sha256
+
+# --- Runtime : ffmpeg (ffprobe) + clamav (clamscan) + libseccomp, non-root, venv copie ---
+# Base digest kept in sync with the apk-plan probe above (same Alpine release, see that note).
 FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
+ARG APK_PACKAGES
 
 # ffmpeg provides ffprobe (D-analysis); clamav provides clamscan (opt-in signature check);
 # libseccomp provides libseccomp.so.2, loaded at runtime by pyseccomp (seccomp-bpf kernel ring).
 # freshclam is NOT installed (apk adds no "recommends"): the signature database comes from a
 # RO volume populated by the freshclam sidecar, so the verifier image stays network-free (internal).
 # We purge /var/lib/clamav (the empty DB apk drops in): the real DB is mounted at /clamav-db.
-# clamav is floored at >=1.4.5-r0: the ClamAV 1.4.5 upstream security release fixes the July 2026
-# scanner-parser CVE batch (CVE-2026-20213 through -20217, plus -20243 and -20244). The floor also
-# busts the buildx layer cache, so a rebuild re-runs apk and picks up the fix instead of re-serving
-# the cached 1.4.4-r0 layer.
-RUN apk add --no-cache ffmpeg "clamav>=1.4.5-r0" libseccomp \
-    && rm -rf /var/lib/clamav/*
+# COPYing apk-plan's fingerprint right before this RUN is what busts the layer when the resolved
+# versions change, so a plain rebuild picks up upstream fixes; we drop the fingerprint file after.
+COPY --from=apk-plan /apk-plan.sha256 /apk-plan.sha256
+RUN apk add --no-cache $APK_PACKAGES \
+    && rm -rf /var/lib/clamav/* /apk-plan.sha256
 
 # User non-root (999:999): composera avec le durcissement compose (user:, read_only).
 # Busybox (Alpine) : addgroup/adduser au lieu de groupadd/useradd (-h reproduit --create-home).

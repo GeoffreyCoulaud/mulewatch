@@ -25,6 +25,10 @@ inputs:
   cache-scope:
     description: gha cache scope, e.g. crawler-amd64.
     required: true
+  build-args:
+    description: Newline-separated KEY=VALUE build args forwarded to buildx (optional).
+    required: false
+    default: ''
 outputs:
   digest:
     description: Image digest (set when push=true; empty otherwise).
@@ -57,5 +61,6 @@ runs:
         file: packages/${{ inputs.package }}/Dockerfile
         platforms: ${{ inputs.platform }}
         outputs: ${{ steps.exporters.outputs.value }}
+        build-args: ${{ inputs.build-args }}
         cache-from: type=gha,scope=${{ inputs.cache-scope }}
         cache-to: type=gha,mode=max,scope=${{ inputs.cache-scope }}
