@@ -5,7 +5,7 @@ description = "Service de vérification des fichiers en quarantaine — analyseu
 requires-python = ">=3.14"
 dependencies = [
     "starlette>=1.3",
-    "uvicorn>=0.30",
+    "uvicorn>=0.51.0",
     "puremagic>=1.28",
     "prometheus-client>=0.21",
     "pyyaml>=6.0.3",
