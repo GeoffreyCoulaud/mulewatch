@@ -1,4 +1,4 @@
-/* app.css — feuille classless minimale et sémantique (vendorée, pas de CDN) */
+/* app.css - feuille classless minimale et sémantique (vendorée, pas de CDN) */
 
 /* Réinitialisation douce */
 *, *::before, *::after {
@@ -14,7 +14,7 @@ body {
   background: #f8f9fa;
   margin: 0;
   padding: 1.5rem;
-  max-width: 1100px;
+  max-width: min(100rem, 94vw);
   margin-inline: auto;
 }
 
@@ -180,6 +180,29 @@ pre {
 
 .th-tip-host:hover .th-tip,
 .th-tip-host:focus-within .th-tip { display: block; }
+
+/* /files table: keep short atoms on one line, truncate the unbounded fields, and let a narrow
+   desktop window scroll the table horizontally instead of crushing the columns. */
+.files-scroll { overflow-x: auto; }
+
+/* Short atoms never break (fixes the split datetime). */
+.files-table td, .files-table th { white-space: nowrap; }
+
+/* One stacked line per decision in the Target / Title cells. */
+.files-table .cell-line { white-space: nowrap; }
+
+/* The two unbounded fields truncate with an ellipsis; full text lives in the title= tooltip. */
+.files-table .cell-name,
+.files-table .cell-title {
+  display: inline-block;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.files-table .cell-title { max-width: 20rem; }
 
 /* SQL console */
 .console-form { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }

@@ -1169,6 +1169,20 @@ async def test_files_resolvable_target_shows_seasonal_locator_and_title(
 
 
 @pytest.mark.asyncio
+async def test_files_table_is_scroll_wrapped_and_name_has_full_title(
+    app_download_tier_known_target: tuple[Starlette, str],
+) -> None:
+    """The table is wrapped for horizontal scroll on narrow desktop widths, and the (possibly
+    truncated) filename keeps its full text in a title= tooltip."""
+    app, _ = app_download_tier_known_target
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files")
+    assert resp.status_code == 200
+    assert '<div class="files-scroll">' in resp.text
+    assert 'class="cell-name" title="keroro_s2e62a_vf.avi"' in resp.text
+
+
+@pytest.mark.asyncio
 async def test_files_unknown_target_shows_raw_id_and_dash_title(
     app_download_tier_unknown_target: tuple[Starlette, str],
 ) -> None:
