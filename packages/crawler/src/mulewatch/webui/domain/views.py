@@ -165,15 +165,28 @@ class NodeState:
 
 
 @dataclass(frozen=True)
+class DecisionCell:
+    """One current decision, resolved for display: the target locator and its episode title.
+
+    ``target`` is the canonical id joined with its seasonal locator (``"062A / S02E11A"``), a raw
+    id no longer in the catalogue, or ``"unidentified"`` (the ``catalog``-tier mask). ``title`` is
+    the episode title, or ``"·"`` when there is none (unidentified / unknown id)."""
+
+    target: str
+    title: str
+
+
+@dataclass(frozen=True)
 class FileRowDisplay:
     """Row of the paginated file list: all fields precomputed (webui spec W-D8, Task 3/9).
 
     A file usually carries 0, 1, or 2 current decisions (``FileRow.decisions``, already
     excluding retractions and the legacy ``target_id == ""`` sentinel — those never reach
-    this layer). Each cell aggregates the per-decision resolution, joined with ``" · "``:
+    this layer). Each current decision becomes one ``DecisionCell`` in ``decisions_display``:
 
-    - no decisions at all → every field is the literal ``"·"``.
-    - per decision, ``target_display``/``title_display`` resolve via
+    - no decisions at all → ``decisions_display`` is empty and ``tier_display`` /
+      ``verdict_display`` are the literal ``"·"``.
+    - per decision, ``DecisionCell.target``/``.title`` resolve via
       ``composition.app._resolve_target_display``: ``tier == "catalog"`` → ``"unidentified"``
       / ``"·"`` (the ``keroro_large`` catch-all, the only catalog-tier rule); otherwise the
       target is looked up in the current catalogue: found → the canonical id joined with its
@@ -190,8 +203,7 @@ class FileRowDisplay:
     short_hash: str
     filename: str
     source_count: int
-    target_display: str
-    title_display: str
+    decisions_display: tuple[DecisionCell, ...]  # one per current decision, 0..N; () when none
     size_display: str  # human_size(size_bytes)
     last_seen_display: str  # short_timestamp(last_seen)
     tier_display: str  # shared tier, or "target_id: tier" per decision joined with " · "

@@ -12,7 +12,7 @@ from catalog_matching.config import MatcherConfig
 from catalog_matching.models import TargetSegment
 from catalog_matching.validation import parse_matcher_config, parse_targets
 from mulewatch.webui.composition.app import _resolve_target_display, _to_display_rows, build_app
-from mulewatch.webui.domain.views import FileDecision, FileRow
+from mulewatch.webui.domain.views import DecisionCell, FileDecision, FileRow
 
 # ---------------------------------------------------------------------------
 # Parsed-config helpers (since P4a build_app takes already-parsed config)
@@ -1085,8 +1085,7 @@ def test_resolve_target_display_two_segments_returns_a_pair_each() -> None:
 
 def test_to_display_rows_empty_decisions_all_dashes() -> None:
     [display] = _to_display_rows([_file_row(decisions=())], _SEGMENTS_AB)
-    assert display.target_display == "·"
-    assert display.title_display == "·"
+    assert display.decisions_display == ()
     assert display.tier_display == "·"
     assert display.verdict_display == "·"
 
@@ -1094,8 +1093,10 @@ def test_to_display_rows_empty_decisions_all_dashes() -> None:
 def test_to_display_rows_two_segments_aggregate_cells_shared_tier() -> None:
     row = _file_row(decisions=(FileDecision("062A", "download"), FileDecision("062B", "download")))
     [display] = _to_display_rows([row], _SEGMENTS_AB)
-    assert display.target_display == "062A / S02E11A · 062B / S02E11B"
-    assert display.title_display == "La Grenouille Cosmique · Duel Contre Giroro"
+    assert display.decisions_display == (
+        DecisionCell(target="062A / S02E11A", title="La Grenouille Cosmique"),
+        DecisionCell(target="062B / S02E11B", title="Duel Contre Giroro"),
+    )
     assert display.tier_display == "download"
 
 
@@ -1150,7 +1151,7 @@ async def test_files_catalog_tier_shows_unidentified_and_pending(
     assert resp.status_code == 200
     assert hash_[:8] in resp.text
     # Scoped to the table cell (not the static tier legend, which also mentions the word).
-    assert "<td>unidentified</td>" in resp.text
+    assert '<div class="cell-line">unidentified</div>' in resp.text
     assert "pending" in resp.text
     assert "La Grenouille Cosmique" not in resp.text
 
@@ -1177,7 +1178,7 @@ async def test_files_unknown_target_shows_raw_id_and_dash_title(
     assert resp.status_code == 200
     assert "999Z" in resp.text
     # The static tier legend also mentions the word "unidentified" — scope to the cell.
-    assert "<td>unidentified</td>" not in resp.text
+    assert '<div class="cell-line">unidentified</div>' not in resp.text
     assert "La Grenouille Cosmique" not in resp.text
 
 
@@ -1196,7 +1197,7 @@ async def test_files_no_decision_shows_dashes(
     # The Verdict/Target header tooltips also mention "pending"/"unidentified" — scope to
     # the cell so we assert on the row value, not the static legend text.
     assert "<td>pending</td>" not in resp.text
-    assert "<td>unidentified</td>" not in resp.text
+    assert '<div class="cell-line">unidentified</div>' not in resp.text
     assert "La Grenouille Cosmique" not in resp.text
 
 
@@ -1349,8 +1350,10 @@ async def test_files_whole_episode_renders_one_row_with_aggregated_targets(
         resp = await client.get("/files")
     assert resp.status_code == 200
     assert hash_[:8] in resp.text
-    assert "<td>072A / S03E06A · 072B / S03E06B</td>" in resp.text
-    assert "<td>Le Defi · Duel Contre Giroro</td>" in resp.text
+    assert '<div class="cell-line">072A / S03E06A</div>' in resp.text
+    assert '<div class="cell-line">072B / S03E06B</div>' in resp.text
+    assert "Le Defi" in resp.text
+    assert "Duel Contre Giroro" in resp.text
     assert "<td>download</td>" in resp.text
 
 
