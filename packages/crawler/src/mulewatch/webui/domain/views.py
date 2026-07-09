@@ -181,7 +181,7 @@ class FileRowDisplay:
     """Row of the paginated file list: all fields precomputed (webui spec W-D8, Task 3/9).
 
     A file usually carries 0, 1, or 2 current decisions (``FileRow.decisions``, already
-    excluding retractions and the legacy ``target_id == ""`` sentinel — those never reach
+    excluding retractions and the legacy ``target_id == ""`` sentinel: those never reach
     this layer). Each current decision becomes one ``DecisionCell`` in ``decisions_display``:
 
     - no decisions at all → ``decisions_display`` is empty and ``tier_display`` /

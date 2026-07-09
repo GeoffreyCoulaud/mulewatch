@@ -55,7 +55,7 @@ from mulewatch.webui.domain.views import (
 def _resolve_target_display(
     row: FileRow, segment_by_id: Mapping[str, TargetSegment]
 ) -> list[tuple[str, str]]:
-    """Per-decision ``(target_display, title_display)`` pairs for a file row, in the row's
+    """Per-decision ``(target, title)`` pairs for a file row, in the row's
     decision order (by target_id). Empty when the file has no current decision. The
     ``catalog → "unidentified"`` mask is applied per decision (``keroro_large`` is the only
     catalog-tier rule; cf. ``domain.views.FileRowDisplay``)."""
