@@ -188,7 +188,7 @@ def test_parser_accepts_all_tags_flag() -> None:
 
 
 def test_format_raw_tags_dumps_every_tag_including_mapped_and_unknown() -> None:
-    # The mapper EXCLUDES the mapped tags from raw_meta; format_raw_tags shows them ALL — that
+    # The mapper EXCLUDES the mapped tags from raw_meta; format_raw_tags shows them ALL - that
     # is the point of C2 (measuring the empirical fill rate of EACH tag).
     entry = _searchfile(
         string_tag(codes.EC_TAG_PARTFILE_NAME, "Keroro.avi"),  # MAPPED → absent from raw_meta
@@ -271,7 +271,7 @@ def test_main_success_dumps_status_results_and_raw_meta(capsys: pytest.CaptureFi
     # Filenames = hostile input: displayed via repr() (an unambiguous line).
     assert "[probe] 'Keroro 062A.avi'" in out
     assert "hash=000102030405060708090a0b0c0d0e0f" in out
-    # Dump of ALL received tags, including unknown ones (raw names/hex) — deliverable 4.
+    # Dump of ALL received tags, including unknown ones (raw names/hex) - deliverable 4.
     assert "raw 0x0308 = '0'" in out
     assert "raw 0x0999 = 'mystère'" in out
 
@@ -285,7 +285,7 @@ def test_main_kad_channel_and_status_without_server(capsys: pytest.CaptureFixtur
     assert code == 0
     assert "start:keroro:kad" in fake.calls
     out = capsys.readouterr().out
-    assert "server: —" in out  # format's "no server" branch
+    assert "server: n/a" in out  # format's "no server" branch
     assert "total: 0 result(s)" in out  # zero-iteration observations loop
 
 
@@ -373,7 +373,7 @@ async def test_search_and_wait_stops_search_even_when_fetch_raises() -> None:
 @pytest.mark.asyncio
 async def test_search_and_wait_propagates_original_error_when_stop_search_also_fails() -> None:
     # Original diagnostic wins: if fetch_results fails (e.g. EcTimeoutError → transport
-    # invalidated), the finally attempts stop_search() which raises EcConnectError — this second
+    # invalidated), the finally attempts stop_search() which raises EcConnectError - this second
     # error MUST NOT replace the original exception (the diagnostic shown to the user
     # would be wrong). The impossible stop_search() adds nothing: contextlib.suppress(EcError).
     async def _instant_sleep(delay: float) -> None:

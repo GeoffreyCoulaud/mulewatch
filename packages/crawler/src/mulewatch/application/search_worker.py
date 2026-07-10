@@ -9,7 +9,7 @@ EC connections = real parallelism; degenerates to a sequential loop at N=1). Per
   ``start_search`` → bounded polling (config budget) → ``fetch_results`` →
   ``record_observation`` for EACH obs.
 
-Error handling (spec §7, "the client signals, Plan C decides") — the application catches
+Error handling (spec §7, "the client signals, Plan C decides") - the application catches
 ONLY PORT exceptions (never an adapter's, dependency rule §4):
 - ``MuleUnreachableError`` (dead stream: connection/timeout/unreadable frame on the EC side) →
   instance DOWN: we drop the client, PER-INSTANCE reconnection BACKOFF (``retry_after``
@@ -21,7 +21,7 @@ The backoff is exponential + jitter (spec §3), REMEMBERED in a SHARED ``Backoff
 (a single instance for ALL workers + the cycle) and PERSISTED in
 ``scheduler_state`` at the end of the cycle (spec §3/§7: it survives a restart). "Skip until
 ``retry_after``" replaces the old "sleep for the delay": a backed-off channel is skipped, not
-waited on — the event loop stays available. Mutations of the shared registry happen between
+waited on - the event loop stays available. Mutations of the shared registry happen between
 two ``await`` (single-threaded event loop, single writer) → no lock needed (spec §3).
 The worker NEVER closes the client (ownership = composition root, §6).
 """
@@ -58,7 +58,7 @@ _PROGRESS_DONE = 100  # search_progress() at 100 % → we stop polling (EC hando
 
 
 def _iso(moment: datetime) -> str:
-    """Fixed-width ISO-8601 UTC (microseconds ALWAYS written) — same rules as the adapter's
+    """Fixed-width ISO-8601 UTC (microseconds ALWAYS written) - same rules as the adapter's
     ``utc_iso`` (which we cannot import: dependency rule §4) so that the
     ``now < retry_after`` comparison is lexicographic == chronological, and the
     PERSISTED format is identical to the other timestamps'."""
@@ -85,9 +85,9 @@ class WorkerPolicy:
     """A worker's policy parameters, as PRIMITIVES (spec §5; injected by composition).
 
     ``backoff_jitter_ratio``: fraction of the nominal delay drawn as additional jitter
-    (anti-thundering-herd, spec §3) — e.g. 0.3 ⇒ jitter in ``[0, 0.3 * delay)``.
+    (anti-thundering-herd, spec §3) - e.g. 0.3 ⇒ jitter in ``[0, 0.3 * delay)``.
     ``keyword_pause_min_seconds``/``keyword_pause_max_seconds``: bounds (min ≤ max) of the
-    JITTERED inter-keyword PAUSE (spec §5/§7, eD2k anti-rate-limit) — a delay
+    JITTERED inter-keyword PAUSE (spec §5/§7, eD2k anti-rate-limit) - a delay
     ``min + rng.jitter(max - min)`` is slept BETWEEN two items of the same worker.
     """
 
@@ -215,7 +215,7 @@ class SearchWorker:
         except MuleUnreachableError as error:
             delay = self._deps.backoff.record_failure(self._instance)
             _logger.warning(
-                "instance %s unreachable (%s) — reconnect backoff %.1fs",
+                "instance %s unreachable (%s): reconnect backoff %.1fs",
                 self._instance,
                 error,
                 delay,
@@ -268,11 +268,11 @@ class SearchWorker:
         """
         channel_key = f"{self._instance}:{task.channel}"
         if self._deps.backoff.is_in_backoff(self._instance):
-            _logger.info("instance %s in backoff — item '%s' skipped", self._instance, task.keyword)
+            _logger.info("instance %s in backoff: item '%s' skipped", self._instance, task.keyword)
             return
         if self._deps.backoff.is_in_backoff(channel_key):
             _logger.info(
-                "instance %s channel %s in backoff — item '%s' skipped",
+                "instance %s channel %s in backoff: item '%s' skipped",
                 self._instance,
                 task.channel,
                 task.keyword,
@@ -286,7 +286,7 @@ class SearchWorker:
         except MuleSearchFailedError as error:
             delay = self._deps.backoff.record_failure(channel_key)
             _logger.warning(
-                "instance %s channel %s failed (%s) — backoff %.1fs",
+                "instance %s channel %s failed (%s): backoff %.1fs",
                 self._instance,
                 task.channel,
                 error,
@@ -300,7 +300,7 @@ class SearchWorker:
             self._connected = False
             delay = self._deps.backoff.record_failure(self._instance)
             _logger.warning(
-                "instance %s: dead EC stream (%s) — instance down, backoff %.1fs",
+                "instance %s: dead EC stream (%s), instance down, backoff %.1fs",
                 self._instance,
                 error,
                 delay,

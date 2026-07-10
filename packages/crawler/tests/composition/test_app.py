@@ -428,7 +428,7 @@ class _RealPacedClient(FakeMuleClient):
     Used to prove the timing invariant: ``network_status`` yields REAL time instead of
     busy-spinning, so the cycle loop advances at a controlled real pace. The normal run
     (without a signal) must OUTLIVE ``shutdown_deadline_seconds`` of real time without raising
-    ``TimeoutError`` — the shutdown bound must NOT arm until a shutdown is requested."""
+    ``TimeoutError`` - the shutdown bound must NOT arm until a shutdown is requested."""
 
     async def network_status(self) -> NetworkStatus:
         await asyncio.sleep(0.01)  # REAL time: the loop does not occupy the event loop 100%
@@ -440,7 +440,7 @@ async def test_normal_run_outlives_shutdown_deadline_without_a_signal(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
     # Regression (spec §6, DECISION 6): the shutdown bound covers ONLY the shutdown phase. A
-    # normal run WITHOUT a signal must run indefinitely — so it must outlive FAR beyond
+    # normal run WITHOUT a signal must run indefinitely - so it must outlive FAR beyond
     # ``shutdown_deadline_seconds`` of REAL time. Before the fix, ``asyncio.timeout`` wrapped
     # all of ``_supervise`` (including the UNBOUNDED wait on the signal) on the REAL clock → the
     # run raised ``TimeoutError`` ~deadline after startup, with no shutdown requested. Here the
@@ -559,7 +559,7 @@ async def test_observations_are_catalogued_during_the_cycle(
 
 
 # ---------------------------------------------------------------------------
-# Task 6 — startup backfill wiring (policy-fingerprint gate)
+# Task 6 - startup backfill wiring (policy-fingerprint gate)
 # ---------------------------------------------------------------------------
 
 
@@ -631,7 +631,7 @@ async def test_backfill_skipped_when_marker_already_matches_fingerprint(
     with caplog.at_level(logging.INFO, logger="mulewatch.composition.app"):
         await asyncio.wait_for(app.run(), timeout=5.0)
     assert any(
-        r.getMessage() == "policy unchanged — catalogue re-evaluation skipped"
+        r.getMessage() == "policy unchanged: catalogue re-evaluation skipped"
         for r in caplog.records
     )
 
@@ -830,10 +830,10 @@ class _BlockingPollClock(FakeClock):
     """Clock whose LONG sleeps (≥ 5 s) BLOCK for good (on an Event that is never set).
 
     Models the IN-CYCLE sleep of the loops: ``download._sleep_or_nudge`` (30 s poll) and the
-    verify poll (10 s) stay BLOCKED in ``clock.sleep`` — so these loops CANNOT
+    verify poll (10 s) stay BLOCKED in ``clock.sleep`` - so these loops CANNOT
     re-test ``self._shutdown`` on their own; only an explicit CANCELLATION by ``_supervise``
     gets them out. A BARRIER: as soon as BOTH loops (download 30 s + verify 10 s) have entered
-    a long sleep, we ARM ``self._shutdown`` — the shutdown is thus requested while they
+    a long sleep, we ARM ``self._shutdown`` - the shutdown is thus requested while they
     are blocked. If ``_supervise`` did NOT cancel them, the ``TaskGroup`` would wait forever and
     the armed ``shutdown_deadline`` would fire a ``TimeoutError`` (force-exit): the test would
     fail fail-closed. The SHORT sleeps (search inter-keyword pauses) yield immediately
@@ -867,7 +867,7 @@ async def test_full_mode_shutdown_cancels_download_and_verify_loops_promptly(
     # download/verify loops (sibling tasks of the search ``loop_task``). Without this, they stay
     # blocked in their in-cycle sleep (``_sleep_or_nudge`` does NOT watch ``self._shutdown``),
     # the ``TaskGroup`` waits on their poll (30 s/10 s), the ``shutdown_deadline`` fires a
-    # ``TimeoutError`` FIRST and the shutdown is FORCED — not clean. Here: a clock whose long
+    # ``TimeoutError`` FIRST and the shutdown is FORCED - not clean. Here: a clock whose long
     # sleeps BLOCK, which ARMS the shutdown once both loops are blocked in their poll. If the
     # cancellation happens, ``run()`` RETURNS promptly (without reaching the deadline); otherwise
     # it would ``TimeoutError`` (deadline) or block until the external guard → fail-closed failure.
@@ -900,12 +900,12 @@ async def test_full_mode_shutdown_cancels_download_and_verify_loops_promptly(
 async def test_full_mode_shutdown_leaves_no_task_leaked(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # T12 — shutdown INVARIANT "no task leak". The ``TaskGroup`` guarantees BY
+    # T12 - shutdown INVARIANT "no task leak". The ``TaskGroup`` guarantees BY
     # CONSTRUCTION that on exit from ``run()`` none of the 3 loops (search/download/verify)
     # survives: its ``__aexit__`` waits for ALL its tasks to finish, and ``_supervise``
     # cancels them ALL explicitly at shutdown. This test LOCKS the invariant: it would fail if
     # a future regression detached a loop from the ``TaskGroup`` (``asyncio.create_task`` outside
-    # the group) or forgot to cancel a sibling task — a ``pending`` task would then survive
+    # the group) or forgot to cancel a sibling task - a ``pending`` task would then survive
     # ``run()``. We prove it by DIFFERENCE: the tasks born DURING ``run()`` (full = 3
     # loops blocked in their sleep, shutdown armed once blocked) must ALL be
     # finished once ``run()`` has returned. The ``_BlockingPollClock`` forces the worst case: the
@@ -929,14 +929,14 @@ async def test_full_mode_shutdown_leaves_no_task_leaked(
     before = asyncio.all_tasks()  # snapshot BEFORE (the test task + pytest-asyncio infra)
     await asyncio.wait_for(app.run(), timeout=3.0)
     # Tasks born DURING the run (the 3 loops of the TaskGroup): all must be finished.
-    # No ``pending`` task must remain — otherwise a loop leaked the lifecycle.
+    # No ``pending`` task must remain - otherwise a loop leaked the lifecycle.
     leaked = [task for task in asyncio.all_tasks() - before if not task.done()]
     assert leaked == [], f"leaked tasks after shutdown: {leaked!r}"
     assert verifier.closed is True  # clean shutdown confirmed (full teardown)
 
 
 # ---------------------------------------------------------------------------
-# Task 8 — metrics + CrawlerStarted + log_level bootstrap
+# Task 8 - metrics + CrawlerStarted + log_level bootstrap
 # ---------------------------------------------------------------------------
 
 
@@ -1243,7 +1243,7 @@ def test_default_mule_restarter_factory_builds_an_http_restarter() -> None:
 
 class _FakeWebuiServer:
     """Fake uvicorn-shaped server: ``serve()`` awaits on its OWN loop until ``should_exit`` is
-    set (from the main thread by ``_stop_webui``), then returns — mirroring the real graceful
+    set (from the main thread by ``_stop_webui``), then returns - mirroring the real graceful
     stop. Records that it started and that it returned, so the test can prove start + stop."""
 
     def __init__(self) -> None:
@@ -1390,7 +1390,7 @@ def test_default_webui_server_factory_builds_a_uvicorn_server() -> None:
 
 class _BlockingSleepClock(FakeClock):
     """Clock whose ``sleep`` BLOCKS forever (models an inter-cycle sleep that would not wake on
-    its own) — so ``_sleep_or_forced`` can only return via the force-cycle event."""
+    its own) - so ``_sleep_or_forced`` can only return via the force-cycle event."""
 
     async def sleep(self, seconds: float) -> None:
         await asyncio.Event().wait()  # never resolves: exit only via cancellation
@@ -1495,7 +1495,7 @@ async def test_pause_gate_blocks_the_cycle_until_resumed(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
     # WIRING: a paused app (``_resumed`` cleared before run) blocks at the loop's gate BEFORE any
-    # cycle — the client's ``network_status`` is never polled and the run cannot self-shutdown.
+    # cycle - the client's ``network_status`` is never polled and the run cannot self-shutdown.
     # Resuming releases the gate → a cycle runs, polls the status, fires the shutdown, exits.
     # Without the gate, the cycle would run immediately and the run would finish before resume.
     holder: dict[str, CrawlerApp] = {}

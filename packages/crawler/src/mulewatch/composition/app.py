@@ -109,7 +109,7 @@ def default_download_client_factory(endpoint: AmuleEndpoint) -> MuleDownloadClie
 def default_verifier_factory(verifier_url: str, read_timeout_seconds: float) -> ContentVerifier:
     """An httpx ``HttpContentVerifier`` on the verifier's URL.
 
-    ``read_timeout_seconds`` (config) must cover the worst-case analysis (clamav) — otherwise a
+    ``read_timeout_seconds`` (config) must cover the worst-case analysis (clamav) - otherwise a
     healthy but slow file goes to dead-letter (concurrency-async#1). The ``connect`` stays short
     (10 s) to quickly detect a dead verifier without incurring the long read on establishment.
     """
@@ -118,7 +118,7 @@ def default_verifier_factory(verifier_url: str, read_timeout_seconds: float) -> 
     return HttpContentVerifier(client)
 
 
-# Port-sync factories (injectable in test — verifier_factory pattern). The 1st takes the URL of
+# Port-sync factories (injectable in test - verifier_factory pattern). The 1st takes the URL of
 # the gluetun control-server, the 2nd the docker-socket-proxy URL; each returns the real httpx
 # adapter.
 PortForwardingReaderFactory = Callable[[str], PortForwardingReader]
@@ -148,7 +148,7 @@ def default_metrics_server(port: int, registry: CollectorRegistry) -> None:
 class WebuiServer(Protocol):
     """The ``uvicorn.Server`` shape the crawler drives from the main thread: a ``serve()``
     coroutine (run on the webui thread's OWN loop) and a settable ``should_exit`` flag that
-    the serve loop polls — set it True to ask for a graceful return (thread-safe by design)."""
+    the serve loop polls - set it True to ask for a graceful return (thread-safe by design)."""
 
     should_exit: bool
 
@@ -246,7 +246,7 @@ class CrawlerApp:
         self._webui_server_factory = webui_server_factory
         self._shutdown = asyncio.Event()
         # Runtime-control events (phase P6a), constructed here (before the loop runs) like
-        # ``_shutdown`` — the established pattern. ``_force_cycle`` interrupts the inter-cycle
+        # ``_shutdown`` - the established pattern. ``_force_cycle`` interrupts the inter-cycle
         # sleep; ``_resumed`` is the pause gate, armed (set = un-paused) so the crawler starts
         # running. The webui mutates both thread-safely via ``LoopCrawlerControl`` (spec §10).
         self._force_cycle = asyncio.Event()
@@ -259,7 +259,7 @@ class CrawlerApp:
         self._signal_count += 1
         if self._signal_count == 1:
             _human(
-                "Shutdown requested — finishing in-flight searches, clean close… "
+                "Shutdown requested: finishing in-flight searches, clean close… "
                 "(Ctrl-C again to force)"
             )
             self._shutdown.set()
@@ -283,7 +283,7 @@ class CrawlerApp:
         while not self._shutdown.is_set():
             # Pause gate (phase P6a): returns at once while running (``_resumed`` set); blocks
             # here while paused (the current cycle already finished, the crawler idles). A
-            # shutdown cancels the task at this await — clean (never mid DB write).
+            # shutdown cancels the task at this await - clean (never mid DB write).
             await self._resumed.wait()
             started = self._clock.now()
             await run_search_cycle(
@@ -328,7 +328,7 @@ class CrawlerApp:
         """Port-sync activates IFF the ``port_sync`` section is present (``enabled: true``).
 
         The unified parser guarantees the section's completeness when present (URLs +
-        cadences) — no more "3 tied settings" rule at composition (deploy-simplification design).
+        cadences) - no more "3 tied settings" rule at composition (deploy-simplification design).
         """
         return self._crawler_config.port_sync is not None
 
@@ -344,7 +344,7 @@ class CrawlerApp:
         gluetun reader (factory) + restarter (factory), both ``aclose`` pushed onto the stack.
         DEDICATED port-sync EC connection (R6: no contention with download/search) to the amuled
         endpoint, connected TOLERATING ``MuleUnreachableError`` at boot (a down daemon does not kill
-        the crawler; the loop's backoff governs). In prod, host = ``gluetun`` (compose) — it's
+        the crawler; the loop's backoff governs). In prod, host = ``gluetun`` (compose) - it's
         the SAME endpoint as the other EC clients.
         """
         port_sync_config = self._crawler_config.port_sync
@@ -364,7 +364,7 @@ class CrawlerApp:
             await ec_client.connect()
         except MuleUnreachableError as error:
             _logger.warning(
-                "port-sync daemon unreachable at startup (%s) — tolerated, retry by the loop",
+                "port-sync daemon unreachable at startup (%s): tolerated, retry by the loop",
                 error,
             )
         return PortSyncLoopDeps(
@@ -394,13 +394,13 @@ class CrawlerApp:
         """Assemble the download + verification loop deps (full mode, spec §7).
 
         SHARED single repos (``catalog_repo``/``local_repo`` already built; a
-        ``SqliteDownloadRepository`` on the SAME ``local_conn`` — single writer on the event
+        ``SqliteDownloadRepository`` on the SAME ``local_conn`` - single writer on the event
         loop, no race). A 2nd EC connection (``download_config.endpoint``) connected
         tolerating
         ``MuleUnreachableError`` (a down daemon at startup does not kill the crawler; the loop's
         backoff governs). ``staging_dir`` is the configured amuled Incoming; the NAME of the
         completed file now comes from the SHARED EC files (the real on-disk name reported
-        by amuled — resolves DV10-Q2; the anti-traversal confinement lives in ``_safe_basename``).
+        by amuled - resolves DV10-Q2; the anti-traversal confinement lives in ``_safe_basename``).
         """
         endpoint = download_config.endpoint
         staging_dir = download_config.staging_dir
@@ -413,7 +413,7 @@ class CrawlerApp:
             await download_client.connect()
         except MuleUnreachableError as error:
             _logger.warning(
-                "download daemon unreachable at startup (%s) — tolerated, retry by the loop",
+                "download daemon unreachable at startup (%s): tolerated, retry by the loop",
                 error,
             )
         downloads_repo = SqliteDownloadRepository(local_conn)
@@ -465,26 +465,26 @@ class CrawlerApp:
     ) -> None:
         """Launch the loops, wait for shutdown (UNBOUNDED), ARM the bound, cancel ALL and unwind.
 
-        Waiting on the shutdown signal is FREE (``shutdown_timeout`` enters here DISARMED —
-        deadline ``None`` — so the crawler runs until stopped, over an unbounded
+        Waiting on the shutdown signal is FREE (``shutdown_timeout`` enters here DISARMED -
+        deadline ``None`` - so the crawler runs until stopped, over an unbounded
         span). AS SOON AS shutdown is requested, we ARM the bound (``reschedule`` to ``now +
         shutdown_deadline_seconds``) BEFORE cancelling: thus the ``TaskGroup`` unwind (the ``await``
         of the cancelled tasks on exit of the ``async with``) THEN the LIFO stack close
-        (in ``run``) are both bounded — the app CANNOT appear stuck at shutdown.
+        (in ``run``) are both bounded - the app CANNOT appear stuck at shutdown.
         Cancellation lands at the next network ``await`` (never mid DB write, sync repos,
         spec §6).
-        PROMPT SHUTDOWN OF ALL LOOPS: each sibling task must be cancelled EXPLICITLY —
+        PROMPT SHUTDOWN OF ALL LOOPS: each sibling task must be cancelled EXPLICITLY -
         cancelling ``loop_task`` (search) does NOT cancel the download/verify loops, which are its
         siblings in the ``TaskGroup``. Without this, shutdown would wait on each loop's in-cycle
         sleep (``_sleep_or_nudge`` of the download watches ONLY poll/nudge, not ``self._shutdown``
         ; the verify poll sleeps ``verify.poll_interval``), and the ``shutdown_deadline`` armed
-        above would fire a ``TimeoutError`` FIRST — a routine Ctrl-C would then force the
+        above would fire a ``TimeoutError`` FIRST - a routine Ctrl-C would then force the
         exit instead of a clean shutdown. So we cancel the ENTIRE set of created tasks.
         EMPIRICAL VERIFICATION: cancelling the children of a ``TaskGroup`` (the group itself
         not being cancelled) does NOT propagate a ``CancelledError`` on exit of the ``async with``
-        — the unwind is CLEAN. So we print the progress AFTER the block, without ``except*``
+        - the unwind is CLEAN. So we print the progress AFTER the block, without ``except*``
         (which would be dead code). A real worker exception, however, would propagate as an
-        ``ExceptionGroup`` — we don't mask it.
+        ``ExceptionGroup`` - we don't mask it.
         """
         async with asyncio.TaskGroup() as group:
             tasks = [
@@ -551,13 +551,13 @@ class CrawlerApp:
 
     def _serve_webui(self, server: WebuiServer) -> None:
         """Webui thread body: run the server on a FRESH loop in THIS thread. A crash DEGRADES
-        (spec §17.1): log loudly and return — a webui failure must NOT stop the crawler. We catch
+        (spec §17.1): log loudly and return - a webui failure must NOT stop the crawler. We catch
         ``Exception`` only (a ``KeyboardInterrupt``/``SystemExit`` still propagates), never
         ``BaseException``."""
         try:
             asyncio.run(server.serve())
         except Exception:
-            _logger.exception("webui thread crashed — crawler continues (degraded, no HTTP)")
+            _logger.exception("webui thread crashed: crawler continues (degraded, no HTTP)")
 
     async def _stop_webui(self, server: WebuiServer, thread: threading.Thread) -> None:
         """Graceful webui stop (runs during the LIFO stack unwind at shutdown): ask the serve
@@ -572,11 +572,11 @@ class CrawlerApp:
 
         Ownership (spec §6): the ``AsyncExitStack`` owns the long-lived resources (client pool +
         2 connections). The shutdown bound is an ``asyncio.timeout`` ENTERED DISARMED (deadline
-        ``None``): the steady-state run (waiting on the signal, cycles) is UNBOUNDED — otherwise
+        ``None``): the steady-state run (waiting on the signal, cycles) is UNBOUNDED - otherwise
         the crawler would die after ``shutdown_deadline_seconds`` of normal operation. ONLY the
         SHUTDOWN PHASE is bounded: ``_supervise`` ARMS the bound (``reschedule``) as soon as
         shutdown is requested, so the ``TaskGroup`` unwind THEN the LIFO stack close below fall
-        under the deadline — the app CANNOT appear stuck at shutdown. An overrun raises
+        under the deadline - the app CANNOT appear stuck at shutdown. An overrun raises
         ``TimeoutError`` (forced exit); the ``finally`` then attempts a best-effort close
         (suppress) so as not to re-block indefinitely. The bound NEVER arms without a requested
         shutdown → a ``TimeoutError`` can only hit a close that drags.
@@ -645,7 +645,7 @@ class CrawlerApp:
                 # CONNECT at pool assembly, BEFORE the 1st coverage readout (otherwise
                 # _aggregate_coverage hits an unconnected client and raises). A daemon down at
                 # startup must NOT bring down a multi-instance crawler: we TOLERATE the
-                # MuleUnreachableError (warning naming the instance) and CONTINUE — the worker's
+                # MuleUnreachableError (warning naming the instance) and CONTINUE - the worker's
                 # reconnection backoff will govern the retries. connect() is
                 # idempotent → the worker's later _ensure_connected() stays a no-op.
                 # We do NOT catch broader: EcAuthError (wrong password) is NOT a
@@ -654,7 +654,7 @@ class CrawlerApp:
                     await client.connect()
                 except MuleUnreachableError as error:
                     _logger.warning(
-                        "instance %s unreachable at startup (%s) — tolerated, backoff at cycle",
+                        "instance %s unreachable at startup (%s): tolerated, backoff at cycle",
                         endpoint.name,
                         error,
                     )
@@ -667,7 +667,7 @@ class CrawlerApp:
             download_deps: DownloadLoopDeps | None = None
             verify_deps: VerifyLoopDeps | None = None
             # FULL mode ⟺ the ``download`` section is present (``enabled: true``). The unified
-            # parser then guarantees the wiring is complete (endpoint/dirs/verifier_url/verify) —
+            # parser then guarantees the wiring is complete (endpoint/dirs/verifier_url/verify) -
             # no more ``_require_full_config`` gate at composition.
             download_config = self._crawler_config.download
             if download_config is not None:
@@ -681,7 +681,7 @@ class CrawlerApp:
                 stack.push_async_callback(verifier.aclose)  # type: ignore[attr-defined]
                 if not await verifier.health():
                     raise ConfigError(
-                        "verifier unreachable at startup (health-check failed) — "
+                        "verifier unreachable at startup (health-check failed): "
                         "refusing to start in full mode"
                     )
                 download_deps, verify_deps = await self._build_full_loops(
@@ -722,7 +722,7 @@ class CrawlerApp:
                 ),
             )
             if summary is None:
-                _logger.info("policy unchanged — catalogue re-evaluation skipped")
+                _logger.info("policy unchanged: catalogue re-evaluation skipped")
             else:
                 _logger.info(
                     "catalogue re-evaluated: %d files, %d rows written",
@@ -750,7 +750,7 @@ class CrawlerApp:
                 )
                 _human(f"{len(clients)} EC connection(s) closing…")
                 await stack.aclose()
-                _human("Databases closed — exiting.")
+                _human("Databases closed: exiting.")
         finally:
             # Best-effort if the bounded shutdown failed (TimeoutError) or if setup raised:
             # close what remains WITHOUT ever re-blocking (suppress any failure/cancellation).

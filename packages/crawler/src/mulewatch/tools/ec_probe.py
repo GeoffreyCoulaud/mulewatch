@@ -8,8 +8,8 @@ This is the field-richness MEASUREMENT tool (deliverable 5 report): each ``raw_m
 entry (unmapped tags, known or unknown) is printed as hex-name + value. With
 ``--all-tags``, the dump switches to the COMPLETE list of raw tags of each result
 (mapped included, via ``fetch_results_raw``) to measure the empirical fill rate
-of EACH tag — not just the unmapped ones. The ``search_and_wait`` convenience (poll +
-budget) lives HERE, not in the port: polling belongs to the caller (spec §3) — here
+of EACH tag - not just the unmapped ones. The ``search_and_wait`` convenience (poll +
+budget) lives HERE, not in the port: polling belongs to the caller (spec §3) - here
 the caller is us. Reusable as-is against the homelab.
 """
 
@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def format_status(status: NetworkStatus) -> str:
-    server = "—"
+    server = "n/a"
     if status.server_name is not None or status.server_addr is not None:
         server = f"{status.server_name or '?'} ({status.server_addr or '?'})"
     return (
@@ -115,7 +115,7 @@ def _render_tag_value(tag: EcTag) -> str:
 
     Close to ``mapping._render_value`` (the mapper does not export it), but strings are
     rendered via ``repr()``: one record = one unambiguous line (a filename or
-    a hostile value stays readable, quotes/escapes visible) — no metadata lost.
+    a hostile value stays readable, quotes/escapes visible) - no metadata lost.
     """
     if tag.tag_type in INT_WIDTHS and len(tag.value) == INT_WIDTHS[tag.tag_type]:
         return str(int.from_bytes(tag.value, "big"))
@@ -136,7 +136,7 @@ def format_raw_tags(packet: EcPacket) -> str:
     """COMPLETE dump of the tags of an ``EC_OP_SEARCH_RESULTS``: EVERY tag of EVERY entry.
 
     Unlike ``raw_meta`` (which excludes mapped and discarded tags), this dump exposes
-    ALL tags — it's the empirical fill-rate measurement tool (C2). Top-level tags
+    ALL tags - it's the empirical fill-rate measurement tool (C2). Top-level tags
     other than ``EC_TAG_SEARCHFILE`` are ignored (not entries).
     """
     entries = [tag for tag in packet.tags if tag.name == codes.EC_TAG_SEARCHFILE]
