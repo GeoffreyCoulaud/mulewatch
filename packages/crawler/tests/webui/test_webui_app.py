@@ -512,6 +512,23 @@ async def test_dashboard_returns_200_with_target_id(
 
 
 @pytest.mark.asyncio
+async def test_dashboard_excludes_catalog_tier_from_coverage(
+    populated_app: tuple[Starlette, str],
+) -> None:
+    """The only decision in ``populated_app`` is the ``keroro_large`` catch-all (tier=catalog)
+    on 062A. It must NOT count as coverage: the 062A row reads none / "·" / 0, never the
+    polluted partial / catalog / 1 the catch-all tie-break would otherwise produce."""
+    app, _ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/")
+    assert resp.status_code == 200
+    assert "<td>none</td>" in resp.text
+    assert "<td>0</td>" in resp.text
+    assert "<td>partial</td>" not in resp.text
+    assert "<td>catalog</td>" not in resp.text
+
+
+@pytest.mark.asyncio
 async def test_files_returns_200_with_file_row(
     populated_app: tuple[Starlette, str],
 ) -> None:
