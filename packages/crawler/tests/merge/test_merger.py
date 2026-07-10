@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from mulewatch.adapters.persistence_sqlite.connection import open_catalog
-from mulewatch.merge.errors import MergeError
+from mulewatch.merge.errors import MergeError, SchemaVersionMismatchError
 from mulewatch.merge.merger import merge_catalogs
 
 from .helpers import (
@@ -22,7 +22,12 @@ from .helpers import (
     ids,
     make_catalog,
     rows_without_id,
+    stamp_user_version,
 )
+
+# The current catalog schema version = the count of catalog migrations (0001, 0002, 0003).
+# open_catalog stamps the output to it; the guard rejects any source that is not at it.
+_CURRENT_SCHEMA_VERSION = 3
 
 
 def _file_observation(ed2k_hash: str, *, node_id: str, observed_at: str) -> dict[str, object]:
@@ -293,6 +298,9 @@ def test_t16_merger_wraps_source_copy_in_a_transaction(tmp_path: Path) -> None:
     raw.execute(f"INSERT INTO files VALUES ('{HASH_B}', 200)")
     raw.commit()
     raw.close()
+    # Stamp the current schema version so this source clears the version guard and reaches
+    # the copy: we are exercising the mid-copy ROLLBACK, not the version rejection.
+    stamp_user_version(broken, _CURRENT_SCHEMA_VERSION)
 
     out = tmp_path / "out.db"
     merge_catalogs(out, [good])  # the good source first, in its own successful merge.
@@ -360,6 +368,66 @@ def test_t18_dedups_identical_rows_internal_to_one_source(tmp_path: Path) -> Non
     # Re-merge = no-op (idempotent even after normalization).
     merge_catalogs(out, [src])
     assert count(out, "file_observations") == 2
+
+
+def test_rejects_source_with_older_schema_version(tmp_path: Path) -> None:
+    # A source stamped to an OLDER schema (e.g. a 0001/0002-era DB) is refused BEFORE any
+    # row is copied: the merge never migrates a source in place, so an off-version schema
+    # could silently mis-copy. Fail-fast with the source path + both versions in the message.
+    src = make_catalog(tmp_path / "old.db", _full_catalog("a", node_id="node-a"))
+    stamp_user_version(src, _CURRENT_SCHEMA_VERSION - 1)
+    out = tmp_path / "out.db"
+
+    with pytest.raises(SchemaVersionMismatchError) as excinfo:
+        merge_catalogs(out, [src])
+
+    message = str(excinfo.value)
+    assert str(src) in message
+    assert str(_CURRENT_SCHEMA_VERSION - 1) in message
+    assert str(_CURRENT_SCHEMA_VERSION) in message
+    # Rejected before its BEGIN: no row of the source reached the output.
+    assert count(out, "files") == 0
+
+
+def test_rejects_source_with_newer_schema_version(tmp_path: Path) -> None:
+    # Strict equality: a NEWER source (a future 0004 schema the code does not know) is
+    # refused too, consistent with open_catalog refusing a DB newer than the code.
+    src = make_catalog(tmp_path / "new.db", _full_catalog("a", node_id="node-a"))
+    stamp_user_version(src, _CURRENT_SCHEMA_VERSION + 1)
+    out = tmp_path / "out.db"
+
+    with pytest.raises(SchemaVersionMismatchError):
+        merge_catalogs(out, [src])
+
+    assert count(out, "files") == 0
+
+
+def test_source_at_current_schema_version_still_merges(tmp_path: Path) -> None:
+    # Happy path: a source at the current schema version passes the guard and merges.
+    # (make_catalog stamps the current version; the explicit stamp documents the intent.)
+    src = make_catalog(tmp_path / "a.db", _full_catalog("a", node_id="node-a"))
+    stamp_user_version(src, _CURRENT_SCHEMA_VERSION)
+    out = tmp_path / "out.db"
+
+    merge_catalogs(out, [src])
+
+    assert count(out, "files") == 1
+
+
+def test_guard_checks_every_source_not_just_the_first(tmp_path: Path) -> None:
+    # A valid first source then an off-version second: the guard runs per source, so the
+    # second is rejected. The first was committed in its own transaction and survives.
+    good = make_catalog(tmp_path / "good.db", _full_catalog("a", node_id="node-a"))
+    bad = make_catalog(tmp_path / "bad.db", _full_catalog("b", node_id="node-b"))
+    stamp_user_version(bad, _CURRENT_SCHEMA_VERSION - 1)
+    out = tmp_path / "out.db"
+
+    with pytest.raises(SchemaVersionMismatchError, match=str(bad)):
+        merge_catalogs(out, [good, bad])
+
+    # The good source merged first (own transaction, committed); only its row is present.
+    assert count(out, "files") == 1
+    assert rows_without_id(out, "files") == [(hash_for("a"), 100, None)]
 
 
 def test_merge_unions_observation_ranges_and_is_idempotent(tmp_path: Path) -> None:
