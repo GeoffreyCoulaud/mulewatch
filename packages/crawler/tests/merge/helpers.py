@@ -141,6 +141,22 @@ def make_catalog(
     return path
 
 
+def stamp_user_version(path: Path, version: int) -> None:
+    """Force ``path``'s ``PRAGMA user_version`` to ``version`` (simulate an off-schema DB).
+
+    Uses a RAW ``sqlite3`` connection on purpose: ``open_catalog`` would refuse a DB newer
+    than the code, and re-running it would re-stamp the current version. We only rewrite the
+    header's version counter (the on-disk schema stays whatever ``make_catalog`` laid down),
+    which is exactly what the merge guard reads.
+    """
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(f"PRAGMA user_version = {int(version)}")
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def count(path: Path, table: str) -> int:
     """Number of rows of ``table`` in the catalog ``path``."""
     connection = open_catalog(path)

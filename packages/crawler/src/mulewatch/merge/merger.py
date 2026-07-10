@@ -26,7 +26,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from mulewatch.adapters.persistence_sqlite.connection import open_catalog
-from mulewatch.merge.errors import MergeError
+from mulewatch.merge.errors import MergeError, SchemaVersionMismatchError
 
 # Attach alias of the current source (one at a time → we stay at 1 attached DB
 # whatever N, well under the SQLITE_MAX_ATTACHED cap of 10, spec §8).
@@ -167,25 +167,35 @@ def merge_catalogs(output: Path, sources: Sequence[Path], *, dest_is_source: boo
 
     Any ``sqlite3.Error`` (corrupt source, incompatible schema, FK…) is wrapped in
     ``MergeError`` (fail-fast, clear message). The ``ROLLBACK`` is best-effort.
+
+    Before copying a source we check its ``PRAGMA user_version`` equals the current schema
+    version (the one ``open_catalog`` just stamped on ``output``) and refuse any mismatch
+    with a ``SchemaVersionMismatchError`` (a ``MergeError`` subtype). We never migrate a
+    source in place, so an off-version schema could silently mis-copy.
     """
     connection = open_catalog(output)
     try:
+        # The current schema version = whatever open_catalog stamped on the output; we read
+        # it back rather than hardcode it, so this tracks the migration set automatically.
+        expected_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
         output_resolved = Path(output).resolve()
         for source in sources:
             if dest_is_source and Path(source).resolve() == output_resolved:
                 continue
-            _merge_one(connection, source)
+            _merge_one(connection, source, expected_version)
     finally:
         connection.close()
 
 
-def _merge_one(connection: sqlite3.Connection, source: Path) -> None:
+def _merge_one(connection: sqlite3.Connection, source: Path, expected_version: int) -> None:
     """Attaches ``source``, copies its 7 tables in ONE transaction, detaches.
 
     ``ATTACH``/``DETACH`` are OUTSIDE a transaction (SQLite refuses to attach inside an
-    open transaction). The copy is wrapped by ``BEGIN``/``COMMIT``; an error
+    open transaction). Right after the attach, BEFORE the ``BEGIN``, we reject any source
+    whose schema version differs from ``expected_version`` (nothing is written yet; the
+    ``finally`` still detaches). The copy is wrapped by ``BEGIN``/``COMMIT``; an error
     triggers a best-effort ``ROLLBACK`` then a best-effort ``DETACH``, and propagates as
-    ``MergeError`` — the output keeps no partial copy of this source.
+    ``MergeError``: the output keeps no partial copy of this source.
     """
     try:
         # RESOLVED path (consistent with the --into skip that compares ``Path.resolve()``):
@@ -194,6 +204,13 @@ def _merge_one(connection: sqlite3.Connection, source: Path) -> None:
     except sqlite3.Error as error:
         raise MergeError(f"cannot attach source {source}: {error}") from error
     try:
+        source_version = int(connection.execute(f"PRAGMA {_SRC}.user_version").fetchone()[0])
+        if source_version != expected_version:
+            raise SchemaVersionMismatchError(
+                f"source {source} has catalog schema version {source_version}, "
+                f"expected {expected_version} (the current schema); "
+                "merge refuses an out-of-version source (it never migrates a source in place)"
+            )
         connection.execute("BEGIN")
         try:
             for statement in _COPY_STATEMENTS:
