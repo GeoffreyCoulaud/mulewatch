@@ -90,6 +90,14 @@ class ConnectedInstancesSampled:
 
 
 @dataclass(frozen=True)
+class SearchCapabilitySampled:
+    # Current-state sample of "can we search RIGHT NOW?" (at least one instance capable),
+    # sampled every cycle → binary gauge. Complements the AllInstancesBlind counter (cumulative,
+    # edge-triggered): this one carries the live 0/1 signal Grafana alerts on.
+    capable: bool
+
+
+@dataclass(frozen=True)
 class VerificationQueueDepthSampled:
     count: int
 
@@ -132,6 +140,7 @@ type Event = (
     | VerificationCompleted
     | VerifierUnavailable
     | ConnectedInstancesSampled
+    | SearchCapabilitySampled
     | VerificationQueueDepthSampled
     | CrawlerStarted
     | PortSyncTriggered

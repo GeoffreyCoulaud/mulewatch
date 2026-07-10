@@ -36,6 +36,15 @@ def test_gauge_set_no_label() -> None:
     assert registry.get_sample_value("emule_crawler_up") == 1.0
 
 
+def test_gauge_search_capable_sets_binary_value() -> None:
+    registry = CollectorRegistry()
+    sink = PrometheusSink(registry)
+    sink.apply(MetricInstruction(MetricName.SEARCH_CAPABLE, "set", (), 1.0))
+    assert registry.get_sample_value("emule_search_capable") == 1.0
+    sink.apply(MetricInstruction(MetricName.SEARCH_CAPABLE, "set", (), 0.0))
+    assert registry.get_sample_value("emule_search_capable") == 0.0
+
+
 def test_histogram_observe() -> None:
     registry = CollectorRegistry()
     PrometheusSink(registry).apply(

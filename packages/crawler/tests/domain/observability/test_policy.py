@@ -210,6 +210,22 @@ CASES: list[tuple[ev.Event, Report]] = [
         ),
     ),
     (
+        ev.SearchCapabilitySampled(capable=True),
+        Report(
+            Severity.DEBUG,
+            "search-capable: yes",
+            (MetricInstruction(MetricName.SEARCH_CAPABLE, "set", (), 1.0),),
+        ),
+    ),
+    (
+        ev.SearchCapabilitySampled(capable=False),
+        Report(
+            Severity.DEBUG,
+            "search-capable: no",
+            (MetricInstruction(MetricName.SEARCH_CAPABLE, "set", (), 0.0),),
+        ),
+    ),
+    (
         ev.VerificationQueueDepthSampled(count=5),
         Report(
             Severity.DEBUG,

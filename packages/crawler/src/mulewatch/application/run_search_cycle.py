@@ -35,6 +35,7 @@ from mulewatch.application.search_worker import BackoffRegistry, SearchTask, Sea
 from mulewatch.domain.observability.events import (
     AllInstancesBlind,
     ConnectedInstancesSampled,
+    SearchCapabilitySampled,
     SearchCycleCompleted,
 )
 from mulewatch.domain.search.coverage import Coverage, effective_coverage
@@ -70,7 +71,7 @@ def _is_search_capable(*, ed2k_high: bool, kad_status: KadStatus) -> bool:
 async def _aggregate_coverage(
     clients: Sequence[MuleClient], telemetry: Telemetry, edge: EdgeState
 ) -> None:
-    """Samples the status → connected{network} gauges + aggregated coverage (logged, spec §7)."""
+    """Samples connected{network} + search-capable gauges + aggregated coverage (logged, §7)."""
     capable: list[bool] = []
     ed2k_count = 0
     kad_count = 0
@@ -94,6 +95,9 @@ async def _aggregate_coverage(
     await telemetry.emit(ConnectedInstancesSampled(network=ED2K, count=ed2k_count))
     await telemetry.emit(ConnectedInstancesSampled(network=KAD, count=kad_count))
     coverage = effective_coverage(capable)
+    # Current-state binary gauge, sampled EVERY cycle (independent of the edge-triggered
+    # AllInstancesBlind notification below): 1 when we can search now, 0 when all blind.
+    await telemetry.emit(SearchCapabilitySampled(capable=coverage != Coverage.BLIND))
     if coverage == Coverage.BLIND:
         _logger.warning("effective_coverage=%s (blind)", coverage)
         await telemetry.emit(AllInstancesBlind(first_occurrence=edge.enter("coverage_blind")))

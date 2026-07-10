@@ -30,6 +30,7 @@ _COUNTERS: tuple[tuple[MetricName, str, tuple[str, ...]], ...] = (
 )
 _GAUGES: tuple[tuple[MetricName, str, tuple[str, ...]], ...] = (
     (MetricName.CONNECTED_INSTANCES, "Search-capable instances", ("network",)),
+    (MetricName.SEARCH_CAPABLE, "Search-capable now (1)", ()),
     (MetricName.VERIFICATION_QUEUE_DEPTH, "Pending verification tasks", ()),
     (MetricName.CRAWLER_UP, "Crawler running (1)", ()),
 )
