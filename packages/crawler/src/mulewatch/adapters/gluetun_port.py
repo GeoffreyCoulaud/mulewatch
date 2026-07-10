@@ -1,7 +1,7 @@
 """``GluetunPortReader`` adapter: reads gluetun's live forwarded port (port-sync, design §3.2).
 
 ``GET {base}/v1/portforward`` → ``{"port": N}`` (route confirmed via the upstream gluetun docs).
-DEFENSIVE PARSING (DECISION 7) — ANY failure → ``None`` ("not ready"), NEVER an exception that
+DEFENSIVE PARSING (DECISION 7) - ANY failure → ``None`` ("not ready"), NEVER an exception that
 propagates: degraded mode (Low-ID) is tolerated (control-server unreachable, PF not yet negotiated,
 malformed body). EXACT mirror of ``HttpContentVerifier``'s defensive parsing.
 
@@ -32,7 +32,7 @@ class GluetunPortReader:
             response.raise_for_status()
         except httpx.HTTPError as error:
             # control-server unreachable / timeout / 4xx / 5xx → "not ready" (Low-ID tolerated).
-            _logger.debug("gluetun control-server unavailable (%s) — forwarded port unknown", error)
+            _logger.debug("gluetun control-server unavailable (%s): forwarded port unknown", error)
             return None
         return self._parse(response)
 
@@ -41,7 +41,7 @@ class GluetunPortReader:
         try:
             payload = json.loads(response.content)
         except (json.JSONDecodeError, ValueError):
-            _logger.debug("non-JSON /v1/portforward reply — forwarded port unknown")
+            _logger.debug("non-JSON /v1/portforward reply: forwarded port unknown")
             return None
         if not isinstance(payload, dict):
             return None

@@ -1,15 +1,15 @@
 """The verification loop: reclaim → claim → verify → record → complete (verify spec §6).
 
 APPLICATION layer. CONSUMER of the ``verification_tasks`` queue (download is its
-PRODUCER — the durable queue IS the coupling, DECISION DV5: no dedicated nudge, the poll is
+PRODUCER - the durable queue IS the coupling, DECISION DV5: no dedicated nudge, the poll is
 the net). ``run_verification_cycle`` processes ONE task (or sleeps if the queue is empty);
-``verification_loop`` repeats until a shutdown event — wired by ``CrawlerApp`` (Task 11).
+``verification_loop`` repeats until a shutdown event - wired by ``CrawlerApp`` (Task 11).
 
 Flow of one cycle (spec §6, DECISION DV13):
   1. ``reclaim_expired()`` (recovers expired leases along the way + at startup).
   2. ``claim_verification()`` → ``None`` (empty queue) → sleeps ``poll_interval`` and returns.
   3. Claimed task: ``get_target_id`` → MINIMAL ``expected`` (``{"target_id": …}`` or ``{}``
-     if unknown — the NO-OP ignores it, D-analysis will enrich, DECISION DV11).
+     if unknown - the NO-OP ignores it, D-analysis will enrich, DECISION DV11).
   4. ``verify`` → ``VerificationResult``; ``record_verification``; ``complete_verification``.
 
 Errors (DECISION DV6, spec §8): ``VerifierUnavailableError`` (service unreachable) or
@@ -122,7 +122,7 @@ async def run_verification_cycle(deps: VerifyDeps) -> None:
 
     NEVER RAISES (like ``run_download_cycle``): any repo failure (``RepositoryError`` from
     reclaim/claim/record/complete/fail) is absorbed by the top-level net (log + sleep + skip the
-    iteration — the claimed task comes back via the lease → ``reclaim_expired``). An unreachable
+    iteration - the claimed task comes back via the lease → ``reclaim_expired``). An unreachable
     verifier (``VerifierUnavailableError``) or a failed verdict write
     (``RepositoryError`` at record/complete) → ``fail_verification`` (retry via lease; after
     ``max_attempts`` → dead-letter, the repo handles it). We NEVER invent a verdict.
@@ -159,7 +159,7 @@ async def run_verification_cycle(deps: VerifyDeps) -> None:
             )
         except VerifierUnavailableError as error:
             _logger.warning(
-                "verifier unreachable for task=%d hash=%s (%s) — fail + backoff (retry)",
+                "verifier unreachable for task=%d hash=%s (%s): fail + backoff (retry)",
                 task.task_id,
                 task.ed2k_hash,
                 error,
@@ -175,14 +175,14 @@ async def run_verification_cycle(deps: VerifyDeps) -> None:
             return
         except RepositoryError as error:
             _logger.error(
-                "verdict write failed for task=%d hash=%s (%s) — fail + backoff (retry, "
+                "verdict write failed for task=%d hash=%s (%s): fail + backoff (retry, "
                 "duplicate possible on reclaim: at-least-once)",
                 task.task_id,
                 task.ed2k_hash,
                 error,
             )
             deps.queue.fail_verification(task.task_id)
-            # backoff: no spin (``fail`` puts back ``pending`` immediately) — if ``complete``
+            # backoff: no spin (``fail`` puts back ``pending`` immediately) - if ``complete``
             # (local.db) fails durably while verify/record succeed, without this sleep
             # each cycle would re-emit a verify RPC + a duplicate ``file_verifications`` row
             # in a burst. With the sleep: at most one attempt per ``poll_interval``.
@@ -196,7 +196,7 @@ async def run_verification_cycle(deps: VerifyDeps) -> None:
         # we absorb it to NEVER crash the loop. The task (if claimed) comes back via the lease →
         # ``reclaim``. We sleep to avoid a tight spin if the DB is durably erroring.
         _logger.error(
-            "verification persistence failed (%s) — iteration skipped, retry via lease", error
+            "verification persistence failed (%s): iteration skipped, retry via lease", error
         )
         await deps.clock.sleep(deps.poll_interval_seconds)
 

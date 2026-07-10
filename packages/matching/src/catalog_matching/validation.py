@@ -67,7 +67,7 @@ def _parse_operand(raw: Any) -> Operand:
     if isinstance(raw, dict):
         if any(key in raw for key in _CONDITION_KEYS):
             return _parse_condition(raw)
-        # Treated as a token-ref (with or without the "token" key) — _parse_token_ref
+        # Treated as a token-ref (with or without the "token" key) - _parse_token_ref
         # will raise ConfigError if the "token" key is missing or invalid.
         return _parse_token_ref(raw)
     raise ConfigError(f"operand of invalid type: {type(raw).__name__} ({raw!r})")
@@ -123,7 +123,7 @@ def _parse_condition(raw: dict[str, Any]) -> Condition:
         # EBNF §8.3: operand (',' operand)* = at least one operand. An empty list would give
         # AllMatcher([]).matches()==all([])==True (matches EVERYTHING) or AnyMatcher([])==False
         # (mute): degenerate config, rejected at load time (fail-fast §8.4). all([])/any([])
-        # remains the legitimate internal semantics of the combinators — it is the empty CONFIG
+        # remains the legitimate internal semantics of the combinators - it is the empty CONFIG
         # that we forbid.
         raise ConfigError(f"'{key}:' requires at least one operand (empty list received)")
     operands = tuple(_parse_operand(item) for item in body)
@@ -178,7 +178,7 @@ def _parse_token_def(raw: Any) -> TokenDef:
         # range min > max is an EMPTY range (rule mute forever) → fail-fast §8.4.
         if min_bound is not None and max_bound is not None and min_bound > max_bound:
             raise ConfigError(
-                f"attr_between {attr!r}: min ({min_bound}) > max ({max_bound}) — empty range"
+                f"attr_between {attr!r}: min ({min_bound}) > max ({max_bound}) (empty range)"
             )
         return AttrBetweenDef(attr=attr, min=min_bound, max=max_bound)
     raise ConfigError(f"unknown token shape: keys {sorted(mapping)}")
@@ -426,7 +426,7 @@ def parse_targets(raw: dict[str, Any]) -> tuple[TargetSegment, ...]:
     for segment in result:
         if segment.target_id in seen:
             raise ConfigError(
-                f"duplicate target_id: {segment.target_id!r} — target segments must be "
+                f"duplicate target_id: {segment.target_id!r}. Target segments must be "
                 f"unique (note: the segment letter is uppercased by target_id, so 'a' and 'A' "
                 f"collide). The evaluation engine depends on it (deterministic tie-break)."
             )

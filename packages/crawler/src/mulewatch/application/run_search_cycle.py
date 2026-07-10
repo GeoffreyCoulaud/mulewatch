@@ -8,14 +8,14 @@ APPLICATION layer. ``run_search_cycle`` runs ONE cycle (spec §4):
   3. enqueue a ``SearchTask`` (keyword × channel) into a shared ``asyncio.Queue``.
   4. N workers drain in parallel (one per instance); one sentinel per worker.
   5. queue drained → ``write_cycle_state`` (index = N+1, last_full_cycle_at) AND
-     ``save_channel_backoff`` (snapshot of the SHARED registry) — AT THE SAME TIME (spec §3/§7).
+     ``save_channel_backoff`` (snapshot of the SHARED registry) - AT THE SAME TIME (spec §3/§7).
 
 The pool degenerates to a sequential loop at N=1 (spec §3). The workers share the
 queue; each reads until the ``None`` sentinel. The ``TaskGroup`` supervises: a
 cancellation (shutdown, spec §6) lands at the next network ``await``, never mid DB
 write (sync repos). The backoff (shared registry, mutated by the workers during
 the cycle) is PERSISTED only at the END of the cycle, exactly like ``cycle_index``: a kill
-mid-way replays the cycle AND re-arms the backoff from the previous cycle's state (consistent —
+mid-way replays the cycle AND re-arms the backoff from the previous cycle's state (consistent -
 the index does not advance mid-cycle either, spec §7).
 
 NEVER RAISES (aligned with ``run_download_cycle``/``run_verification_cycle``): a
@@ -62,7 +62,7 @@ def _is_search_capable(*, ed2k_high: bool, kad_status: KadStatus) -> bool:
     """Can an instance make a search SUCCEED? (HighID OR Kad CONNECTED).
 
     APPLICATION translation of ``NetworkStatus`` (port) into a pure boolean, before calling the
-    domain ``effective_coverage`` (which does not know ``NetworkStatus`` — dependency rule, the
+    domain ``effective_coverage`` (which does not know ``NetworkStatus`` - dependency rule, the
     domain never imports a port).
     """
     return ed2k_high or kad_status == KadStatus.CONNECTED
@@ -78,13 +78,13 @@ async def _aggregate_coverage(
     for client in clients:
         # An instance unreachable at sampling time (EC stream dead / not yet connected) must NOT
         # bring down the whole cycle: we count it as NOT search-capable (the aggregate will then
-        # report BLIND/DEGRADED, the true state). We do NOT (re)connect here — the worker
+        # report BLIND/DEGRADED, the true state). We do NOT (re)connect here - the worker
         # owns the connection cycle and its anti-ban backoff (reconnecting every cycle would
         # hammer a down daemon and short-circuit that backoff, spec §3/§7).
         try:
             status = await client.network_status()
         except MuleUnreachableError as error:
-            _logger.warning("instance unreachable at status readout (%s) — not capable", error)
+            _logger.warning("instance unreachable at status readout (%s): not capable", error)
             capable.append(False)
             continue
         if status.ed2k_high:
@@ -125,7 +125,7 @@ async def _worker_loop(
     n_workers``), the task is dropped with ``SearchTaskDropped`` (visibility rather than
     silence). Without this logic, a backed-off worker would synchronously drain the remaining
     tasks while a healthy peer stayed parked on a network ``await`` (queue.get on a
-    non-empty queue does NOT YIELD — no internal ``await``).
+    non-empty queue does NOT YIELD - no internal ``await``).
     """
     while True:
         task = await queue.get()
@@ -204,7 +204,7 @@ async def run_search_cycle(
         scheduler_state.write_cycle_state(cycle_index + 1, clock.now())
         scheduler_state.save_channel_backoff(backoff.snapshot())
     except RepositoryError as error:
-        _logger.error("cycle %d end repo failure (%s) — cycle replayable", cycle_index, error)
+        _logger.error("cycle %d end repo failure (%s): cycle replayable", cycle_index, error)
         return
     duration = (clock.now() - started).total_seconds()
     await telemetry.emit(SearchCycleCompleted(cycle_index=cycle_index, duration_seconds=duration))

@@ -12,7 +12,7 @@ APPLICATION layer (orchestration spec §4): orchestrates PORTS (sync repos + pur
 The repos are SYNCHRONOUS, called DIRECTLY (spec §3: sub-ms, no ``to_thread`` in the
 MVP; accepted consequence: DB writes are de facto serialized on the event loop).
 A ``RepositoryError`` (a PORT contract, never an adapter) on ONE observation is
-LOGGED and ABSORBED here: the function returns ``0`` and the cycle continues (spec §7) — a
+LOGGED and ABSORBED here: the function returns ``0`` and the cycle continues (spec §7) - a
 single corrupt/failed obs does not bring down the whole sweep, but the failure stays
 VISIBLE (``error``-level log, so a persistent failure gets noticed).
 """
@@ -57,7 +57,7 @@ async def record_observation(
         )
     except RepositoryError as error:
         _logger.error(
-            "persistence failed on hash=%s (%s) — observation skipped, cycle continues",
+            "persistence failed on hash=%s (%s): observation skipped, cycle continues",
             observation.ed2k_hash,
             error,
         )

@@ -30,7 +30,7 @@ class ReevalSummary:
     """Outcome of one backfill pass (spec §7).
 
     ``evaluated``: rows iterated (one per catalogued hash). ``written``: rows actually
-    appended by ``record_decision_if_changed`` (a re-tiered decision OR a retraction —
+    appended by ``record_decision_if_changed`` (a re-tiered decision OR a retraction -
     no separate retracted count, spec Task 5: "a retraction is just a written row").
     """
 
@@ -68,7 +68,7 @@ async def reevaluate_catalog(
             )
         except RepositoryError as error:
             _logger.error(
-                "persistence failed on hash=%s (%s) — re-evaluation skipped, sweep continues",
+                "persistence failed on hash=%s (%s): re-evaluation skipped, sweep continues",
                 row.ed2k_hash,
                 error,
             )

@@ -11,7 +11,7 @@ any defensive parse (port 0 / control-server unreachable / EC dead) → "not rea
 ``run_port_sync_cycle`` NEVER RAISES (top-level net like ``run_verification_cycle``); every
 re-looping path sleeps ``poll_interval_seconds`` (no busy-spin). ``port_sync_loop`` repeats
 until shutdown (``verification_loop`` pattern). Like ``VerificationTaskQueue``, we declare local
-NARROW Protocols (the real ``AmuleEcClient`` AND a minimal fake satisfy them) — we do NOT widen
+NARROW Protocols (the real ``AmuleEcClient`` AND a minimal fake satisfy them) - we do NOT widen
 ``ports/mule_client.py``.
 """
 
@@ -69,7 +69,7 @@ class PortSyncDeps:
 
 
 class _PortSyncState:
-    """Inter-iteration state (mutable, single-threaded on the event loop, NOT persisted — like
+    """Inter-iteration state (mutable, single-threaded on the event loop, NOT persisted - like
     ``EdgeState``). Remembers the last restart's instant (rate-limit) and the target port."""
 
     def __init__(self) -> None:
@@ -102,20 +102,20 @@ async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None
             await deps.clock.sleep(deps.poll_interval_seconds)
             return
         # (Re)connect the dedicated EC client BEFORE any EC op. IDEMPOTENT (AmuleEcClient.connect
-        # is a no-op when already connected), but ESSENTIAL after a restart: our own restart() — or
-        # a VPN renegotiation — kills the connection, and the client self-heals by nulling its
+        # is a no-op when already connected), but ESSENTIAL after a restart: our own restart() - or
+        # a VPN renegotiation - kills the connection, and the client self-heals by nulling its
         # transport on the next failed read. Without this call the loop would stay stuck "EC client
         # not connected" forever (the field deadlock). A failed reconnect (amuled still down) raises
         # under ``MuleClientError`` → absorbed + backoff below, like any other EC failure.
         await deps.ports.connect()
         current = await deps.ports.get_listen_port()
         if live == current:
-            # The preference is aligned with the forwarded port — but this is NOT proof that
+            # The preference is aligned with the forwarded port - but this is NOT proof that
             # amuled LISTENS on that port: ``set_listen_port`` writes the preference without
             # rebinding (the rebind requires a restart). EC does not expose the actually-bound
             # port; the only reliable signal that the right port is bound AND reachable is the
             # High-ID. So we clear the alert ONLY if High-ID; otherwise we backoff without
-            # touching it — a failed restart keeps its alert lit instead of being masked by the
+            # touching it - a failed restart keeps its alert lit instead of being masked by the
             # written preference (test-gaps#0). Low-ID tolerated: no re-restart (the
             # rate-limit/alert handle recovery).
             status = await deps.ports.network_status()
@@ -135,7 +135,7 @@ async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None
             await deps.restarter.restart()
         except RestarterError as error:
             # restart impossible → edge-triggered alert + backoff.
-            _logger.warning("amuled restart failed (%s) — alert + backoff", error)
+            _logger.warning("amuled restart failed (%s): alert + backoff", error)
             await deps.telemetry.emit(
                 PortMismatchUnresolved(
                     first_occurrence=deps.edge.enter(_MISMATCH), live=live, configured=current
@@ -146,7 +146,7 @@ async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None
         state.record_restart(now, live)
         # --- re-check High-ID after restart (DECISION 4): DO NOT LOOP if not High-ID ---
         # we allow a bounded delay (amuled rebind) then read the connstate; if ed2k_high is
-        # False, we emit the alert and return — the rate-limit prevents an immediate re-restart.
+        # False, we emit the alert and return - the rate-limit prevents an immediate re-restart.
         await deps.clock.sleep(deps.poll_interval_seconds)
         status = await deps.ports.network_status()
         if status.ed2k_high:
@@ -161,10 +161,10 @@ async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None
     except MuleClientError as error:
         # get/set_listen_port / network_status failed (amuled down / EC dead / EC_OP_FAILED) →
         # tolerated (the spec catches the base ``EcError``; on the application side we catch its
-        # port ANCESTOR ``MuleClientError`` — which covers unreachable AND application failure —
+        # port ANCESTOR ``MuleClientError`` - which covers unreachable AND application failure -
         # without importing the adapter, dependency rule §4). Backoff, no crash (top-level net
         # §4.4).
-        _logger.warning("EC failed during port-sync (%s) — tolerated, backoff", error)
+        _logger.warning("EC failed during port-sync (%s): tolerated, backoff", error)
         await deps.clock.sleep(deps.poll_interval_seconds)
 
 

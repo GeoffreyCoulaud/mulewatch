@@ -1,16 +1,16 @@
 """``HttpContentVerifier`` adapter: HTTP RPC to the verifier service (verify spec §5/§8).
 
 httpx ``AsyncClient`` on the verifier URL. ``verify`` ``POST /verify {hash, expected}``;
-``health`` ``GET /health``. DEFENSIVE PARSING (DECISION DV6) — two failure families:
+``health`` ``GET /health``. DEFENSIVE PARSING (DECISION DV6) - two failure families:
   - UNREACHABLE service (connection refused / timeout / network / 5xx) → TRANSIENT:
     ``VerifierUnavailableError`` (the ``fail_verification`` loop → retry via lease);
   - MALFORMED / off-schema / oversized 200 response → DETERMINISTIC: we return a
-    ``VerificationResult(verdict="error")`` (recorded + ``complete`` — no infinite loop).
-The transient-error contract lives in the PORT (``ports/verifier_errors``) — the adapter
+    ``VerificationResult(verdict="error")`` (recorded + ``complete`` - no infinite loop).
+The transient-error contract lives in the PORT (``ports/verifier_errors``) - the adapter
 inherits/raises it, the application catches it without importing this adapter (dependency rule §4).
 
 ``aclose`` closes the httpx client (called by composition at shutdown). The crawler DTO is
-``ports.content_verifier.VerificationResult`` — defined independently of the verifier response
+``ports.content_verifier.VerificationResult`` - defined independently of the verifier response
 (package boundary); this module PROVES the wire contract via its test against the real app.
 """
 
@@ -52,7 +52,7 @@ class HttpContentVerifier:
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as error:
-            # 4xx/5xx: a 5xx is transient; a 4xx (our payload rejected) is a contract bug —
+            # 4xx/5xx: a 5xx is transient; a 4xx (our payload rejected) is a contract bug -
             # in both cases we do not fabricate a verdict, we surface transient
             # (the 4xx will not resolve on retry but ends up in dead_letter, visible, §8).
             raise VerifierUnavailableError(
@@ -66,12 +66,12 @@ class HttpContentVerifier:
         """Defensive parse of a 200: malformed/off-schema/oversized → ``error`` verdict."""
         body = response.content
         if len(body) > self._max_response_bytes:
-            _logger.warning("verifier reply too large (%d B) — verdict error", len(body))
+            _logger.warning("verifier reply too large (%d B): verdict error", len(body))
             return _ERROR_RESULT
         try:
             payload = json.loads(body)
         except (json.JSONDecodeError, ValueError):
-            _logger.warning("non-JSON verifier reply — verdict error")
+            _logger.warning("non-JSON verifier reply: verdict error")
             return _ERROR_RESULT
         if not isinstance(payload, dict):
             return _ERROR_RESULT

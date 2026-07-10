@@ -3,14 +3,14 @@
 Each connection is opened in REAL autocommit (``autocommit=True``, Python ≥ 3.12):
 transactions are EXPLICIT (``BEGIN``/``COMMIT``/``ROLLBACK`` written by the
 repositories), no implicit isolation. Opening PRAGMAs (spec §3):
-``journal_mode=WAL`` — REQUIRED: ``:memory:`` does not carry it (it answers ``memory``)
-and is therefore refused outright; the tests use real files (spec §8) —
+``journal_mode=WAL`` - REQUIRED: ``:memory:`` does not carry it (it answers ``memory``)
+and is therefore refused outright; the tests use real files (spec §8) -
 ``foreign_keys=ON``, and ``recursive_triggers=ON`` (without which ``INSERT OR REPLACE``
 crosses the append-only triggers, spec §3 post-review amendment).
 
 The runner reads the ``NNNN_*.sql`` scripts embedded in the package (``importlib.
 resources``), applies them in ascending order EACH in ITS OWN transaction (failure →
-best-effort ROLLBACK, version unchanged — same spirit as the EC transport's best-effort
+best-effort ROLLBACK, version unchanged - same spirit as the EC transport's best-effort
 ``close()``), and tracks state in ``PRAGMA user_version``. A database NEWER than the
 code → outright refusal (``MigrationError``, fail-fast MVP spec §14). The scripts
 contain NO ``BEGIN``/``COMMIT``: it is the runner that wraps.
@@ -84,7 +84,7 @@ def _configure(connection: sqlite3.Connection) -> None:
     journal_mode = connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]
     if journal_mode != "wal":
         raise PersistenceError(
-            f"journal_mode={journal_mode!r}: WAL required (spec §3) — file-backed db only"
+            f"journal_mode={journal_mode!r}: WAL required (spec §3), file-backed db only"
         )
     connection.execute("PRAGMA foreign_keys=ON")
     connection.execute("PRAGMA recursive_triggers=ON")
@@ -123,8 +123,8 @@ def _apply_migrations(connection: sqlite3.Connection, scripts: tuple[tuple[int, 
     Wrapper LAID BY THE RUNNER, piece by piece: explicit ``BEGIN``, then
     ``executescript(script)`` (verified empirically under ``autocommit=True``, SQLite
     3.47.1: it does NOT commit the current transaction), then GUARDS ``in_transaction``
-    — a script that contains a stray ``COMMIT`` closes the wrapper and would otherwise be
-    stamped/committed partially → ``MigrationError`` BEFORE the stamp — then ``PRAGMA
+    - a script that contains a stray ``COMMIT`` closes the wrapper and would otherwise be
+    stamped/committed partially → ``MigrationError`` BEFORE the stamp - then ``PRAGMA
     user_version = N`` INSIDE the transaction (the pragma is transactional: a ROLLBACK
     undoes it), then ``COMMIT``. PRAGMA accepts no bound parameter: ``version``
     comes from ``int()``, the interpolation is safe.
@@ -137,7 +137,7 @@ def _apply_migrations(connection: sqlite3.Connection, scripts: tuple[tuple[int, 
             "db newer than the code, refusing to start (spec §3)"
         )
     # Race between two concurrent runners: the loser fails cleanly (sqlite3.Error
-    # → MigrationError), never corruption — single writer by doctrine (spec §3).
+    # → MigrationError), never corruption - single writer by doctrine (spec §3).
     for version, script in scripts:
         if version <= current:
             continue
