@@ -12,11 +12,19 @@ from mulewatch.webui.domain.views import CoverageStatus
 
 
 def coverage_for(target_id: str, decisions: Sequence[tuple[str, str]]) -> CoverageStatus:
-    """``decisions`` = ``(ed2k_hash, tier)`` of the latest verdicts for this target."""
-    if not decisions:
+    """``decisions`` = ``(ed2k_hash, tier)`` of the latest verdicts for this target.
+
+    Catalog-tier decisions are the ``keroro_large`` catch-all: any keroro file with no numeric
+    token resolves to the smallest ``target_id`` (``001A``) via the engine tie-break, so counting
+    them would make one episode look partially recovered while the catalog has identified nothing.
+    They do NOT count as coverage of an episode (same ``tier == "catalog"`` criterion the ``/files``
+    "unidentified" mask uses in ``composition.app._resolve_target_display``).
+    """
+    identified = [d for d in decisions if d[1] != "catalog"]
+    if not identified:
         return CoverageStatus(status="none", best_tier=None, file_count=0)
-    # TIER_RANK: increasing integer = stronger tier (download > notify > catalog); an unknown
-    # tier falls back to ``-1`` (below the weakest) — neutral with respect to the choice.
-    best = max(decisions, key=lambda d: TIER_RANK.get(d[1], -1))[1]
+    # TIER_RANK: increasing integer = stronger tier (download > notify); an unknown tier falls
+    # back to ``-1`` (below the weakest), neutral with respect to the choice.
+    best = max(identified, key=lambda d: TIER_RANK.get(d[1], -1))[1]
     status = "found" if best == "download" else "partial"
-    return CoverageStatus(status=status, best_tier=best, file_count=len(decisions))
+    return CoverageStatus(status=status, best_tier=best, file_count=len(identified))
