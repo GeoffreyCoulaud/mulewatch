@@ -28,6 +28,7 @@ from mulewatch.domain.observability.events import (
     PortMismatchUnresolved,
     PortSyncTriggered,
     PromotionFailed,
+    SearchCapabilitySampled,
     SearchCycleCompleted,
     SearchExecuted,
     SearchFailed,
@@ -65,6 +66,7 @@ class MetricName(StrEnum):
     SEARCH_TASKS_DROPPED = "emule_search_tasks_dropped"
     MULE_UNREACHABLE = "emule_mule_unreachable"
     SEARCH_BLIND_CYCLES = "emule_search_blind_cycles"
+    SEARCH_CAPABLE = "emule_search_capable"
     DECISIONS = "emule_decisions"
     DOWNLOADS_QUEUED = "emule_downloads_queued"
     DOWNLOADS_COMPLETED = "emule_downloads_completed"
@@ -253,6 +255,15 @@ def describe(event: Event) -> Report:
                         float(event.count),
                     ),
                 ),
+            )
+        case SearchCapabilitySampled():
+            # Binary current-state gauge: 1 when at least one instance can search now, else 0.
+            # Sampled every cycle (not edge-triggered) so Grafana can alert on "capable == 0
+            # for N minutes" without rate() on the SEARCH_BLIND_CYCLES counter.
+            return Report(
+                Severity.DEBUG,
+                f"search-capable: {'yes' if event.capable else 'no'}",
+                (MetricInstruction(MetricName.SEARCH_CAPABLE, "set", (), float(event.capable)),),
             )
         case VerificationQueueDepthSampled():
             return Report(

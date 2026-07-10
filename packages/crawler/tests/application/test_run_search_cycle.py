@@ -19,7 +19,7 @@ from mulewatch.application.search_worker import (
     WorkerDeps,
     WorkerPolicy,
 )
-from mulewatch.domain.observability.events import AllInstancesBlind
+from mulewatch.domain.observability.events import AllInstancesBlind, SearchCapabilitySampled
 from mulewatch.domain.observation import FileObservation
 from mulewatch.ports.mule_client import KadStatus, NetworkStatus
 from tests.application.fakes import (
@@ -666,3 +666,65 @@ async def test_blind_coverage_is_edge_triggered(
     )
     blind = [e for e in telemetry.events if isinstance(e, AllInstancesBlind)]
     assert blind and blind[0].first_occurrence is False
+
+
+@pytest.mark.asyncio
+async def test_search_capability_sampled_when_capable(
+    catalog: SqliteCatalogRepository,
+    local_connection: sqlite3.Connection,
+    engine: MatchingEngine,
+) -> None:
+    # A search-capable instance → the current-state gauge is sampled with capable=True
+    # (value 1) EVERY cycle, independent of the edge-triggered AllInstancesBlind notification.
+    telemetry, edge = RecordingTelemetry(), EdgeState()
+    clock = FakeClock()
+    backoff = BackoffRegistry(_POLICY, clock, FakeRng())
+    client = FakeMuleClient()  # default status: ed2k_high=True, kad CONNECTED → capable
+    worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
+    scheduler_state = SqliteSchedulerStateRepository(local_connection)
+    await run_search_cycle(
+        workers=[worker],
+        clients=[client],
+        keywords=_KEYWORDS,
+        rng=_NoopRng(),
+        node_id="node-A",
+        cycle_index=0,
+        scheduler_state=scheduler_state,
+        backoff=backoff,
+        clock=clock,
+        telemetry=telemetry,
+        edge=edge,
+    )
+    samples = [e for e in telemetry.events if isinstance(e, SearchCapabilitySampled)]
+    assert samples == [SearchCapabilitySampled(capable=True)]
+
+
+@pytest.mark.asyncio
+async def test_search_capability_sampled_when_blind(
+    catalog: SqliteCatalogRepository,
+    local_connection: sqlite3.Connection,
+    engine: MatchingEngine,
+) -> None:
+    # No search-capable instance → the current-state gauge is sampled with capable=False
+    # (value 0) EVERY cycle (unlike AllInstancesBlind, this is not edge-triggered).
+    telemetry, edge = RecordingTelemetry(), EdgeState()
+    clock = FakeClock()
+    backoff = BackoffRegistry(_POLICY, clock, FakeRng())
+    client = UnreachableStatusClient()  # all not search-capable → BLIND
+    worker = _worker("amule-1", client, _deps(catalog, engine, clock, backoff))
+    scheduler_state = SqliteSchedulerStateRepository(local_connection)
+    await run_search_cycle(
+        workers=[worker],
+        clients=[client],
+        keywords=_KEYWORDS,
+        rng=_NoopRng(),
+        node_id="node-A",
+        cycle_index=0,
+        scheduler_state=scheduler_state,
+        backoff=backoff,
+        clock=clock,
+        telemetry=telemetry,
+        edge=edge,
+    )
+    samples = [e for e in telemetry.events if isinstance(e, SearchCapabilitySampled)]
+    assert samples == [SearchCapabilitySampled(capable=False)]
