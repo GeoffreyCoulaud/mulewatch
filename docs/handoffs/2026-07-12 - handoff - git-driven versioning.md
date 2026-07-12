@@ -59,18 +59,22 @@ recorded in its section 9).
   the in-image `importlib.metadata.version(...)` reads `9.9.9` (crawler + its `catalog-matching`
   workspace dep, and the verifier). `SETUPTOOLS_SCM_PRETEND_VERSION` overrides git as designed.
 
-## Suggested next step
+## Shipped: merged + v1.0.0 released (2026-07-12)
 
-The deferred `v1.0.0` product tag is now meaningful. To ship it (spec 5.5): on `main`, gate green,
-`git tag -a v1.0.0 -m "..."` then push. `release.yml` builds, tags the image `1.0.0`, signs and
-attests. That first release supersedes the retroactive `v0.19.1` base.
+Rebase-merged to `main`; both release runs green (main push + the `v1.0.0` tag push). Confirmed
+on the published, signed, attested images:
 
-## NOT validated against real hardware / CI
+- `:latest` (main) carries the OCI label `0.19.2.dev225+g7d8832d` on both arches.
+- `:1.0.0` (tag) carries the OCI label `1.0.0` on both arches; image tag and label agree, clean
+  `1.0.0` with no dev suffix. **v1.0.0 is the first git-driven release**, superseding the `v0.19.1`
+  base.
+- CI shallow lint/test/vex-checks jobs passed on real runners (shallow `uv sync` with dynamic
+  versioning does not break), and both `build-and-verify` legs (amd64/arm64) built with the injected
+  `VERSION`.
 
-- **SBOM cascade** (spec 5.4/9.5): Syft reads `org.opencontainers.image.version` into the SBOM's
-  top-level component. This runs only in `publish-manifest` against a pushed digest. Confirm on the
-  first push that the attested CycloneDX/Syft SBOM carries the real version.
-- **Release tag path**: on a real `vX.Y.Z` push, confirm the image tag `X.Y.Z` and the OCI label
-  agree, and that `hatch version` at the tag yields the clean `X.Y.Z` (no dev suffix).
-- **CI shallow lint/test**: derivation-on-shallow was validated via a local `--depth 1 --no-tags`
-  clone (`hatch version` -> `0.0.1.devN`, no crash), not yet on an actual runner.
+## Residual (minor)
+
+- The SBOM/VEX gates ran green against the versioned images in both releases, so the SBOM cascade
+  from the OCI label is in place; the attestation's `component.version` field was not downloaded and
+  read directly (label presence is the direct cause). Verify by pulling the attestation only if a
+  consumer ever needs the SBOM component version specifically.

@@ -209,6 +209,10 @@ Because `search_parent_directories` lets setuptools-scm find the repo even on a 
 
 Crawler: `CrawlerApp.run()` logs `mulewatch version <v>` on the `mulewatch.composition.app` logger (the design said "in `python -m mulewatch`"; `run()` is the covered startup path). Verifier: `__main__.main()` logs `download-verifier version <v>` right after `configure_logging` (the design said "in `app.py`"; `main()` is the actual process entry point where logging is armed). Both read `importlib.metadata.version(...)`, i.e. the number baked into the wheel by 5.3.
 
-### 9.5 Not yet validated in CI
+### 9.5 CI validation (confirmed 2026-07-12)
 
-The SBOM cascade (5.4: Syft reading `org.opencontainers.image.version` into the top-level component) is unverified here because it runs only in `publish-manifest` against a pushed digest. Confirm on the first push that the attested CycloneDX/Syft SBOM carries the real version. Also confirm the released image tag `X.Y.Z` and its OCI label agree on a real `vX.Y.Z` tag push.
+Validated on real published artifacts after the merge to `main` and the first `v1.0.0` tag push:
+
+- **`main` push release** (green): both `:latest` images carry `org.opencontainers.image.version = 0.19.2.dev225+g7d8832d` on both arches (the derived dev version, milestone tags correctly excluded, `v0.19.1` base).
+- **`v1.0.0` tag push release** (green): both `:1.0.0` images carry `org.opencontainers.image.version = 1.0.0` on both arches. The image tag `1.0.0` and the OCI label agree; `hatch version` at the tag yields the clean `1.0.0` (no dev suffix), as designed.
+- The SBOM generation and the three VEX honesty gates ran against the versioned images and passed in both runs, so the SBOM cascade from the OCI label is in place. The attestation's `component.version` field itself was not downloaded and read (the label presence on the published image is the direct cause).
