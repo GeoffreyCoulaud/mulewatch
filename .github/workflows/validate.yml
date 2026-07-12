@@ -49,12 +49,26 @@ jobs:
       matrix:
         arch: [amd64, arm64]
     steps:
+      # fetch-depth: 0 fetches the full history AND tags: the version step below derives the
+      # product version from the pushed git tag, which a shallow checkout would not see. The
+      # lint/test jobs stay shallow (their derived version is irrelevant).
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup-uv-env
         with:
           # One uv-cache writer per runner arch: arm64 (the sole arm64 job) saves; amd64
           # restores lint's x86 cache. Avoids concurrent same-key saves → no cache warning.
           save-cache: ${{ matrix.arch == 'arm64' }}
+      # Compute the product version once, the same way a local build would (hatch-vcs over the
+      # tag). Injected into both images as the VERSION build-arg -> installed wheel metadata +
+      # OCI label. hatch prints "Inspecting build dependencies" to stderr; the version is the
+      # sole stdout line. On main/PR (no release tag at HEAD) this is a dev version like
+      # 0.19.2.devN+g<sha>; on a vX.Y.Z tag push it is X.Y.Z.
+      - name: Compute the product version from the git tag
+        id: version
+        run: |
+          echo "value=$(cd packages/crawler && uvx --quiet --with hatch-vcs hatch version)" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Log in to ghcr.io
         if: ${{ inputs.push }}
@@ -73,6 +87,8 @@ jobs:
           local-tag: ci-${{ github.sha }}
           push: ${{ inputs.push }}
           cache-scope: crawler-${{ matrix.arch }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.value }}
       - name: Build verifier — ${{ matrix.arch }}
         id: verifier
         uses: ./.github/actions/docker-image
@@ -86,6 +102,7 @@ jobs:
           # Unique per build so the verifier's apk-plan probe stage always re-runs and re-resolves
           # the live Alpine index; the real apk layer then busts only when versions actually change.
           build-args: |
+            VERSION=${{ steps.version.outputs.value }}
             APK_PROBE_NONCE=${{ github.run_id }}-${{ github.run_attempt }}
       - name: Integration — compose smoke stack (${{ matrix.arch }})
         run: ( cd packages/crawler && uv run pytest -m compose_integration --no-cov -q )
