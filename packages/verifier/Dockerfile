@@ -6,10 +6,19 @@
 # first FROM (Docker rule), then re-declared without a value in each stage that uses it.
 ARG APK_PACKAGES="ffmpeg clamav libseccomp"
 
+# Product version, computed from the git tag on the CI runner and injected here. Shared across
+# stages like APK_PACKAGES: declared before the first FROM, re-declared where used. The build
+# context has no .git (.dockerignore), so hatch-vcs/setuptools-scm reads
+# SETUPTOOLS_SCM_PRETEND_VERSION when building the member wheel; the same value stamps the OCI
+# version label on the runtime stage.
+ARG VERSION=0.0.0
+
 # --- Builder : installe download-verifier (membre du workspace VIRTUEL) via uv ---
 FROM ghcr.io/astral-sh/uv:python3.14-alpine@sha256:e852e37cfaffb287f2d78de0d4f27e28bf0722ccbf0d6948dbdf19a0b4de7bc7 AS builder
+ARG VERSION
 
-ENV UV_COMPILE_BYTECODE=1 \
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${VERSION} \
+    UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_NO_DEV=1 \
     UV_PYTHON_DOWNLOADS=0
@@ -54,6 +63,8 @@ RUN set -eo pipefail; \
 # Base digest kept in sync with the apk-plan probe above (same Alpine release, see that note).
 FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
 ARG APK_PACKAGES
+ARG VERSION
+LABEL org.opencontainers.image.version=${VERSION}
 
 # ffmpeg provides ffprobe (D-analysis); clamav provides clamscan (opt-in signature check);
 # libseccomp provides libseccomp.so.2, loaded at runtime by pyseccomp (seccomp-bpf kernel ring).
