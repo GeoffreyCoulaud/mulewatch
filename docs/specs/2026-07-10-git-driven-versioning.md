@@ -1,7 +1,7 @@
 # Git-driven versioning: one pushed tag, every artifact in sync
 
 - Date: 2026-07-10
-- Status: APPROVED (operator sign-off 2026-07-10; not yet implemented)
+- Status: IMPLEMENTED (operator sign-off 2026-07-10; built 2026-07-12 on `feat/git-driven-versioning`). Two revisions during implementation, recorded in section 9: the Prometheus `build_info` gauge was dropped, and section 5.2's config proved incomplete (setuptools-scm needs `search_parent_directories` + a milestone-tag-excluding describe command).
 - Scope: how the product version is defined, derived, built into images, surfaced at runtime, and where it deliberately does not go
 - Related: `.github/workflows/{validate,release}.yml`, `.github/actions/docker-image/action.yml`, every `packages/*/pyproject.toml`, `packages/*/Dockerfile`, `security/*.vex.openvex.json`
 
@@ -86,9 +86,27 @@ dynamic = ["version"]
 
 [tool.hatch.version]
 source = "vcs"
-tag-pattern = "^v(?P<version>\\d+\\.\\d+\\.\\d+)$"
+tag-pattern = '^v(?P<version>\d+\.\d+\.\d+)$'
 fallback-version = "0.0.0"
+
+[tool.hatch.version.raw-options]
+# The .git is at the shared repo root, not in this member dir: without this, setuptools-scm
+# refuses to look in parent directories and reports "version missing".
+search_parent_directories = true
+# The milestone tags `vX.Y.Z-<name>` are the NEAREST tags on every commit; the default git
+# describe would return one and setuptools-scm would fail to parse it. Excluding dashed tags
+# makes describe fall back to the last pure-semver tag.
+git_describe_command = [
+    "git", "describe", "--dirty", "--tags", "--long",
+    "--match", "v[0-9]*.[0-9]*.[0-9]*", "--exclude", "*-*",
+]
 ```
+
+> Note (2026-07-12, see section 9.2): the `raw-options` block above is NOT in the original
+> spec draft. It was found necessary during implementation. `tag-pattern` alone is insufficient
+> because setuptools-scm resolves the member `root` to the package dir (no `.git` there) and,
+> even once it finds the root, `git describe` returns the nearest milestone tag `vX.Y.Z-<name>`
+> which the anchored pattern cannot parse. Both are empirically verified.
 
 The git tag lives at the repository root and is shared by all members, so a single `vX.Y.Z` gives the four packages the same version. `vex-guards` is dev/CI-only and never shipped, but it follows the same tag for uniformity ("everywhere, in sync").
 
@@ -119,7 +137,7 @@ The same injected version reaches every consumer-visible surface:
 - **Image label (supply chain).** `org.opencontainers.image.version`, stamped from the `VERSION` build-arg above, on BOTH images (crawler and verifier Dockerfiles). Complements the existing `type=semver` image tag rather than replacing it.
 - **SBOM (cascade, no extra work).** The CycloneDX and Syft SBOMs are generated from the image by digest. Syft reads the main component's version from `org.opencontainers.image.version`, so stamping the label makes the SBOM's top-level component carry the real version too (today it is empty because the label is absent). To confirm at implementation time; it needs no separate action.
 - **Runtime log, both services.** At startup each service logs its version from installed metadata: the crawler `version("mulewatch")` in `python -m mulewatch`, the verifier `version("download-verifier")` in `app.py`. The number reported is exactly the one baked into the wheel by 5.3.
-- **Prometheus `build_info` (Grafana-facing).** The standard Prometheus idiom for a build version is a gauge `mulewatch_build_info{version="X.Y.Z"} 1`. There is none today (grep confirms no `build_info`, no `__version__`, no `importlib.metadata` anywhere). It is the metrics-side counterpart to the startup log and exactly what Grafana wants (show the running version, correlate a regression to a version). It fits the observability architecture but is a static gauge set once at boot, so it needs a small "at startup" entry point (like the `emule_search_capable` gauge we are already adding).
+- **Prometheus `build_info` ~~(Grafana-facing)~~ — DROPPED 2026-07-12 (see section 9.1).** The original design added a static gauge `mulewatch_build_info{version="X.Y.Z"} 1` set once at boot (the metrics-side counterpart to the startup log). The operator decided it was not worth the surface: the startup log plus the OCI label cover "which version is running". No `build_info` gauge is emitted by either service. The startup log below is the sole runtime version surface.
 - **No version field on `/health`.** Considered and rejected (decided 2026-07-10): the startup log plus `build_info` cover operability; a `/health` field is redundant surface to maintain.
 
 ### 5.5 Release ritual
@@ -163,5 +181,34 @@ Both are hatchling plugins and both work in this workspace.
 
 1. **Tooling:** hatch-vcs (over uv-dynamic-versioning).
 2. **Product-tag format:** exactly `vX.Y.Z` (pure semver, `v` prefix); pre-release/build-metadata suffixes deferred as out of scope.
-3. **Runtime surfaces:** startup log on both services + `build_info` Prometheus gauge. No `/health` version field.
+3. **Runtime surfaces:** startup log on both services + ~~`build_info` Prometheus gauge~~ (gauge dropped 2026-07-12, see 9.1). No `/health` version field.
 4. **VEX:** stays non-versioned (5.6).
+
+## 9. Implementation record (2026-07-12)
+
+Built on `feat/git-driven-versioning`. Two deltas from the approved design, plus the empirical findings that shaped the config.
+
+### 9.1 The `build_info` gauge was dropped
+
+The operator decided the Prometheus `build_info` gauge (decision 8.3, design 5.4) is not worth the surface: the startup log line plus the OCI image label already answer "which version is running". Consequence: **no** new observability event / policy arm / sink metric on the crawler, and no counterpart on the verifier. The observability pipeline (`events.py` / `policy.py` / `prometheus_sink.py`) is untouched by this work.
+
+### 9.2 Section 5.2's config was incomplete (setuptools-scm 10.x / vcs-versioning 2.x)
+
+`tag-pattern` + `fallback-version` alone silently yields `0.0.0` on every build. Two independent causes, both empirically verified against the real repo:
+
+1. **Root detection.** hatch-vcs passes `root = <member dir>` to setuptools-scm; the `.git` is at the repo root. setuptools-scm refuses to search parent directories by default and reports "version missing", which `fallback-version` then swallows into `0.0.0`. Fix: `raw-options.search_parent_directories = true`. (This also explains why passing `fallback_version` looked like it "forced" the fallback: derivation was failing at the root step, not at parse.)
+2. **Tag selection.** Even with the root found, `git describe` returns the nearest tag, which is always a milestone `vX.Y.Z-<name>`; the anchored `tag-pattern` cannot parse it and setuptools-scm raises. Fix: `raw-options.git_describe_command` with `--exclude '*-*'`, so describe falls back to the last pure-semver tag (`v0.19.1` today -> `0.19.2.devN+g<sha>`).
+
+Both fixes are in every member's `[tool.hatch.version.raw-options]` (section 5.2 updated). Validated end-to-end: `uv sync` locally stamps `0.19.2.devN+g<sha>` on all four members in sync; a real `docker build --build-arg VERSION=9.9.9` stamps both the OCI label and the installed wheel metadata (crawler and verifier), and `SETUPTOOLS_SCM_PRETEND_VERSION` overrides git as designed.
+
+### 9.3 CI: only the build job needs `fetch-depth: 0` (refines risk 7)
+
+Because `search_parent_directories` lets setuptools-scm find the repo even on a shallow checkout, the shallow lint/test jobs derive a throwaway `0.0.1.devN+g<sha>` without crashing `uv sync` (their version is irrelevant). Only `validate.yml`'s `build-and-verify` job, which computes the injected `VERSION`, gets `fetch-depth: 0`. `publish-manifest` and the PR `vex-checks` job stay shallow (they never build an image nor need the version).
+
+### 9.4 Startup-log placement
+
+Crawler: `CrawlerApp.run()` logs `mulewatch version <v>` on the `mulewatch.composition.app` logger (the design said "in `python -m mulewatch`"; `run()` is the covered startup path). Verifier: `__main__.main()` logs `download-verifier version <v>` right after `configure_logging` (the design said "in `app.py`"; `main()` is the actual process entry point where logging is armed). Both read `importlib.metadata.version(...)`, i.e. the number baked into the wheel by 5.3.
+
+### 9.5 Not yet validated in CI
+
+The SBOM cascade (5.4: Syft reading `org.opencontainers.image.version` into the top-level component) is unverified here because it runs only in `publish-manifest` against a pushed digest. Confirm on the first push that the attested CycloneDX/Syft SBOM carries the real version. Also confirm the released image tag `X.Y.Z` and its OCI label agree on a real `vX.Y.Z` tag push.
