@@ -23,6 +23,7 @@ import sys
 import threading
 from collections.abc import Callable, Sequence
 from contextlib import AsyncExitStack, suppress
+from importlib.metadata import version
 from pathlib import Path
 from typing import Protocol
 
@@ -581,6 +582,10 @@ class CrawlerApp:
         (suppress) so as not to re-block indefinitely. The bound NEVER arms without a requested
         shutdown → a ``TimeoutError`` can only hit a close that drags.
         """
+        # Startup version line (spec 2026-07-10-git-driven-versioning): the number baked into the
+        # installed wheel by the build (setuptools-scm / SETUPTOOLS_SCM_PRETEND_VERSION), so an
+        # operator can correlate a running node to a release.
+        _logger.info("mulewatch version %s", version("mulewatch"))
         loop = asyncio.get_running_loop()
         loop.add_signal_handler(signal.SIGINT, self._on_signal)
         loop.add_signal_handler(signal.SIGTERM, self._on_signal)

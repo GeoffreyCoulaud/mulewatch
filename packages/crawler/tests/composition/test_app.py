@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sqlite3
 import threading
+from importlib.metadata import version
 from pathlib import Path
 from typing import cast
 
@@ -218,6 +219,26 @@ async def test_app_runs_one_cycle_then_shuts_down_cleanly(
     assert created[0].connect_calls >= 1  # connected at pool setup (before coverage)
     assert (tmp_path / "catalog.db").exists()
     assert (tmp_path / "local.db").exists()
+
+
+@pytest.mark.asyncio
+async def test_run_logs_the_package_version_at_startup(
+    tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    # run() logs the mulewatch version (from installed metadata) at startup: the operability
+    # signal a correlated-to-version regression relies on (spec 2026-07-10-git-driven-versioning).
+    app_holder: dict[str, CrawlerApp] = {}
+
+    def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
+        return _ShutdownOnStatusClient(app_holder)
+
+    app = _make_app(tmp_path, matcher_config, factory=factory)
+    app_holder["app"] = app
+    with caplog.at_level(logging.INFO, logger="mulewatch.composition.app"):
+        await asyncio.wait_for(app.run(), timeout=5.0)
+    assert any(
+        r.getMessage() == f"mulewatch version {version('mulewatch')}" for r in caplog.records
+    )
 
 
 class _OrderRecordingClient(FakeMuleClient):
