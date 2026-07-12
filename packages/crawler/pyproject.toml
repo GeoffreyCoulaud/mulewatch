@@ -1,6 +1,6 @@
 [project]
 name = "mulewatch"
-version = "0.0.0"
+dynamic = ["version"]
 description = "Crawler eMule — surveillance, catalogue, auto-download (Keroro VF lost media)"
 requires-python = ">=3.14"
 dependencies = [
@@ -15,8 +15,30 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+# Version derived from a single pushed, pure-semver git tag `vX.Y.Z` (spec
+# 2026-07-10-git-driven-versioning). The tag lives at the shared repo root, so all four
+# workspace members resolve to the same number. tag-pattern extracts the version; the describe
+# command below is the part that actually matters: the milestone tags `vX.Y.Z-<name>` are the
+# NEAREST tags on every commit, so without `--exclude '*-*'` git describe returns one of them
+# and setuptools-scm fails to parse it (empirically verified). Excluding dashed tags makes it
+# fall back to the last pure-semver tag (`v0.19.1` -> e.g. `0.19.2.dev219+g<sha>`). The Docker
+# build has no `.git`; it injects SETUPTOOLS_SCM_PRETEND_VERSION, which overrides all of this.
+[tool.hatch.version]
+source = "vcs"
+tag-pattern = '^v(?P<version>\d+\.\d+\.\d+)$'
+fallback-version = "0.0.0"
+
+[tool.hatch.version.raw-options]
+# The .git lives at the shared repo root, not in this member dir: without this, setuptools-scm
+# refuses to look in parent directories and reports "version missing" (falling back to 0.0.0).
+search_parent_directories = true
+git_describe_command = [
+    "git", "describe", "--dirty", "--tags", "--long",
+    "--match", "v[0-9]*.[0-9]*.[0-9]*", "--exclude", "*-*",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mulewatch"]
