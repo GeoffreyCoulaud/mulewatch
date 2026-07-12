@@ -7,11 +7,14 @@ Two-step bootstrap: ``basicConfig(INFO)`` then ``setLevel`` from the observabili
 import logging
 import os
 from collections.abc import Mapping
+from importlib.metadata import version
 from pathlib import Path
 
 import uvicorn
 
 from download_verifier.obs_config import load_observability
+
+_logger = logging.getLogger("download_verifier.__main__")
 
 
 def configure_logging(env: Mapping[str, str]) -> None:
@@ -30,6 +33,9 @@ def configure_logging(env: Mapping[str, str]) -> None:
 def main() -> None:
     """Configure logging then serve the verifier app (host/port from the environment)."""
     configure_logging(os.environ)
+    # Startup version line (spec 2026-07-10-git-driven-versioning): the number baked into the
+    # installed wheel by the build, so a running verifier can be correlated to a release.
+    _logger.info("download-verifier version %s", version("download-verifier"))
     uvicorn.run(
         "download_verifier.app:app",
         host=os.environ.get("VERIFIER_HOST", "127.0.0.1"),
