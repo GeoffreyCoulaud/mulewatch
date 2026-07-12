@@ -103,7 +103,6 @@ wheels = [
 
 [[package]]
 name = "catalog-matching"
-version = "0.0.0"
 source = { editable = "packages/matching" }
 dependencies = [
     { name = "rapidfuzz" },
@@ -272,7 +271,6 @@ wheels = [
 
 [[package]]
 name = "download-verifier"
-version = "0.0.0"
 source = { editable = "packages/verifier" }
 dependencies = [
     { name = "prometheus-client" },
@@ -435,7 +433,6 @@ wheels = [
 
 [[package]]
 name = "mulewatch"
-version = "0.0.0"
 source = { editable = "packages/crawler" }
 dependencies = [
     { name = "apprise" },
@@ -937,7 +934,6 @@ wheels = [
 
 [[package]]
 name = "vex-guards"
-version = "0.1.0"
 source = { editable = "packages/vex_guards" }
 dependencies = [
     { name = "packaging" },

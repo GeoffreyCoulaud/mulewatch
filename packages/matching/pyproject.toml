@@ -1,6 +1,6 @@
 [project]
 name = "catalog-matching"
-version = "0.0.0"
+dynamic = ["version"]
 description = "Moteur de matching fichier→épisode (domaine pur, YAML-driven) — partagé crawler/webui"
 requires-python = ">=3.14"
 dependencies = [
@@ -8,8 +8,23 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+# Version from the shared root git tag (spec 2026-07-10-git-driven-versioning). See the crawler
+# pyproject for the full rationale (search_parent_directories finds the root .git from this member
+# dir; `--exclude '*-*'` skips the milestone tags `vX.Y.Z-<name>` that would otherwise fail to parse).
+[tool.hatch.version]
+source = "vcs"
+tag-pattern = '^v(?P<version>\d+\.\d+\.\d+)$'
+fallback-version = "0.0.0"
+
+[tool.hatch.version.raw-options]
+search_parent_directories = true
+git_describe_command = [
+    "git", "describe", "--dirty", "--tags", "--long",
+    "--match", "v[0-9]*.[0-9]*.[0-9]*", "--exclude", "*-*",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/catalog_matching"]
