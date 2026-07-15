@@ -11,7 +11,14 @@ from starlette.applications import Starlette
 from catalog_matching.config import MatcherConfig
 from catalog_matching.models import TargetSegment
 from catalog_matching.validation import parse_matcher_config, parse_targets
-from mulewatch.webui.composition.app import _resolve_target_display, _to_display_rows, build_app
+from mulewatch.webui.composition.app import (
+    _normalize_dir,
+    _normalize_sort,
+    _resolve_target_display,
+    _sort_headers,
+    _to_display_rows,
+    build_app,
+)
 from mulewatch.webui.domain.views import DecisionCell, FileDecision, FileRow
 
 # ---------------------------------------------------------------------------
@@ -1577,3 +1584,139 @@ async def test_post_force_cycle_followed_lands_on_banner(
     assert resp.status_code == 200
     assert "Cycle forced. A new search cycle starts shortly." in resp.text
     assert control.calls == ["force_cycle"]
+
+
+# ---------------------------------------------------------------------------
+# Bidirectional column sorting (Task 3): normalizers + header builder (direct)
+# and the sortable <thead> end-to-end.
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_sort_valid_unknown_missing() -> None:
+    assert _normalize_sort("size") == "size"
+    assert _normalize_sort("bogus") == "last_seen"
+    assert _normalize_sort(None) == "last_seen"
+
+
+def test_normalize_dir_valid_unknown_missing() -> None:
+    assert _normalize_dir("asc") == "asc"
+    assert _normalize_dir("bogus") == "desc"
+    assert _normalize_dir(None) == "desc"
+
+
+def test_sort_headers_default_state_no_filters() -> None:
+    headers = _sort_headers(sort="last_seen", direction="desc", filters={})
+    # active column: last_seen, showing desc; its link flips to asc. sort=last_seen is the
+    # DEFAULT sort so it is OMITTED from the URL (the omit-defaults invariant); only dir=asc shows.
+    assert headers.last_seen.indicator == "desc"
+    assert headers.last_seen.url == "/files?dir=asc"
+    # inactive columns: no indicator, per-column default direction, sort/dir omitted when default
+    assert headers.name.indicator == ""
+    assert headers.name.url == "/files?sort=name&dir=asc"  # Name default dir is asc
+    assert headers.size.url == "/files?sort=size"  # Size default dir desc == DEFAULT_DIR -> omitted
+    assert headers.tier.url == "/files?sort=tier"
+
+
+def test_sort_headers_active_column_flips_and_preserves_filters() -> None:
+    headers = _sort_headers(sort="size", direction="asc", filters={"q": "keroro", "tier": "notify"})
+    # active column size, currently asc -> indicator asc, link flips to desc (== default -> omitted)
+    assert headers.size.indicator == "asc"
+    assert headers.size.url == "/files?q=keroro&tier=notify&sort=size"
+    # an inactive column keeps the filters and sets its own sort + default dir
+    assert headers.name.indicator == ""
+    assert headers.name.url == "/files?q=keroro&tier=notify&sort=name&dir=asc"
+
+
+@pytest.fixture
+def sortable_app(catalog_db: Path, local_db: Path) -> tuple[Starlette, list[str]]:
+    """App over three matched files with distinct sizes (300/200/100), for the sort-order test.
+    Returns (app, hashes-in-descending-size-order)."""
+    big, mid, small = "a" * 32, "b" * 32, "c" * 32
+    with sqlite3.connect(catalog_db) as conn:
+        for h, size, name in ((big, 300, "x.avi"), (mid, 200, "y.avi"), (small, 100, "z.avi")):
+            conn.execute("INSERT INTO files VALUES (?, ?, ?)", (h, size, None))
+            conn.execute(
+                "INSERT INTO file_observations VALUES"
+                " (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    h,
+                    name,
+                    size,
+                    1,
+                    0,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "{}",
+                    "keroro",
+                    "2024-01-01T00:00:00",
+                    "n",
+                ),
+            )
+            conn.execute(
+                "INSERT INTO match_decisions VALUES (NULL, ?, ?, ?, ?, ?, ?)",
+                (h, "062A", "rule", "download", "2024-01-01T00:00:00", "n"),
+            )
+        conn.commit()
+    import mulewatch.webui
+
+    templates_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "templates"
+    static_dir = Path(mulewatch.webui.__file__).parent / "adapters" / "static"
+    app = build_app(
+        catalog_db=catalog_db,
+        local_db=local_db,
+        matcher_config=_matcher(),
+        targets=_targets(),
+        templates_dir=templates_dir,
+        static_dir=static_dir,
+        control=_RecordingControl(),
+    )
+    return app, [big, mid, small]
+
+
+@pytest.mark.asyncio
+async def test_files_sort_by_size_orders_rows(sortable_app: tuple[Starlette, list[str]]) -> None:
+    app, ordered_desc = sortable_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files?sort=size&dir=asc")
+    assert resp.status_code == 200
+    # smallest first: the three short-hashes appear in ascending-size order in the body
+    positions = [resp.text.index(h[:8]) for h in reversed(ordered_desc)]
+    assert positions == sorted(positions)
+
+
+@pytest.mark.asyncio
+async def test_files_renders_sortable_header_link(populated_app: tuple[Starlette, str]) -> None:
+    app, _ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files")
+    # the Name header is a sort link with a data-sort attribute (default state -> not active)
+    assert 'href="/files?sort=name&amp;dir=asc"' in resp.text
+    assert 'data-sort="desc"' in resp.text  # last_seen is the active default column
+
+
+@pytest.mark.asyncio
+async def test_target_page_headers_are_plain_text(
+    app_download_tier_known_target: tuple[Starlette, str],
+) -> None:
+    app, _ = app_download_tier_known_target
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/targets/062A")
+    assert resp.status_code == 200
+    # no sort links on a target page (headers tuple is empty -> the {% else %} plain label renders)
+    assert "?sort=" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_sort_header_links_preserve_target_and_tier_filters(
+    app_download_tier_known_target: tuple[Starlette, str],
+) -> None:
+    """An active target + tier filter is carried into every sort-header link (the ordered
+    ``filters`` dict is threaded into each header URL, then sort/dir override for that column)."""
+    app, _ = app_download_tier_known_target
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files?target=062A&tier=download")
+    assert resp.status_code == 200
+    # the Name header keeps both filters (autoescaped & -> &amp;) then adds its own sort + dir
+    assert "target=062A&amp;tier=download&amp;sort=name&amp;dir=asc" in resp.text

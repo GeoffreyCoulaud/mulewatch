@@ -26,7 +26,14 @@ from catalog_matching.ed2k_link import build_ed2k_link
 from catalog_matching.models import TargetSegment
 from mulewatch.adapters.persistence_sqlite.reader import ReaderProvider
 from mulewatch.ports.crawler_control import CrawlerControl
-from mulewatch.webui.adapters.catalog_read import PAGE_SIZE, CatalogReader
+from mulewatch.webui.adapters.catalog_read import (
+    DEFAULT_DIR,
+    DEFAULT_SORT,
+    PAGE_SIZE,
+    SORT_COLUMNS,
+    SORT_DIRECTIONS,
+    CatalogReader,
+)
 from mulewatch.webui.adapters.local_read import LocalReader
 from mulewatch.webui.adapters.matching_read import MatchingExplainer
 from mulewatch.webui.adapters.sql_console import (
@@ -48,6 +55,8 @@ from mulewatch.webui.domain.views import (
     FilesSummary,
     PageNav,
     SchedulerEntry,
+    SortHeader,
+    SortHeaders,
     TargetCoverageRow,
 )
 
@@ -158,6 +167,67 @@ def _build_summary(
         toggle_query = {**filter_query, "show_unmatched": "1"}
     toggle_url = "/files?" + urlencode(toggle_query) if toggle_query else "/files"
     return FilesSummary(summary_text=summary_text, toggle_label=toggle_label, toggle_url=toggle_url)
+
+
+# Sortable columns in display order: allowlist key -> (header label, default direction when this
+# column is NOT the active sort). Name reads best ascending; the metrics and last-seen read best
+# descending (webui spec §3.1).
+_SORT_LABELS: tuple[tuple[str, str], ...] = (
+    ("name", "Name"),
+    ("size", "Size"),
+    ("sources", "Sources"),
+    ("last_seen", "Last seen"),
+    ("tier", "Tier"),
+)
+_COLUMN_DEFAULT_DIR: dict[str, str] = {
+    "name": "asc",
+    "size": "desc",
+    "sources": "desc",
+    "last_seen": "desc",
+    "tier": "desc",
+}
+_FLIP: dict[str, str] = {"asc": "desc", "desc": "asc"}
+
+
+def _normalize_sort(raw: str | None) -> str:
+    """Map a raw ``sort`` param to an allowlist key, or the default (unknown/missing -> default)."""
+    return raw if raw in SORT_COLUMNS else DEFAULT_SORT
+
+
+def _normalize_dir(raw: str | None) -> str:
+    """Map a raw ``dir`` param to ``asc``/``desc``, or the default (unknown/missing -> default)."""
+    return raw if raw in SORT_DIRECTIONS else DEFAULT_DIR
+
+
+def _sort_header(
+    col: str, label: str, sort: str, direction: str, filters: dict[str, str]
+) -> SortHeader:
+    """Build one column header. Keeps every ``filters`` param and OVERRIDES sort/dir: the active
+    column flips direction and shows its indicator; an inactive column uses its default direction
+    and no indicator. Params equal to the default are omitted from the URL (clean, deterministic).
+    """
+    active = col == sort
+    next_dir = _FLIP[direction] if active else _COLUMN_DEFAULT_DIR[col]
+    indicator = direction if active else ""
+    params = dict(filters)
+    if col != DEFAULT_SORT:
+        params["sort"] = col
+    if next_dir != DEFAULT_DIR:
+        params["dir"] = next_dir
+    url = "/files?" + urlencode(params) if params else "/files"
+    return SortHeader(label=label, url=url, indicator=indicator)
+
+
+def _sort_headers(*, sort: str, direction: str, filters: dict[str, str]) -> SortHeaders:
+    """Precompute all five sortable headers (W-D8)."""
+    built = {col: _sort_header(col, label, sort, direction, filters) for col, label in _SORT_LABELS}
+    return SortHeaders(
+        name=built["name"],
+        size=built["size"],
+        sources=built["sources"],
+        last_seen=built["last_seen"],
+        tier=built["tier"],
+    )
 
 
 class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -322,6 +392,8 @@ def build_app(
         query_param = _normalize(request.query_params.get("q"))
         # Presence of ``show_unmatched`` (any value) opts into the whole catalogue.
         show_unmatched = request.query_params.get("show_unmatched") is not None
+        sort_param = _normalize_sort(request.query_params.get("sort"))
+        dir_param = _normalize_dir(request.query_params.get("dir"))
         page_raw = request.query_params.get("page", "1")
         try:
             page = int(page_raw)
@@ -338,6 +410,8 @@ def build_app(
             query=query_param,
             page=page,
             matched_only=not show_unmatched,
+            sort=sort_param,
+            direction=dir_param,
         )
         matched, total = catalog.count_files(
             target=target_param,
@@ -347,28 +421,38 @@ def build_app(
         )
 
         display_rows = _to_display_rows(file_rows, _segment_by_id)
-        # Filters shared by the toggle link and the page nav.
-        filter_query = {
-            k: v
-            for k, v in {
-                "target": target_param,
-                "tier": tier_param,
-                "verdict": verdict_param,
-                "q": query_param,
-            }.items()
-            if v is not None
-        }
-        summary = _build_summary(matched, total, show_unmatched, filter_query)
-
-        # Precomputed prev/next links (webui-security#1); the nav preserves ``show_unmatched``.
-        nav_query = dict(filter_query)
+        # Active, non-default params (page excluded). Every URL derives from these two ordered
+        # dicts, so param order is deterministic. ``filters`` is what a re-sort keeps; ``sort_dir``
+        # is what a filter/toggle/page keeps.
+        filters: dict[str, str] = {}
+        if target_param is not None:
+            filters["target"] = target_param
+        if tier_param is not None:
+            filters["tier"] = tier_param
+        if verdict_param is not None:
+            filters["verdict"] = verdict_param
+        if query_param is not None:
+            filters["q"] = query_param
         if show_unmatched:
-            nav_query["show_unmatched"] = "1"
-        nav = _page_nav(page, len(display_rows), "/files", nav_query)
+            filters["show_unmatched"] = "1"
+        sort_dir: dict[str, str] = {}
+        if sort_param != DEFAULT_SORT:
+            sort_dir["sort"] = sort_param
+        if dir_param != DEFAULT_DIR:
+            sort_dir["dir"] = dir_param
+
+        headers = _sort_headers(sort=sort_param, direction=dir_param, filters=filters)
+
+        # summary toggle preserves sort/dir (but not show_unmatched, which it manages itself)
+        summary_base = {k: v for k, v in filters.items() if k != "show_unmatched"}
+        summary_base.update(sort_dir)
+        summary = _build_summary(matched, total, show_unmatched, summary_base)
+
+        nav = _page_nav(page, len(display_rows), "/files", {**filters, **sort_dir})
         return templates.TemplateResponse(
             request,
             "files.html",
-            {"rows": display_rows, "nav": nav, "summaries": (summary,)},
+            {"rows": display_rows, "nav": nav, "summaries": (summary,), "headers": (headers,)},
         )
 
     async def handle_file_detail(request: Request) -> Response:
@@ -447,7 +531,7 @@ def build_app(
         return templates.TemplateResponse(
             request,
             "files.html",
-            {"rows": display_rows, "nav": nav, "summaries": ()},
+            {"rows": display_rows, "nav": nav, "summaries": (), "headers": ()},
         )
 
     async def handle_node(request: Request) -> Response:

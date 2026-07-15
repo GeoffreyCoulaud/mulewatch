@@ -15,15 +15,15 @@
   <thead>
     <tr>
       <th>Hash</th>
-      <th>Name</th>
-      <th>Size</th>
-      <th class="th-tip-host">Sources
+      <th>{% for h in headers %}<a href="{{ h.name.url }}" data-sort="{{ h.name.indicator }}">Name</a>{% else %}Name{% endfor %}</th>
+      <th>{% for h in headers %}<a href="{{ h.size.url }}" data-sort="{{ h.size.indicator }}">Size</a>{% else %}Size{% endfor %}</th>
+      <th class="th-tip-host">{% for h in headers %}<a href="{{ h.sources.url }}" data-sort="{{ h.sources.indicator }}">Sources</a>{% else %}Sources{% endfor %}
         <button type="button" class="th-help" aria-label="What Sources counts" aria-describedby="tip-sources">?</button>
         <div id="tip-sources" role="tooltip" class="th-tip">
           <p>Number of peers seen sharing this file on the eMule network (from the latest observation).</p>
         </div>
       </th>
-      <th>Last seen</th>
+      <th>{% for h in headers %}<a href="{{ h.last_seen.url }}" data-sort="{{ h.last_seen.indicator }}">Last seen</a>{% else %}Last seen{% endfor %}</th>
       <th class="th-tip-host">Target
         <button type="button" class="th-help" aria-label="What Target means" aria-describedby="tip-target">?</button>
         <div id="tip-target" role="tooltip" class="th-tip">
@@ -35,7 +35,7 @@
         </div>
       </th>
       <th>Title</th>
-      <th class="th-tip-host">Tier
+      <th class="th-tip-host">{% for h in headers %}<a href="{{ h.tier.url }}" data-sort="{{ h.tier.indicator }}">Tier</a>{% else %}Tier{% endfor %}
         <button type="button" class="th-help" aria-label="What the tier values mean" aria-describedby="tip-tier">?</button>
         <div id="tip-tier" role="tooltip" class="th-tip th-tip--end">
           <ul>

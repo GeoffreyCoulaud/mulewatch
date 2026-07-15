@@ -237,6 +237,30 @@ class FilesSummary:
     toggle_url: str
 
 
+@dataclass(frozen=True)
+class SortHeader:
+    """A sortable column header, fully precomputed (W-D8). ``url`` re-sorts by this column
+    (flipping direction when it is the active one, else a per-column default direction),
+    preserving every active filter; ``indicator`` is ``""``, ``"asc"``, or ``"desc"`` (the
+    template renders it as ``data-sort`` and CSS draws the arrow)."""
+
+    label: str
+    url: str
+    indicator: str  # "" | "asc" | "desc"
+
+
+@dataclass(frozen=True)
+class SortHeaders:
+    """The five sortable headers of the /files table, one attribute per column so the fixed
+    thead can interpolate ``{{ headers.name.url }}`` etc. with no template logic (W-D8)."""
+
+    name: SortHeader
+    size: SortHeader
+    sources: SortHeader
+    last_seen: SortHeader
+    tier: SortHeader
+
+
 # ---------------------------------------------------------------------------
 # File detail — display view (precomputed)
 # ---------------------------------------------------------------------------

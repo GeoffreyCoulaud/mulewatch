@@ -188,6 +188,12 @@ pre {
 /* Short atoms never break (fixes the split datetime). */
 .files-table td, .files-table th { white-space: nowrap; }
 
+/* Sortable header links: the active column's direction is drawn as an arrow via data-sort, so
+   no glyph lives in the view-model or the HTML body. */
+.files-table thead a { text-decoration: none; }
+.files-table thead a[data-sort="asc"]::after { content: " \2191"; }   /* up arrow */
+.files-table thead a[data-sort="desc"]::after { content: " \2193"; }  /* down arrow */
+
 /* One stacked line per decision in the Target / Title cells. */
 .files-table .cell-line { white-space: nowrap; }
 
