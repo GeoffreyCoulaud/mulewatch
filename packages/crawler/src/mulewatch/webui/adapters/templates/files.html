@@ -10,6 +10,17 @@
 </p>
 {% endfor %}
 
+{% for fb in filter_bar %}
+<form class="filter-bar" action="/files" method="get" role="search">
+  <input type="search" name="q" value="{{ fb.searchbar.query }}" placeholder="Search filename">
+  {% for h in fb.searchbar.hidden %}<input type="hidden" name="{{ h.name }}" value="{{ h.value }}">{% endfor %}
+  <button type="submit">Search</button>
+</form>
+<nav class="tier-facet" aria-label="Filter by tier">
+  {% for f in fb.facets %}<a href="{{ f.url }}" data-selected="{{ f.selected_flag }}">{{ f.label }} {{ f.count_display }}</a>{% endfor %}
+</nav>
+{% endfor %}
+
 <div class="files-scroll">
 <table class="files-table">
   <thead>

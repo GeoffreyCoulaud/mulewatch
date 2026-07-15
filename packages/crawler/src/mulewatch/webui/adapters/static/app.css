@@ -217,6 +217,12 @@ pre {
   white-space: nowrap;
 }
 
+/* /files filter bar: filename search form + tier facet chips */
+.filter-bar { display: flex; gap: 0.5rem; align-items: center; margin: 0.75rem 0 0.25rem; }
+.tier-facet { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+.tier-facet a { padding: 0.15rem 0.6rem; border: 1px solid currentColor; border-radius: 1rem; text-decoration: none; }
+.tier-facet a[data-selected="1"] { font-weight: 600; }
+
 /* SQL console */
 .console-form { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }
 .console-form label { font-weight: 600; font-size: 0.9rem; }
