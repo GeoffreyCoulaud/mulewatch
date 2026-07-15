@@ -284,7 +284,7 @@ cases:
       - { target_id: 062A, tier: notify, rule_name: numero_nu }
       - { target_id: 062B, tier: notify, rule_name: numero_nu }
 
-  # --- Out-of-range bare-number eviction (Voie 1): a bare episode number that reaches the
+  # --- Out-of-range bare-number eviction (Approach 1): a bare episode number that reaches the
   #     keroro_large catch-all is beyond the last target (out of range), so it drops out. ---
   - id: out_of_range_bare_number_is_discarded
     # 155 is beyond the last target (103 in prod; the reduced fixture tops out well below).
@@ -293,7 +293,7 @@ cases:
     discarded: true
 
   - id: seasonal_x_form_no_letter_stays_unidentified
-    # Voie 1 guard: "01x37" (whole episode, no A/B letter) is NOT a bare number, so
+    # Approach 1 guard: "01x37" (whole episode, no A/B letter) is NOT a bare number, so
     # episode_number does not fire and keroro_large still catalogs it as unidentified.
     filename: "Keroro 01x37 rediffusion.mkv"
     unidentified: true

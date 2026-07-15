@@ -239,7 +239,9 @@ def _filter_clauses(
 
     ``target``/``tier`` match a file if ANY of its current decisions matches (EXISTS over the
     ``latest_dec`` CTE), so a whole-episode file appears under each of its targets. The
-    matched-only clause and LIMIT/OFFSET are list-specific and are NOT built here.
+    ``target`` clause additionally excludes ``catalog``-tier rows (they are pinned to ``001A``),
+    consistent with ``coverage_for``. The matched-only clause and LIMIT/OFFSET are list-specific
+    and are NOT built here.
     """
     clauses: list[str] = []
     params: list[str] = []
