@@ -246,7 +246,7 @@ def _filter_clauses(
     if target is not None:
         clauses.append(
             "EXISTS (SELECT 1 FROM latest_dec AS fdt"
-            " WHERE fdt.ed2k_hash = f.ed2k_hash AND fdt.target_id = ?)"
+            " WHERE fdt.ed2k_hash = f.ed2k_hash AND fdt.target_id = ? AND fdt.tier != 'catalog')"
         )
         params.append(target)
     if tier is not None:
