@@ -195,6 +195,22 @@ SELECT
     + _SQL_FILES_SOURCE
 )
 
+# Tier facet counts (webui spec §3.3): one row per tier, ``COUNT(DISTINCT ed2k_hash)`` files that
+# have at least one CURRENT decision of that tier. Grouped over ``latest_dec`` (per-decision), so
+# a multi-tier file counts once under each of its tiers. The join to ``latest_obs``/``latest_ver``
+# is only there for the ``query``/``verdict`` filter clauses. The tier filter itself is NEVER
+# applied here (a facet shows the count you would get by choosing each option).
+_SQL_TIER_COUNTS_BASE = (
+    _SQL_CTES
+    + """\
+SELECT ld.tier AS tier, COUNT(DISTINCT ld.ed2k_hash) AS n
+FROM latest_dec AS ld
+JOIN files AS f ON f.ed2k_hash = ld.ed2k_hash
+LEFT JOIN latest_obs AS obs ON obs.ed2k_hash = ld.ed2k_hash
+LEFT JOIN latest_ver AS ver ON ver.ed2k_hash = ld.ed2k_hash
+"""
+)
+
 # All observations of a file (timeline), chronological order.
 _SQL_OBSERVATIONS = """\
 SELECT
@@ -430,6 +446,26 @@ class CatalogReader:
         matched: int = row["matched"]
         total: int = row["total"]
         return (matched, total)
+
+    def tier_counts(
+        self,
+        *,
+        target: str | None,
+        verdict: str | None,
+        query: str | None,
+    ) -> dict[str, int]:
+        """Return ``{tier: file_count}`` for the tier facet, applying the ``target``/``verdict``/
+        ``query`` filters but NEVER a tier filter (facet-lite: each option shows the count you
+        would get by choosing it). A file counts under every tier it currently holds a decision
+        in (a multi-tier file appears in two facets). ``{}`` on an empty/undecided catalogue.
+        """
+        clauses, params = _filter_clauses(target, None, verdict, query)
+        sql = _SQL_TIER_COUNTS_BASE
+        if clauses:
+            sql += "WHERE " + " AND ".join(clauses) + "\n"
+        sql += "GROUP BY ld.tier\n"
+        rows = self._conn.execute(sql, params).fetchall()
+        return {row["tier"]: row["n"] for row in rows}
 
     # ------------------------------------------------------------------
     # Detail
