@@ -19,6 +19,7 @@ All SQL lives in module constants, parameterized (no value interpolation).
 
 import sqlite3
 
+from catalog_matching.config import TIER_RANK
 from mulewatch.webui.domain.views import (
     DecisionView,
     FileDecision,
@@ -34,6 +35,32 @@ from mulewatch.webui.domain.views import (
 
 PAGE_SIZE = 50
 _PAGE_SIZE = PAGE_SIZE  # historical alias (internal) — the public value is used by the handler
+
+# Sort allowlist (webui spec §3.1): a query-param key maps to a FIXED ORDER BY expression; no
+# param value is ever interpolated into SQL. ``tier`` sorts by the file's strongest tier rank
+# (``dec.best_tier_rank``, MAX of the TIER_RANK CASE). Direction maps through a fixed set too.
+SORT_COLUMNS: dict[str, str] = {
+    "name": "obs.filename",
+    "size": "f.size_bytes",
+    "sources": "obs.source_count",
+    "last_seen": "obs.observed_at",
+    "tier": "dec.best_tier_rank",
+}
+SORT_DIRECTIONS: dict[str, str] = {"asc": "ASC", "desc": "DESC"}
+DEFAULT_SORT = "last_seen"
+DEFAULT_DIR = "desc"
+
+
+def _tier_rank_case(column: str) -> str:
+    """Generate a SQL CASE mapping a tier column to its ``TIER_RANK`` integer, from the trusted
+    constant. ``TIER_RANK`` keys are the closed ``TIERS`` enum and its values are ints, so
+    interpolating them is safe (no user input); this keeps ONE source of truth for tier order
+    (the file's strongest tier = ``MAX`` of this expression)."""
+    whens = " ".join(f"WHEN '{tier}' THEN {rank}" for tier, rank in TIER_RANK.items())
+    return f"CASE {column} {whens} END"
+
+
+_TIER_RANK_CASE = _tier_rank_case("ld.tier")
 
 # Latest decision per (hash, target_id) via ROW_NUMBER window: a whole-episode file holds
 # one CURRENT decision per target it satisfies, so it must contribute to each of them, not
@@ -69,7 +96,7 @@ ORDER BY target_id, ed2k_hash
 # ``target_id == ''`` sentinel and any target whose latest row is a ``retracted`` marker;
 # ``dec_agg`` folds those to ONE row per hash, target_ids/tiers ``char(31)``-joined and both
 # ordered by target_id so the two lists stay index-aligned (spec §9, rendering A).
-_SQL_CTES = """\
+_SQL_CTES = f"""\
 WITH latest_dec AS (
     SELECT ed2k_hash, target_id, tier
     FROM (
@@ -91,7 +118,8 @@ dec_agg AS (
     SELECT
         ld.ed2k_hash,
         group_concat(ld.target_id, char(31) ORDER BY ld.target_id) AS target_ids,
-        group_concat(ld.tier, char(31) ORDER BY ld.target_id) AS tiers
+        group_concat(ld.tier, char(31) ORDER BY ld.target_id) AS tiers,
+        MAX({_TIER_RANK_CASE}) AS best_tier_rank
     FROM latest_dec AS ld
     GROUP BY ld.ed2k_hash
 ),
@@ -315,6 +343,8 @@ class CatalogReader:
         query: str | None,
         page: int,
         matched_only: bool = False,
+        sort: str = DEFAULT_SORT,
+        direction: str = DEFAULT_DIR,
     ) -> list[FileRow]:
         """Return a page of ``FileRow`` (size ``_PAGE_SIZE``) with optional filters.
 
@@ -327,6 +357,15 @@ class CatalogReader:
           (retractions and the legacy ``target_id == ''`` sentinel never produce one).
           Default false = whole catalogue.
         - ``page``   : page number (1-based).
+
+        Sort:
+        - ``sort``     : one of the ``SORT_COLUMNS`` allowlist keys
+          (``name``/``size``/``sources``/``last_seen``/``tier``); an unknown key falls back to
+          ``DEFAULT_SORT`` (``last_seen``). ``tier`` sorts by the file's strongest tier rank.
+        - ``direction``: ``asc`` or ``desc``; an unknown value falls back to ``DEFAULT_DIR``
+          (``desc``). SQLite sorts NULLs first in ASC, so a NULL ``filename``/``observed_at``
+          (a file with no observation) clusters predictably. The ``ed2k_hash`` tiebreak keeps
+          paging stable.
         """
         clauses, str_params = _filter_clauses(target, tier, verdict, query)
         if matched_only:
@@ -338,7 +377,12 @@ class CatalogReader:
         sql = _SQL_LIST_FILES_BASE
         if clauses:
             sql += "WHERE " + " AND ".join(clauses) + "\n"
-        sql += "ORDER BY obs.observed_at DESC, f.ed2k_hash\n"
+        # ORDER BY from the allowlist (spec §3.1): unknown sort/direction fall back to the
+        # default; the ed2k_hash tiebreak keeps paging stable. Both operands come from fixed
+        # maps, never from the raw param, so the f-string is injection-safe.
+        column_expr = SORT_COLUMNS.get(sort, SORT_COLUMNS[DEFAULT_SORT])
+        dir_sql = SORT_DIRECTIONS.get(direction, SORT_DIRECTIONS[DEFAULT_DIR])
+        sql += f"ORDER BY {column_expr} {dir_sql}, f.ed2k_hash\n"
         sql += "LIMIT ? OFFSET ?\n"
         params.append(_PAGE_SIZE)
         params.append((page - 1) * _PAGE_SIZE)
