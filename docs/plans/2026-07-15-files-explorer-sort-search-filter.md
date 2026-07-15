@@ -554,9 +554,10 @@ def test_normalize_dir_valid_unknown_missing() -> None:
 
 def test_sort_headers_default_state_no_filters() -> None:
     headers = _sort_headers(sort="last_seen", direction="desc", filters={})
-    # active column: last_seen, showing desc; its link flips to asc
+    # active column: last_seen, showing desc; its link flips to asc. sort=last_seen is the
+    # DEFAULT sort so it is OMITTED from the URL (the omit-defaults invariant); only dir=asc shows.
     assert headers.last_seen.indicator == "desc"
-    assert headers.last_seen.url == "/files?sort=last_seen&dir=asc"
+    assert headers.last_seen.url == "/files?dir=asc"
     # inactive columns: no indicator, per-column default direction, sort/dir omitted when default
     assert headers.name.indicator == ""
     assert headers.name.url == "/files?sort=name&dir=asc"   # Name default dir is asc
