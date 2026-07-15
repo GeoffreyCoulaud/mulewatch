@@ -962,3 +962,63 @@ def test_sort_allowlist_contract_matches_produced_interface() -> None:
     assert set(SORT_COLUMNS) == {"name", "size", "sources", "last_seen", "tier"}
     assert DEFAULT_SORT in SORT_COLUMNS
     assert (DEFAULT_SORT, DEFAULT_DIR) == ("last_seen", "desc")
+
+
+# ---------------------------------------------------------------------------
+# Tests: tier_counts — the tier facet's live counts (spec §3.3)
+# ---------------------------------------------------------------------------
+
+
+def _seed_mixed_tier_file(db: Path) -> None:
+    """One file with TWO current decisions in DIFFERENT tiers (download + notify): it must count
+    under both facets."""
+    h = "d" * 32
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 100))
+        conn.execute(
+            "INSERT INTO file_observations"
+            " (ed2k_hash, filename, size_bytes, source_count,"
+            " complete_source_count, raw_meta, keyword, observed_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (h, "mixed.avi", 100, 1, 0, "[]", "keroro", "2026-01-01T10:00:00.000000+00:00", "n"),
+        )
+        for tid, tier in (("062A", "download"), ("062B", "notify")):
+            conn.execute(
+                "INSERT INTO match_decisions"
+                " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (h, tid, "rule", tier, "2026-01-02T10:00:00.000000+00:00", "n"),
+            )
+        conn.commit()
+
+
+def test_tier_counts_groups_by_tier(catalog_db: Path) -> None:
+    _seed_sortable(catalog_db)  # one file per tier
+    counts = CatalogReader(open_reader(catalog_db)).tier_counts(
+        target=None, verdict=None, query=None
+    )
+    assert counts == {"download": 1, "notify": 1, "catalog": 1}
+
+
+def test_tier_counts_empty_catalogue_is_empty(catalog_db: Path) -> None:
+    counts = CatalogReader(open_reader(catalog_db)).tier_counts(
+        target=None, verdict=None, query=None
+    )
+    assert counts == {}
+
+
+def test_tier_counts_multi_tier_file_counts_in_both(catalog_db: Path) -> None:
+    _seed_mixed_tier_file(catalog_db)
+    counts = CatalogReader(open_reader(catalog_db)).tier_counts(
+        target=None, verdict=None, query=None
+    )
+    assert counts == {"download": 1, "notify": 1}
+
+
+def test_tier_counts_respects_query_filter(catalog_db: Path) -> None:
+    """The facet honours the OTHER filters (here ``query``): only alpha.avi (download) matches."""
+    _seed_sortable(catalog_db)
+    counts = CatalogReader(open_reader(catalog_db)).tier_counts(
+        target=None, verdict=None, query="alpha"
+    )
+    assert counts == {"download": 1}
