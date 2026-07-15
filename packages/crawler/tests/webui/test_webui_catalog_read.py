@@ -5,8 +5,16 @@ from pathlib import Path
 
 import pytest
 
+from catalog_matching.config import TIER_RANK
 from mulewatch.adapters.persistence_sqlite.reader import open_reader
-from mulewatch.webui.adapters.catalog_read import CatalogReader
+from mulewatch.webui.adapters.catalog_read import (
+    DEFAULT_DIR,
+    DEFAULT_SORT,
+    SORT_COLUMNS,
+    CatalogReader,
+    _tier_rank_case,
+)
+from mulewatch.webui.domain.views import FileRow
 
 # ---------------------------------------------------------------------------
 # Seed helpers
@@ -807,3 +815,150 @@ def test_list_files_verdict_tie_break_on_id(catalog_db: Path) -> None:
         target=None, tier=None, verdict=None, query=None, page=1
     )
     assert row.last_verdict == "ok"  # same verified_at → larger id wins
+
+
+# ---------------------------------------------------------------------------
+# Tests: sortable list_files via the fixed column allowlist + best_tier_rank
+# ---------------------------------------------------------------------------
+
+
+def _seed_sortable(db: Path) -> None:
+    """Three single-decision files with distinct sort keys and one decision each at a distinct
+    tier (download > notify > catalog), for the sort-order tests.
+
+    hash 'a': beta.avi  size 300 sources  5 seen 2026-01-01 tier notify   (062A)
+    hash 'b': alpha.avi size 100 sources 15 seen 2026-01-02 tier download (072A)
+    hash 'c': gamma.avi size 200 sources 10 seen 2026-01-03 tier catalog  (keroro_large)
+
+    Every sort key yields a distinct order, and ``last_seen`` (a < b < c) is deliberately
+    orthogonal to BOTH ``size`` (a is largest) AND ``tier`` (b is strongest): so a sort column
+    that silently swaps to ``observed_at`` cannot pass unnoticed on any key, including ``tier``.
+    """
+    rows = [
+        ("a" * 32, "beta.avi", 300, 5, "2026-01-01T10:00:00.000000+00:00", "062A", "notify"),
+        ("b" * 32, "alpha.avi", 100, 15, "2026-01-02T10:00:00.000000+00:00", "072A", "download"),
+        ("c" * 32, "gamma.avi", 200, 10, "2026-01-03T10:00:00.000000+00:00", "001A", "catalog"),
+    ]
+    with sqlite3.connect(db) as conn:
+        for h, name, size, sources, seen, tid, tier in rows:
+            conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, size))
+            conn.execute(
+                "INSERT INTO file_observations"
+                " (ed2k_hash, filename, size_bytes, source_count,"
+                " complete_source_count, raw_meta, keyword, observed_at, node_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (h, name, size, sources, 0, "[]", "keroro", seen, "n1"),
+            )
+            conn.execute(
+                "INSERT INTO match_decisions"
+                " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (h, tid, "rule", tier, "2026-01-04T10:00:00.000000+00:00", "n1"),
+            )
+        conn.commit()
+
+
+def _hashes(rows: list[FileRow]) -> list[str]:
+    return [r.ed2k_hash for r in rows]
+
+
+@pytest.mark.parametrize(
+    ("sort", "direction", "expected"),
+    [
+        ("name", "asc", ["b", "a", "c"]),  # alpha, beta, gamma
+        ("name", "desc", ["c", "a", "b"]),
+        ("size", "asc", ["b", "c", "a"]),  # 100, 200, 300
+        ("size", "desc", ["a", "c", "b"]),
+        ("sources", "asc", ["a", "c", "b"]),  # 5, 10, 15
+        ("sources", "desc", ["b", "c", "a"]),
+        ("last_seen", "desc", ["c", "b", "a"]),  # 01-03, 01-02, 01-01 (the default)
+        ("last_seen", "asc", ["a", "b", "c"]),
+        ("tier", "desc", ["b", "a", "c"]),  # download(2), notify(1), catalog(0)
+        ("tier", "asc", ["c", "a", "b"]),
+    ],
+)
+def test_list_files_sort_orders(
+    catalog_db: Path, sort: str, direction: str, expected: list[str]
+) -> None:
+    _seed_sortable(catalog_db)
+    reader = CatalogReader(open_reader(catalog_db))
+    rows = reader.list_files(
+        target=None, tier=None, verdict=None, query=None, page=1, sort=sort, direction=direction
+    )
+    assert _hashes(rows) == [c * 32 for c in expected]
+
+
+def test_list_files_unknown_sort_falls_back_to_default(catalog_db: Path) -> None:
+    _seed_sortable(catalog_db)
+    reader = CatalogReader(open_reader(catalog_db))
+    rows = reader.list_files(
+        target=None, tier=None, verdict=None, query=None, page=1, sort="bogus", direction="desc"
+    )
+    # default sort is last_seen desc
+    assert _hashes(rows) == [c * 32 for c in ["c", "b", "a"]]
+
+
+def test_list_files_unknown_direction_falls_back_to_default(catalog_db: Path) -> None:
+    _seed_sortable(catalog_db)
+    reader = CatalogReader(open_reader(catalog_db))
+    rows = reader.list_files(
+        target=None, tier=None, verdict=None, query=None, page=1, sort="size", direction="bogus"
+    )
+    # default direction is desc -> size desc -> 300, 200, 100
+    assert _hashes(rows) == [c * 32 for c in ["a", "c", "b"]]
+
+
+def test_list_files_sort_injection_is_rejected_not_interpolated(catalog_db: Path) -> None:
+    _seed_sortable(catalog_db)
+    reader = CatalogReader(open_reader(catalog_db))
+    rows = reader.list_files(
+        target=None,
+        tier=None,
+        verdict=None,
+        query=None,
+        page=1,
+        sort="size; drop table files",
+        direction="desc",
+    )
+    # falls back to the default last_seen desc [c,b,a], NOT size desc [a,c,b]: the value was
+    # dropped by the allowlist, not interpolated (a raw interpolation would also raise, since
+    # sqlite3 refuses a multi-statement execute). The table still exists too.
+    assert _hashes(rows) == [c * 32 for c in ["c", "b", "a"]]
+    with sqlite3.connect(catalog_db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 3
+
+
+def test_list_files_sort_tiebreak_is_ed2k_hash(catalog_db: Path) -> None:
+    """Two files with the same sort key keep a deterministic order via the ed2k_hash tiebreak."""
+    with sqlite3.connect(catalog_db) as conn:
+        for h in ("b" * 32, "a" * 32):  # inserted b-first on purpose
+            conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 100))
+            conn.execute(
+                "INSERT INTO file_observations"
+                " (ed2k_hash, filename, size_bytes, source_count,"
+                " complete_source_count, raw_meta, keyword, observed_at, node_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (h, "same.avi", 100, 1, 0, "[]", "keroro", "2026-01-01T10:00:00.000000+00:00", "n"),
+            )
+        conn.commit()
+    reader = CatalogReader(open_reader(catalog_db))
+    rows = reader.list_files(
+        target=None, tier=None, verdict=None, query=None, page=1, sort="size", direction="asc"
+    )
+    assert _hashes(rows) == ["a" * 32, "b" * 32]  # ed2k_hash asc breaks the tie
+
+
+def test_tier_rank_case_matches_tier_rank() -> None:
+    """The generated CASE maps every tier to its TIER_RANK integer (single-source guard: red if
+    the CASE and the dict diverge)."""
+    sql = _tier_rank_case("ld.tier")
+    for tier, rank in TIER_RANK.items():
+        assert f"WHEN '{tier}' THEN {rank}" in sql
+
+
+def test_sort_allowlist_contract_matches_produced_interface() -> None:
+    """Pin the produced sort interface (consumed by the /files handler in a later task): the
+    fixed allowlist keys and the two defaults. Guards a silent rename that would break paging."""
+    assert set(SORT_COLUMNS) == {"name", "size", "sources", "last_seen", "tier"}
+    assert DEFAULT_SORT in SORT_COLUMNS
+    assert (DEFAULT_SORT, DEFAULT_DIR) == ("last_seen", "desc")
