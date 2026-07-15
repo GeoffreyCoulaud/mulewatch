@@ -722,6 +722,66 @@ def test_list_files_shows_latest_verdict(catalog_db: Path) -> None:
     assert row.last_verdict == "ok"
 
 
+# ---------------------------------------------------------------------------
+# Tests: target-scoped read excludes catalog-tier (catch-all pinned to 001A)
+# ---------------------------------------------------------------------------
+
+
+def _seed_catalog_tier_on_001a(db: Path) -> None:
+    """A keroro_large catch-all file: its only decision is tier 'catalog' pinned to 001A."""
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", ("b" * 32, 50))
+        conn.execute(
+            "INSERT INTO file_observations"
+            " (ed2k_hash, filename, size_bytes, source_count,"
+            " complete_source_count, raw_meta, keyword, observed_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "b" * 32,
+                "keroro manga.zip",
+                50,
+                1,
+                0,
+                "[]",
+                "keroro",
+                "2026-07-01T10:00:00.000000+00:00",
+                "n1",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO match_decisions"
+            " (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "b" * 32,
+                "001A",
+                "keroro_large",
+                "catalog",
+                "2026-07-01T10:00:01.000000+00:00",
+                "n1",
+            ),
+        )
+        conn.commit()
+
+
+def test_target_scope_excludes_catalog_tier(catalog_db: Path) -> None:
+    """A catalog-tier decision pinned to 001A must NOT surface under target='001A'."""
+    _seed_catalog_tier_on_001a(catalog_db)
+    reader = CatalogReader(open_reader(catalog_db))
+    rows = reader.list_files(target="001A", tier=None, verdict=None, query=None, page=1)
+    assert rows == []
+    matched, _total = reader.count_files(target="001A", tier=None, verdict=None, query=None)
+    assert matched == 0
+
+
+def test_target_scope_keeps_non_catalog_tier(catalog_db: Path) -> None:
+    """A non-catalog (download) decision on 062A is still returned under target='062A'."""
+    _seed(catalog_db)  # existing helper: a 'download' decision on 062A
+    reader = CatalogReader(open_reader(catalog_db))
+    rows = reader.list_files(target="062A", tier=None, verdict=None, query=None, page=1)
+    assert len(rows) == 1
+
+
 def test_list_files_verdict_tie_break_on_id(catalog_db: Path) -> None:
     """Two verdicts with the SAME verified_at → the larger id (later row) wins."""
     h = "b" * 32
