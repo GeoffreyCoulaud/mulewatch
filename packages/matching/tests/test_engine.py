@@ -391,7 +391,7 @@ def test_evaluate_mono_episode_bare_number_emits_single_segment() -> None:
 
 def test_evaluate_out_of_range_bare_number_is_evicted() -> None:
     # §11 out of range: a bare number beyond the last target reaches keroro_large, whose
-    # { not: episode_number } guard vetoes it (Voie 1 eviction) -> discarded, no catalog
+    # { not: episode_number } guard vetoes it (Approach 1 eviction) -> discarded, no catalog
     # fallback. Seasonal SxE / NNxNN forms without a letter are NOT bare numbers and still
     # fall back to catalog (see the golden corpus).
     decisions = _fanout_engine().evaluate(FileCandidate(filename="Keroro 130.avi"))

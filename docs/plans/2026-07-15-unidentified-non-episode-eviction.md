@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python ≥3.14, PyYAML policy, stdlib `re` (`re.ASCII`) matchers, SQLite, pytest.
 
-**Spec:** `docs/specs/2026-07-15-unidentified-non-episode-eviction.md` (Voie 1: `episode_number` is bare-number only).
+**Spec:** `docs/specs/2026-07-15-unidentified-non-episode-eviction.md` (Approach 1: `episode_number` is bare-number only).
 
 ## Global Constraints
 
@@ -91,11 +91,11 @@ git commit -m "fix(matching): evict comics, the movie and openings from the catc
 
 ### Task 2: Number eviction (out-of-range bare numbers)
 
-Add the target-agnostic `episode_number` token (bare-number arm only, Voie 1) and require `{ not: episode_number }` on `keroro_large`, so a bare number that reaches the catch-all (hence out of range) drops out. Seasonal `SxE` / `NNxNN` forms without a segment letter are deliberately NOT evicted.
+Add the target-agnostic `episode_number` token (bare-number arm only, Approach 1) and require `{ not: episode_number }` on `keroro_large`, so a bare number that reaches the catch-all (hence out of range) drops out. Seasonal `SxE` / `NNxNN` forms without a segment letter are deliberately NOT evicted.
 
 **Files:**
 - Modify: `deploy/config/crawler/matcher.yml` (new `episode_number` token, `keroro_large` gains a guard)
-- Test: `packages/matching/tests/fixtures/golden_corpus.yaml` (1 discard + 1 Voie-1 guard case), `packages/matching/tests/test_golden_corpus.py` (token unit tests)
+- Test: `packages/matching/tests/fixtures/golden_corpus.yaml` (1 discard + 1 Approach-1 guard case), `packages/matching/tests/test_golden_corpus.py` (token unit tests)
 
 **Interfaces:**
 - Consumes: `keroro_large` from Task 1 (`all: [is_episode, {any:[is_video,is_archive]}]`).
@@ -111,7 +111,7 @@ Add the target-agnostic `episode_number` token (bare-number arm only, Voie 1) an
     discarded: true
 
   - id: seasonal_x_form_no_letter_stays_unidentified
-    # Voie 1 guard: "01x37" (whole episode, no A/B letter) is NOT a bare number, so
+    # Approach 1 guard: "01x37" (whole episode, no A/B letter) is NOT a bare number, so
     # episode_number does not fire and keroro_large still catalogs it as unidentified.
     filename: "Keroro 01x37 rediffusion.mkv"
     unidentified: true
@@ -139,8 +139,8 @@ def test_episode_number_matches_a_bare_number(filename: str) -> None:
         "Keroro 2008 rediffusion.avi",  # 4-digit year, no 2-3 digit bounded run
         "Keroro 640x480 BDRip.mkv",  # resolution, 3 digits per side
         "Keroro rediffusion [D6A10367].avi",  # hex CRC, digits bordered by letters
-        "Keroro s01e29.avi",  # seasonal form: bare-only does not read it (Voie 1)
-        "Keroro 01x37.avi",  # seasonal x-form: bare-only does not read it (Voie 1)
+        "Keroro s01e29.avi",  # seasonal form: bare-only does not read it (Approach 1)
+        "Keroro 01x37.avi",  # seasonal x-form: bare-only does not read it (Approach 1)
     ],
 )
 def test_episode_number_ignores_non_episode_numbers(filename: str) -> None:

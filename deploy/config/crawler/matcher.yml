@@ -16,7 +16,7 @@ tokens:
   source_marker: { any: [teletoon, idf1, vf] }
   segment_id:    { regex: "(?:n[°o]?\\s*0*{absolute_number}|s0*{season}\\s*e0*{seasonal_number}|0*{season}\\s*x\\s*0*{seasonal_number})\\s*{segment}" }
   segment_id_loose: { regex: "(?:^|[^0-9A-Za-z])0*{absolute_number}(?!\\s*(?:janv?(?:ier)?|fevr?(?:ier)?|mars|avr(?:il)?|mai|juin|juil(?:let)?|aout|sep(?:t(?:embre)?)?|oct(?:obre)?|nov(?:embre)?|dec(?:embre)?)\\b)(?!\\s*[/.\\-]\\s*\\d)(?:[^0-9A-Za-z]|$)" }
-  # Target-agnostic bare episode number (Voie 1): a 2-3 digit run bordered by non-alphanumerics
+  # Target-agnostic bare episode number (Approach 1): a 2-3 digit run bordered by non-alphanumerics
   # on BOTH sides, minus the same date vetoes as segment_id_loose (month name / numeric d/m).
   # Used ONLY by keroro_large's { not: episode_number } guard: a bare number reaching the
   # catch-all is beyond the last target (out of range), so it drops out. Seasonal SxE / NNxNN

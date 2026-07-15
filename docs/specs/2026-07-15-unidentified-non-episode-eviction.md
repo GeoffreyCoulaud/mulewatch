@@ -48,7 +48,7 @@ Concretely, five changes:
 1. **Widen `not_episode`** to also cover comics and the movie (one widened token, per
    operator preference: no new `comic`/`movie`/`non_episode` tokens).
 2. **Add one target-agnostic token `episode_number`** = the **bare-number arm only**
-   (`\d{2,3}` with `segment_id_loose`'s date vetoes). See "Voie 1" below for why only the
+   (`\d{2,3}` with `segment_id_loose`'s date vetoes). See "Approach 1" below for why only the
    bare arm.
 3. **`keroro_large`** switches its base from `is_keroro` to `is_episode` (inheriting the
    `not_episode` exclusion) and gains `{ not: episode_number }`.
@@ -59,7 +59,7 @@ Concretely, five changes:
    excludes `catalog`-tier rows, extending the `tier != 'catalog'` pattern `coverage_for`
    already uses.
 
-### Voie 1: `episode_number` is the bare-number arm ONLY (decided 2026-07-15)
+### Approach 1: `episode_number` is the bare-number arm ONLY (decided 2026-07-15)
 
 The eviction rests on: *"a file that reaches the catch-all while carrying a number must be
 out of range"* (an in-range number would have been claimed by `numero_nu`). **This holds
@@ -72,7 +72,7 @@ A/B letter**, so an in-range whole-episode reference like `Keroro S2E11.mkv` or
 **eviction** token would wrongly **discard** those in-range references, losing real episode
 candidates and regressing the corpus. So `episode_number` is bare-only.
 
-Deferred (Voie 2, out of scope here): making `SxE`/`NNxNN`-without-letter references
+Deferred (Approach 2, out of scope here): making `SxE`/`NNxNN`-without-letter references
 **fan out and match** like a bare number (a `seasonal_loose` token + two rules mirroring
 `numero_nu`). That would let `01x37` identify episode 37 and then let `episode_number` safely
 include the seasonal arms. A separate chantier if wanted; YAGNI for now.
@@ -166,7 +166,7 @@ changes in the real container" habit.
   (NOT by `episode_number`, which is bare-only and does not read `s01e29`) -> **retracted**.
 - `Keroro.avi`, `keroro.zip`: no number, no marker -> **stay "unidentified"** (true candidates).
 - `Keroro S2E11.mkv`, `Keroro 01x37.mkv` (in-range whole-episode, no segment letter):
-  `episode_number` bare-only does NOT match -> **stay "unidentified"** (unchanged; Voie 1
+  `episode_number` bare-only does NOT match -> **stay "unidentified"** (unchanged; Approach 1
   deliberately does not discard them).
 - `[Keroro].065..100` (`numero_nu`, `notify`): unchanged (the numbered rule outranks the
   catch-all; `{ not: episode_number }` on `keroro_large` cannot demote a `notify` file).
@@ -193,8 +193,8 @@ target fixture + golden corpus read the real `deploy/` policy via `parents[N]`):
   - in-range bare number (`Keroro 62.avi`) -> `notify` fan-out on `062A`+`062B` (`numero_nu`).
   - `N°062A ... TELETOON` -> `download` on `062A`.
   - `Keroro rediffusion.mkv`, `Keroro rediffusion.zip` -> `unidentified` (keroro_large fires).
-  - `Keroro S2E11.mkv` -> `unidentified` (Voie 1: bare-only does not discard it). Keep the
-    existing case; add `Keroro 01x37.mkv` -> `unidentified` as an explicit Voie-1 guard.
+  - `Keroro S2E11.mkv` -> `unidentified` (Approach 1: bare-only does not discard it). Keep the
+    existing case; add `Keroro 01x37.mkv` -> `unidentified` as an explicit Approach-1 guard.
   - the single-catalog-rule guard (`keroro_large` still the only `tier: catalog` rule).
 - **`episode_number` token unit tests** (reuse the `_is_archive_matcher()` pattern:
   `_episode_number_matcher()` builds a `RegexMatcher` from the shipped token). Matches: a bare
@@ -211,7 +211,7 @@ Crawler package (`packages/crawler`), read-layer:
 ## 8. Non-goals
 
 - No structured "kind" classification (manga/movie/opening tiers). Explicitly rejected.
-- No `SxE`/`NNxNN` whole-episode matching (Voie 2) in this chantier; deferred.
+- No `SxE`/`NNxNN` whole-episode matching (Approach 2) in this chantier; deferred.
 - No engine change (the target-agnostic `catalog` `target_id=001A` stays; only the read hides it).
 - No change to the in-range `numero_nu` cohort semantics.
 - No manual/one-shot backfill script: the existing re-evaluation gate does it on restart.

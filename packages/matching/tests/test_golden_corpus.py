@@ -129,7 +129,7 @@ def test_prod_policy_has_exactly_one_catalog_tier_rule_named_keroro_large() -> N
 
 
 # --- episode_number token contract (shipped policy) --------------------------------------
-# episode_number is the target-agnostic bare-number arm (Voie 1): a 2-3 digit run bordered by
+# episode_number is the target-agnostic bare-number arm (Approach 1): a 2-3 digit run bordered by
 # non-alphanumerics on BOTH sides, minus dates (month names, numeric d/m) and hex-bordered
 # digits. keroro_large requires { not: episode_number }, so an out-of-range bare number that
 # reaches the catch-all is evicted. Seasonal SxE / NNxNN forms (no A/B letter) are NOT bare
@@ -155,8 +155,8 @@ def test_episode_number_matches_a_bare_number(filename: str) -> None:
         "Keroro 2008 rediffusion.avi",  # 4-digit year, no 2-3 digit bounded run
         "Keroro 640x480 BDRip.mkv",  # resolution, 3 digits per side
         "Keroro rediffusion [D6A10367].avi",  # hex CRC, digits bordered by letters
-        "Keroro s01e29.avi",  # seasonal form: bare-only does not read it (Voie 1)
-        "Keroro 01x37.avi",  # seasonal x-form: bare-only does not read it (Voie 1)
+        "Keroro s01e29.avi",  # seasonal form: bare-only does not read it (Approach 1)
+        "Keroro 01x37.avi",  # seasonal x-form: bare-only does not read it (Approach 1)
     ],
 )
 def test_episode_number_ignores_non_episode_numbers(filename: str) -> None:
