@@ -389,11 +389,13 @@ def test_evaluate_mono_episode_bare_number_emits_single_segment() -> None:
     assert _triples(decisions) == [("094A", "notify", "numero_nu")]
 
 
-def test_evaluate_out_of_range_number_falls_back_to_catalog() -> None:
-    # §11 out of range: no number rule matches any target -> step-6 fallback -> keroro_large,
-    # tie-broken to the smallest target_id (062A).
+def test_evaluate_out_of_range_bare_number_is_evicted() -> None:
+    # §11 out of range: a bare number beyond the last target reaches keroro_large, whose
+    # { not: episode_number } guard vetoes it (Voie 1 eviction) -> discarded, no catalog
+    # fallback. Seasonal SxE / NNxNN forms without a letter are NOT bare numbers and still
+    # fall back to catalog (see the golden corpus).
     decisions = _fanout_engine().evaluate(FileCandidate(filename="Keroro 130.avi"))
-    assert _triples(decisions) == [("062A", "catalog", "keroro_large")]
+    assert decisions == []
 
 
 def test_evaluate_lettered_segment_pins_that_segment_only() -> None:
