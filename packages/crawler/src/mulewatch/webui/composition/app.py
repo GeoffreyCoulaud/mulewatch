@@ -53,11 +53,15 @@ from mulewatch.webui.domain.views import (
     FileRow,
     FileRowDisplay,
     FilesSummary,
+    FilterBar,
+    HiddenInput,
     PageNav,
     SchedulerEntry,
+    SearchBar,
     SortHeader,
     SortHeaders,
     TargetCoverageRow,
+    TierFacet,
 )
 
 
@@ -228,6 +232,54 @@ def _sort_headers(*, sort: str, direction: str, filters: dict[str, str]) -> Sort
         last_seen=built["last_seen"],
         tier=built["tier"],
     )
+
+
+# Tier facet display order (strongest first) and the catalog→"unidentified" mask, matching the
+# row rendering. Only tiers PRESENT in the counts are rendered.
+_FACET_TIER_ORDER: tuple[str, ...] = ("download", "notify", "catalog")
+
+
+def _facet_label(tier: str) -> str:
+    """Display label for a tier facet: ``catalog`` is masked to ``"unidentified"`` (the
+    keroro_large catch-all), every other tier shows its own name."""
+    return "unidentified" if tier == "catalog" else tier
+
+
+def _tier_facets(
+    *, counts: Mapping[str, int], active_tier: str | None, base: dict[str, str]
+) -> tuple[TierFacet, ...]:
+    """Precompute the tier facet (W-D8): an "all" reset (no count) followed by one entry per tier
+    present, in ``_FACET_TIER_ORDER``. ``base`` is the params to preserve (filters minus ``tier``,
+    plus sort/dir; page already excluded); a tier entry appends ``tier=<t>``, the reset omits it."""
+    all_url = "/files?" + urlencode(base) if base else "/files"
+    facets = [
+        TierFacet(
+            label="all",
+            count_display="",
+            url=all_url,
+            selected_flag="1" if active_tier is None else "",
+        )
+    ]
+    for tier in _FACET_TIER_ORDER:
+        if tier not in counts:
+            continue
+        params = {**base, "tier": tier}
+        facets.append(
+            TierFacet(
+                label=_facet_label(tier),
+                count_display=f"({counts[tier]})",
+                url="/files?" + urlencode(params),
+                selected_flag="1" if active_tier == tier else "",
+            )
+        )
+    return tuple(facets)
+
+
+def _search_bar(*, query: str | None, hidden_state: dict[str, str]) -> SearchBar:
+    """Precompute the search form (W-D8): the ``q`` prefill (empty string when none) + hidden
+    inputs from ``hidden_state`` (already excludes ``q`` and ``page``)."""
+    hidden = tuple(HiddenInput(name=k, value=v) for k, v in hidden_state.items())
+    return SearchBar(query=query or "", hidden=hidden)
 
 
 class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -448,11 +500,34 @@ def build_app(
         summary_base.update(sort_dir)
         summary = _build_summary(matched, total, show_unmatched, summary_base)
 
+        # Tier facet (facet-lite: never filtered by its own tier) + filename search form. The
+        # facet links carry every active param except ``tier`` and ``page`` (selecting a tier
+        # replaces it, resets page); the search hidden inputs carry every active param except
+        # ``q`` and ``page`` (submitting a search preserves the rest, resets page).
+        tier_count_map = catalog.tier_counts(
+            target=target_param, verdict=verdict_param, query=query_param
+        )
+        facet_base = {k: v for k, v in filters.items() if k != "tier"}
+        facet_base.update(sort_dir)
+        facets = _tier_facets(counts=tier_count_map, active_tier=tier_param, base=facet_base)
+
+        hidden_state = {k: v for k, v in filters.items() if k != "q"}
+        hidden_state.update(sort_dir)
+        searchbar = _search_bar(query=query_param, hidden_state=hidden_state)
+
+        filter_bar = FilterBar(searchbar=searchbar, facets=facets)
+
         nav = _page_nav(page, len(display_rows), "/files", {**filters, **sort_dir})
         return templates.TemplateResponse(
             request,
             "files.html",
-            {"rows": display_rows, "nav": nav, "summaries": (summary,), "headers": (headers,)},
+            {
+                "rows": display_rows,
+                "nav": nav,
+                "summaries": (summary,),
+                "headers": (headers,),
+                "filter_bar": (filter_bar,),
+            },
         )
 
     async def handle_file_detail(request: Request) -> Response:
@@ -526,12 +601,12 @@ def build_app(
         display_rows = _to_display_rows(file_rows, _segment_by_id)
         # No pagination here (target view: we expect few) — empty nav.
         nav = PageNav(page=1, prev_url=None, next_url=None)
-        # files.html is shared with /files, whose matched/all summary line is meaningless
-        # on a target-scoped page — pass an empty tuple so it renders nothing.
+        # files.html is shared with /files, whose matched/all summary line and filter bar are
+        # meaningless on a target-scoped page: pass empty tuples so they render nothing.
         return templates.TemplateResponse(
             request,
             "files.html",
-            {"rows": display_rows, "nav": nav, "summaries": (), "headers": ()},
+            {"rows": display_rows, "nav": nav, "summaries": (), "headers": (), "filter_bar": ()},
         )
 
     async def handle_node(request: Request) -> Response:

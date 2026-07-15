@@ -261,6 +261,46 @@ class SortHeaders:
     tier: SortHeader
 
 
+@dataclass(frozen=True)
+class TierFacet:
+    """One tier-filter option with its live count, precomputed (W-D8). ``label`` is the display
+    tier (``catalog`` masked to ``"unidentified"``, or the literal ``"all"`` reset);
+    ``count_display`` is ``"(<n>)"`` for a tier and ``""`` for the reset; ``url`` selects (or, for
+    the reset, clears) this tier while preserving other params and resetting page;
+    ``selected_flag`` is ``"1"`` or ``""`` (rendered as ``data-selected`` for CSS)."""
+
+    label: str
+    count_display: str
+    url: str
+    selected_flag: str
+
+
+@dataclass(frozen=True)
+class HiddenInput:
+    """One hidden form field carried by the search GET form (name/value already stringified)."""
+
+    name: str
+    value: str
+
+
+@dataclass(frozen=True)
+class SearchBar:
+    """The filename search form, precomputed (W-D8): ``query`` prefills the text input, ``hidden``
+    carries every active param except ``q`` and ``page`` so submitting a search preserves them."""
+
+    query: str
+    hidden: tuple[HiddenInput, ...]
+
+
+@dataclass(frozen=True)
+class FilterBar:
+    """The /files filter bar: the search form + the tier facet. Passed as a 0-or-1-element tuple
+    so ``handle_target`` can reuse ``files.html`` with an empty bar (like ``summaries``)."""
+
+    searchbar: SearchBar
+    facets: tuple[TierFacet, ...]
+
+
 # ---------------------------------------------------------------------------
 # File detail — display view (precomputed)
 # ---------------------------------------------------------------------------

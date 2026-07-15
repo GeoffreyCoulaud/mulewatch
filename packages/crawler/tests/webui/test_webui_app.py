@@ -15,11 +15,18 @@ from mulewatch.webui.composition.app import (
     _normalize_dir,
     _normalize_sort,
     _resolve_target_display,
+    _search_bar,
     _sort_headers,
+    _tier_facets,
     _to_display_rows,
     build_app,
 )
-from mulewatch.webui.domain.views import DecisionCell, FileDecision, FileRow
+from mulewatch.webui.domain.views import (
+    DecisionCell,
+    FileDecision,
+    FileRow,
+    HiddenInput,
+)
 
 # ---------------------------------------------------------------------------
 # Parsed-config helpers (since P4a build_app takes already-parsed config)
@@ -1720,3 +1727,80 @@ async def test_sort_header_links_preserve_target_and_tier_filters(
     assert resp.status_code == 200
     # the Name header keeps both filters (autoescaped & -> &amp;) then adds its own sort + dir
     assert "target=062A&amp;tier=download&amp;sort=name&amp;dir=asc" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Filename search + tier facet (Task 4): the two builders (direct) and the
+# rendered search form + facet chips end-to-end.
+# ---------------------------------------------------------------------------
+
+
+def test_tier_facets_all_reset_and_masks_catalog() -> None:
+    facets = _tier_facets(
+        counts={"download": 1, "notify": 2, "catalog": 5}, active_tier=None, base={}
+    )
+    assert facets[0].label == "all"
+    assert facets[0].selected_flag == "1"  # no tier active → all selected
+    assert facets[0].url == "/files"
+    labels = [f.label for f in facets[1:]]
+    assert labels == ["download", "notify", "unidentified"]  # fixed order, catalog masked
+    assert facets[1].count_display == "(1)"
+    assert facets[1].url == "/files?tier=download"
+
+
+def test_tier_facets_selected_and_preserves_base() -> None:
+    facets = _tier_facets(
+        counts={"download": 1, "notify": 2},
+        active_tier="notify",
+        base={"q": "keroro", "sort": "size"},
+    )
+    notify = next(f for f in facets if f.label == "notify")
+    assert notify.selected_flag == "1"
+    assert notify.url == "/files?q=keroro&sort=size&tier=notify"
+    assert facets[0].url == "/files?q=keroro&sort=size"  # all-reset keeps base, drops tier
+
+
+def test_tier_facets_only_present_tiers_appear() -> None:
+    facets = _tier_facets(counts={"notify": 3}, active_tier=None, base={})
+    assert [f.label for f in facets] == ["all", "notify"]
+
+
+def test_search_bar_prefill_and_hidden_excludes_q() -> None:
+    bar = _search_bar(query="keroro", hidden_state={"tier": "notify", "sort": "size"})
+    assert bar.query == "keroro"
+    assert bar.hidden == (
+        HiddenInput(name="tier", value="notify"),
+        HiddenInput(name="sort", value="size"),
+    )
+
+
+def test_search_bar_no_query_is_empty_string() -> None:
+    bar = _search_bar(query=None, hidden_state={})
+    assert bar.query == ""
+    assert bar.hidden == ()
+
+
+@pytest.mark.asyncio
+async def test_files_renders_search_prefill_and_facet(
+    populated_app: tuple[Starlette, str],
+) -> None:
+    app, _ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files?q=keroro&show_unmatched=1")
+    assert 'name="q"' in resp.text
+    assert 'value="keroro"' in resp.text  # prefill
+    assert 'name="show_unmatched"' in resp.text  # carried as a hidden input
+    # populated_app's single file is a catalog-tier decision → facet shows "unidentified (1)"
+    assert "unidentified" in resp.text
+    assert 'href="/files?q=keroro&amp;show_unmatched=1&amp;tier=catalog"' in resp.text
+
+
+@pytest.mark.asyncio
+async def test_target_page_has_no_filter_bar(
+    app_download_tier_known_target: tuple[Starlette, str],
+) -> None:
+    app, _ = app_download_tier_known_target
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/targets/062A")
+    assert 'name="q"' not in resp.text  # no search form on a target page
+    assert "tier-facet" not in resp.text  # no facet on a target page
