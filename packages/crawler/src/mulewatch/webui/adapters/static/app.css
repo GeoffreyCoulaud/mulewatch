@@ -219,7 +219,8 @@ pre {
 
 /* /files filter bar: filename search form + tier facet chips */
 .filter-bar { display: flex; gap: 0.5rem; align-items: center; margin: 0.75rem 0 0.25rem; }
-.tier-facet { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+/* the facet is a <nav>, so reset the site-nav border/padding it would otherwise inherit */
+.tier-facet { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; border: 0; padding: 0; }
 .tier-facet a { padding: 0.15rem 0.6rem; border: 1px solid currentColor; border-radius: 1rem; text-decoration: none; }
 .tier-facet a[data-selected="1"] { font-weight: 600; }
 
