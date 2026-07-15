@@ -8,7 +8,7 @@ tokens:
   foreign_lang:  { regex: "\\b(ITA|KOR|Korean|Italiano|Coreano|VOSTFR|VOSTA|Subs?FR|Espa[nñ]ol|English\\s?Dub|ENG|Japan|JAP|Gunsou?|GB18030|GB2312|GBK|GB|HKG)\\b|dino-riders|guerriero|risveglio|sarxento|sargento|benjo|fatacolorata|catala|signor|josconcillo|sgt\\.?\\s*frog|\\((?:ita|j|jp|k|kr|ks)\\)|BIG5|R3_DVDRIP|XeTe" }
   french_safe:   { not: foreign_lang }
   is_keroro:     { all: [french_safe, keroro_titar] }
-  not_episode:   { regex: "opening|ending|g[eé]n[eé]rique|\\bsample\\b|preview|trailer|bande.?annonce" }
+  not_episode:   { regex: "opening|ending|g[eé]n[eé]rique|\\bsample\\b|preview|trailer|bande.?annonce|\\bcomic\\b|\\bdoujin(?:shi)?\\b|同人誌|\\bmovie\\b" }
   is_episode:    { all: [is_keroro, { not: not_episode }] }
   teletoon:      { regex: "t[eé]l[eé]toon" }
   idf1:          { regex: "\\bidf\\s?1\\b" }
@@ -30,4 +30,4 @@ rules:
   # tier=="catalog" decision as "unidentified" (target-agnostic catch-all assumption).
   # Guarded by packages/matching/tests/test_golden_corpus.py::
   # test_prod_policy_has_exactly_one_catalog_tier_rule_named_keroro_large.
-  - { name: keroro_large,        tier: catalog,  all: [is_keroro, { any: [is_video, is_archive] }] }
+  - { name: keroro_large,        tier: catalog,  all: [is_episode, { any: [is_video, is_archive] }] }

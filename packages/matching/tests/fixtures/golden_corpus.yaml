@@ -106,10 +106,23 @@ cases:
     rule_name: archive_candidate
 
   - id: not_episode_opening_demotes_title_to_catalog
-    # Titre proche MAIS "opening" -> not_episode -> is_episode faux -> pas title_review ;
-    # keroro_large (catalog) reste (permissif).
+    # "opening" now excludes it from is_episode, so keroro_large no longer catalogs it -> discarded.
     filename: "Keroro Les demoiselles cambrioleuses opening.avi"
-    unidentified: true
+    discarded: true
+
+  - id: japanese_comic_zip_is_discarded
+    # [comic] + 軍曹 is a manga, not a broadcast episode. The CJK title escapes foreign_lang
+    # and .zip is a generic archive, so before this change it was catalogued as unidentified.
+    # not_episode(comic) now makes is_episode false -> discarded.
+    filename: "[comic][ケロロ軍曹][KERORO][吉崎観音].vol.09.zip"
+    discarded: true
+
+  - id: english_movie_marker_is_discarded
+    # The theatrical film is not a TV episode. not_episode(movie) -> discarded. (The real
+    # [T-N]Keroro_Gunsou_Movie file is already vetoed by foreign_lang "Gunsou"; this synthetic
+    # case guards the new 'movie' marker on its own.)
+    filename: "Keroro Movie special edition.avi"
+    discarded: true
 
   # --- Gate média (2026-07-02) : le catalogue permissif keroro_large exige is_video OU
   #     is_archive. cbz/cbr sont des formats COMICS (ZIP/RAR déguisés), volontairement HORS
