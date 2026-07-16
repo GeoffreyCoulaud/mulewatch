@@ -87,6 +87,15 @@ def test_short_timestamp_without_timezone_offset() -> None:
     assert short_timestamp("2024-01-01T00:00:00") == "2024-01-01 00:00Z"
 
 
+def test_short_timestamp_of_an_empty_input_is_empty() -> None:
+    """No timestamp renders as nothing, not as a bare " Z".
+
+    A file with no observation yet has ``last_seen == ""`` (``catalog_read`` coalesces the
+    NULL), which partitions into empty halves and formatted into the marker alone.
+    """
+    assert short_timestamp("") == ""
+
+
 # ---------------------------------------------------------------------------
 # seasonal_id
 # ---------------------------------------------------------------------------
