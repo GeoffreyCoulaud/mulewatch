@@ -117,22 +117,27 @@ in the same range: the plateau is gone.
 Shipped and confirmed live, so nothing is pending on this chantier. Tagged
 `v1.0.1-files-view-performance` (local) + `v1.0.1` (pushed, patch release).
 
+The row shape this work made explicit (a file present in `files` with no observation yet)
+turned out to render two empty values wrong, both **fixed on `main` right after**, in
+`75e9c70` + `82a4357`: `source_count` reached the page as the string "None" (typed `int`,
+NULL-coalesced now like its `filename` / `last_seen` neighbours), and `short_timestamp("")`
+formatted empty halves into a lone " Z" (now renders as nothing). Deliberately left untagged:
+both are invisible on this node (0 such files), so they ride along with the next real change
+rather than justifying a v1.0.2.
+
 Follow-ups noted, none blocking:
 
 1. **`file_observations` grows without bound** (1.19M rows for 1,402 files, ~844 each). The
    seek is O(log n) so this holds for a long time, but the retention story and
    `python -m mulewatch.compact` deserve a look. This is the deeper issue the index only
    defers.
-2. `FileRow.source_count` is typed `int` but would receive `None` for a file with no
-   observation (`views.py`, no `or 0` guard, unlike `filename` / `last_seen`). Pre-existing and
-   latent: the real node has 0 such files.
-3. `latest_dec` / `latest_ver` have the same structural defect, parked under YAGNI while
+2. `latest_dec` / `latest_ver` have the same structural defect, parked under YAGNI while
    `match_decisions` (196 rows) and `file_verifications` (0 rows) stay small.
-4. A `MemoryError` raised mid-migration escapes `_run_scripts` with the transaction still OPEN:
+3. A `MemoryError` raised mid-migration escapes `_run_scripts` with the transaction still OPEN:
    it is not a `sqlite3.Error`, so the `except` there neither rolls back nor wraps it in the
    MigrationError the spec §14 fail-fast expects. No corruption risk (`_open` closes the
    connection on any BaseException), and unreachable under `mem_limit` alone (cgroup OOM sends
    SIGKILL, it never surfaces as a Python MemoryError), so this only bites under an `RLIMIT_AS`.
    The in-memory sorter is what made this path reachable at all.
-5. `_apply_migrations` sets and restores the pragma even when nothing is pending (the
+4. `_apply_migrations` sets and restores the pragma even when nothing is pending (the
    `current == latest` path). Harmless, one PRAGMA pair per start.
