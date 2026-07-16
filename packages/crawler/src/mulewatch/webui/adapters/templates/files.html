@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Files · mulewatch{% endblock %}
 {% block content %}
-<h1>Files</h1>
+{% for h in headings %}<h1>{{ h }}</h1>{% endfor %}
 
 {% for s in summaries %}
 <p class="files-summary">
@@ -11,14 +11,16 @@
 {% endfor %}
 
 {% for fb in filter_bar %}
-<form class="filter-bar" action="/files" method="get" role="search">
-  <input type="search" name="q" value="{{ fb.searchbar.query }}" placeholder="Search filename">
-  {% for h in fb.searchbar.hidden %}<input type="hidden" name="{{ h.name }}" value="{{ h.value }}">{% endfor %}
-  <button type="submit">Search</button>
-</form>
-<nav class="tier-facet" aria-label="Filter by tier">
-  {% for f in fb.facets %}<a href="{{ f.url }}" data-selected="{{ f.selected_flag }}">{{ f.label }} {{ f.count_display }}</a>{% endfor %}
-</nav>
+<div class="filter-bar">
+  <nav class="tier-facet" aria-label="Filter by tier">
+    {% for f in fb.facets %}<a href="{{ f.url }}" data-selected="{{ f.selected_flag }}">{{ f.label }} {{ f.count_display }}</a>{% endfor %}
+  </nav>
+  <form class="files-search" action="/files" method="get" role="search">
+    <input type="search" name="q" value="{{ fb.searchbar.query }}" placeholder="Search filename">
+    {% for h in fb.searchbar.hidden %}<input type="hidden" name="{{ h.name }}" value="{{ h.value }}">{% endfor %}
+    <button type="submit">Search</button>
+  </form>
+</div>
 {% endfor %}
 
 <div class="files-scroll">

@@ -8,11 +8,9 @@
 </head>
 <body>
   <nav>
-    <a href="/">Dashboard</a>
-    <a href="/files">Files</a>
-    <a href="/node">Nodes</a>
-    <a href="/controls">Controls</a>
-    <a href="/console">Console</a>
+    {% for item in nav_items %}
+    {% for href in item.link %}<a href="{{ href }}">{{ item.label }}</a>{% else %}<span aria-current="page">{{ item.label }}</span>{% endfor %}
+    {% endfor %}
   </nav>
   <main>
     {% block content %}{% endblock %}

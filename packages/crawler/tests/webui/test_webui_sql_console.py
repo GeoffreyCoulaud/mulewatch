@@ -326,14 +326,21 @@ async def test_get_console_defaults_to_catalog_selected(console_app: Starlette) 
 
 
 @pytest.mark.asyncio
-async def test_console_nav_link_present(console_app: Starlette) -> None:
-    """The base nav gained a Console link (href="/console")."""
+async def test_console_nav_entry_links_from_elsewhere_and_is_active_on_console(
+    console_app: Starlette,
+) -> None:
+    """The base nav carries a Console entry: a link (href="/console") from any other page, and
+    the active non-link on /console itself, where that href is gone by construction."""
     async with AsyncClient(
         transport=ASGITransport(app=console_app), base_url="http://test"
     ) as client:
-        resp = await client.get("/console")
-    assert resp.status_code == 200
-    assert 'href="/console"' in resp.text
+        elsewhere = await client.get("/")
+        on_console = await client.get("/console")
+    assert elsewhere.status_code == 200
+    assert '<a href="/console">Console</a>' in elsewhere.text
+    assert on_console.status_code == 200
+    assert '<span aria-current="page">Console</span>' in on_console.text
+    assert '<a href="/console">Console</a>' not in on_console.text
 
 
 # ---------------------------------------------------------------------------

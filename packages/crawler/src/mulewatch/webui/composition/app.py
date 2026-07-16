@@ -8,6 +8,7 @@ import csv
 import io
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qs, urlencode
 
 from starlette.applications import Starlette
@@ -55,6 +56,7 @@ from mulewatch.webui.domain.views import (
     FilesSummary,
     FilterBar,
     HiddenInput,
+    NavItem,
     PageNav,
     SchedulerEntry,
     SearchBar,
@@ -63,6 +65,33 @@ from mulewatch.webui.domain.views import (
     TargetCoverageRow,
     TierFacet,
 )
+
+# The top-nav destinations, in render order: (path, label). The single source of truth for what
+# base.html renders; every page reaches all five.
+_NAV_DESTINATIONS: tuple[tuple[str, str], ...] = (
+    ("/", "Dashboard"),
+    ("/files", "Files"),
+    ("/node", "Nodes"),
+    ("/controls", "Controls"),
+    ("/console", "Console"),
+)
+
+
+def _nav_context(request: Request) -> dict[str, Any]:
+    """Context processor: give EVERY TemplateResponse its ``nav_items`` (no handler has to pass
+    them). The entry whose path matches the request exactly loses its link, which base.html then
+    renders as the bold current page: that is what replaces the per-page ``<h1>``.
+
+    The match is exact, so a sub-page (``/files/{hash}``, ``/targets/{id}``) marks no entry
+    active: it is not itself a nav destination, and it names itself with its own heading.
+    """
+    current = request.url.path
+    return {
+        "nav_items": tuple(
+            NavItem(label=label, link=() if path == current else (path,))
+            for path, label in _NAV_DESTINATIONS
+        )
+    }
 
 
 def _resolve_target_display(
@@ -386,7 +415,7 @@ def build_app(
     dispatches a thread-safe, fire-and-forget intent to the crawler loop; the webui itself holds
     no write connection (spec §4/§10)."""
 
-    templates = Jinja2Templates(directory=templates_dir)
+    templates = Jinja2Templates(directory=templates_dir, context_processors=[_nav_context])
     target_segments = targets
     explainer = MatchingExplainer(matcher_config=matcher_config, targets=targets)
 
@@ -524,6 +553,7 @@ def build_app(
             {
                 "rows": display_rows,
                 "nav": nav,
+                "headings": (),  # the nav's bold "Files" entry already names this page
                 "summaries": (summary,),
                 "headers": (headers,),
                 "filter_bar": (filter_bar,),
@@ -602,11 +632,19 @@ def build_app(
         # No pagination here (target view: we expect few) — empty nav.
         nav = PageNav(page=1, prev_url=None, next_url=None)
         # files.html is shared with /files, whose matched/all summary line and filter bar are
-        # meaningless on a target-scoped page: pass empty tuples so they render nothing.
+        # meaningless on a target-scoped page: pass empty tuples so they render nothing. This
+        # page is NOT a nav destination, though, so unlike /files it does carry a heading.
         return templates.TemplateResponse(
             request,
             "files.html",
-            {"rows": display_rows, "nav": nav, "summaries": (), "headers": (), "filter_bar": ()},
+            {
+                "rows": display_rows,
+                "nav": nav,
+                "headings": (f"Files for target {target_id}",),
+                "summaries": (),
+                "headers": (),
+                "filter_bar": (),
+            },
         )
 
     async def handle_node(request: Request) -> Response:

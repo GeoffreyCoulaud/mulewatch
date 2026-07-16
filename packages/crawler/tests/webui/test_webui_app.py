@@ -1,5 +1,6 @@
 """TDD tests for the Starlette application (composition/app.py — Task 11)."""
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -1480,15 +1481,20 @@ async def test_controls_get_renders_the_four_action_forms(
 
 
 @pytest.mark.asyncio
-async def test_controls_nav_link_present_on_a_rendered_page(
+async def test_controls_nav_entry_links_from_elsewhere_and_is_active_on_controls(
     controls_app: tuple[Starlette, _RecordingControl],
 ) -> None:
-    """The base nav gained a Controls link (href="/controls")."""
+    """The base nav carries a Controls entry: a link (href="/controls") from any other page, and
+    the active non-link on /controls itself, where that href is gone by construction."""
     app, _ = controls_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.get("/controls")
-    assert resp.status_code == 200
-    assert 'href="/controls"' in resp.text
+        elsewhere = await client.get("/")
+        on_controls = await client.get("/controls")
+    assert elsewhere.status_code == 200
+    assert '<a href="/controls">Controls</a>' in elsewhere.text
+    assert on_controls.status_code == 200
+    assert '<span aria-current="page">Controls</span>' in on_controls.text
+    assert '<a href="/controls">Controls</a>' not in on_controls.text
 
 
 @pytest.mark.asyncio
@@ -1796,6 +1802,29 @@ async def test_files_renders_search_prefill_and_facet(
 
 
 @pytest.mark.asyncio
+async def test_files_filter_bar_wraps_facets_then_search(
+    populated_app: tuple[Starlette, str],
+) -> None:
+    """The facet chips and the search form share one .filter-bar row, chips first.
+
+    The order is the layout contract: the row is a flex line and the form is pushed right by
+    `margin-left: auto`, which only lands the form on the right if it is the LAST child.
+    """
+    app, _ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/files")
+    row = re.search(r'<div class="filter-bar">(.*?)</div>', resp.text, re.DOTALL)
+    assert row is not None  # the wrapper is a div now, no longer the form itself
+    inner = row.group(1)
+    facet_at = inner.find('<nav class="tier-facet"')
+    form_at = inner.find('<form class="files-search"')
+    assert facet_at != -1  # the chips live inside the row
+    assert form_at != -1  # the form lives inside the row, and carries files-search
+    assert facet_at < form_at  # chips left, search right
+    assert 'role="search"' in inner  # the form stays a landmark after the reclassing
+
+
+@pytest.mark.asyncio
 async def test_target_page_has_no_filter_bar(
     app_download_tier_known_target: tuple[Starlette, str],
 ) -> None:
@@ -1804,3 +1833,83 @@ async def test_target_page_has_no_filter_bar(
         resp = await client.get("/targets/062A")
     assert 'name="q"' not in resp.text  # no search form on a target page
     assert "tier-facet" not in resp.text  # no facet on a target page
+    assert "filter-bar" not in resp.text  # the wrapper itself renders nothing either
+    assert "files-search" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Top nav: active state + the page titles it replaces
+# ---------------------------------------------------------------------------
+
+# The five nav destinations, in render order: (path, label). Mirrors the table wired in
+# composition.app; a test that drifts from it fails on the label or the href.
+_NAV_ENTRIES: tuple[tuple[str, str], ...] = (
+    ("/", "Dashboard"),
+    ("/files", "Files"),
+    ("/node", "Nodes"),
+    ("/controls", "Controls"),
+    ("/console", "Console"),
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("path", "label"), _NAV_ENTRIES)
+async def test_nav_marks_only_the_current_page_entry_as_active(
+    populated_app: tuple[Starlette, str], path: str, label: str
+) -> None:
+    """On each nav destination: its own entry is a non-link marked aria-current="page" (the CSS
+    hook that bolds it), its nav link is gone, every other entry stays a link, and exactly one
+    entry is active."""
+    app, _ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(path)
+    assert resp.status_code == 200
+    assert f'<span aria-current="page">{label}</span>' in resp.text
+    assert f'<a href="{path}">{label}</a>' not in resp.text
+    for other_path, other_label in _NAV_ENTRIES:
+        if other_path == path:
+            continue
+        assert f'<a href="{other_path}">{other_label}</a>' in resp.text
+    assert resp.text.count('aria-current="page"') == 1
+
+
+@pytest.mark.asyncio
+async def test_nav_on_a_non_nav_path_renders_every_entry_as_a_link(
+    populated_app: tuple[Starlette, str],
+) -> None:
+    """A page that is NOT a nav destination (here /files/{hash}, the file detail) leaves every
+    entry a link and marks none active: the active entry is an EXACT path match, not a prefix."""
+    app, hash_ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(f"/files/{hash_}")
+    assert resp.status_code == 200
+    for path, label in _NAV_ENTRIES:
+        assert f'<a href="{path}">{label}</a>' in resp.text
+    assert "aria-current" not in resp.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", [path for path, _ in _NAV_ENTRIES])
+async def test_nav_pages_render_no_page_title(
+    populated_app: tuple[Starlette, str], path: str
+) -> None:
+    """The five nav destinations carry no <h1>: the title duplicated the nav, whose bold current
+    entry now names the page. Their <h2> section headings stay."""
+    app, _ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(path)
+    assert resp.status_code == 200
+    assert "<h1>" not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_target_page_renders_its_own_heading(
+    app_download_tier_known_target: tuple[Starlette, str],
+) -> None:
+    """/targets/{id} reuses files.html but is NOT a nav destination, so nothing else would name
+    it: it passes its own heading in the ``headings`` tuple (files.html itself renders none)."""
+    app, _ = app_download_tier_known_target
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/targets/062A")
+    assert resp.status_code == 200
+    assert "<h1>Files for target 062A</h1>" in resp.text
