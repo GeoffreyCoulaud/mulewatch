@@ -51,6 +51,10 @@ nav {
   font-size: 0.95rem;
 }
 
+/* The current page's nav entry is rendered as a non-link: the aria-current attribute IS the
+   styling hook (same specificity as a class), so no parallel class is needed. */
+nav [aria-current="page"] { font-weight: 600; }
+
 /* Tableaux */
 table {
   width: 100%;
@@ -217,12 +221,52 @@ pre {
   white-space: nowrap;
 }
 
-/* /files filter bar: filename search form + tier facet chips */
-.filter-bar { display: flex; gap: 0.5rem; align-items: center; margin: 0.75rem 0 0.25rem; }
-/* the facet is a <nav>, so reset the site-nav border/padding it would otherwise inherit */
-.tier-facet { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; border: 0; padding: 0; }
+/* /files filter bar: one row, tier facet chips on the left, filename search pushed right.
+   The row owns the vertical margins (0.75rem above and below) and the font-size for every
+   control on it, so the chips and the search widgets agree on their size. */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  font-size: 0.95rem;
+}
+/* the facet is a <nav>, so reset the site-nav border/padding/margin/font-size it would
+   otherwise inherit; font-size: inherit hands the sizing back to .filter-bar */
+.tier-facet { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0; border: 0; padding: 0; font-size: inherit; }
 .tier-facet a { padding: 0.15rem 0.6rem; border: 1px solid currentColor; border-radius: 1rem; text-decoration: none; }
 .tier-facet a[data-selected="1"] { font-weight: 600; }
+
+/* margin-left: auto pushes the form to the right end of the row (it is the last child) */
+.files-search { display: flex; gap: 0.5rem; margin-left: auto; }
+/* appearance: none drops the native search-field chrome so the input reads as a chip.
+   The clear button is left alone: it is a real affordance, not part of the clash. */
+.files-search input[type="search"] {
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid #ced4da;
+  border-radius: 1rem;
+  background: #ffffff;
+  color: inherit;
+  font: inherit;
+}
+.files-search input[type="search"]:focus-visible {
+  border-color: #2563eb;
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+.files-search button {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid #adb5bd;
+  border-radius: 1rem;
+  background: #e9ecef;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.files-search button:hover { background: #dee2e6; }
 
 /* SQL console */
 .console-form { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }

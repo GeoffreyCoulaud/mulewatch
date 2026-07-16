@@ -13,6 +13,26 @@ class CoverageStatus:
 
 
 # ---------------------------------------------------------------------------
+# Top nav (shared by every page via a context processor)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class NavItem:
+    """One entry of the shared top nav, precomputed (W-D8: no template logic).
+
+    ``link`` is a 0-or-1 element tuple holding the href, so the template picks the rendering with
+    ``{% for %}``/``{% else %}`` (the guard forbids ``{% if %}``): non-empty renders a link, empty
+    means this entry IS the current page and renders as a non-link marked ``aria-current="page"``.
+    That attribute is the CSS hook that bolds it, which is why no page needs an ``<h1>`` naming
+    itself.
+    """
+
+    label: str
+    link: tuple[str, ...]  # 0 or 1 element: the href, empty when this is the current page
+
+
+# ---------------------------------------------------------------------------
 # Dashboard — coverage per target
 # ---------------------------------------------------------------------------
 
