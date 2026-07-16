@@ -1,4 +1,4 @@
-"""TDD tests for the Starlette application (composition/app.py — Task 11)."""
+"""TDD tests for the Starlette application (composition/app.py, Task 11)."""
 
 import re
 import sqlite3
@@ -217,7 +217,7 @@ def app_no_decision(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
 @pytest.fixture
 def app_retracted_decision(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """File whose LATEST decision for target 062A is a per-target retraction sentinel
-    (``target_id="062A", rule_name="", tier="retracted"``) — must be treated exactly like
+    (``target_id="062A", rule_name="", tier="retracted"``): must be treated exactly like
     ``app_no_decision`` (unmatched), never like a real decision."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
@@ -382,7 +382,7 @@ def app_unknown_target(catalog_db: Path, local_db: Path) -> tuple[Starlette, str
 @pytest.fixture
 def app_download_tier_known_target(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """A non-catalog decision (tier=download) on a target_id resolvable in the current
-    targets.yaml — Task 3 resolution rule: the "resolvable id" case."""
+    targets.yaml. Task 3 resolution rule: the "resolvable id" case."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
             "INSERT INTO files VALUES (?, ?, ?)",
@@ -442,7 +442,7 @@ def app_download_tier_known_target(catalog_db: Path, local_db: Path) -> tuple[St
 @pytest.fixture
 def app_download_tier_unknown_target(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """A non-catalog decision (tier=download) on a target_id NOT in the current
-    targets.yaml — Task 3 resolution rule: the "unknown id" case."""
+    targets.yaml. Task 3 resolution rule: the "unknown id" case."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute(
             "INSERT INTO files VALUES (?, ?, ?)",
@@ -674,7 +674,7 @@ async def test_file_detail_retracted_shows_no_decision(
     app_retracted_decision: tuple[Starlette, str],
 ) -> None:
     """/files/{hash} whose LATEST decision is a retraction renders exactly like a file with
-    no decision at all: "No matching decision.", never a tier/target/rule badge — and never
+    no decision at all: "No matching decision.", never a tier/target/rule badge, and never
     the literal "retracted" string anywhere in the page."""
     app, hash_ = app_retracted_decision
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -726,7 +726,7 @@ async def test_target_page_has_no_summary_line(
     populated_app: tuple[Starlette, str],
 ) -> None:
     """/targets/{id} shares files.html, but the matched/all summary is meaningless on a
-    target-scoped page — the summary line and its toggle must not render there."""
+    target-scoped page: the summary line and its toggle must not render there."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/targets/062A")
@@ -883,7 +883,7 @@ async def test_file_detail_unknown_hash_returns_styled_404(
 
 @pytest.fixture
 def app_with_hostile_filename(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
-    """File whose name contains a ``|`` (eD2k link separator) — webui-security#0
+    """File whose name contains a ``|`` (eD2k link separator). A webui-security#0
     regression: without percent-encoding, the ``|`` in the name shifts size/hash and the
     link points elsewhere."""
     hostile = "weird|name.avi"
@@ -1061,7 +1061,7 @@ async def test_hostile_filename_is_escaped_in_ed2k_link(
 
 
 # ---------------------------------------------------------------------------
-# Unit tests — _resolve_target_display / _to_display_rows (Task 3 resolution rule)
+# Unit tests · _resolve_target_display / _to_display_rows (Task 3 resolution rule)
 # ---------------------------------------------------------------------------
 
 _SEGMENT_062A = TargetSegment(
@@ -1166,7 +1166,7 @@ def test_to_display_rows_computes_size_and_last_seen_display() -> None:
 
 
 # ---------------------------------------------------------------------------
-# HTTP-level tests — the resolution rule end-to-end through both routes
+# HTTP-level tests · the resolution rule end-to-end through both routes
 # ---------------------------------------------------------------------------
 
 
@@ -1223,7 +1223,7 @@ async def test_files_unknown_target_shows_raw_id_and_dash_title(
         resp = await client.get("/files")
     assert resp.status_code == 200
     assert "999Z" in resp.text
-    # The static tier legend also mentions the word "unidentified" — scope to the cell.
+    # The static tier legend also mentions the word "unidentified": scope to the cell.
     assert '<div class="cell-line">unidentified</div>' not in resp.text
     assert "La Grenouille Cosmique" not in resp.text
 
@@ -1240,7 +1240,7 @@ async def test_files_no_decision_shows_dashes(
         resp = await client.get("/files?show_unmatched=1")
     assert resp.status_code == 200
     assert hash_[:8] in resp.text
-    # The Verdict/Target header tooltips also mention "pending"/"unidentified" — scope to
+    # The Verdict/Target header tooltips also mention "pending"/"unidentified": scope to
     # the cell so we assert on the row value, not the static legend text.
     assert "<td>pending</td>" not in resp.text
     assert '<div class="cell-line">unidentified</div>' not in resp.text
@@ -1291,7 +1291,7 @@ async def test_files_nonobvious_columns_have_header_tooltips(
 async def test_target_page_resolves_title_via_segment_mapping(
     app_download_tier_known_target: tuple[Starlette, str],
 ) -> None:
-    """/targets/{id} shares _to_display_rows with /files — confirm handle_target ALSO
+    """/targets/{id} shares _to_display_rows with /files: confirm handle_target ALSO
     threads the segment_by_id mapping (both call sites, per the brief)."""
     app, _ = app_download_tier_known_target
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -1302,7 +1302,7 @@ async def test_target_page_resolves_title_via_segment_mapping(
 
 
 # ---------------------------------------------------------------------------
-# Whole-episode end-to-end (Task 4 — the multi-target headline behavior):
+# Whole-episode end-to-end (Task 4, the multi-target headline behavior):
 # one recovered whole-episode file resolves BOTH lost segments, renders as
 # ONE <tr> with an aggregated Target/Title/Tier cell, and appears under EACH
 # of its targets.
@@ -1330,7 +1330,7 @@ episodes:
 @pytest.fixture
 def app_whole_episode(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
     """One file matched to BOTH 072A and 072B (two current decisions, tier download) against a
-    two-segment targets.yaml — the core multi-target end-to-end fixture (spec §9)."""
+    two-segment targets.yaml: the core multi-target end-to-end fixture (spec §9)."""
     with sqlite3.connect(catalog_db) as conn:
         conn.execute("INSERT INTO files VALUES (?, ?, ?)", (TEST_HASH, 170_000_000, None))
         conn.execute(

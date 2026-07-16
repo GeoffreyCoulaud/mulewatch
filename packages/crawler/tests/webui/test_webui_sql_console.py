@@ -54,7 +54,7 @@ def _seed_catalog(path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# run_query — the execution adapter (spec §11)
+# run_query · the execution adapter (spec §11)
 # ---------------------------------------------------------------------------
 
 
