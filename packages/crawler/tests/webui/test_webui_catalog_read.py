@@ -1065,6 +1065,17 @@ def test_list_files_lists_file_with_no_observation(catalog_db: Path) -> None:
     assert rows[0].last_seen == ""
 
 
+def test_list_files_file_with_no_observation_has_zero_sources(catalog_db: Path) -> None:
+    """``source_count`` is 0, not None: ``FileRow.source_count`` is typed ``int``, and the
+    template renders the value straight into a cell, so a None would reach the page as the
+    string "None". Same guard as ``filename`` / ``last_seen`` on the same row."""
+    _seed_file_without_observation(catalog_db)
+    rows = CatalogReader(open_reader(catalog_db)).list_files(
+        target=None, tier=None, verdict=None, query=None, page=1
+    )
+    assert rows[0].source_count == 0
+
+
 def test_count_files_counts_file_with_no_observation(catalog_db: Path) -> None:
     """It counts in ``total`` (it is a catalogued file) but not in ``matched`` (no decision)."""
     _seed_file_without_observation(catalog_db)

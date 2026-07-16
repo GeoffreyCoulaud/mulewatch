@@ -429,7 +429,10 @@ class CatalogReader:
                     ed2k_hash=row["ed2k_hash"],
                     size_bytes=row["size_bytes"],
                     filename=row["filename"] or "",
-                    source_count=row["source_count"],
+                    # A file with no observation yet LEFT JOINs to NULLs: coalesce all three,
+                    # or the NULL reaches the page as the string "None" (the template renders
+                    # the value straight into a cell) and FileRow's int/str types are a lie.
+                    source_count=row["source_count"] or 0,
                     last_seen=row["last_seen"] or "",
                     decisions=decisions,
                     last_verdict=row["last_verdict"],
