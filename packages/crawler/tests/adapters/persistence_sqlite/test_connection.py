@@ -35,6 +35,9 @@ _LOCAL_TABLES = {
 # Canonical 32-char lowercase hex hash (satisfies the CHECK constraint).
 _CANONICAL_HASH = "a" * 32
 
+# PRAGMA temp_store: 2 = MEMORY (0 = the file-backed default).
+_TEMP_STORE_MEMORY = 2
+
 
 def _table_names(connection: sqlite3.Connection) -> set[str]:
     rows = connection.execute(
@@ -47,7 +50,7 @@ def test_open_catalog_creates_the_seven_tables_and_versions_the_schema(tmp_path:
     connection = open_catalog(tmp_path / "catalog.db")
     try:
         assert _table_names(connection) == _CATALOG_TABLES
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
     finally:
         connection.close()
 
@@ -102,7 +105,7 @@ def test_reopen_is_idempotent_and_keeps_data(tmp_path: Path) -> None:
     first.close()
     second = open_catalog(path)  # versions already applied: NO script replays
     try:
-        assert second.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert second.execute("PRAGMA user_version").fetchone()[0] == 4
         assert second.execute("SELECT count(*) FROM files").fetchone()[0] == 1
     finally:
         second.close()
@@ -134,6 +137,61 @@ def test_apply_migrations_with_no_scripts_is_a_noop(tmp_path: Path) -> None:
     try:
         _apply_migrations(connection, ())
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+def test_migrations_sort_through_an_in_memory_temp_store(tmp_path: Path) -> None:
+    """Migrations run with ``temp_store=MEMORY``, because the shipped container cannot spill.
+
+    A ``CREATE INDEX`` over a large table sorts through SQLite's external sorter, which spills
+    to the temp directory. In the container /tmp is a 64m tmpfs (base.compose.yml), /var/tmp is
+    not writable (``read_only: true``) and this write connection otherwise leaves ``temp_store``
+    at its file default. Migration 0004 builds an index over ``file_observations``, which needs
+    ~85MiB of temp files on the real catalogue: reproduced in the live container, it dies with
+    "database or disk is full", rolls back and crash-loops the crawler at startup.
+
+    The probe script records the ``temp_store`` in force WHILE it runs, so this asserts what a
+    migration actually gets, not merely that a pragma was issued.
+    """
+    connection = sqlite3.connect(tmp_path / "probe.db", autocommit=True)
+    script = (
+        "CREATE TABLE probe (temp_store INTEGER);\n"
+        "INSERT INTO probe SELECT temp_store FROM pragma_temp_store();"
+    )
+    try:
+        _apply_migrations(connection, ((1, script),))
+        assert (
+            connection.execute("SELECT temp_store FROM probe").fetchone()[0] == _TEMP_STORE_MEMORY
+        )
+    finally:
+        connection.close()
+
+
+def test_temp_store_is_restored_after_migrations(tmp_path: Path) -> None:
+    """The in-memory temp store is scoped to the migration window: a one-shot spike at startup
+    (~150MiB of the 512m budget while 0004's index builds over 1.19M rows). Leaving it on would
+    hand every later runtime sort the same unbounded budget instead of a spill file, and
+    SQLite's in-memory sorter is bounded by nothing but the row count (~116 bytes/row, NOT by
+    cache_size). See ``_apply_migrations``."""
+    connection = sqlite3.connect(tmp_path / "restore.db", autocommit=True)
+    try:
+        before = connection.execute("PRAGMA temp_store").fetchone()[0]
+        _apply_migrations(connection, ((1, "CREATE TABLE t (x INTEGER);"),))
+        assert connection.execute("PRAGMA temp_store").fetchone()[0] == before
+    finally:
+        connection.close()
+
+
+def test_temp_store_is_restored_even_when_a_migration_fails(tmp_path: Path) -> None:
+    """The restore rides on a ``finally``: a failed migration must not leave the connection with
+    an in-memory temp store, since ``open_catalog``'s caller may catch MigrationError."""
+    connection = sqlite3.connect(tmp_path / "restore_fail.db", autocommit=True)
+    try:
+        before = connection.execute("PRAGMA temp_store").fetchone()[0]
+        with pytest.raises(MigrationError):
+            _apply_migrations(connection, ((1, "INSERT INTO nonexistent VALUES (1);"),))
+        assert connection.execute("PRAGMA temp_store").fetchone()[0] == before
     finally:
         connection.close()
 

@@ -128,6 +128,30 @@ def _apply_migrations(connection: sqlite3.Connection, scripts: tuple[tuple[int, 
     user_version = N`` INSIDE the transaction (the pragma is transactional: a ROLLBACK
     undoes it), then ``COMMIT``. PRAGMA accepts no bound parameter: ``version``
     comes from ``int()``, the interpolation is safe.
+
+    Migrations sort in memory (``temp_store=MEMORY``), restored afterwards. A ``CREATE INDEX``
+    over a large table sorts through SQLite's external sorter, which spills to the temp
+    directory; in the container that is a 64m tmpfs (/var/tmp is not writable under
+    ``read_only: true``), while 0004's index over ``file_observations`` needs ~85MiB of temp
+    files on the real catalogue. Left on the file default it raises SQLITE_FULL ("database or
+    disk is full"), which rolls back below and crash-loops the crawler at startup. A bigger
+    tmpfs would fix it too, and would bound the memory better, but the remedy would live in the
+    operator's compose file (which drifts from ``deploy/``) and has to land at the same instant
+    as the image: forget it and the node crash-loops. The image carries its own remedy instead.
+
+    KNOW THE TRADE-OFF before adding a migration that sorts. In-memory, SQLite's sorter never
+    flushes (``mxPmaSize`` stays 0, so ``sqlite3VdbeSorterWrite`` never spills) and ``cache_size``
+    does NOT bound it: it holds every record, growing linearly at ~116 bytes per row of the
+    table being sorted. Measured in the shipped image: 1.19M rows -> ~150MiB peak RSS of the
+    512m limit, i.e. a ceiling near 4.5M rows. Past it the container is OOM-killed: SIGKILL,
+    exit 137, no traceback and no MigrationError, which is far harder to diagnose than the
+    SQLITE_FULL this replaces (see docs/runbooks/troubleshooting.md). 0004 is one-shot (an index
+    is maintained incrementally once built), but ``file_observations`` grows without bound, so a
+    LATER migration sorting that table is the one to think twice about.
+
+    Migration scripts must not ``CREATE TEMP TABLE``: switching ``temp_store`` drops existing
+    temp tables, so the restore below would silently destroy one that outlived its script (none
+    do today).
     """
     current = int(connection.execute("PRAGMA user_version").fetchone()[0])
     latest = scripts[-1][0] if scripts else 0
@@ -136,6 +160,17 @@ def _apply_migrations(connection: sqlite3.Connection, scripts: tuple[tuple[int, 
             f"db at version {current}, code at version {latest}: "
             "db newer than the code, refusing to start (spec §3)"
         )
+    connection.execute("PRAGMA temp_store=MEMORY")
+    try:
+        _run_scripts(connection, scripts, current)
+    finally:
+        connection.execute("PRAGMA temp_store=DEFAULT")
+
+
+def _run_scripts(
+    connection: sqlite3.Connection, scripts: tuple[tuple[int, str], ...], current: int
+) -> None:
+    """Applies each pending script in its own transaction. See ``_apply_migrations``."""
     # Race between two concurrent runners: the loser fails cleanly (sqlite3.Error
     # → MigrationError), never corruption - single writer by doctrine (spec §3).
     for version, script in scripts:

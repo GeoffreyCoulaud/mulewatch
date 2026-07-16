@@ -152,6 +152,22 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   dans `deploy/config/crawler/crawler.yml`. Corrigez `.env` (voir la fiche
   [« Une valeur change-me est restée dans .env »](#une-valeur-change-me-est-restée-dans-env)), puis
   `docker compose up -d` depuis `deploy/`.
+- **Journal vide juste après une montée d'image (`crawler`).** Si le crawler boucle en laissant un
+  journal **vide** (pas d'erreur, pas de traceback), ce n'est pas une panne applicative : le noyau a
+  tué le conteneur, donc rien n'a pu être écrit. À vérifier :
+  ```
+  docker inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}}' mulewatch-crawler-1
+  ```
+  `true 137` confirme le manque de mémoire. Cause : au premier démarrage qui suit une montée
+  d'image, le crawler applique les migrations SQLite en attente, et une migration qui construit un
+  index **trie en mémoire**. Ce tri grossit avec la table indexée (environ 116 octets par ligne) et
+  rien ne le plafonne, ni `cache_size` ni la limite du conteneur : sur un gros catalogue le pic peut
+  dépasser `mem_limit` (512 Mo par défaut, soit environ 4,5 millions de lignes). Remède : relevez
+  temporairement le `mem_limit` du service `crawler` dans `base.compose.yml`, `docker compose up -d`,
+  laissez le premier démarrage aller à son terme (le pic est ponctuel : une fois l'index construit il
+  est maintenu au fil de l'eau, sans tri), puis remettez la valeur d'origine. À titre de repère, la
+  migration 0004 construit son index sur 1,19 million d'observations en environ 5 s pour un pic
+  d'environ 150 Mo.
 - **Grafana sans mot de passe (`grafana`).** Si `docker compose up -d` s'arrête tout de suite avec
   `required variable GRAFANA_PWD is missing a value`, c'est que `GRAFANA_PWD` est vide dans `.env` :
   renseignez-le (même fiche que ci-dessus), puis relancez.

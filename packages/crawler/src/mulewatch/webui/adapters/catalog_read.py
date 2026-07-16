@@ -89,10 +89,24 @@ AND tier != 'retracted'
 ORDER BY target_id, ed2k_hash
 """
 
-# The "latest per group" CTEs shared by the explorer list + counter. Each folds an
-# append-only table to its current rows with a ROW_NUMBER() window (latest wins, tie-break on
-# id), replacing the earlier correlated COUNT(*)=0 subqueries (quadratic on accumulated
-# history). ``latest_dec`` keeps the latest decision per (hash, target_id), dropping the legacy
+# The "latest per group" CTEs shared by the explorer list + counter, each folding an
+# append-only table to its current rows (latest wins, tie-break on id).
+#
+# ``latest_obs`` is driven by ``files`` and seeks each file's newest observation through
+# ``idx_file_observations_hash_observed`` (migration 0004), rather than numbering the table
+# with a ROW_NUMBER() window like the CTEs below. A window must number EVERY row, so it walks
+# all of ``file_observations`` (1.18M rows for 1402 files on the real node) to keep one row per
+# file: 2.8s per query, ~10s per /files render. The seek form needs that index to pay off (it
+# is slower than the window without it), which is why the two must not be split up. The other
+# CTEs keep their window: ``match_decisions`` and ``file_verifications`` are small (hundreds of
+# rows), so it is not worth the same treatment until they grow.
+#
+# Being files-driven, ``latest_obs`` holds one row per catalogued file, INCLUDING a file with
+# no observation yet (all-NULL columns) where the window form simply had no row. Every consumer
+# below LEFT JOINs it onto ``files``, which absorbs the difference (NULL columns either way);
+# read it on its own, though, and it counts files, not observed files.
+#
+# ``latest_dec`` keeps the latest decision per (hash, target_id), dropping the legacy
 # ``target_id == ''`` sentinel and any target whose latest row is a ``retracted`` marker;
 # ``dec_agg`` folds those to ONE row per hash, target_ids/tiers ``char(31)``-joined and both
 # ordered by target_id so the two lists stay index-aligned (spec §9, rendering A).
@@ -124,20 +138,19 @@ dec_agg AS (
     GROUP BY ld.ed2k_hash
 ),
 latest_obs AS (
-    SELECT ed2k_hash, filename, source_count, observed_at
-    FROM (
-        SELECT
-            obs.ed2k_hash,
-            obs.filename,
-            obs.source_count,
-            obs.observed_at,
-            ROW_NUMBER() OVER (
-                PARTITION BY obs.ed2k_hash
-                ORDER BY obs.observed_at DESC, obs.id DESC
-            ) AS rn
-        FROM file_observations AS obs
+    SELECT
+        f.ed2k_hash AS ed2k_hash,
+        obs.filename AS filename,
+        obs.source_count AS source_count,
+        obs.observed_at AS observed_at
+    FROM files AS f
+    LEFT JOIN file_observations AS obs ON obs.id = (
+        SELECT o.id
+        FROM file_observations AS o
+        WHERE o.ed2k_hash = f.ed2k_hash
+        ORDER BY o.observed_at DESC, o.id DESC
+        LIMIT 1
     )
-    WHERE rn = 1
 ),
 latest_ver AS (
     SELECT ed2k_hash, verdict

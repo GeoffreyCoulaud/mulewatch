@@ -6,8 +6,13 @@ from pathlib import Path
 import pytest
 
 from catalog_matching.config import TIER_RANK
+from mulewatch.adapters.persistence_sqlite.connection import open_catalog
 from mulewatch.adapters.persistence_sqlite.reader import open_reader
 from mulewatch.webui.adapters.catalog_read import (
+    _SQL_COUNT_FILES_BASE,
+    _SQL_CTES,
+    _SQL_LIST_FILES_BASE,
+    _SQL_TIER_COUNTS_BASE,
     DEFAULT_DIR,
     DEFAULT_SORT,
     SORT_COLUMNS,
@@ -15,6 +20,10 @@ from mulewatch.webui.adapters.catalog_read import (
     _tier_rank_case,
 )
 from mulewatch.webui.domain.views import FileRow
+
+# Selects the CTE under test on its own: SQLite drops the CTEs a query does not reference, so
+# the resulting plan is exactly how ``latest_obs`` is resolved.
+LATEST_OBS_PROBE = "SELECT ed2k_hash, filename, source_count, observed_at FROM latest_obs"
 
 # ---------------------------------------------------------------------------
 # Seed helpers
@@ -1022,3 +1031,118 @@ def test_tier_counts_respects_query_filter(catalog_db: Path) -> None:
         target=None, verdict=None, query="alpha"
     )
     assert counts == {"download": 1}
+
+
+# ---------------------------------------------------------------------------
+# Files with no observation / tied observations
+# ---------------------------------------------------------------------------
+
+
+def _seed_file_without_observation(db: Path) -> str:
+    """A file with NO observation at all (a file row is written before its first observation is
+    recorded). Returns its hash."""
+    h = "d" * 32
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 42))
+        conn.commit()
+    return h
+
+
+def test_list_files_lists_file_with_no_observation(catalog_db: Path) -> None:
+    """A file with no observation is still listed, with an empty filename/last_seen.
+
+    This is THE case where the two shapes of ``latest_obs`` differ internally: the seek form
+    yields a row of NULLs for such a file, the older window form yielded no row at all. Both
+    reach the same result only because ``_SQL_FILES_SOURCE`` LEFT JOINs it onto ``files``, so
+    this pins that the difference stays absorbed.
+    """
+    h = _seed_file_without_observation(catalog_db)
+    rows = CatalogReader(open_reader(catalog_db)).list_files(
+        target=None, tier=None, verdict=None, query=None, page=1
+    )
+    assert [row.ed2k_hash for row in rows] == [h]
+    assert rows[0].filename == ""
+    assert rows[0].last_seen == ""
+
+
+def test_count_files_counts_file_with_no_observation(catalog_db: Path) -> None:
+    """It counts in ``total`` (it is a catalogued file) but not in ``matched`` (no decision)."""
+    _seed_file_without_observation(catalog_db)
+    matched, total = CatalogReader(open_reader(catalog_db)).count_files(
+        target=None, tier=None, verdict=None, query=None
+    )
+    assert (matched, total) == (0, 1)
+
+
+def test_list_files_query_filter_excludes_file_with_no_observation(catalog_db: Path) -> None:
+    """No observation means no filename to match: ``NULL LIKE ?`` is NULL, so the row drops."""
+    _seed_file_without_observation(catalog_db)
+    rows = CatalogReader(open_reader(catalog_db)).list_files(
+        target=None, tier=None, verdict=None, query="keroro", page=1
+    )
+    assert rows == []
+
+
+def test_list_files_observation_tie_break_on_id(catalog_db: Path) -> None:
+    """Two observations at the SAME ``observed_at``: the higher id wins.
+
+    ``latest_obs`` orders by ``(observed_at DESC, id DESC)`` but
+    ``idx_file_observations_hash_observed`` names only ``(ed2k_hash, observed_at)``: the id
+    tiebreak rides on the rowid that SQLite stores as every index's implicit trailing key.
+    """
+    h = "a" * 32
+    with sqlite3.connect(catalog_db) as conn:
+        conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 100))
+        for name in ("first.avi", "second.avi"):  # same instant, ascending ids
+            conn.execute(
+                "INSERT INTO file_observations"
+                " (ed2k_hash, filename, size_bytes, source_count,"
+                " complete_source_count, raw_meta, keyword, observed_at, node_id)"
+                " VALUES (?, ?, 100, 1, 0, '[]', 'keroro', ?, 'n1')",
+                (h, name, "2026-07-03T10:00:00.000000+00:00"),
+            )
+        conn.commit()
+    rows = CatalogReader(open_reader(catalog_db)).list_files(
+        target=None, tier=None, verdict=None, query=None, page=1
+    )
+    assert rows[0].filename == "second.avi"
+
+
+# ---------------------------------------------------------------------------
+# Read-path shape (performance is a correctness property here)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("label", "sql"),
+    [
+        ("latest_obs alone", _SQL_CTES + LATEST_OBS_PROBE),
+        ("list_files", _SQL_LIST_FILES_BASE + "ORDER BY obs.observed_at DESC LIMIT 50"),
+        ("count_files", _SQL_COUNT_FILES_BASE),
+        ("tier_counts", _SQL_TIER_COUNTS_BASE + "GROUP BY ld.tier"),
+    ],
+)
+def test_latest_obs_seeks_per_file_instead_of_scanning_observations(
+    tmp_path: Path, label: str, sql: str
+) -> None:
+    """Every /files query must SEEK each file's newest observation through
+    ``idx_file_observations_hash_observed``, never walk ``file_observations``.
+
+    ``file_observations`` is append-only and unbounded (1.18M rows for 1402 files on the real
+    node); only the latest row per file is ever wanted. A window function over the whole table
+    costs ~2.8s per query and made /files take ~10s. This asserts the PLAN, not a duration, so
+    it stays deterministic: reverting either half of the fix (the index, or the seek shape of
+    ``latest_obs``) fails here instead of silently regressing the page by ~430x. All three real
+    queries are checked, so a later edit to ``_SQL_FILES_SOURCE`` that defeats the seek cannot
+    slip through on the strength of the isolated CTE alone.
+
+    Uses ``open_catalog`` (the real migrations) rather than the ``catalog_db`` fixture, whose
+    hand-copied schema carries no indices.
+    """
+    catalog = open_catalog(tmp_path / "catalog.db")
+    plan = [str(row[3]) for row in catalog.execute("EXPLAIN QUERY PLAN " + sql)]
+    catalog.close()
+
+    assert any(
+        step.startswith("SEARCH") and "idx_file_observations_hash_observed" in step for step in plan
+    ), f"{label} does not seek via the index: {plan}"

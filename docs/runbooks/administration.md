@@ -443,6 +443,21 @@ par digest d'architecture. Le détail de la chaîne et du triage VEX est dans `S
 
 ## Limites connues / follow-ups
 
+- **Migrations : le tri se fait en mémoire, sans plafond (2026-07-16)** : les migrations SQLite
+  s'appliquent avec `temp_store=MEMORY` (`connection.py`, restauré juste après). Motif : construire
+  un index déborde le tmpfs de 64 Mo de `/tmp` et échoue en `SQLITE_FULL`, ce qui fait boucler le
+  crawler au démarrage (constaté sur le node réel avec la migration 0004). Le remède alternatif,
+  agrandir le tmpfs, vit dans le compose de l'opérateur : il peut être oublié au moment d'une montée
+  d'image, et cet oubli casse le node ; l'image porte donc son propre remède. **Risque résiduel
+  accepté** : le trieur en mémoire de SQLite ne se vide jamais et n'est borné ni par `cache_size` ni
+  par autre chose que le nombre de lignes (environ 116 octets par ligne). Repère mesuré : 1,19 M
+  d'observations donnent un pic d'environ 150 Mo, soit un plafond vers **4,5 M de lignes** à
+  `mem_limit: 512m`. Au-delà, le conteneur est tué par le noyau (exit 137, journal vide) au lieu de
+  produire une erreur lisible : voir la fiche
+  [« Un conteneur redémarre en boucle »](troubleshooting.md#un-conteneur-redémarre-en-boucle). Ne
+  pas « corriger » sans rouvrir la décision. À surveiller : `file_observations` croît sans borne, et
+  c'est une **future** migration triant cette table qui pose le risque, pas 0004 (ponctuelle, déjà
+  passée).
 - **Sandbox noyau — choix actés (2026-06-17, updated 2026-06-29)** : la sandbox optionnelle gVisor
   (`runsc`) a été retirée du projet (YAGNI). Le plancher portable universel est suffisant :
   conteneur durci (`cap_drop: ALL`, `no-new-privileges`, `read_only`, `internal`) + seccomp
