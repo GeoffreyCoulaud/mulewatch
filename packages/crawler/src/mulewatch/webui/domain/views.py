@@ -1,5 +1,5 @@
 """PRECOMPUTED view-models (webui spec W-D8): the templates only iterate and interpolate
-these fields — no template-side logic."""
+these fields. No template-side logic."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -33,7 +33,7 @@ class NavItem:
 
 
 # ---------------------------------------------------------------------------
-# Dashboard — coverage per target
+# Dashboard · coverage per target
 # ---------------------------------------------------------------------------
 
 
@@ -234,7 +234,7 @@ class FileRowDisplay:
 
 @dataclass(frozen=True)
 class PageNav:
-    """Paginated navigation of a list — precomputed handler-side (spec W-D8: no logic in the
+    """Paginated navigation of a list: precomputed handler-side (spec W-D8: no logic in the
     template). ``prev_url``/``next_url`` are ``None`` when the end is reached; the template
     iterates ``(url,) if url`` to render the link when it exists.
     """
@@ -322,12 +322,12 @@ class FilterBar:
 
 
 # ---------------------------------------------------------------------------
-# File detail — display view (precomputed)
+# File detail · display view (precomputed)
 # ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
-# SQL console (spec §11) — precomputed for the logic-free template
+# SQL console (spec §11) · precomputed for the logic-free template
 # ---------------------------------------------------------------------------
 
 
@@ -372,18 +372,18 @@ class FileDetailDisplay:
     the legacy ``target_id == ""`` sentinel) to allow the iteration
     ``{% for d in file.decisions %}`` in the template (the guard forbids {% if %}).
     ``explanation_notes`` is empty if there is no explanation, containing a single element
-    (the text note) otherwise — allows conditional iteration without {% if %}.
+    (the text note) otherwise: allows conditional iteration without {% if %}.
     """
 
     ed2k_hash: str
     size_bytes: int
     aich_hash_display: str  # aich_hash or "·"
     observations: tuple[ObservationRow, ...]
-    decisions: tuple[DecisionView, ...]  # 0..N elements — for template iteration
+    decisions: tuple[DecisionView, ...]  # 0..N elements: for template iteration
     verifications: tuple[VerificationRow, ...]
     ed2k_link: str  # precomputed from the latest observation
     # Explanation fields (None if no explanation available)
     explanation_target_id: str | None
     explanation_rules_fired: tuple[str, ...]
     explanation_tokens_matched: tuple[str, ...]
-    explanation_notes: tuple[str, ...]  # 0 or 1 element — the text note itself
+    explanation_notes: tuple[str, ...]  # 0 or 1 element: the text note itself

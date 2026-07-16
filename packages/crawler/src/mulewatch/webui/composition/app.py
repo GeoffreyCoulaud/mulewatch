@@ -1,7 +1,7 @@
-"""Starlette application factory (webui spec — Task 11).
+"""Starlette application factory (webui spec, Task 11).
 
 ``build_app`` wires the adapters (SQLite, YAML, templates) and registers all
-routes. The handlers are closures capturing the dependencies — no ``app.state``.
+routes. The handlers are closures capturing the dependencies: no ``app.state``.
 """
 
 import csv
@@ -420,7 +420,7 @@ def build_app(
     explainer = MatchingExplainer(matcher_config=matcher_config, targets=targets)
 
     # Centralized read-only connection management (spec §7): one reused, thread-affine
-    # connection per DB per thread — warm page cache, no per-request cold open. Handlers
+    # connection per DB per thread: warm page cache, no per-request cold open. Handlers
     # obtain a connection via ``provider.connection()`` and NEVER close it (the point is
     # reuse); ``quiesce()`` is the seam livrable 3's maintenance swap will use.
     catalog_reader = ReaderProvider(catalog_db)
@@ -465,7 +465,7 @@ def build_app(
         )
 
     async def handle_files(request: Request) -> Response:
-        # Filters: ``param.strip() or None`` (webui-security#0) — a select with an empty option
+        # Filters: ``param.strip() or None`` (webui-security#0). A select with an empty option
         # sent ``?target=`` (empty string) that matched 0 results with no message.
         target_param = _normalize(request.query_params.get("target"))
         tier_param = _normalize(request.query_params.get("tier"))
@@ -480,7 +480,7 @@ def build_app(
             page = int(page_raw)
         except ValueError:
             page = 1
-        # ``max(1, ...)`` (webui-security#2) — ``?page=0`` → OFFSET=-50 which SQLite treats as 0.
+        # ``max(1, ...)`` (webui-security#2): ``?page=0`` → OFFSET=-50 which SQLite treats as 0.
         page = max(1, page)
 
         catalog = CatalogReader(catalog_reader.connection())
@@ -629,7 +629,7 @@ def build_app(
         )
 
         display_rows = _to_display_rows(file_rows, _segment_by_id)
-        # No pagination here (target view: we expect few) — empty nav.
+        # No pagination here (target view: we expect few). Empty nav.
         nav = PageNav(page=1, prev_url=None, next_url=None)
         # files.html is shared with /files, whose matched/all summary line and filter bar are
         # meaningless on a target-scoped page: pass empty tuples so they render nothing. This
