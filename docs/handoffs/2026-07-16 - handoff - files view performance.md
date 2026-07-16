@@ -90,26 +90,32 @@ in the same range: the plateau is gone.
   LEFT JOINs (differential-tested), but read the CTE on its own and it counts files, not
   observed files.
 
-## Not validated against real hardware
+## Validation
 
-- **The fix has NOT run on the live node.** The image was not rebuilt or redeployed. What was
-  validated: the real `open_catalog` startup path executed inside the shipped image under the
-  shipped constraints (`--read-only`, `--tmpfs /tmp:size=64m`, `--memory 512m`, `--user
-  999:999`, `--cap-drop ALL`) against a copy of the real v3 catalogue: migrated in 5.5s over
-  1,190,173 observations, `user_version` 3 -> 4, index built, temp_store restored, **peak RSS
-  153 MiB of the 512m limit**. Render timings were taken on the host, via the real `build_app`
-  and a TestClient, against a copy of the real catalogue.
-- The first start after deploying pays a one-shot ~5.5s migration and a ~150 MiB memory spike.
-  The index adds ~84 MiB to a ~365 MiB catalog.db.
+- **Confirmed on the live node (2026-07-16, by the operator): deployed, migrated, and /files
+  renders fast.** This closes the one thing the pre-merge work could not prove.
+- Before that, the real `open_catalog` startup path had been executed inside the shipped image
+  under the shipped constraints (`--read-only`, `--tmpfs /tmp:size=64m`, `--memory 512m`,
+  `--user 999:999`, `--cap-drop ALL`) against a copy of the real v3 catalogue: migrated in 5.5s
+  over 1,190,173 observations, `user_version` 3 -> 4, index built, temp_store restored, **peak
+  RSS 153 MiB of the 512m limit**. Render timings were taken on the host, via the real
+  `build_app` and a TestClient, against a copy of the real catalogue.
+
+- The first start after an image bump pays a one-shot ~5.5s migration and a ~150 MiB spike. The
+  index adds ~84 MiB to a ~365 MiB catalog.db. Both are behind us now on this node.
+
+## Still not measured
+
 - The write-path cost of maintaining one more index on `file_observations` was **not measured**
   (deliberate call: the read win is overwhelming).
 - `merge` will now reject any v3 source until it is reopened by a v4 crawler
-  (`merger.py:207-212`). That guard is working as designed; this is its first version bump.
+  (`merger.py:207-212`). That guard is working as designed; this is its first version bump, and
+  it has not been exercised since.
 
 ## Next step
 
-Deploy and confirm on the real node (rebuild the image, restart, watch the first start apply
-0004 and the page land in the ~10ms range).
+Shipped and confirmed live, so nothing is pending on this chantier. Tagged
+`v1.0.1-files-view-performance` (local) + `v1.0.1` (pushed, patch release).
 
 Follow-ups noted, none blocking:
 
