@@ -1,8 +1,13 @@
-"""TDD tests for catalog migration 0003 — read-path indices for the webui explorer.
+"""TDD tests for catalog migration 0003 - read-path indices for the webui explorer.
 
-The webui reads latest-per-group (decisions/observations/verifications) via window
-functions; these composite indices let SQLite satisfy each PARTITION/ORDER without a
-separate sort, and give ``file_verifications`` its first ``ed2k_hash`` index.
+These composite indices drive the webui's latest-per-group reads (decisions per
+(hash, target), latest verification per hash) by index, and give ``file_verifications`` its
+first ``ed2k_hash`` index.
+
+0003 also claimed such an index lets SQLite satisfy a PARTITION/ORDER window without a
+separate sort; the query plan refutes it (the window still needs a TEMP B-TREE for the
+trailing ORDER BY terms). Only a seek-shaped read exploits the index, which is what
+migration 0004 pairs with the one it adds on ``file_observations``.
 """
 
 import sqlite3

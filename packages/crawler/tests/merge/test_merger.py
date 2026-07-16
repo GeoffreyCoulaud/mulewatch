@@ -25,9 +25,9 @@ from .helpers import (
     stamp_user_version,
 )
 
-# The current catalog schema version = the count of catalog migrations (0001, 0002, 0003).
+# The current catalog schema version = the count of catalog migrations (0001, 0002, 0003, 0004).
 # open_catalog stamps the output to it; the guard rejects any source that is not at it.
-_CURRENT_SCHEMA_VERSION = 3
+_CURRENT_SCHEMA_VERSION = 4
 
 
 def _file_observation(ed2k_hash: str, *, node_id: str, observed_at: str) -> dict[str, object]:
