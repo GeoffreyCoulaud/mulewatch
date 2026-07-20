@@ -20,10 +20,10 @@ Pour *monter* un nœud, voir le [runbook de déploiement](deployment.md) ; pour 
 Ces fiches correspondent aux **Points de contrôle** du guide de déploiement, dans l'ordre. Presque
 tout se répare sans expertise : lire un journal, corriger une ligne, relancer une commande.
 
-> **Où lancer ces commandes.** Les commandes `docker compose ...` se lancent depuis le dossier
-> `deploy/` (là où vous a menés l'étape 5). Les commandes qui touchent au fichier `.env`
-> (`nano deploy/.env`, `grep ... deploy/.env`) sont écrites depuis le dossier du projet
-> (`mulewatch-main`) : si vous êtes déjà dans `deploy/`, remplacez `deploy/.env` par `.env`.
+> **Où lancer ces commandes.** Toutes les commandes ci-dessous se lancent depuis votre **dossier de
+> travail** (le dossier qui contient `compose.yaml`, créé à
+> [l'étape 3 du guide](deployment.md#3-créer-votre-dossier-de-travail)). Les chemins sont donc
+> relatifs : `.env`, `config/...`.
 
 ### Docker introuvable ou compose v1
 
@@ -83,7 +83,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
 - **Symptôme.** Au Point de contrôle de l'étape 4, la commande de vérification **affiche une ligne**
   au lieu de ne rien afficher :
   ```
-  grep -E '(AMULE_EC_PASSWORD|GRAFANA_PWD)=change-me' deploy/.env
+  grep -E '(AMULE_EC_PASSWORD|GRAFANA_PWD)=change-me' .env
   ```
   (elle imprime la ligne fautive, par exemple `GRAFANA_PWD=change-me`). Symptôme possible plus tard :
   le crawler journalise une erreur d'authentification, ou Grafana refuse votre mot de passe.
@@ -93,31 +93,30 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   1. Rouvrez le fichier (son nom commence par un point ; le plus simple est de l'éditer au
      terminal). Sous **macOS / Linux** :
      ```
-     nano deploy/.env
+     nano .env
      ```
      Sous **Windows** :
      ```
-     notepad deploy\.env
+     notepad .env
      ```
      Remplacez la valeur après le `=` sur la ligne signalée : `AMULE_EC_PASSWORD` (au moins 12
      caractères) et/ou `GRAFANA_PWD`. Dans `nano`, enregistrez avec **Ctrl+O** puis **Entrée**,
      quittez avec **Ctrl+X** ; dans le Bloc-notes, enregistrez avec **Ctrl+S**.
   2. Revérifiez : la commande de contrôle ne doit **plus rien afficher**.
      ```
-     grep -E '(AMULE_EC_PASSWORD|GRAFANA_PWD)=change-me' deploy/.env
+     grep -E '(AMULE_EC_PASSWORD|GRAFANA_PWD)=change-me' .env
      ```
      Sous **Windows (PowerShell)** :
      ```
-     Select-String -Path deploy\.env -Pattern 'AMULE_EC_PASSWORD=change-me|GRAFANA_PWD=change-me'
+     Select-String -Path .env -Pattern 'AMULE_EC_PASSWORD=change-me|GRAFANA_PWD=change-me'
      ```
-  3. Relancez la pile **depuis le dossier `deploy`** : `up -d` ne recrée que ce qui a changé.
+  3. Relancez la pile **depuis votre dossier de travail** : `up -d` ne recrée que ce qui a changé.
      ```
-     cd deploy
      docker compose up -d
      ```
   4. **Cas particulier `GRAFANA_PWD`.** Grafana n'applique ce mot de passe qu'à son **premier**
      démarrage : s'il a déjà démarré avec l'ancienne valeur, réinitialisez aussi son état local
-     (depuis `deploy/`) :
+     (depuis votre dossier de travail) :
      ```
      docker compose down
      docker volume rm mulewatch_grafana-data
@@ -129,14 +128,14 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   ligne de commentaire, ou `WIREGUARD_PRIVATE_KEY` réservé au VPN de l'annexe A) : la commande de
   contrôle ci-dessus les **ignore** exprès. Seuls `AMULE_EC_PASSWORD` et `GRAFANA_PWD` comptent pour
   la voie royale.
-- **Retour au guide.** [Étape 4 : Choisir ses deux mots de passe](deployment.md#4-choisir-ses-deux-mots-de-passe).
+- **Retour au guide.** [Étape 4 : Vos deux mots de passe](deployment.md#4-vos-deux-mots-de-passe).
 
 ### Un conteneur redémarre en boucle
 
 - **Symptôme.** `docker compose ps` montre un service en **`Restarting`** (ou `Exited`) au lieu de
   `Up`.
-- **Diagnostic (toujours le même).** Regardez d'abord *quel* service, puis son journal. Depuis le
-  dossier `deploy` :
+- **Diagnostic (toujours le même).** Regardez d'abord *quel* service, puis son journal. Depuis votre
+  dossier de travail :
   ```
   docker compose ps
   ```
@@ -149,9 +148,9 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   erreur d'authentification (`EcAuthError`, mot de passe EC refusé) et le conteneur redémarre. Sur
   la voie royale, amuled et le crawler partagent la **même** variable `AMULE_EC_PASSWORD` : ce cas
   vient donc d'un `AMULE_EC_PASSWORD` resté vide ou `change-me`, ou d'un mot de passe édité à la main
-  dans `deploy/config/crawler/crawler.yml`. Corrigez `.env` (voir la fiche
+  dans `config/crawler/crawler.yml`. Corrigez `.env` (voir la fiche
   [« Une valeur change-me est restée dans .env »](#une-valeur-change-me-est-restée-dans-env)), puis
-  `docker compose up -d` depuis `deploy/`.
+  `docker compose up -d` depuis votre dossier de travail.
 - **Journal vide juste après une montée d'image (`crawler`).** Si le crawler boucle en laissant un
   journal **vide** (pas d'erreur, pas de traceback), ce n'est pas une panne applicative : le noyau a
   tué le conteneur, donc rien n'a pu être écrit. À vérifier :
@@ -177,7 +176,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   5 minutes, voir la fiche opérateur
   [« Le crawler redémarre en boucle au démarrage (mode download) »](#le-crawler-redémarre-en-boucle-au-démarrage-mode-download).
 - **Retour au guide.** [Étape 5 : Lancer](deployment.md#5-lancer) et
-  [étape 6 : Vérifier que le nœud vit](deployment.md#6-vérifier-que-le-nœud-vit).
+  [étape 6 : Voir votre nœud](deployment.md#6-voir-votre-nœud).
 
 ### Le port est déjà pris
 
@@ -190,19 +189,18 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
 - **Cause.** mulewatch publie des ports sur l'hôte ; l'un d'eux est déjà utilisé (un autre service,
   une ancienne pile...). Le numéro dans le message vous dit lequel :
 
-  | Port par défaut | Variable à changer dans `deploy/.env` | Sert à |
+  | Port par défaut | Variable à changer dans `.env` | Sert à |
   |---|---|---|
   | `8080` | `WEBUI_PORT` | le catalogue web (servi en intra-processus par le service `crawler`) |
   | `3000` | `GRAFANA_PORT` | les tableaux de bord Grafana |
   | `4662` | `LISTEN_PORT` | le port eMule (toujours publié ; surtout utile en High-ID, annexe C) |
 
-- **Solution.** Ouvrez `deploy/.env`, donnez au port concerné une valeur libre (par exemple
-  `WEBUI_PORT=8090`), enregistrez, puis relancez depuis `deploy/` :
+- **Solution.** Ouvrez `.env`, donnez au port concerné une valeur libre (par exemple
+  `WEBUI_PORT=8090`), enregistrez, puis relancez depuis votre dossier de travail :
   ```
-  nano deploy/.env
+  nano .env
   ```
   ```
-  cd deploy
   docker compose up -d
   ```
   Pensez ensuite à ouvrir la nouvelle adresse dans le navigateur (par exemple
@@ -226,8 +224,8 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
     l'amorçage.
   - **(b) Si vous avez ajouté un VPN (annexe A)**, c'est presque toujours le tunnel `gluetun` qui
     n'est pas monté : amuled **partage le réseau de gluetun**, donc tant que le tunnel est down,
-    amuled n'a aucune sortie. Vérifiez gluetun *avant* amuled (depuis `deploy/`, avec le
-    `-f gluetun.compose.yml` de l'annexe A) :
+    amuled n'a aucune sortie. Vérifiez gluetun *avant* amuled (depuis votre dossier de travail,
+    avec le `-f gluetun.compose.yml` de l'annexe A) :
     ```
     docker compose -f gluetun.compose.yml logs gluetun
     ```
@@ -243,7 +241,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
     `latest` ou `2.3.3-*` casse l'amorçage du premier run **sans erreur évidente**. Ce point est
     détaillé dans la fiche opérateur
     [« amuled ne se connecte à aucun serveur ni réseau »](#amuled-ne-se-connecte-à-aucun-serveur-ni-réseau-image--tunnel).
-- **Retour au guide.** [Étape 6 : Vérifier que le nœud vit](deployment.md#6-vérifier-que-le-nœud-vit).
+- **Retour au guide.** [Étape 6 : Voir votre nœud](deployment.md#6-voir-votre-nœud).
 
 ### La webui reste vide
 
@@ -252,7 +250,7 @@ Deux situations très différentes se cachent derrière « la webui est vide » 
 - **La page se charge, mais le tableau est vide.** C'est **normal**, surtout les premières heures.
   Le catalogue se remplit au fil des recherches ; certaines cibles rares (le principe même du lost
   media) peuvent mettre des jours à réapparaître. **Ce n'est pas une panne.** Vérifiez plutôt que le
-  nœud *vit*, en regardant les cycles du crawler (depuis `deploy/`) :
+  nœud *vit*, en regardant les cycles du crawler (depuis votre dossier de travail) :
   ```
   docker compose logs crawler
   ```
@@ -269,8 +267,7 @@ Deux situations très différentes se cachent derrière « la webui est vide » 
   S'il est `Up` mais la page reste inaccessible, le port est peut-être remappé ou occupé (voir
   [« Le port est déjà pris »](#le-port-est-déjà-pris)) : confirmez l'adresse, par défaut
   <http://localhost:8080> (sur un serveur distant, remplacez `localhost` par son IP).
-- **Retour au guide.** [Étape 6 : Vérifier que le nœud vit](deployment.md#6-vérifier-que-le-nœud-vit) et
-  [étape 7 : Voir le catalogue](deployment.md#7-voir-le-catalogue).
+- **Retour au guide.** [Étape 6 : Voir votre nœud](deployment.md#6-voir-votre-nœud).
 
 ---
 
@@ -316,11 +313,11 @@ plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'un état 
   (validé en juin 2026)**. Les versions ≥ 3.0.0 supportent l'auto-amorçage ; une image `latest` ou
   `2.3.3-*` casse l'amorçage du premier run **sans erreur évidente**. Vérifiez l'image utilisée :
   ```bash
-  docker compose -f deploy/gluetun.compose.yml images amuled
+  docker compose -f gluetun.compose.yml images amuled
   # Vous devez voir : ngosang/amule:3.0.0-1
   ```
-  Si vous voyez `latest` ou `2.3.3-*`, fixez la version dans `deploy/base.compose.yml` puis re-pullez.
-  *(Si une version 4.x sort dans le futur, ré-évaluer la compatibilité avant migration — ce projet
+  Si vous voyez `latest` ou `2.3.3-*`, fixez la version dans `base.compose.yml` puis re-pullez.
+  *(Si une version 4.x sort dans le futur, ré-évaluer la compatibilité avant migration : ce projet
   n'a été éprouvé qu'avec 3.0.0-1.)*
 
 ### Le crawler refuse de démarrer : « variable d'environnement '…' référencée mais absente »
@@ -331,13 +328,13 @@ plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'un état 
 - **Cause.** Compose ne lit `.env` que pour substituer les `${...}` **dans les fichiers compose**.
   Le crawler, lui, interpole les `${VAR}` de `crawler.yml` depuis **son propre** environnement de
   conteneur. Une variable référencée dans `crawler.yml` doit donc être injectée explicitement dans
-  le service `crawler` (bloc `environment:` de `deploy/base.compose.yml`) — sinon le process ne la
+  le service `crawler` (bloc `environment:` de `base.compose.yml`), sinon le process ne la
   voit pas. `AMULE_EC_PASSWORD` y est câblé par défaut.
 - **Solution.** Si vous ajoutez un **nouveau** `${VAR}` dans `crawler.yml` (typiquement en activant
   une URL de notification `notifications[].url: "discord://${DISCORD_WEBHOOK_ID}/…"`), ajoutez la
   même variable au bloc `environment:` du service `crawler` :
   ```yaml
-  # deploy/base.compose.yml
+  # base.compose.yml
   crawler:
     environment:
       AMULE_EC_PASSWORD: ${AMULE_EC_PASSWORD:?}
@@ -362,23 +359,23 @@ plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'un état 
 
 - **Cause.** En mode download, le crawler **refuse de démarrer** si le verifier ne répond pas (pas de
   téléchargement sans vérification) ; son `restart: unless-stopped` le relance tant que le verifier
-  n'est pas sain — c'est le comportement attendu.
+  n'est pas sain : c'est le comportement attendu.
 - **Solution rapide.** Le crawler finit par démarrer dès que le verifier est sain. Pour éviter les
   redémarrages initiaux, démarrez le verifier d'abord, puis le reste :
   ```bash
-  docker compose -f deploy/gluetun.compose.yml --profile download up -d verifier
-  docker compose -f deploy/gluetun.compose.yml --profile download up -d
+  docker compose -f gluetun.compose.yml --profile download up -d verifier
+  docker compose -f gluetun.compose.yml --profile download up -d
   ```
 - **Si la boucle persiste > 5 min**, diagnostic en escalier :
-  1. **Le verifier a-t-il démarré proprement ?** `docker compose logs verifier --tail 50` — vous
+  1. **Le verifier a-t-il démarré proprement ?** `docker compose logs verifier --tail 50` : vous
      devez voir une ligne `Uvicorn running on http://0.0.0.0:8000` (ou similaire). Si vous voyez
-     `OOMKilled` ou `Killed`, c'est un manque de mémoire — voir « Un fichier sain ressort suspicious »
+     `OOMKilled` ou `Killed`, c'est un manque de mémoire, voir « Un fichier sain ressort suspicious »
      ci-dessous (cause #2 : manque de RAM avec clamav).
   2. **Le verifier est-il joignable depuis le réseau du crawler ?** `docker compose exec crawler
-     wget -qO- http://verifier:8000/healthz` (si `wget` n'est pas dispo, `curl` aussi) — doit
+     wget -qO- http://verifier:8000/healthz` (si `wget` n'est pas dispo, `curl` aussi) : doit
      renvoyer un JSON `{"status":"ok"}`. Si `Connection refused`, le verifier est down ; si `Name
      resolution failure`, le service n'est pas sur le même réseau Docker (config compose suspecte).
-  3. **L'URL du verifier est-elle correcte ?** Ouvrir `deploy/config/crawler/crawler.yml` et
+  3. **L'URL du verifier est-elle correcte ?** Ouvrir `config/crawler/crawler.yml` et
      vérifier que `download.verifier_url` pointe sur `http://verifier:8000` (nom de service compose,
      pas `localhost` ni IP). Une mauvaise URL → le crawler ne joint jamais le verifier, peu importe
      son état.
@@ -388,8 +385,8 @@ plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'un état 
 Trois causes possibles, de la plus probable à la moins :
 
 1. **La base clamav n'est pas encore synchronisée.** Au premier démarrage en mode download, le sidecar
-   `freshclam` télécharge ~300–500 Mo (quelques minutes) ; tant qu'elle manque, clamav rend
-   `suspicious` par défaut (jamais `clean` sans base). **C'est transitoire** — attendez la fin de la
+   `freshclam` télécharge ~300-500 Mo (quelques minutes) ; tant qu'elle manque, clamav rend
+   `suspicious` par défaut (jamais `clean` sans base). **C'est transitoire** : attendez la fin de la
    première synchro, le fichier sera re-scanné.
 2. **Le scan se fait tuer faute de mémoire.** `clamscan` charge toute la base en RAM ; si les limites
    sont trop basses, l'OOM-killer tue le scan avant la fin → `suspicious`. Augmentez
@@ -406,15 +403,15 @@ Trois causes possibles, de la plus probable à la moins :
   `set -e`, le conteneur meurt → `restart: unless-stopped` reboucle. C'est le symptôme des lignes
   `chown: /var/lib/clamav/…: Operation not permitted`.
 - **Solution.** On **n'impose pas** `cap_drop: ALL` à `freshclam` (image tierce, même posture
-  qu'amuled — cf. [CLAUDE.md § Confinement](../../CLAUDE.md)). Le service garde `no-new-privileges`
-  mais **pas** de `cap_drop` (`deploy/base.compose.yml`). Le volume `clamav-db` existant n'a pas
+  qu'amuled, cf. [CLAUDE.md § Confinement](../../CLAUDE.md)). Le service garde `no-new-privileges`
+  mais **pas** de `cap_drop` (`base.compose.yml`). Le volume `clamav-db` existant n'a pas
   besoin d'être réinitialisé : le `chown` de l'entrypoint réussira au prochain boot.
 
 ### Le fichier fini n'est pas récupéré (reste dans l'IncomingDir, non catalogué)
 
 - **Cause.** Une des 4 contraintes du mode download n'est pas respectée. Détail et rationale dans
   [`reference/2026-06-17-amuled-completion-behavior.md` § Contraintes de déploiement](../reference/2026-06-17-amuled-completion-behavior.md#contraintes-de-déploiement-résumé).
-- **Solution — vérifier les 4 contraintes dans l'ordre :**
+- **Solution : vérifier les 4 contraintes dans l'ordre :**
   1. **IncomingDir d'amuled = dossier quarantaine du crawler ?** Vérifier dans la config amuled
      (`amule.conf` → `IncomingDir=`) ; doit pointer sur le même chemin monté que `staging_dir` /
      `quarantine_dir` du crawler. Le plus souvent : `/data/quarantine` côté amuled et côté crawler
@@ -435,7 +432,7 @@ Trois causes possibles, de la plus probable à la moins :
 ## High-ID / port-sync
 
 > ⚠️ **Prérequis pour ce diagnostic** : connaissance Docker (sockets, groupes Unix). Si vous n'êtes
-> pas à l'aise avec ces concepts, le port-sync n'est probablement pas la bonne voie pour vous —
+> pas à l'aise avec ces concepts, le port-sync n'est probablement pas la bonne voie pour vous :
 > envisagez la **Route B** (port-forward manuel sur votre box) ou restez en **Low-ID** (qui marche
 > très bien). Voir [runbook d'administration § High-ID](administration.md#high-id-optionnel--devenir-joignable).
 
@@ -445,22 +442,22 @@ Plusieurs causes, à vérifier dans cet ordre :
 
 - **`docker-proxy` qui redémarre en boucle (`socket not available … connect: permission denied`).**
   Le proxy doit tourner en **root** pour lire le socket Docker bind-monté (`root:root` sous Docker
-  Desktop, `root:docker` sous Docker natif — root est propriétaire dans les deux cas). L'image
+  Desktop, `root:docker` sous Docker natif, root est propriétaire dans les deux cas). L'image
   `wollomatic/socket-proxy` est buildée `USER 65534`, donc le compose **doit** poser `user: "0:0"`
-  explicitement (`deploy/gluetun.compose.yml`) : sans cette ligne, le proxy tourne en `nobody` →
+  explicitement (`gluetun.compose.yml`) : sans cette ligne, le proxy tourne en `nobody` →
   `permission denied` → boucle. Si vous voyez ce symptôme, vérifiez que `user: "0:0"` est bien
-  présent. **Rootless** reste hors de portée (socket sous `$XDG_RUNTIME_DIR`, accès par UID —
+  présent. **Rootless** reste hors de portée (socket sous `$XDG_RUNTIME_DIR`, accès par UID ;
   détails + sources : [`docs/reference/2026-06-17-docker-desktop-rootless-socket.md`](../reference/2026-06-17-docker-desktop-rootless-socket.md)).
 - **Conteneur amuled mal nommé.** Le proxy n'autorise QUE `POST .../containers/amuled/restart` : le
   conteneur doit s'appeler **exactement `amuled`** (épinglé via `container_name: amuled` dans
-  `deploy/gluetun.compose.yml`). Sous un autre nom, le restart fait **404** et le port-sync ne fait rien.
+  `gluetun.compose.yml`). Sous un autre nom, le restart fait **404** et le port-sync ne fait rien.
 - **Fournisseur sans port forwarding.** Le High-ID exige un provider à port forwarding
   (Proton/PIA/PrivateVPN/PerfectPrivacy) et `VPN_PORT_FORWARDING: "on"`.
 
 ### Le port forwarded change toutes les ~60 s (jamais de High-ID stable, ProtonVPN + WireGuard)
 
 - **Symptôme.** Dans les logs `gluetun`, un `port forwarded is <N>` **différent à chaque
-  renouvellement** (~toutes les 45–60 s), chaque fois précédé de
+  renouvellement** (~toutes les 45-60 s), chaque fois précédé de
   `ERROR [port forwarding] refreshing port mapping … external port requested as X but received Y`.
   Le port-sync ne peut jamais converger : la cible bouge plus vite qu'il ne peut aligner amuled
   (et son `restart_min_interval_seconds` bride le rythme des restarts). Résultat : Low-ID permanent
@@ -470,12 +467,12 @@ Plusieurs causes, à vérifier dans cet ordre :
   mapping au renouvellement et réassigne un port neuf. C'est un problème **gluetun ⇄ Proton**, pas
   du crawler (cf. [gluetun#3196](https://github.com/qdm12/gluetun/issues/3196)). `PORT_FORWARD_ONLY`
   seul **ne suffit pas** (vérifié sur le terrain : le churn persiste sur serveurs P2P).
-- **Solution — régénérer la clé WireGuard Proton** (dashboard Proton) en cochant les bons réglages,
+- **Solution : régénérer la clé WireGuard Proton** (dashboard Proton) en cochant les bons réglages,
   ce qui couvre les trois causes racines connues d'un coup :
   1. **Port Forwarding activé** sur la config au moment de la génération.
-  2. **Moderate NAT désactivé** — Proton le documente comme **incompatible NAT-PMP** (cause la plus
+  2. **Moderate NAT désactivé** : Proton le documente comme **incompatible NAT-PMP** (cause la plus
      fréquente).
-  3. **Clé unique à cette instance** — une même clé WireGuard réutilisée par deux clients (autre
+  3. **Clé unique à cette instance** : une même clé WireGuard réutilisée par deux clients (autre
      gluetun, autre appareil) fait s'entre-écraser les renouvellements NAT-PMP. Une clé fraîche
      garantit l'unicité.
 
@@ -499,7 +496,7 @@ Plusieurs causes, à vérifier dans cet ordre :
   en `nonroot`, donc un volume nommé **vide** hérite de la bonne propriété. Mais un volume **déjà
   peuplé** (root-owned) garde ses droits.
 - **Solution.** Le nom de projet Docker Compose est fixé à `mulewatch` (`name: mulewatch` dans
-  `deploy/compose.yaml` et `deploy/gluetun.compose.yml`), donc le volume s'appelle
+  `compose.yaml` et `gluetun.compose.yml`), donc le volume s'appelle
   `mulewatch_catalog-db`. Vérifiez avec :
   ```bash
   docker volume ls | grep catalog-db
@@ -540,12 +537,12 @@ Voici ce que chacun signifie concrètement :
 
 | Verdict | Signification | Que faire ? |
 |---|---|---|
-| `clean` | Tous les checks activés ont passé (`type_sniff` reconnaît le format, `ffprobe` lit les pistes média, `clamav` ne trouve aucune signature de virus). | Le fichier est probablement sain. Vous pouvez le récupérer depuis la quarantaine. **Ce n'est pas une garantie d'absence de virus** — c'est l'absence de signature connue dans la base clamav. |
+| `clean` | Tous les checks activés ont passé (`type_sniff` reconnaît le format, `ffprobe` lit les pistes média, `clamav` ne trouve aucune signature de virus). | Le fichier est probablement sain. Vous pouvez le récupérer depuis la quarantaine. **Ce n'est pas une garantie d'absence de virus** : c'est l'absence de signature connue dans la base clamav. |
 | `suspicious` | Au moins un check a échoué ou n'a pas pu se prononcer (ex. base clamav non encore prête, scan tué par manque de mémoire, ffprobe incapable de lire). | Lire la colonne `explanation` du verdict : elle dit lequel des checks a échoué et pourquoi. Causes fréquentes : base clamav pas encore synchronisée (transitoire), manque de mémoire (cf. runbook administration), ou fichier réellement étrange. |
 | `malicious` | Clamav a trouvé une signature de virus connue. | **N'extrayez pas le fichier de la quarantaine.** Si vous pensez à un faux positif, vérifiez la signature dans la base clamav et remontez à clamav (pas à ce projet). |
 | `unknown` | Le verifier n'a pas pu être interrogé du tout (verifier down, timeout, erreur réseau). | Voir « Le crawler redémarre en boucle » plus haut. |
 
-> Un fichier `clean` n'est pas certifié inoffensif — c'est l'absence de signature dans une base
+> Un fichier `clean` n'est pas certifié inoffensif : c'est l'absence de signature dans une base
 > donnée. Pour les fichiers à enjeu (binaires exécutables, archives), faites une vérification
 > supplémentaire avant d'ouvrir.
 
@@ -559,9 +556,9 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 - **Symptôme.** Le crawler refuse de se connecter à amuled (`EC auth failed` dans les logs).
 - **Solution.** Choisissez un nouveau mot de passe, mettez à jour `AMULE_EC_PASSWORD` dans `.env`
-  ET `amules[].password` dans `deploy/config/crawler/crawler.yml`, puis redémarrez :
+  ET `amules[].password` dans `config/crawler/crawler.yml`, puis redémarrez :
   ```bash
-  docker compose -f deploy/gluetun.compose.yml --profile <mode> up -d --force-recreate amuled crawler
+  docker compose -f gluetun.compose.yml --profile <mode> up -d --force-recreate amuled crawler
   ```
   Pas de perte de catalogue (le mot de passe ne protège que le canal EC, pas les données).
 
@@ -569,7 +566,7 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 - **Symptôme.** `docker compose up` retourne une erreur de parsing ou un service `Exited (1)`
   immédiatement.
-- **Solution.** Recommencez à partir du modèle : `cp deploy/.env.example .env.new`, recopiez vos secrets
+- **Solution.** Recommencez à partir du modèle : `cp .env.example .env.new`, recopiez vos secrets
   un par un en vérifiant la syntaxe (pas d'espaces autour du `=`, pas de guillemets autour des
   valeurs sauf nécessaire), puis `mv .env.new .env`. Évite d'avoir à débugger un fichier corrompu.
 
@@ -589,7 +586,7 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 - **Solution destructive (irréversible).** Arrêtez tout et supprimez les volumes :
   ```bash
-  docker compose -f deploy/gluetun.compose.yml --profile <mode> down -v
+  docker compose -f gluetun.compose.yml --profile <mode> down -v
   ```
   Le `-v` est ce qui efface. Sans lui, les volumes (donc le catalogue) sont préservés.
   Sauvegardez d'abord ce que vous tenez à garder.
