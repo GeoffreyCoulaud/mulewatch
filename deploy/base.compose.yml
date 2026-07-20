@@ -4,9 +4,6 @@
 #   GRAFANA_PWD=x docker compose -f deploy/base.compose.yml config
 x-crawler-common: &crawler-common
   image: ghcr.io/geoffreycoulaud/mulewatch-crawler:${IMAGE_TAG:-latest}
-  build:
-    context: ..
-    dockerfile: packages/crawler/Dockerfile
   user: "999:999"
   read_only: true
   tmpfs:
@@ -72,9 +69,6 @@ services:
 
   verifier:
     image: ghcr.io/geoffreycoulaud/mulewatch-verifier:${IMAGE_TAG:-latest}
-    build:
-      context: ..
-      dockerfile: packages/verifier/Dockerfile
     profiles: [download]
     environment:
       QUARANTINE_DIR: /quarantine
