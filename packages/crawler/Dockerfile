@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # --- Builder : installe mulewatch (membre du workspace VIRTUEL) via uv ---
-FROM ghcr.io/astral-sh/uv:python3.14-alpine@sha256:e852e37cfaffb287f2d78de0d4f27e28bf0722ccbf0d6948dbdf19a0b4de7bc7 AS builder
+FROM ghcr.io/astral-sh/uv:python3.14-alpine@sha256:b17c1d5137405ce0eb96ed87db0559b4b519f742a00ae1796cf79a952895ba04 AS builder
 
 # Product version, computed from the git tag on the CI runner and injected here. The build
 # context has no .git (.dockerignore excludes it), so hatch-vcs/setuptools-scm reads
