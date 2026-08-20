@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # --- Builder : installe mulewatch (membre du workspace VIRTUEL) via uv ---
-FROM ghcr.io/astral-sh/uv:python3.14-alpine@sha256:e852e37cfaffb287f2d78de0d4f27e28bf0722ccbf0d6948dbdf19a0b4de7bc7 AS builder
+FROM ghcr.io/astral-sh/uv:python3.14-alpine@sha256:56b2e7ad659cd4b8d3abb5e67556a1e7ac53adf3a13eb8c292696df9c1e70b67 AS builder
 
 # Product version, computed from the git tag on the CI runner and injected here. The build
 # context has no .git (.dockerignore excludes it), so hatch-vcs/setuptools-scm reads
@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-editable --package mulewatch
 
 # --- Runtime : python alpine, non-root, venv copie ---
-FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
+FROM python:3.14-alpine@sha256:05b2b8b732ecd268fee8727a369f936f022d1321b59befd13c30ede22769dcdc
 
 # Re-declare the build-arg in this stage and stamp it as the OCI version label (the SBOM's
 # top-level component inherits it). ARG after FROM only lives in the stage that declares it.
