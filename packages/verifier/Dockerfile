@@ -52,7 +52,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 #     against the same Alpine release, so the fingerprint reflects what the runtime installs. (It
 #     is a literal, not a shared ARG/stage alias, because the vex_guards source scan checks the
 #     last FROM textually for "alpine" and any indirection would defeat that guard.)
-FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92 AS apk-plan
+FROM python:3.14-alpine@sha256:05b2b8b732ecd268fee8727a369f936f022d1321b59befd13c30ede22769dcdc AS apk-plan
 ARG APK_PACKAGES
 ARG APK_PROBE_NONCE
 RUN set -eo pipefail; \
@@ -61,7 +61,7 @@ RUN set -eo pipefail; \
 
 # --- Runtime : ffmpeg (ffprobe) + clamav (clamscan) + libseccomp, non-root, venv copie ---
 # Base digest kept in sync with the apk-plan probe above (same Alpine release, see that note).
-FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
+FROM python:3.14-alpine@sha256:05b2b8b732ecd268fee8727a369f936f022d1321b59befd13c30ede22769dcdc
 ARG APK_PACKAGES
 ARG VERSION
 LABEL org.opencontainers.image.version=${VERSION}
