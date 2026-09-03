@@ -14,7 +14,7 @@ ARG APK_PACKAGES="ffmpeg clamav libseccomp"
 ARG VERSION=0.0.0
 
 # --- Builder : installe download-verifier (membre du workspace VIRTUEL) via uv ---
-FROM ghcr.io/astral-sh/uv:python3.14-alpine@sha256:e852e37cfaffb287f2d78de0d4f27e28bf0722ccbf0d6948dbdf19a0b4de7bc7 AS builder
+FROM ghcr.io/astral-sh/uv:python3.14-alpine@sha256:97c0ea321f702d5c726a829930ea24cab89ce978f024933861d7bcb33f8c6f20 AS builder
 ARG VERSION
 
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${VERSION} \
@@ -52,7 +52,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 #     against the same Alpine release, so the fingerprint reflects what the runtime installs. (It
 #     is a literal, not a shared ARG/stage alias, because the vex_guards source scan checks the
 #     last FROM textually for "alpine" and any indirection would defeat that guard.)
-FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92 AS apk-plan
+FROM python:3.14-alpine@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc AS apk-plan
 ARG APK_PACKAGES
 ARG APK_PROBE_NONCE
 RUN set -eo pipefail; \
@@ -61,7 +61,7 @@ RUN set -eo pipefail; \
 
 # --- Runtime : ffmpeg (ffprobe) + clamav (clamscan) + libseccomp, non-root, venv copie ---
 # Base digest kept in sync with the apk-plan probe above (same Alpine release, see that note).
-FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
+FROM python:3.14-alpine@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc
 ARG APK_PACKAGES
 ARG VERSION
 LABEL org.opencontainers.image.version=${VERSION}
