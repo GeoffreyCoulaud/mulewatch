@@ -487,13 +487,20 @@ par digest d'architecture. Le détail de la chaîne et du triage VEX est dans `S
   **non éprouvée en production réelle** ; remontez tout comportement inattendu.
 
   Mécanique : à la complétion, amuled déplace le fichier vers son **IncomingDir** ; le statut ne
-  passe complet qu'**après** le déplacement (pas de race). Le crawler détecte la complétion par la
-  **présence du fichier dans les partagés EC** (signal positif, auto-partagé par amuled à la
-  complétion) et promeut au **vrai nom on-disk** rapporté par amuled : la collision de nom
-  (`nom(0).ext`) est gérée par construction. Les **contraintes de déploiement** qui en découlent
-  (IncomingDir = quarantaine, FS Linux, pas de catégories, amuled dédié) sont décrites dans la
+  passe complet qu'**après** le déplacement (pas de race). Le crawler détecte la complétion par
+  **« partagé ET absent de la file de download »** (auto-partagé par amuled à la complétion ; un
+  partiel est partagé lui aussi, la file les sépare, cf. CORRECTION 2026-09-11 dans la référence) et
+  promeut au **vrai nom on-disk** rapporté par amuled : la collision de nom (`nom(0).ext`) est gérée
+  par construction. Les **contraintes de déploiement** qui en découlent (IncomingDir = quarantaine,
+  FS Linux, pas de catégories, amuled dédié) sont décrites dans la
   [référence amuled-completion-behavior](reference/2026-06-17-amuled-completion-behavior.md#contraintes-de-déploiement-résumé)
   (source unique) et signalées dans le [runbook de déploiement](deployment.md) (mode download).
+
+  **Terrain 2026-09-11** : premier transfert réel sur un nœud de production. Les Q1/Q2 sont
+  confirmées, mais trois défauts de déploiement/code ont été trouvés (IncomingDir hors volume
+  partagé, droits, et la détection de complétion ci-dessus) plus la reconnexion EC manquante de la
+  boucle de download. Détail et correctifs : `docs/handoffs/2026-09-11 - handoff - download chain
+  stalls on the live node.md` (voir aussi [handoffs/](handoffs/) pour l'entrée la plus récente).
 - **WebUI (lecture seule)** : **point clos**. La WebUI est désormais servie **en intra-processus**
   par le crawler (plus de conteneur séparé, donc plus de montage inter-conteneurs). La garantie
   lecture seule repose sur `mode=ro` + `PRAGMA query_only=ON` ; l'ancien montage Docker `:ro` WAL

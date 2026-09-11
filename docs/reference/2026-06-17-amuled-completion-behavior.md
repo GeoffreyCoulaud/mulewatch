@@ -6,6 +6,18 @@
 > Source : `amule-project/amule@5938915f10e6f2e011f87df90261feaf606136d6` (branche `master`,
 > date auteur 2026-06-10). Tous les permaliens pointent sur ce SHA.
 
+> **CORRECTION 2026-09-11 (transfert réel, nœud de production).** La Q3 ci-dessous concluait que
+> « voir le fichier dans les partagés garantit qu'il est complet à son chemin final ». **C'est
+> faux** : amuled partage aussi les téléchargements **partiels** (comportement eMule standard, on
+> téléverse ce qu'on a déjà reçu). Observé en production : `shared_files()` listait 065B comme
+> partagé alors que `download_queue()` le donnait à **20,1 %** (22 Mo sur 109 Mo, `TempDir`
+> seulement). Le crawler l'a donc marqué `completed` et a bouclé 2 814 fois sur une promotion
+> impossible. **Le signal correct est « partagé ET absent de la file de download »** : une entrée
+> quitte `m_filelist` en atteignant `PS_COMPLETE`, donc un fichier fini n'est plus dans la file
+> tandis qu'un partiel y reste. Implémenté dans `_handle_completions` (le snapshot de file est lu
+> une fois par cycle, à l'étape 0 de `run_download_cycle`). Lire la Q3 ci-dessous avec cette
+> correction ; les Q1 et Q2 (où et sous quel nom) restent confirmées par le terrain.
+
 ---
 
 ## Convention de fiabilité
@@ -92,11 +104,12 @@ fichier présent et complet à son chemin final** — pas de race.
 
 **NÔTRE** : on n'utilise PAS le tag de statut `PS_COMPLETE` (il est **inobservable** via la file de
 download — l'entrée quitte `m_filelist` au moment exact où elle passe à 9, et la file EC n'inclut pas
-`m_completedDownloads`). On déclenche la complétion par la **présence dans les fichiers partagés** (le
-fichier fini est auto-partagé par `SafeAddKFile` dans `CompleteFileEnded`, donc déjà déplacé et en
-place quand on le voit). Pas de race : voir le fichier partagé garantit qu'il est complet à son chemin
-final. Plus de byte-based, plus de `PromotionFailed` transitoire, plus de contrainte « TempDir et
-Incoming sur le même FS ».
+`m_completedDownloads`). On déclenche la complétion par **« partagé ET absent de la file de
+download »** : le fichier fini est auto-partagé par `SafeAddKFile` dans `CompleteFileEnded`, donc déjà
+déplacé et en place quand on le voit, et il a quitté la file à cet instant précis. La présence dans les
+partagés NE SUFFIT PAS (un téléchargement partiel est partagé lui aussi ; c'est la file qui les sépare,
+CORRECTION 2026-09-11, cf. en-tête). Plus de byte-based, plus de `PromotionFailed` transitoire, plus de
+contrainte « TempDir et Incoming sur le même FS ».
 
 ---
 
@@ -107,10 +120,14 @@ positif** (cf. design `docs/superpowers/specs/2026-06-17-completion-via-shared-f
 
 - **`AmuleEcClient.shared_files()`** émet `EC_OP_GET_SHARED_FILES` (0x10) au détail CMD, décode la
   réponse `EC_OP_SHARED_FILES` (0x22 ; N enfants `EC_TAG_KNOWNFILE` 0x0400) → `SharedFileEntry(hash, name)`.
-- **`_handle_completions`** : un hash suivi non-terminal présent dans les partagés = complétion →
-  `set_state(completed)` → `quarantine.promote(staging_dir / _safe_basename(name), hash)` →
-  `enqueue_verification` → `quarantined`. Idempotent : `promote` échoue → reste `completed`, retry
-  (le hash reste partagé). `_monitor` (file de download) ne fait plus que `QUEUED→DOWNLOADING`.
+- **`_handle_completions`** : un hash suivi non-terminal **présent dans les partagés ET absent du
+  snapshot de file du cycle** = complétion → `set_state(completed)` →
+  `quarantine.promote(staging_dir / _safe_basename(name), hash)` → `enqueue_verification` →
+  `quarantined`. Idempotent : `promote` échoue → reste `completed`, retry (le hash reste partagé).
+  `_monitor` (file de download) ne fait plus que `QUEUED→DOWNLOADING`. La file est lue une fois par
+  cycle (`run_download_cycle`, étape 0, avec la reconnexion EC) et sert aux deux étapes : un fichier
+  qui se termine entre les deux lectures est promu au cycle suivant, 30 s plus tard (le signal
+  partagé persiste, la latence est sans conséquence).
 - Le `EC_TAG_KNOWNFILE_FILENAME` (chemin complet) est **ignoré** (namespace de montage d'amuled,
   potentiellement ≠ du nôtre) : on prend le **basename** (`EC_TAG_PARTFILE_NAME`) + notre `staging_dir`.
 

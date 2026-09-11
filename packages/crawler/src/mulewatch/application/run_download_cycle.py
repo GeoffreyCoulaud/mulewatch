@@ -6,11 +6,15 @@ shutdown event); ``download_loop`` repeats it then waits ``poll_interval`` OR th
 (``DecisionSignal``), until a shutdown event - wired by ``CrawlerApp`` in D-verify.
 
 Flow of one iteration (spec §5, DECISION D8):
-  1. MONITOR: ``download_queue()`` → for each entry KNOWN to ``downloads``, reconciles
-     ``downloading`` (QUEUED→DOWNLOADING); an unknown entry (download outside the crawler) is
-     ignored. Completion is NO LONGER inferred from bytes (see ``_monitor``).
-  2. COMPLETIONS: ``shared_files()`` → each tracked hash present in amuled's SHARED files
-     (POSITIVE completion signal, with the real on-disk name) → ``set_state(completed)`` →
+  0. CONNECT + QUEUE SNAPSHOT: ``connect()`` (idempotent, and the ONLY thing that re-arms a
+     transport the adapter threw away after a dead EC stream) then ONE ``download_queue()`` read,
+     shared by steps 1 and 2.
+  1. MONITOR: for each queue entry KNOWN to ``downloads``, reconciles ``downloading``
+     (QUEUED→DOWNLOADING); an unknown entry (download outside the crawler) is ignored.
+     Completion is NO LONGER inferred from bytes (see ``_monitor``).
+  2. COMPLETIONS: ``shared_files()`` → each tracked hash present in amuled's SHARED files AND
+     absent from the queue (amuled shares PARTIAL downloads too, so the queue is what separates a
+     completion from a partial, see ``_handle_completions``) → ``set_state(completed)`` →
      ``quarantine.promote(staging_dir / name)`` → ``enqueue_verification`` → ``quarantined``.
      Idempotent: ``promote`` fails → stays ``completed``, does NOT enqueue, retry next round
      (the hash stays in the shared files); already ``quarantined``/``failed`` → skipped.
@@ -20,7 +24,10 @@ Flow of one iteration (spec §5, DECISION D8):
      The cap is recomputed IN MEMORY as the cycle proceeds (``committed += size``).
 
 Errors (Plan C contracts, spec §9): ``MuleUnreachableError`` (EC stream dead) → tolerate, skip
-the iteration (the client reconnects next round; amuled persists the downloads).
+the iteration. Step 0 re-arms the connection on EVERY iteration (``connect()`` is idempotent):
+that is what makes "the client reconnects next round" true. Without it the loop stayed wedged on
+"EC client not connected (call connect() first)" forever after any amuled restart (field,
+2026-09-04 to 09-11: 7 days of a dead download loop, one warning per 30 s).
 ``RepositoryError`` → absorbed (log + continue). ``promote`` fails → stays ``completed``.
 NEVER abandon a stalled download. Determinism: ``Clock``/``sleep`` injected.
 """
@@ -47,7 +54,7 @@ from mulewatch.ports.catalog_repository import ObservedFile
 from mulewatch.ports.clock import Clock
 from mulewatch.ports.decision_signal import DecisionSignal
 from mulewatch.ports.mule_client import MuleSearchFailedError, MuleUnreachableError
-from mulewatch.ports.mule_download_client import MuleDownloadClient
+from mulewatch.ports.mule_download_client import DownloadEntry, MuleDownloadClient
 from mulewatch.ports.quarantine import Quarantine
 from mulewatch.ports.repository_errors import RepositoryError
 from mulewatch.ports.telemetry import Telemetry
@@ -161,14 +168,18 @@ def _target_status(targets: Sequence[TargetSegment], target_id: str) -> str:
     return "complete"
 
 
-async def _monitor(deps: DownloadDeps, states: dict[str, DownloadState]) -> None:
+async def _monitor(
+    deps: DownloadDeps, states: dict[str, DownloadState], queue: tuple[DownloadEntry, ...]
+) -> None:
     """Reconciles ``downloads`` with the amuled queue: QUEUED→DOWNLOADING (step 1, spec §5).
+
+    ``queue`` is the cycle's ONE snapshot (step 0), shared with ``_handle_completions``: the
+    completion rule needs it, and a second read could contradict the first.
 
     Completion is NO LONGER inferred from bytes (PS_COMPLETE is unobservable via the queue - cf.
     docs/reference/2026-06-17-amuled-completion-behavior.md): it comes from the shared files
     (_handle_completions). Here we only record that amuled is pulling a queued download.
     """
-    queue = await deps.client.download_queue()
     for entry in queue:
         current = states.get(entry.ed2k_hash)
         if current is None:
@@ -222,11 +233,21 @@ async def _promote_completion(
     _logger.info("hash=%s quarantined + verification enqueued", ed2k_hash)
 
 
-async def _handle_completions(deps: DownloadDeps, states: dict[str, DownloadState]) -> None:
-    """Promotes each tracked hash that appears in amuled's SHARED files (step 2, §5).
+async def _handle_completions(
+    deps: DownloadDeps, states: dict[str, DownloadState], queued: frozenset[str]
+) -> None:
+    """Promotes each tracked hash that is SHARED **and** gone from the download queue (step 2, §5).
 
-    Presence in the shared files = POSITIVE completion (file already moved/in place, auto-shared
-    by amuled). We promote with the real name. Terminal hashes (quarantined/failed) are ignored.
+    Presence in the shared files ALONE is not a completion: amuled shares PARTIAL downloads too
+    (standard eMule: you upload what you have downloaded). The discriminator is the queue, which
+    a finished file leaves (its entry goes away when it reaches ``PS_COMPLETE``), while a running
+    one stays in it. Field 2026-09-02: without the queue check the crawler stamped 065B
+    ``completed`` at 20.1 % and retried an impossible promotion every 30 s. We promote with the
+    real name. Terminal hashes (quarantined/failed) are ignored.
+
+    The queue was read in step 0, BEFORE this shared snapshot: a file completing in between is
+    therefore seen as "still queued" and promoted on the NEXT cycle (30 s later). The shared
+    signal persists, so the delay is harmless, and the inverse order would be the unsafe one.
 
     PER-HASH isolation (error-boundary#2): a ``RepositoryError`` in the promotion of one hash
     is logged and CONTINUES with the next ones. Without this net, a repo failure on hash N
@@ -240,6 +261,8 @@ async def _handle_completions(deps: DownloadDeps, states: dict[str, DownloadStat
             continue  # shared file outside the crawler: ignored
         if current in {DownloadState.QUARANTINED, DownloadState.FAILED}:
             continue  # already promoted / failed
+        if entry.ed2k_hash in queued:
+            continue  # still downloading (partial): NOT a completion
         try:
             await _promote_completion(deps, entry.ed2k_hash, entry.name, current, states)
         except RepositoryError as error:
@@ -325,9 +348,10 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
 
     Two distinct error DOCTRINES (item I2 - anti-starvation):
 
-    - ``MuleUnreachableError`` (EC stream dead, from ``_monitor`` or ``_add_links``) = dead
-      daemon → ABORT the iteration ("a dead daemon makes everything fail", cf. ``_add_links``).
-      We skip the rest; the next iteration retries (amuled persists the downloads).
+    - ``MuleUnreachableError`` (EC stream dead, from step 0, ``_handle_completions`` or
+      ``_add_links``) = dead daemon → ABORT the iteration ("a dead daemon makes everything
+      fail", cf. ``_add_links``). We skip the rest; the next iteration retries (amuled persists
+      the downloads).
     - ``RepositoryError`` (persistence failure, NO client I/O) → ISOLATED PER STEP: a repo
       failure in one step must NOT starve the others. Each step that can raise
       ``RepositoryError`` (monitor/completions/candidates) is wrapped separately (log +
@@ -344,14 +368,24 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
     unavailability is handled by the next cycle's retry + the warning log. Intentional
     asymmetry.
     """
-    # Step 1 - MONITOR: client I/O → MuleUnreachableError = dead daemon = ABORT the iteration.
-    # (A RepositoryError from ``set_state`` is isolated HERE too: it doesn't starve steps 2-4.)
+    # Step 0 - CONNECT + QUEUE SNAPSHOT: client I/O → MuleUnreachableError = dead daemon = ABORT.
+    # ``connect()`` is IDEMPOTENT (the adapter no-ops when its transport is live) and is the ONLY
+    # thing that re-arms a stream the adapter discarded after a failed read. SKIPPING IT WEDGES
+    # THE LOOP: amuled is restarted by the port-sync on every VPN renegotiation, and nothing else
+    # in this loop ever reconnects (field, 2026-09-04: 7 days of "EC client not connected").
+    # Same guard as ``SearchWorker._ensure_connected`` and ``run_port_sync_cycle``.
     try:
-        states = deps.downloads.active_states()
-        await _monitor(deps, states)
+        await deps.client.connect()
+        queue = await deps.client.download_queue()
     except MuleUnreachableError as error:
         _logger.warning("download daemon unreachable (%s): iteration skipped, retry", error)
         return
+    queued = frozenset(entry.ed2k_hash for entry in queue)
+    # Step 1 - MONITOR: NO client I/O left (the queue came from step 0) → only RepositoryError.
+    # Steps 1 and 2 share that ONE snapshot: a second read could only contradict the first.
+    try:
+        states = deps.downloads.active_states()
+        await _monitor(deps, states, queue)
     except RepositoryError as error:
         _logger.error("download monitor repo failure (%s): step skipped, continues", error)
     # Step 2 - COMPLETIONS: we RE-READ ``active_states`` FRESHLY (logic-download#2). Without it,
@@ -363,7 +397,7 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
     # a repo failure in one must NOT prevent the other from running.
     try:
         fresh_states = deps.downloads.active_states()
-        await _handle_completions(deps, fresh_states)
+        await _handle_completions(deps, fresh_states, queued)
     except MuleUnreachableError as error:
         _logger.warning("download daemon unreachable (%s): iteration skipped, retry", error)
         return

@@ -40,7 +40,12 @@ _TARGETS = (
 
 
 class FakeDownloadClient:
-    """Scripted MuleDownloadClient: SCRIPTED download queue, captures added links."""
+    """Scripted MuleDownloadClient: SCRIPTED download queue, captures added links.
+
+    ``disconnected`` models the REAL adapter's state after a dead EC stream: every I/O call
+    raises ``MuleUnreachableError`` until ``connect()`` succeeds (``AmuleEcClient`` nulls its
+    transport on the first failed read, then every later call fails the same way).
+    """
 
     def __init__(
         self,
@@ -51,6 +56,7 @@ class FakeDownloadClient:
         queue_failures: list[Exception] | None = None,
         add_failures: list[Exception] | None = None,
         shared_failures: list[Exception] | None = None,
+        disconnected: bool = False,
     ) -> None:
         self._queue = list(queue or [()])
         self._shared = list(shared or [()])
@@ -58,28 +64,37 @@ class FakeDownloadClient:
         self._queue_failures = list(queue_failures or [])
         self._add_failures = list(add_failures or [])
         self._shared_failures = list(shared_failures or [])
+        self._disconnected = disconnected
         self.added_links: list[str] = []
         self.connect_calls = 0
+
+    def _require_connected(self) -> None:
+        if self._disconnected:
+            raise MuleUnreachableError("EC client not connected (call connect() first)")
 
     async def connect(self) -> None:
         self.connect_calls += 1
         if self._connect_failures:
             raise self._connect_failures.pop(0)
+        self._disconnected = False
 
     async def close(self) -> None:
         return None
 
     async def add_link(self, ed2k_link: str) -> None:
+        self._require_connected()
         if self._add_failures:
             raise self._add_failures.pop(0)
         self.added_links.append(ed2k_link)
 
     async def download_queue(self) -> tuple[DownloadEntry, ...]:
+        self._require_connected()
         if self._queue_failures:
             raise self._queue_failures.pop(0)
         return self._queue.pop(0) if self._queue else ()
 
     async def shared_files(self) -> tuple[SharedFileEntry, ...]:
+        self._require_connected()
         if self._shared_failures:
             raise self._shared_failures.pop(0)
         return self._shared.pop(0) if self._shared else ()
@@ -470,6 +485,104 @@ async def test_promote_failure_keeps_completed_and_does_not_enqueue() -> None:
 
 
 @pytest.mark.asyncio
+async def test_shared_hash_still_in_the_download_queue_is_not_a_completion() -> None:
+    # Field 2026-09-02: 065B was marked COMPLETED (and promoted, forever failing) while amuled
+    # reported it at 20.1 %. aMule shares PARTIAL downloads too (standard eMule: you upload what
+    # you have), so presence in the shared list is not a completion proof. The discriminator is
+    # the download queue: a finished file left ``m_filelist``.
+    client = FakeDownloadClient(
+        queue=[(DownloadEntry(ed2k_hash=_A, size_done=20, size_full=100),)],
+        shared=[(SharedFileEntry(ed2k_hash=_A, name="Keroro.avi"),)],
+    )
+    downloads = FakeDownloadRepo()
+    downloads.states[_A] = DownloadState.DOWNLOADING
+    quarantine = FakeQuarantine()
+    local = FakeLocalRepo()
+    deps = _deps(
+        client=client,
+        quarantine=quarantine,
+        downloads=downloads,
+        catalog=FakeCatalogReads(),
+        local=local,
+    )
+    await run_download_cycle(deps)
+    assert downloads.states[_A] is DownloadState.DOWNLOADING  # NOT flipped to COMPLETED
+    assert quarantine.promoted == []  # nothing promoted
+    assert local.enqueued == []  # nothing sent to verification
+
+
+@pytest.mark.asyncio
+async def test_shared_hash_absent_from_the_download_queue_is_a_completion() -> None:
+    # The positive case of the same rule, with a NON-empty queue (the completing hash is not in
+    # it): a finished download is shared and gone from the queue, while other downloads keep
+    # running.
+    client = FakeDownloadClient(
+        queue=[(DownloadEntry(ed2k_hash=_B, size_done=1, size_full=10),)],
+        shared=[(SharedFileEntry(ed2k_hash=_A, name="Keroro.avi"),)],
+    )
+    downloads = FakeDownloadRepo()
+    downloads.states[_A] = DownloadState.DOWNLOADING
+    quarantine = FakeQuarantine()
+    local = FakeLocalRepo()
+    deps = _deps(
+        client=client,
+        quarantine=quarantine,
+        downloads=downloads,
+        catalog=FakeCatalogReads(),
+        local=local,
+    )
+    await run_download_cycle(deps)
+    assert downloads.states[_A] is DownloadState.QUARANTINED
+    assert quarantine.promoted == [(Path("/staging/Keroro.avi"), _A)]
+    assert local.enqueued == [_A]
+
+
+@pytest.mark.asyncio
+async def test_cycle_reconnects_a_dead_transport_before_any_io() -> None:
+    # Field 2026-09-04: the port-sync restarted amuled, the EC stream died, and the loop then
+    # logged "EC client not connected (call connect() first)" every 30 s for 7 days without ever
+    # reconnecting: an iteration that aborts at step 1 never reaches the queue/candidate steps,
+    # so a node silently stops downloading. ``connect()`` is idempotent (no-op when the stream is
+    # live), so re-establishing it at the top of the cycle costs nothing.
+    client = FakeDownloadClient(disconnected=True)
+    downloads = FakeDownloadRepo()
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_A, "062A"),),
+        observations={_A: ObservedFile(filename="Keroro.avi", size_bytes=100)},
+    )
+    deps = _deps(
+        client=client,
+        quarantine=FakeQuarantine(),
+        downloads=downloads,
+        catalog=catalog,
+        local=FakeLocalRepo(),
+    )
+    await run_download_cycle(deps)
+    assert client.connect_calls == 1
+    assert downloads.states[_A] is DownloadState.QUEUED  # the cycle did its work
+    assert len(client.added_links) == 1
+
+
+@pytest.mark.asyncio
+async def test_reconnect_failure_skips_the_iteration_without_raising() -> None:
+    client = FakeDownloadClient(
+        disconnected=True, connect_failures=[MuleUnreachableError("daemon still down")]
+    )
+    downloads = FakeDownloadRepo()
+    deps = _deps(
+        client=client,
+        quarantine=FakeQuarantine(),
+        downloads=downloads,
+        catalog=FakeCatalogReads(candidates=(_candidate(_A, "062A"),)),
+        local=FakeLocalRepo(),
+    )
+    await run_download_cycle(deps)  # does not raise
+    assert client.connect_calls == 1  # the reconnect was ATTEMPTED
+    assert client.added_links == []
+    assert downloads.states == {}
+
+
+@pytest.mark.asyncio
 async def test_unreachable_client_is_tolerated_and_iteration_skipped() -> None:
     client = FakeDownloadClient(queue_failures=[MuleUnreachableError("daemon down")])
     downloads = FakeDownloadRepo()
@@ -510,12 +623,9 @@ async def test_monitor_repo_error_still_promotes_completions_in_same_cycle() -> 
     # in the whole cycle (latency +1 cycle although we already have the signal). The fix re-reads
     # ``active_states()`` BEFORE ``_handle_completions`` so the completions are seen.
     client = FakeDownloadClient(
-        queue=[
-            (
-                DownloadEntry(ed2k_hash=_A, size_done=0, size_full=0),
-                DownloadEntry(ed2k_hash=_B, size_done=0, size_full=0),
-            )
-        ],
+        # _A is NOT in the queue: it completed (that is why it is shared and why the promotion
+        # must happen in this very cycle). _B is queued and fails its set_state transition.
+        queue=[(DownloadEntry(ed2k_hash=_B, size_done=0, size_full=0),)],
         shared=[(SharedFileEntry(ed2k_hash=_A, name="keroro_062a.avi"),)],
     )
     downloads = FakeDownloadRepo(fail_set_state_for={_B})
