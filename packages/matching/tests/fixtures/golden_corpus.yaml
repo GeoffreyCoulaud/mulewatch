@@ -124,6 +124,21 @@ cases:
     filename: "Keroro Movie special edition.avi"
     discarded: true
 
+  - id: underscored_movie_marker_is_discarded
+    # Operator change 2026-09-11: 'movie' is no longer anchored on word boundaries. A name that joins
+    # words with underscores has NO word boundary around "movie" (underscore IS a word
+    # character), so the anchored form missed "…_movie_…" entirely and the film stayed
+    # catalogued. Unanchored, the marker fires here -> discarded.
+    filename: "Keroro_mission_titar_movie_VF.avi"
+    discarded: true
+
+  - id: onlyfans_marker_is_discarded
+    # Operator change 2026-09-11: 'onlyfans' joins not_episode. A paywalled clip is not a
+    # broadcast episode; without the marker this name matched is_keroro and reached the
+    # catch-all (catalog / unidentified).
+    filename: "KERORO MISSION TITAR onlyfans.avi"
+    discarded: true
+
   # --- Gate média (2026-07-02) : le catalogue permissif keroro_large exige is_video OU
   #     is_archive. cbz/cbr sont des formats COMICS (ZIP/RAR déguisés), volontairement HORS
   #     de is_archive -> écartés, jamais catalogués. ---
