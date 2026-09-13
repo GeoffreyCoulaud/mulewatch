@@ -17,7 +17,6 @@ dev = [
   "mypy>=1.10",
   "ruff>=0.15.20",
   "sqlfluff>=3.0",
-  "testcontainers>=4.10",
   "types-pyyaml>=6.0.12.20260518",
   "poethepoet>=0.47.1",
 ]
@@ -51,10 +50,6 @@ files = [
   "packages/vex_guards/src",
   "packages/vex_guards/tests",
 ]
-
-[[tool.mypy.overrides]]
-module = "testcontainers.*"
-ignore_missing_imports = true
 
 # Task runner (poethepoet). The gate lives here as the single source of truth; the
 # pre-push hook and CI both call these tasks. `uv run poe` lists them with their help.

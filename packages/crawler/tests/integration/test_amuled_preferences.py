@@ -16,42 +16,19 @@ NOTE: the real restart + the real High-ID are covered by the layer-B e2e suite (
 this file (no Docker proxy here).
 """
 
-from collections.abc import Iterator
-
 import pytest
-from testcontainers.core.container import DockerContainer
-from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
 from mulewatch.adapters.mule_ec.client import AmuleEcClient
+from tests.integration.conftest import EcEndpoint
 
 pytestmark = pytest.mark.ec_integration
 
-_EC_PASSWORD = "indexer-ec-test"
-_IMAGE = "ngosang/amule:3.0.0-1"  # DECISION 10: Docker Hub image ngosang/docker-amule
-
-
-@pytest.fixture(scope="module")
-def amuled() -> Iterator[tuple[str, int]]:
-    ready = LogMessageWaitStrategy(r"listening on 0\.0\.0\.0:4712").with_startup_timeout(180)
-    container = (
-        DockerContainer(_IMAGE)
-        .with_env("GUI_PWD", _EC_PASSWORD)
-        .with_exposed_ports(4712)
-        .waiting_for(ready)
-    )
-    try:
-        container.start()
-        yield container.get_container_host_ip(), int(container.get_exposed_port(4712))
-    finally:
-        container.stop()
-
 
 @pytest.mark.asyncio
-async def test_real_get_listen_port_reads_a_plausible_port(amuled: tuple[str, int]) -> None:
+async def test_real_get_listen_port_reads_a_plausible_port(amuled: EcEndpoint) -> None:
     # R3 + R4: if get_listen_port returns a value, the response opcode (0x40) AND the detail level
     # (implicit CMD) are CONFIRMED against the real daemon. The image's default port is 4662.
-    host, port = amuled
-    client = AmuleEcClient(host, port, _EC_PASSWORD, timeout=30.0)
+    client = AmuleEcClient(amuled.host, amuled.port, amuled.password, timeout=30.0)
     await client.connect()
     try:
         listen_port = await client.get_listen_port()
@@ -61,12 +38,11 @@ async def test_real_get_listen_port_reads_a_plausible_port(amuled: tuple[str, in
 
 
 @pytest.mark.asyncio
-async def test_real_set_then_get_round_trips_the_port(amuled: tuple[str, int]) -> None:
+async def test_real_set_then_get_round_trips_the_port(amuled: EcEndpoint) -> None:
     # set_listen_port(N) updates the pref IN MEMORY; a later get must return N (proof that
     # SET_PREFERENCES → Apply() did set EC_TAG_CONN_TCP_PORT). The actual re-bind (socket)
-    # requires a restart — NOT tested here (covered by the layer-B e2e).
-    host, port = amuled
-    client = AmuleEcClient(host, port, _EC_PASSWORD, timeout=30.0)
+    # requires a restart: NOT tested here (covered by the layer-B e2e).
+    client = AmuleEcClient(amuled.host, amuled.port, amuled.password, timeout=30.0)
     await client.connect()
     try:
         original = await client.get_listen_port()
