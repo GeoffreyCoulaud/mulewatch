@@ -223,3 +223,145 @@ def test_entrypoint_config_renders(label: str, path: str) -> None:
     assert _GLUETUN_ONLY_SERVICES & services == expected_gluetun, (
         f"{path}: unexpected VPN-stack services, got {services}"
     )
+
+
+# --- Completion scenario (scope-reduction spec §4) ---------------------------------------------
+#
+# amuled's IncomingDir in the smoke image, read from its amule.conf. A file dropped there is
+# hashed and shared at the next amuled start, which is how we obtain a REAL ed2k hash without
+# ever computing one ourselves.
+_INCOMING_DIR = "/downloads/incoming"
+_SEEDED_TARGET = "062A"
+_SEEDED_SIZE = 65536
+
+# EC credentials of the smoke stack (tests/smoke/compose.yaml + tests/smoke/crawler.yml).
+_EC_HOST, _EC_PORT, _EC_PASSWORD = "amuled", 4712, "smoke-ec-password"
+
+_SHARED_HASHES = f"""
+import asyncio, json
+from mulewatch.adapters.mule_ec.client import AmuleEcClient
+
+async def main() -> None:
+    client = AmuleEcClient({_EC_HOST!r}, {_EC_PORT}, {_EC_PASSWORD!r})
+    await client.connect()
+    print(json.dumps(sorted(entry.ed2k_hash for entry in await client.shared_files())))
+    await client.close()
+
+asyncio.run(main())
+"""
+
+_SEED_ROW = f"""
+import datetime, sqlite3, sys
+now = datetime.datetime.now(datetime.UTC).isoformat()
+conn = sqlite3.connect("/data/local/local.db", timeout=30)
+conn.execute(
+    "INSERT INTO downloads"
+    " (ed2k_hash, target_id, state, queued_at, size_bytes, last_seen_at)"
+    " VALUES (?, {_SEEDED_TARGET!r}, 'downloading', ?, {_SEEDED_SIZE}, ?)",
+    (sys.argv[1], now, now),
+)
+conn.commit()
+"""
+
+_READ_ROW = """
+import sqlite3, sys
+conn = sqlite3.connect("/data/local/local.db", timeout=30)
+row = conn.execute(
+    "SELECT state, completed_at IS NOT NULL FROM downloads WHERE ed2k_hash = ?", (sys.argv[1],)
+).fetchone()
+print(row[0], bool(row[1]))
+"""
+
+
+def _exec_python(script: str, *args: str, files: tuple[Path, ...]) -> str:
+    """Run `script` with the crawler container's python and return its stdout (fails loudly)."""
+    result = _run("exec", "-T", "crawler", "python", "-c", script, *args, files=files, timeout=120)
+    assert result.returncode == 0, f"{result.stdout}{result.stderr}"
+    return result.stdout.strip()
+
+
+def _shared_hashes(files: tuple[Path, ...]) -> frozenset[str]:
+    """Hashes amuled currently shares, read over EC from inside the crawler container."""
+    return frozenset(json.loads(_exec_python(_SHARED_HASHES, files=files)))
+
+
+def _wait_new_shared_hash(
+    before: frozenset[str], files: tuple[Path, ...], *, attempts: int = 20, delay: float = 2.0
+) -> str:
+    """Poll until exactly one hash appeared in amuled's shared list, and return it.
+
+    amuled hashes the IncomingDir asynchronously at startup, so this is a readiness probe. The
+    "exactly one" bound is what identifies OUR file: the smoke amuled shares nothing else at
+    that point (its only queue entry has no sources and no bytes, so it is not shared yet).
+    """
+    appeared: frozenset[str] = frozenset()
+    for _ in range(attempts):
+        appeared = _shared_hashes(files) - before
+        if len(appeared) == 1:
+            return next(iter(appeared))
+        time.sleep(delay)
+    raise AssertionError(f"expected exactly one new shared hash, got {sorted(appeared)}")
+
+
+def _wait_download_state(
+    ed2k_hash: str,
+    target: str,
+    files: tuple[Path, ...],
+    *,
+    attempts: int = 20,
+    delay: float = 2.0,
+) -> str:
+    """Poll local.db until the seeded row reaches `target`; attach the crawler logs on failure."""
+    last = "<never read>"
+    for _ in range(attempts):
+        last = _exec_python(_READ_ROW, ed2k_hash, files=files)
+        if last.split()[0] == target:
+            return last
+        time.sleep(delay)
+    logs = _run("logs", "--no-color", "--tail", "80", "crawler", files=files, timeout=60)
+    raise AssertionError(
+        f"download {ed2k_hash} never reached {target!r} (last: {last})\n"
+        f"--- crawler logs ---\n{logs.stdout}{logs.stderr}"
+    )
+
+
+def test_a_file_amuled_shares_is_recorded_completed(project_files: tuple[Path, ...]) -> None:
+    """End to end: amuled shares a file that left the queue, the crawler completes and notifies.
+
+    Drives the crawler container that is already running rather than an in-process cycle: the
+    shipped image carries the EC adapter and the migrations, so the whole path (hardened
+    container, real EC connection, real amuled, real local.db) is exercised without building a
+    parallel harness. The ed2k hash is never computed here; amuled computes it and we read it
+    back over EC, which is what makes seeding a matching row possible at all.
+    """
+    result = _run("up", "-d", *_BUILD_FLAGS, files=project_files, timeout=900)
+    assert result.returncode == 0, result.stderr
+    _wait_state("amuled", "running", project_files)
+    _wait_state("crawler", "running", project_files)
+    _wait_webui_health(project_files)
+
+    before = _shared_hashes(project_files)
+    # The amuled image carries no python; busybox writes the file just as well.
+    drop = _run(
+        "exec",
+        "-T",
+        "amuled",
+        "sh",
+        "-c",
+        f"head -c {_SEEDED_SIZE} /dev/urandom > {_INCOMING_DIR}/mulewatch-smoke.bin",
+        files=project_files,
+        timeout=120,
+    )
+    assert drop.returncode == 0, f"{drop.stdout}{drop.stderr}"
+    # amuled only scans its IncomingDir at startup; restarting is the simplest rescan trigger.
+    assert _run("restart", "amuled", files=project_files, timeout=180).returncode == 0
+    _wait_state("amuled", "running", project_files)
+    ed2k_hash = _wait_new_shared_hash(before, project_files)
+
+    # The file is shared and was never in the download queue: the completion signal is complete.
+    _exec_python(_SEED_ROW, ed2k_hash, files=project_files)
+    assert _wait_download_state(ed2k_hash, "completed", project_files) == "completed True"
+
+    # The completion also reached the observability pipeline (the notification, target-labelled).
+    logs = _run("logs", "--no-color", "crawler", files=project_files, timeout=60)
+    assert f"download completed: {_SEEDED_TARGET}" in logs.stdout, logs.stdout[-4000:]
