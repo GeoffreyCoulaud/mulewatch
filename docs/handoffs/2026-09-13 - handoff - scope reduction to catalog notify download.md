@@ -123,10 +123,11 @@ SELECT state, COUNT(*) FROM downloads GROUP BY state;
 
 ## NOT validated against real hardware
 
-- **The compose stacks have never been started.** `docker compose config` parses all four files
-  (Docker 29.7.2, Compose v5.4.0) and the rendered service sets are right, but no stack was brought
-  up. `test_build_succeeds` and `test_crawler_stays_up_and_serves_its_webui` need a real daemon:
-  run `cd packages/crawler && uv run pytest -m compose_integration --no-cov` from a real shell.
+- ~~The compose stacks have never been started.~~ **Done, 2026-09-13.** The operator ran
+  `cd packages/crawler && uv run pytest -m compose_integration --no-cov` from a real shell: 4
+  passed in 23s. That covers the image build, the rendered service sets on both entry points, and
+  the crawler staying up and serving its webui. The remaining integration markers still need a real
+  amuled.
 - **The migrations have never run against the live node's databases.** They were exercised against
   synthetic databases built from the real migration files, including a version-3 local.db carrying
   a `quarantined` row. The live catalog holds no verdict rows (confirmed with the operator), so the
