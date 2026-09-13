@@ -69,28 +69,21 @@ holistic review is what caught it. Do not skip it.
 
 ## Known limits
 
-**A download can strand in `downloading` permanently.** No transition leaves `QUEUED` or
-`DOWNLOADING` without a positive signal from amuled. If a file completes and is then moved,
-renamed or deleted out of `IncomingDir` inside the 30-second window before the next poll, amuled
-stops sharing it: the hash is in neither the queue nor the shared list, the row stays `downloading`
-forever, no notification fires, and its size keeps counting against the disk cap until someone
-edits local.db by hand.
+Both limits this handoff originally listed were fixed the same day: see
+`docs/specs/2026-09-13-real-disk-cap-and-lost-download-ttl.md` and commit `7f504b3`. The disk cap
+now measures the filesystem, and a row amuled has forgotten for 24 h becomes `failed`. What
+remains:
 
-The shape of this predates the change, but the change makes it reachable: inspecting the output
-directory by hand, while the crawler runs, is now the normal workflow. There is no TTL, no
-`abandoned` state and no operator tool. To clear one by hand:
+**Nothing deletes anything.** The free-space floor refuses new downloads when the disk is tight; it
+never removes a file. `./downloads/incoming` still grows without bound, and that is deliberate.
 
-```sql
-UPDATE downloads SET state = 'failed' WHERE ed2k_hash = '<hash>' AND state = 'downloading';
-```
+**A `failed` row blocks re-queuing forever.** `is_downloaded()` is state-blind by design (if
+absence means the operator removed the entry, re-adding it automatically would fight them). To
+retry one file, delete its row.
 
-Decision for now is to document rather than fix: a TTL would invent a threshold nothing currently
-calibrates. If it happens in practice, a TTL that flips a long-unseen `downloading` row to `failed`
-is the smallest fix.
-
-**The disk cap bounds bytes in flight, not disk usage.** Terminal downloads leave the accounting,
-so `./downloads/incoming` grows without bound. This was already true before the change. Watch the
-directory yourself.
+**A nascent queue entry contributes 0 to `outstanding`.** amuled reports `size_full == 0` until it
+knows the size, so for at most one cycle (30 s) the commitment is under-counted by that file's
+size. Bounded and self-correcting.
 
 **`check_image_claims` is a gate with nothing to assert.** No image-family guard survives (the
 three that existed covered ffmpeg, nghttp2 and clamav). It stays wired for the first one added.
@@ -102,8 +95,14 @@ config parser reads only keys it knows and ignores the rest, so an old `crawler.
 at startup.
 
 1. `docker compose down`
-2. Edit `crawler.yml`: remove `download.{staging_dir,quarantine_dir,verifier_url,verify}`.
-   Optional (they are inert), but it keeps the file honest.
+2. Edit `crawler.yml`: remove `download.{staging_dir,quarantine_dir,verifier_url,verify}`
+   (optional, they are inert) and **remove `download.disk_cap_bytes`, which no longer exists**.
+   Add the three keys that replace it, copying the shipped
+   `deploy/config/crawler/crawler.yml`: `min_free_bytes: 10737418240`, `lost_after_seconds: 86400`
+   and `output_dir: /data/downloads`.
+2b. **Add the crawler's read-only mount** to your compose file, or it cannot measure free space:
+   `- ./downloads:/data/downloads:ro`. One `statvfs` on the parent covers `incoming/` and `temp/`,
+   which share a filesystem.
 3. Leave `amule.conf` alone. Its `IncomingDir` points at `/data/quarantine`, which is the container
    path the compose file bind-mounts to `./downloads/incoming`. The name is a legacy kept on
    purpose: renaming it would mean editing `amule.conf` inside the `amule-state` volume for a
