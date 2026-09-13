@@ -1,7 +1,7 @@
-# Dependabot — keep dependencies up to date. One grouped weekly PR per ecosystem.
+# Dependabot: keep dependencies up to date. One grouped weekly PR per ecosystem.
 version: 2
 updates:
-  # GitHub Actions — scans .github/workflows/*.yml AND our composite action.yml
+  # GitHub Actions: scans .github/workflows/*.yml AND our composite action.yml
   # files (.github/actions/*/action.yml); bumps the pinned SHA and the trailing
   # "# vX.Y.Z" comment. Local "./..." action refs are ignored.
   - package-ecosystem: "github-actions"
@@ -15,9 +15,8 @@ updates:
     commit-message:
       prefix: "chore(ci)"
 
-  # Docker base images — the FROM lines of the three package Dockerfiles
-  # (packages/{crawler,verifier,webui}/Dockerfile). Compose image refs are not
-  # covered by the docker ecosystem.
+  # Docker base images: the FROM lines of packages/crawler/Dockerfile, the sole
+  # shipped image. Compose image refs are not covered by the docker ecosystem.
   - package-ecosystem: "docker"
     directories:
       - "/packages/*"
@@ -30,7 +29,7 @@ updates:
     commit-message:
       prefix: "chore(docker)"
 
-  # Python dependencies — the uv workspace (root pyproject.toml + uv.lock).
+  # Python dependencies: the uv workspace (root pyproject.toml + uv.lock).
   - package-ecosystem: "uv"
     directory: "/"
     schedule:

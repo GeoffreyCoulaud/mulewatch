@@ -1,8 +1,8 @@
 """TDD tests for catalog migration 0003 - read-path indices for the webui explorer.
 
-These composite indices drive the webui's latest-per-group reads (decisions per
-(hash, target), latest verification per hash) by index, and give ``file_verifications`` its
-first ``ed2k_hash`` index.
+The composite index left by 0003 drives the webui's latest-decision-per-(hash, target) read
+by index. Its second index, on the since-dropped ``file_verifications``, went with that table
+in migration 0005.
 
 0003 also claimed such an index lets SQLite satisfy a PARTITION/ORDER window without a
 separate sort; the query plan refutes it (the window still needs a TEMP B-TREE for the
@@ -35,11 +35,4 @@ def test_match_decisions_has_hash_target_decided_index(connection: sqlite3.Conne
         "ed2k_hash",
         "target_id",
         "decided_at",
-    ]
-
-
-def test_file_verifications_has_hash_verified_index(connection: sqlite3.Connection) -> None:
-    assert _index_columns(connection, "idx_file_verifications_hash_verified") == [
-        "ed2k_hash",
-        "verified_at",
     ]

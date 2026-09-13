@@ -1,7 +1,7 @@
-# Base fragment (spec §4) — included by deploy/compose.yaml and deploy/gluetun.compose.yml.
+# Base fragment, included by deploy/compose.yaml and deploy/gluetun.compose.yml.
 # Defines everything except amuled and the VPN layer.
 # Validate alone (from repo root):
-#   GRAFANA_PWD=x docker compose -f deploy/base.compose.yml config
+#   AMULE_EC_PASSWORD=x docker compose -f deploy/base.compose.yml config
 x-crawler-common: &crawler-common
   image: ghcr.io/geoffreycoulaud/mulewatch-crawler:${IMAGE_TAG:-latest}
   user: "999:999"
@@ -20,10 +20,10 @@ x-crawler-common: &crawler-common
 services:
   crawler:
     <<: *crawler-common
-    # Secrets référencés par ${VAR} dans crawler.yml : le crawler les interpole depuis SON
-    # os.environ (adapter de config), donc ils doivent être injectés ici. Mapping explicite
-    # (pas env_file: .env) pour le moindre privilège — le crawler n'a pas à voir la clé VPN & co.
-    # :? => compose up échoue tôt et clairement si le secret manque.
+    # Secrets referenced as ${VAR} in crawler.yml are interpolated by the crawler from ITS OWN
+    # os.environ (config adapter), so they must be injected here. Explicit mapping (not
+    # env_file: .env) for least privilege: the crawler has no business seeing the VPN key.
+    # :? makes `compose up` fail early and clearly when a secret is missing.
     environment:
       AMULE_EC_PASSWORD: ${AMULE_EC_PASSWORD:?}
     command:
@@ -37,20 +37,20 @@ services:
       ec:
         aliases: [crawler]
       egress: {}
-      verify-internal: {}
+    # No mount of the downloaded media: the crawler never reads it, and the disk cap is
+    # accounted in local.db rather than measured on the filesystem.
     volumes:
       - ./config/crawler/crawler.yml:/app/config/crawler.yml:ro
       - ./config/crawler/targets.yml:/app/config/targets.yml:ro
       - ./config/crawler/matcher.yml:/app/config/matcher.yml:ro
       - catalog-db:/data/catalog
       - local-db:/data/local
-      - quarantine:/data/quarantine
-    # The crawler now ALSO serves the read-only webui in-process (same image, spec §5): the
-    # webui runs on its own thread. The bind is fixed at 0.0.0.0:8080 in-process; `webui.enabled`
-    # toggles the whole HTTP surface; the published port + networks control exposure (no built-in
-    # auth). This is the crawler container's ONLY inbound port - front it with the operator's
-    # reverse proxy / VPN. A webui crash degrades (crawler keeps crawling), so the healthcheck is
-    # a liveness signal for the HTTP surface, not a crawl-health gate.
+    # The crawler ALSO serves the read-only webui in-process (same image), on its own thread. The
+    # bind is fixed at 0.0.0.0:8080 in-process; `webui.enabled` toggles the whole HTTP surface; the
+    # published port + networks control exposure (no built-in auth). This is the crawler
+    # container's ONLY inbound port: front it with the operator's reverse proxy / VPN. A webui
+    # crash degrades (the crawler keeps crawling), so the healthcheck is a liveness signal for the
+    # HTTP surface, not a crawl-health gate.
     ports:
       - "${WEBUI_PORT:-8080}:8080"
     healthcheck:
@@ -67,121 +67,11 @@ services:
       retries: 3
       start_period: 10s
 
-  verifier:
-    image: ghcr.io/geoffreycoulaud/mulewatch-verifier:${IMAGE_TAG:-latest}
-    profiles: [download]
-    environment:
-      QUARANTINE_DIR: /quarantine
-      VERIFIER_HOST: 0.0.0.0
-      VERIFIER_PORT: "8000"
-      VERIFIER_CONFIG: /config/verifier.yml
-      ENABLED_CHECKS: type_sniff,ffprobe,clamav
-      CLAMAV_DB_DIR: /clamav-db
-      RLIMIT_AS_BYTES_CLAMAV: "1610612736"
-      RLIMIT_CPU_S_CLAMAV: "120"
-    volumes:
-      - quarantine:/quarantine:ro
-      - clamav-db:/clamav-db:ro
-      - ./config/verifier.yml:/config/verifier.yml:ro
-    networks:
-      - verify-internal
-    healthcheck:
-      test:
-        - "CMD"
-        - "python"
-        - "-c"
-        - |
-          import urllib.request, sys
-          r = urllib.request.urlopen("http://localhost:8000/health")
-          sys.exit(0 if r.status == 200 else 1)
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-    user: "999:999"
-    read_only: true
-    tmpfs:
-      # size= caps tmpfs; analysis scratch (mkdtemp) lives here.
-      - /tmp:size=256m
-    cap_drop:
-      - ALL
-    security_opt:
-      - "no-new-privileges:true"
-    pids_limit: 256
-    mem_limit: 2g
-    restart: unless-stopped
-
-  freshclam:
-    image: clamav/clamav:1.4
-    profiles: [download]
-    command: ["freshclam", "--daemon", "--foreground", "--checks=2"]
-    environment:
-      FRESHCLAM_CHECKS: "2"
-    volumes:
-      - clamav-db:/var/lib/clamav
-    networks:
-      - egress
-    # The clamav/clamav image ships a HEALTHCHECK that pings clamd over a socket. We run only
-    # freshclam (there is no clamd daemon: the verifier runs clamscan on demand in its confined
-    # child), so that inherited check always fails and the container reports unhealthy. Override it
-    # with what actually matters for freshclam: the signature database is present. start_period
-    # covers the initial download, which fetches the DB before the first daily.c?d exists.
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /var/lib/clamav/daily.cld || test -f /var/lib/clamav/daily.cvd"]
-      interval: 60s
-      timeout: 5s
-      retries: 3
-      start_period: 120s
-    # THIRD-PARTY image (official clamav). Its /init entrypoint runs as root and structurally needs
-    # CHOWN + FOWNER + SETUID + SETGID + DAC_OVERRIDE (chown the DB dir, drop privileges to the clamav
-    # user, write its log). Under our `cap_drop: ALL` floor the first chown fails (EPERM) and the
-    # container restart-loops. So we do NOT impose cap_drop on it -- same posture as amuled (third-party
-    # image, accepted residual risk, see CLAUDE.md). no-new-privileges kept (does not block the drop).
-    security_opt:
-      - "no-new-privileges:true"
-    restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:v3.1.0
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-    volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
-    networks:
-      - ec
-      - verify-internal
-    restart: unless-stopped
-
-  grafana:
-    image: grafana/grafana:11.4.0
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PWD:?}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-    ports:
-      - "${GRAFANA_PORT:-3000}:3000"
-    volumes:
-      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana-data:/var/lib/grafana
-    networks:
-      - ec
-    depends_on:
-      - prometheus
-    restart: unless-stopped
-
 networks:
   ec: {}
-  verify-internal:
-    internal: true
   egress: {}
 
 volumes:
-  quarantine: {}
   catalog-db: {}
   local-db: {}
   amule-state: {}
-  clamav-db: {}
-  prometheus-data: {}
-  grafana-data: {}

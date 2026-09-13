@@ -112,11 +112,14 @@ Bounding total usage would require a real filesystem measurement and is not in s
 
 Two new migrations.
 
-`catalog/0005_drop_file_verifications.sql`:
-- drop the `file_verifications_no_update` and `file_verifications_no_delete` triggers (they abort
-  the drop otherwise),
-- drop `idx_file_verifications_hash_verified`,
-- drop the `file_verifications` table.
+`catalog/0005_drop_file_verifications.sql`: a single `DROP TABLE file_verifications`.
+
+An earlier draft of this spec claimed the two append-only triggers would abort the drop, and
+prescribed dropping them and the index first. That was wrong, and was disproved empirically during
+implementation on a seeded catalog with `foreign_keys=ON` and `recursive_triggers=ON`: SQLite's
+`DROP TABLE` removes the table's own triggers and indices with it. Explicit `DROP TRIGGER` and
+`DROP INDEX` statements would be redundant DDL. The migration file carries a comment saying so, so
+that nobody restores them.
 
 Confirmed with the operator: the live node's catalog holds no verdict rows, so nothing of value is
 destroyed.

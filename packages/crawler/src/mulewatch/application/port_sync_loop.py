@@ -8,11 +8,10 @@ rate-limit (≤ 1 / window); High-ID re-check after restart WITHOUT looping; edg
 fallback alert (OPERATIONS) when the port stays wrong. The degraded mode (Low-ID) is tolerated:
 any defensive parse (port 0 / control-server unreachable / EC dead) → "not ready", backoff.
 
-``run_port_sync_cycle`` NEVER RAISES (top-level net like ``run_verification_cycle``); every
+``run_port_sync_cycle`` NEVER RAISES (top-level net like ``run_download_cycle``); every
 re-looping path sleeps ``poll_interval_seconds`` (no busy-spin). ``port_sync_loop`` repeats
-until shutdown (``verification_loop`` pattern). Like ``VerificationTaskQueue``, we declare local
-NARROW Protocols (the real ``AmuleEcClient`` AND a minimal fake satisfy them) - we do NOT widen
-``ports/mule_client.py``.
+until shutdown. We declare local NARROW Protocols (the real ``AmuleEcClient`` AND a minimal
+fake satisfy them) - we do NOT widen ``ports/mule_client.py``.
 """
 
 import asyncio

@@ -1,7 +1,6 @@
 # Security Policy
 
-mulewatch publishes two images to GHCR: `mulewatch-crawler` and `mulewatch-verifier`.
-This policy applies to both.
+mulewatch publishes one image to GHCR: `mulewatch-crawler`. This policy applies to it.
 
 ## Signing & attestations
 
@@ -12,36 +11,35 @@ Every image pushed to GHCR is **signed** (keyless, OIDC-based, via
   bill of materials for external consumers;
 - a **Syft-JSON** SBOM: Syft's native format, consumed by the daily scan because it
   preserves the image source identity that image-scoped VEX matching needs (see below);
-- an **[OpenVEX](https://openvex.dev/)** document (`security/<image>.vex.openvex.json`):
+- an **[OpenVEX](https://openvex.dev/)** document (`security/crawler.vex.openvex.json`):
   the triage marking non-exploitable CVEs as `not_affected`.
 
 Signing and attestation happen in `.github/workflows/release.yml` (job `publish-manifest`),
-bound to the multi-arch **index digest** of each image; the signature is `--recursive`, so
-each per-arch child manifest is signed too. See `docs/runbooks/administration.md`
-(section "Vérifier l'authenticité d'une image") for how to verify a pulled image.
+bound to the multi-arch **index digest**; the signature is `--recursive`, so each per-arch
+child manifest is signed too. See `docs/runbooks/administration.md` (section "Vérifier
+l'authenticité d'une image") for how to verify a pulled image.
 
 ## Vulnerability scanning
 
-A [Grype](https://github.com/anchore/grype) scan runs daily against each image's attested
-Syft-JSON SBOM (`.github/workflows/grype-scan.yml`), applying that image's VEX. Results
-appear in the repository's **Security > Code scanning** tab as SARIF findings, one category
-per image (`grype-crawler`, `grype-verifier`). The scan never fails the workflow: findings
-are triaged through VEX.
+A [Grype](https://github.com/anchore/grype) scan runs daily against the image's attested
+Syft-JSON SBOM (`.github/workflows/grype-scan.yml`), applying the image's VEX. Results
+appear in the repository's **Security > Code scanning** tab as SARIF findings, under the
+`grype-crawler` category. The scan never fails the workflow: findings are triaged through VEX.
 
 ## Triage process (VEX)
 
 [OpenVEX](https://openvex.dev/) statements tell Grype which CVEs are **not exploitable** in
-this deployment context, so they are filtered out of scan results automatically. Each image
-has its own file (`security/crawler.vex.openvex.json`, `security/verifier.vex.openvex.json`),
-versioned here (the source of truth) and attached to the released image as a signed OpenVEX
-attestation: the daily scan pulls it **from the image**. For a local run, point Grype at the
-file explicitly with `--vex security/<image>.vex.openvex.json`.
+this deployment context, so they are filtered out of scan results automatically. They live in
+`security/crawler.vex.openvex.json`, versioned here (the source of truth) and attached to the
+released image as a signed OpenVEX attestation: the daily scan pulls it **from the image**.
+For a local run, point Grype at the file explicitly with
+`--vex security/crawler.vex.openvex.json`.
 
 ### Statements are image-scoped, and the scan reads the Syft-JSON SBOM
 
 Grype resolves a VEX statement by the **image** identity (`pkg:oci/...`) then by the
 vulnerable **package** PURL. We use the **image-scoped** form (product
-`pkg:oci/mulewatch-<image>` with the vulnerable package as a `subcomponent`) because it is
+`pkg:oci/mulewatch-crawler` with the vulnerable package as a `subcomponent`) because it is
 the only form safe to attach and redistribute: it is scoped to *this* image, so a downstream
 consumer's unrelated packages are never suppressed by our statements. Use the subcomponent
 PURL **without a version** so a statement survives package bumps.
@@ -54,17 +52,17 @@ use Syft-JSON too, not CycloneDX.
 ### Adding a `not_affected` statement
 
 When a CVE is triaged and found not exploitable, open a PR adding an OpenVEX statement with
-[`vexctl`](https://github.com/openvex/vexctl) to the **matching image's** file:
+[`vexctl`](https://github.com/openvex/vexctl):
 
 ```sh
 go install github.com/openvex/vexctl@latest
 
-# --product is THIS image; --subcomponents is the vulnerable package's PURL
-# (from the Grype finding / SBOM), WITHOUT a version. Comma-separate several.
+# --subcomponents is the vulnerable package's PURL (from the Grype finding / SBOM),
+# WITHOUT a version. Comma-separate several.
 vexctl add \
   --in-place \
-  --file security/verifier.vex.openvex.json \
-  --product "pkg:oci/mulewatch-verifier" \
+  --file security/crawler.vex.openvex.json \
+  --product "pkg:oci/mulewatch-crawler" \
   --subcomponents "pkg:apk/alpine/<package>" \
   --vulnerability CVE-YYYY-NNNNN \
   --status not_affected \
@@ -76,7 +74,7 @@ Verify the suppression applies before opening the PR, using a **Syft-JSON** SBOM
 
 ```sh
 syft <image> -o syft-json=/tmp/sbom.syft.json
-grype sbom:/tmp/sbom.syft.json --vex security/verifier.vex.openvex.json --show-suppressed | grep <CVE>
+grype sbom:/tmp/sbom.syft.json --vex security/crawler.vex.openvex.json --show-suppressed | grep <CVE>
 ```
 
 Valid `--justification` values (OpenVEX vocabulary): `component_not_present`,
@@ -97,14 +95,16 @@ is signed or attested:
 
 - **`check_source_claims`** (PR job, release hard-fail): fails if our own source starts
   reaching code a `vulnerable_code_not_in_execute_path` claim says we never execute, for
-  example importing `tarfile`, `configparser`, `imaplib`, or `poplib`, invoking `wget` or
-  `ffmpeg`, or a runtime base image that is not Alpine.
+  example importing `tarfile`, `configparser`, `imaplib`, or `poplib`, invoking `wget`, or a
+  runtime base image that is not Alpine.
 - **`check_claim_coverage`** (PR job, release hard-fail): fails if a VEX `not_affected` claim
   has no guard in the registry, a guard has no claim, or a justification does not match its
   guard family. It keeps the VEX and the guard registry in bijection.
 - **`check_image_claims`** (daily Grype scan as SARIF, release hard-fail): fails if the built
   image's SBOM contradicts an image-scoped claim, for example a package that should be absent
-  is present, or is below the minimum version a claim relies on.
+  is present, or is below the minimum version a claim relies on. The crawler's current claims
+  are all source-family, so this check has nothing to assert today; it stays wired so the first
+  image-family claim is gated from the moment it is added.
 - **`check_stale_claims`** (daily Grype scan as SARIF, non-blocking): flags VEX entries Grype no
   longer reports for the image, so obsolete suppressions get pruned. Staleness never blocks a
   release: a suppressed CVE that Grype stops reporting has been fixed upstream, which does not

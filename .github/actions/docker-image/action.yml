@@ -7,7 +7,7 @@ description: >
   (package, platform) via cache-scope and exported on every build (one build per scope/run).
 inputs:
   package:
-    description: Package name (crawler|verifier|webui).
+    description: Package name, i.e. the packages/<name>/Dockerfile to build.
     required: true
   platform:
     description: Single target platform (e.g. linux/amd64 or linux/arm64).
@@ -37,7 +37,7 @@ runs:
   using: composite
   steps:
     # Assemble the buildx outputs: always load locally; add the push-by-digest exporter
-    # only when publishing. Two exporter lines, each with its own name — no global tag, so
+    # only when publishing. Two exporter lines, each with its own name, no global tag, so
     # the registry push stays digest-only (untagged) while the local load carries local-tag.
     - id: exporters
       shell: bash

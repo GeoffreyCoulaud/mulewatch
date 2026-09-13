@@ -1,5 +1,8 @@
 # D-analysis (vrai verifier) Implementation Plan
 
+> **Obsolete since 2026-09-13.** The subsystem described here left the project's scope.
+> See `docs/specs/2026-09-13-scope-reduction-catalog-notify-download.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remplacer le verifier NO-OP par un **vrai analyseur**, ENTIÈREMENT dans `packages/verifier`, **sans changer le contrat de fil** (`{verdict, real_meta, checks}`) ni toucher au crawler. À chaque `POST /verify`, le service spawne un **enfant d'analyse jetable** (`python -m download_verifier.analysis_child <hash>`) qui ouvre `quarantine/<hash>` en lecture seule, exécute les checks activés (`type_sniff` via puremagic + `ffprobe` binaire), agrège leur **worst-status** en un verdict (`clean < suspicious < malicious`), remplit `real_meta` (durée/bitrate/codec — le trou qu'EC ne comble jamais), imprime un JSON sur stdout et meurt. Le service parse cet égress **défensivement** (borné, schéma strict, enum) et répond `{verdict, real_meta, checks}`. Le NO-OP de `check.verify_file` ne bascule sur le vrai pipeline **qu'en avant-dernière tâche**, pour que l'e2e `verify_integration` (côté crawler) reste vert tout du long. Spec : `docs/superpowers/specs/2026-06-14-analysis-design.md`.

@@ -25,10 +25,8 @@ def source_dirs() -> list[Path]:
 
 
 def dockerfiles() -> list[Path]:
-    return [_ROOT / "packages" / name / "Dockerfile" for name in ("crawler", "verifier")]
+    return [_ROOT / "packages" / name / "Dockerfile" for name in ("crawler",)]
 
 
 def vex_files() -> dict[str, Path]:
-    return {
-        image: _ROOT / "security" / f"{image}.vex.openvex.json" for image in ("crawler", "verifier")
-    }
+    return {image: _ROOT / "security" / f"{image}.vex.openvex.json" for image in ("crawler",)}

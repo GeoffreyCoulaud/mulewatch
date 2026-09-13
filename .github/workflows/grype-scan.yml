@@ -12,15 +12,11 @@ permissions:
   security-events: write  # required to upload SARIF to GitHub code scanning
 
 env:
-  IMAGE_PREFIX: ghcr.io/geoffreycoulaud/mulewatch
+  IMAGE: ghcr.io/geoffreycoulaud/mulewatch-crawler
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        package: [crawler, verifier]
     steps:
       - name: Check out the repository (for the vex_guards consistency checks)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -57,13 +53,12 @@ jobs:
         env:
           CERT_REGEXP: "^${{ github.server_url }}/${{ github.repository }}/.github/workflows/release.yml@refs/"
         run: |
-          IMAGE="${IMAGE_PREFIX}-${{ matrix.package }}:latest"
           verify() {  # $1 = predicate type -> stdout: the raw predicate JSON
             cosign verify-attestation \
               --type "$1" \
               --certificate-identity-regexp "${CERT_REGEXP}" \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-              "${IMAGE}" \
+              "${IMAGE}:latest" \
               | jq -rs '.[0].payload | @base64d | fromjson | .predicate'
           }
           verify "https://syft.dev/bom" > /tmp/sbom.syft.json
@@ -75,7 +70,7 @@ jobs:
         run: >
           uv run python -m vex_guards.check_image_claims
           --sbom /tmp/sbom.syft.json
-          --vex security/${{ matrix.package }}.vex.openvex.json
+          --vex security/crawler.vex.openvex.json
           --format sarif --output /tmp/image-claims.sarif
 
       - name: Upload image-claims SARIF to code scanning
@@ -83,13 +78,13 @@ jobs:
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: /tmp/image-claims.sarif
-          category: vex-image-claims-${{ matrix.package }}
+          category: vex-image-claims-crawler
 
       - name: Check for stale VEX entries no longer reported by Grype
         run: >
           uv run python -m vex_guards.check_stale_claims
           --sbom /tmp/sbom.syft.json
-          --vex security/${{ matrix.package }}.vex.openvex.json
+          --vex security/crawler.vex.openvex.json
           --format sarif --output /tmp/stale.sarif
 
       - name: Upload stale-claims SARIF to code scanning
@@ -97,7 +92,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: /tmp/stale.sarif
-          category: vex-stale-claims-${{ matrix.package }}
+          category: vex-stale-claims-crawler
 
       # Scans the SBOM (not the live image) so results are reproducible, applying the
       # OpenVEX pulled from the image. fail-build is false: findings are surfaced via
@@ -111,11 +106,9 @@ jobs:
           fail-build: "false"
           output-format: sarif
 
-      # Distinct category per image: without it, the two matrix legs' SARIF uploads
-      # overwrite each other in Code scanning.
       - name: Upload SARIF to GitHub code scanning
         if: always()
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
-          category: grype-${{ matrix.package }}
+          category: grype-crawler

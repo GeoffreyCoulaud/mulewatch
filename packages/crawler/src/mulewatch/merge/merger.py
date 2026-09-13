@@ -117,11 +117,6 @@ _COPY_MATCH_DECISIONS = _copy_journal(
     ("ed2k_hash", "target_id", "rule_name", "tier", "decided_at", "node_id"),
 )
 
-_COPY_FILE_VERIFICATIONS = _copy_journal(
-    "file_verifications",
-    ("ed2k_hash", "verdict", "real_meta", "checks", "verified_at", "node_id"),
-)
-
 _COPY_FILE_OBSERVATION_RANGES = _copy_journal(
     "file_observation_ranges",
     (
@@ -142,14 +137,13 @@ _COPY_FILE_OBSERVATION_RANGES = _copy_journal(
 )
 
 # MANDATORY FK order (spec §4.3): identities (files, sources) BEFORE the journals that
-# reference them. We run these 7 copies for ONE source in ONE transaction.
+# reference them. We run these 6 copies for ONE source in ONE transaction.
 _COPY_STATEMENTS = (
     _COPY_FILES,
     _COPY_SOURCES,
     _COPY_FILE_OBSERVATIONS,
     _COPY_SOURCE_OBSERVATIONS,
     _COPY_MATCH_DECISIONS,
-    _COPY_FILE_VERIFICATIONS,
     _COPY_FILE_OBSERVATION_RANGES,
 )
 

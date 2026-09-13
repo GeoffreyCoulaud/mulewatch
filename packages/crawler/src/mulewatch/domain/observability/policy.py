@@ -27,15 +27,11 @@ from mulewatch.domain.observability.events import (
     ObservationRecorded,
     PortMismatchUnresolved,
     PortSyncTriggered,
-    PromotionFailed,
     SearchCapabilitySampled,
     SearchCycleCompleted,
     SearchExecuted,
     SearchFailed,
     SearchTaskDropped,
-    VerificationCompleted,
-    VerificationQueueDepthSampled,
-    VerifierUnavailable,
 )
 
 
@@ -70,11 +66,7 @@ class MetricName(StrEnum):
     DECISIONS = "emule_decisions"
     DOWNLOADS_QUEUED = "emule_downloads_queued"
     DOWNLOADS_COMPLETED = "emule_downloads_completed"
-    PROMOTION_FAILURES = "emule_promotion_failures"
-    VERIFICATIONS = "emule_verifications"
-    VERIFIER_UNAVAILABLE = "emule_verifier_unavailable"
     CONNECTED_INSTANCES = "emule_connected_instances"
-    VERIFICATION_QUEUE_DEPTH = "emule_verification_queue_depth"
     CRAWLER_UP = "emule_crawler_up"
     PORT_SYNC_TRIGGERED = "emule_port_sync_triggered"
     HIGH_ID_RECOVERED = "emule_high_id_recovered"
@@ -110,32 +102,6 @@ class Report:
     message: str
     metrics: tuple[MetricInstruction, ...] = ()
     audiences: frozenset[Audience] = frozenset()
-
-
-_VERDICT_SEVERITY: dict[str, Severity] = {
-    "clean": Severity.INFO,
-    "suspicious": Severity.INFO,
-    "malicious": Severity.WARNING,
-    "error": Severity.WARNING,
-}
-_VERDICT_AUDIENCES: dict[str, frozenset[Audience]] = {
-    "clean": frozenset({Audience.COMMUNITY}),
-    "suspicious": frozenset({Audience.OPERATIONS}),
-    "malicious": frozenset({Audience.OPERATIONS}),
-    "error": frozenset(),
-}
-
-
-def _verification(event: VerificationCompleted) -> Report:
-    # unknown verdict (verifier contract not honored) → treated as ``error`` (defensive, E-D13).
-    severity = _VERDICT_SEVERITY.get(event.verdict, Severity.WARNING)
-    audiences = _VERDICT_AUDIENCES.get(event.verdict, frozenset())
-    return Report(
-        severity,
-        f"verification {event.target_id}: verdict={event.verdict}",
-        (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", event.verdict),)),),
-        audiences,
-    )
 
 
 def describe(event: Event) -> Report:
@@ -228,21 +194,6 @@ def describe(event: Event) -> Report:
                 (MetricInstruction(MetricName.DOWNLOADS_COMPLETED, "inc"),),
                 frozenset({Audience.COMMUNITY}),
             )
-        case PromotionFailed():
-            return Report(
-                Severity.WARNING,
-                f"quarantine promotion failed: {event.ed2k_hash}",
-                (MetricInstruction(MetricName.PROMOTION_FAILURES, "inc"),),
-            )
-        case VerificationCompleted():
-            return _verification(event)
-        case VerifierUnavailable():
-            return Report(
-                Severity.WARNING,
-                "verifier unreachable",
-                (MetricInstruction(MetricName.VERIFIER_UNAVAILABLE, "inc"),),
-                frozenset({Audience.OPERATIONS}) if event.first_occurrence else frozenset(),
-            )
         case ConnectedInstancesSampled():
             return Report(
                 Severity.DEBUG,
@@ -264,16 +215,6 @@ def describe(event: Event) -> Report:
                 Severity.DEBUG,
                 f"search-capable: {'yes' if event.capable else 'no'}",
                 (MetricInstruction(MetricName.SEARCH_CAPABLE, "set", (), float(event.capable)),),
-            )
-        case VerificationQueueDepthSampled():
-            return Report(
-                Severity.DEBUG,
-                f"verification queue: {event.count} pending",
-                (
-                    MetricInstruction(
-                        MetricName.VERIFICATION_QUEUE_DEPTH, "set", (), float(event.count)
-                    ),
-                ),
             )
         case CrawlerStarted():
             return Report(

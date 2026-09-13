@@ -49,16 +49,6 @@ def _apply_catalog_schema(conn: sqlite3.Connection) -> None:
             node_id TEXT NOT NULL
         );
 
-        CREATE TABLE file_verifications (
-            id INTEGER PRIMARY KEY,
-            ed2k_hash TEXT NOT NULL,
-            verdict TEXT NOT NULL,
-            real_meta TEXT,
-            checks TEXT,
-            verified_at TEXT NOT NULL,
-            node_id TEXT NOT NULL
-        );
-
         PRAGMA journal_mode=WAL;
     """)
 
@@ -68,17 +58,6 @@ def _apply_local_schema(conn: sqlite3.Connection) -> None:
         CREATE TABLE node_runtime (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
-        );
-
-        CREATE TABLE verification_tasks (
-            id INTEGER PRIMARY KEY,
-            ed2k_hash TEXT NOT NULL,
-            status TEXT NOT NULL
-                CHECK (status IN ('pending', 'in_progress', 'done', 'dead_letter')),
-            attempts INTEGER NOT NULL DEFAULT 0,
-            enqueued_at TEXT NOT NULL,
-            claimed_at TEXT,
-            lease_until TEXT
         );
 
         CREATE TABLE downloads (

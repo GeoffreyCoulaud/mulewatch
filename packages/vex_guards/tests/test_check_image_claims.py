@@ -5,17 +5,31 @@ from typing import cast
 import pytest
 
 from vex_guards import check_image_claims
+from vex_guards.descriptors import Guard, ModuleNotImported, PackageAbsent, PackageMinVersion
 from vex_guards.repo import repo_root
 
-# The real published VEX docs double as fixtures: the verifier VEX carries both
-# image-family claims (CVE-2026-58055 -> PackageAbsent("nghttp2"),
-# CVE-2016-1405 -> PackageMinVersion("clamav", "0.99")) and source-family ones,
-# so it exercises both is_image_guard branches; the crawler VEX has no image
-# claim at all, so it drives the scoping (no image guards apply) path. Both live
-# under the repo, so they take the in-repo relative repo.display_path branch.
-_VERIFIER_VEX = repo_root() / "security" / "verifier.vex.openvex.json"
+# The single shipped image carries only source-family claims, so the real registry has no
+# image guard left to exercise this gate. Tests inject their own, keyed on CVEs the real
+# crawler VEX does claim: the document stays a genuine fixture (and lives under the repo,
+# taking the in-repo repo.display_path branch) while the guards stay under test control.
 _CRAWLER_VEX = repo_root() / "security" / "crawler.vex.openvex.json"
-_VERIFIER_VEX_RELPATH = "security/verifier.vex.openvex.json"
+_CRAWLER_VEX_RELPATH = "security/crawler.vex.openvex.json"
+
+_CLAIMED_IMAGE_CVE = "CVE-2025-60876"
+_CLAIMED_SOURCE_CVE = "CVE-2026-11940"
+
+# Three guards, one per branch of main's filter: an image guard whose CVE is claimed (kept),
+# a source guard whose CVE is claimed (scoped out), an image guard nothing claims (skipped).
+_GUARDS: dict[str, Guard] = {
+    _CLAIMED_IMAGE_CVE: PackageAbsent("nghttp2"),
+    _CLAIMED_SOURCE_CVE: ModuleNotImported("tarfile"),
+    "CVE-UNCLAIMED": PackageMinVersion("busybox", "99.0"),
+}
+
+
+@pytest.fixture(autouse=True)
+def _guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(check_image_claims, "GUARDS", _GUARDS)
 
 
 def _write_sbom(tmp_path: Path, artifacts: list[dict[str, str]]) -> Path:
@@ -25,16 +39,17 @@ def _write_sbom(tmp_path: Path, artifacts: list[dict[str, str]]) -> Path:
 
 
 def _violating_sbom(tmp_path: Path) -> Path:
-    # nghttp2 present contradicts CVE-2026-58055's PackageAbsent("nghttp2") guard.
+    # nghttp2 present contradicts the PackageAbsent("nghttp2") guard.
     return _write_sbom(tmp_path, [{"type": "apk", "name": "nghttp2", "version": "1.64.0-r0"}])
 
 
 def _clean_sbom(tmp_path: Path) -> Path:
+    # busybox below the unclaimed guard's minimum: skipped, since nothing claims that CVE.
     return _write_sbom(
         tmp_path,
         [
             {"type": "apk", "name": "nghttp2-libs", "version": "1.64.0-r0"},
-            {"type": "apk", "name": "clamav", "version": "1.4.4-r0"},
+            {"type": "apk", "name": "busybox", "version": "1.37.0-r0"},
         ],
     )
 
@@ -60,13 +75,13 @@ def test_fail_mode_flags_a_present_package_and_prints_the_cve(
 ) -> None:
     sbom = _violating_sbom(tmp_path)
 
-    rc = check_image_claims.main(["--sbom", str(sbom), "--vex", str(_VERIFIER_VEX)])
+    rc = check_image_claims.main(["--sbom", str(sbom), "--vex", str(_CRAWLER_VEX)])
 
     assert rc == 1
     out = capsys.readouterr().out
-    assert "::error::CVE-2026-58055" in out
+    assert f"::error::{_CLAIMED_IMAGE_CVE}" in out
     # The in-repo relative repo.display_path branch: the location renders repo-relative.
-    assert f"({_VERIFIER_VEX_RELPATH})" in out
+    assert f"({_CRAWLER_VEX_RELPATH})" in out
 
 
 def test_fail_mode_returns_zero_on_a_clean_sbom(
@@ -75,21 +90,22 @@ def test_fail_mode_returns_zero_on_a_clean_sbom(
 ) -> None:
     sbom = _clean_sbom(tmp_path)
 
-    rc = check_image_claims.main(["--sbom", str(sbom), "--vex", str(_VERIFIER_VEX)])
+    rc = check_image_claims.main(["--sbom", str(sbom), "--vex", str(_CRAWLER_VEX)])
 
     assert rc == 0
     assert capsys.readouterr().out == ""
 
 
-def test_crawler_vex_has_no_image_guards_so_any_sbom_passes(
+def test_a_vex_with_no_image_claim_lets_any_sbom_pass(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # Scoping: the crawler VEX carries only source-family claims, so is_image_guard
-    # filters them all out and even a package-laden SBOM yields no violations.
+    # Scoping: a document claiming only a source-family CVE filters every image guard
+    # out, so even a package-laden SBOM yields no violation.
+    vex = _write_vex(tmp_path, _CLAIMED_SOURCE_CVE, "vulnerable_code_not_in_execute_path")
     sbom = _violating_sbom(tmp_path)
 
-    rc = check_image_claims.main(["--sbom", str(sbom), "--vex", str(_CRAWLER_VEX)])
+    rc = check_image_claims.main(["--sbom", str(sbom), "--vex", str(vex)])
 
     assert rc == 0
     assert capsys.readouterr().out == ""
@@ -101,14 +117,14 @@ def test_fail_mode_renders_an_out_of_repo_vex_path_verbatim(
 ) -> None:
     # The repo.display_path ValueError fallback: a VEX outside the repo (CI /tmp) must
     # not crash; its raw path is echoed as-is in the violation location.
-    vex = _write_vex(tmp_path, "CVE-2026-58055", "vulnerable_code_not_present")
+    vex = _write_vex(tmp_path, _CLAIMED_IMAGE_CVE, "vulnerable_code_not_present")
     sbom = _violating_sbom(tmp_path)
 
     rc = check_image_claims.main(["--sbom", str(sbom), "--vex", str(vex)])
 
     assert rc == 1
     out = capsys.readouterr().out
-    assert "::error::CVE-2026-58055" in out
+    assert f"::error::{_CLAIMED_IMAGE_CVE}" in out
     assert f"({vex})" in out
 
 
@@ -121,7 +137,7 @@ def test_sarif_mode_with_violation_writes_matching_results(tmp_path: Path) -> No
             "--sbom",
             str(sbom),
             "--vex",
-            str(_VERIFIER_VEX),
+            str(_CRAWLER_VEX),
             "--format",
             "sarif",
             "--output",
@@ -140,12 +156,12 @@ def test_sarif_mode_with_violation_writes_matching_results(tmp_path: Path) -> No
     assert result["level"] == "error"
 
     message = cast(dict[str, object], result["message"])
-    assert "CVE-2026-58055" in cast(str, message["text"])
+    assert _CLAIMED_IMAGE_CVE in cast(str, message["text"])
 
     locations = cast(list[dict[str, object]], result["locations"])
     physical = cast(dict[str, object], locations[0]["physicalLocation"])
     artifact = cast(dict[str, object], physical["artifactLocation"])
-    assert artifact["uri"] == _VERIFIER_VEX_RELPATH
+    assert artifact["uri"] == _CRAWLER_VEX_RELPATH
 
 
 def test_sarif_mode_without_output_errors_cleanly(
@@ -158,7 +174,7 @@ def test_sarif_mode_without_output_errors_cleanly(
 
     with pytest.raises(SystemExit) as exc:
         check_image_claims.main(
-            ["--sbom", str(sbom), "--vex", str(_VERIFIER_VEX), "--format", "sarif"]
+            ["--sbom", str(sbom), "--vex", str(_CRAWLER_VEX), "--format", "sarif"]
         )
 
     assert exc.value.code == 2
@@ -174,7 +190,7 @@ def test_sarif_mode_on_a_clean_sbom_writes_empty_results(tmp_path: Path) -> None
             "--sbom",
             str(sbom),
             "--vex",
-            str(_VERIFIER_VEX),
+            str(_CRAWLER_VEX),
             "--format",
             "sarif",
             "--output",

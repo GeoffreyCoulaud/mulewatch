@@ -8,10 +8,8 @@ network DTO ``NetworkStatus`` (already in ``ports/mule_client.py`` — reused, n
 HighID required to download in full mode).
 
 ``DownloadEntry`` is the port DTO (frozen): the crawler NEVER READS the bytes (spec §4);
-``download_queue`` only returns EC METADATA. Completion is inferred from
-``size_done``/``size_full`` (DECISION D2: EC exposes no portable staging path, so the DTO
-carries none — the location for quarantine is derived from a staging configured by the
-caller). The ERROR contract is Plan C's: a dead stream raises ``MuleUnreachableError``
+``download_queue`` only returns EC METADATA; completion comes from the SHARED files, never
+from the bytes. The ERROR contract is Plan C's: a dead stream raises ``MuleUnreachableError``
 (``ports/mule_client.py``) — the application tolerates it (spec §9).
 """
 

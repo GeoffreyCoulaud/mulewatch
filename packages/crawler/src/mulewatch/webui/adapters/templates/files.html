@@ -58,18 +58,6 @@
           </ul>
         </div>
       </th>
-      <th class="th-tip-host">Verdict
-        <button type="button" class="th-help" aria-label="What the verdict values mean" aria-describedby="tip-verdict">?</button>
-        <div id="tip-verdict" role="tooltip" class="th-tip th-tip--end">
-          <ul>
-            <li><strong>pending</strong>: decision made, not yet verified</li>
-            <li><strong>clean</strong>: content check found no problem</li>
-            <li><strong>suspicious</strong>: content check raised a flag</li>
-            <li><strong>malicious</strong>: content check detected malware</li>
-            <li><strong>error</strong>: the content check could not run</li>
-          </ul>
-        </div>
-      </th>
     </tr>
   </thead>
   <tbody>
@@ -83,10 +71,9 @@
       <td>{% for d in row.decisions_display %}<div class="cell-line">{{ d.target }}</div>{% else %}·{% endfor %}</td>
       <td>{% for d in row.decisions_display %}<div class="cell-line cell-title" title="{{ d.title }}">{{ d.title }}</div>{% else %}·{% endfor %}</td>
       <td>{{ row.tier_display }}</td>
-      <td>{{ row.verdict_display }}</td>
     </tr>
     {% else %}
-    <tr><td colspan="9">No files found.</td></tr>
+    <tr><td colspan="8">No files found.</td></tr>
     {% endfor %}
   </tbody>
 </table>

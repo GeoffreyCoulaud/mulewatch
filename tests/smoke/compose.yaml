@@ -1,19 +1,18 @@
-# Stack SMOKE autonome (test compose_integration) — PAS un déploiement réel : configs tests/smoke/,
-# volumes nommés (test des perms), sans gluetun/monitoring/docker-proxy. Profils observer/download.
-# Piloté par packages/crawler/tests/integration/test_compose_smoke.py.
-# Invoqué avec --project-directory <repo root> : tous les chemins relatifs sont résolus contre le
-# repo root (context=., configs ./tests/smoke/*.yml, verifier réel ./deploy/config/verifier.yml).
+# Standalone SMOKE stack (compose_integration test). NOT a real deployment: it uses the
+# tests/smoke/ configs and named volumes (to exercise the mount permissions), without gluetun
+# or docker-proxy. One stack, no profiles.
+# Driven by packages/crawler/tests/integration/test_compose_smoke.py.
+# Invoked with --project-directory <repo root>: every relative path resolves against the repo
+# root (context=., configs ./tests/smoke/*.yml).
 services:
   amuled:
     image: ngosang/amule:3.0.0-1
-    profiles: [observer, download]
     networks:
       - ec
     environment:
       GUI_PWD: smoke-ec-password
     volumes:
       - amule-state:/home/amule/.aMule
-      - quarantine:/data/quarantine
     restart: unless-stopped
 
   crawler:
@@ -21,7 +20,6 @@ services:
     build:
       context: .
       dockerfile: packages/crawler/Dockerfile
-    profiles: [observer, download]
     user: "999:999"
     read_only: true
     tmpfs:
@@ -33,7 +31,6 @@ services:
     networks:
       ec:
         aliases: [crawler]
-      verify-internal: {}
       egress: {}
     command:
       - "--config"
@@ -46,56 +43,15 @@ services:
       - ./tests/smoke/crawler.yml:/app/config/crawler.yml:ro
       - ./tests/smoke/targets.yml:/app/config/targets.yml:ro
       - ./deploy/config/crawler/matcher.yml:/app/config/matcher.yml:ro
-      - quarantine:/data/quarantine
       - catalog-db:/data/catalog
       - local-db:/data/local
     restart: unless-stopped
 
-  verifier:
-    image: ghcr.io/geoffreycoulaud/mulewatch-verifier:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: packages/verifier/Dockerfile
-    profiles: [download]
-    environment:
-      QUARANTINE_DIR: /quarantine
-      VERIFIER_HOST: 0.0.0.0
-      VERIFIER_PORT: "8000"
-      VERIFIER_CONFIG: /config/verifier.yml
-      ENABLED_CHECKS: type_sniff,ffprobe
-    volumes:
-      - quarantine:/quarantine:ro
-      - ./deploy/config/verifier.yml:/config/verifier.yml:ro
-    networks:
-      - verify-internal
-    healthcheck:
-      test:
-        - "CMD"
-        - "python"
-        - "-c"
-        - "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-    user: "999:999"
-    read_only: true
-    tmpfs:
-      - /tmp:size=256m  # sandbox-confinement#3 — scratch mkdtemp de l'analyse child
-    cap_drop:
-      - ALL
-    security_opt:
-      - "no-new-privileges:true"
-    restart: unless-stopped
-
 networks:
   ec: {}
-  verify-internal:
-    internal: true
   egress: {}
 
 volumes:
-  quarantine: {}
   catalog-db: {}
   local-db: {}
   amule-state: {}

@@ -4,7 +4,7 @@ Rebuild via open_catalog (schema + triggers, ALL catalog migrations applied
 dynamically — we do NOT freeze the numbers, to avoid drift on the next addition). ATTACH
 of the source
 (outside a transaction — SQLite refuses to attach inside a transaction), then INSIDE an explicit
-transaction (BEGIN…COMMIT, best-effort ROLLBACK): verbatim copy of the 5 intact tables (FK order),
+transaction (BEGIN…COMMIT, best-effort ROLLBACK): verbatim copy of the 4 intact tables (FK order),
 verbatim copy of the RECENT raw (observed_at >= cutoff_date), bucketize of the OLD raw
 (observed_at < cutoff_date). COMMIT then DETACH (outside a transaction). We NEVER write to the
 source (only SELECTs). The output is assumed NEW (the CLI guarantees it) → no dedup.
@@ -48,10 +48,6 @@ _COPY_VERBATIM: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("match_decisions", ("ed2k_hash", "target_id", "rule_name", "tier", "decided_at", "node_id")),
-    (
-        "file_verifications",
-        ("ed2k_hash", "verdict", "real_meta", "checks", "verified_at", "node_id"),
-    ),
     (
         "file_observation_ranges",
         (

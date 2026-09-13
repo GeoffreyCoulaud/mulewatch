@@ -12,7 +12,6 @@ from mulewatch.adapters.config.crawler_config import (
     NotificationTarget,
     ObservabilityConfig,
     PortSyncConfig,
-    VerifyConfig,
     WebuiConfig,
     parse_crawler_config,
 )
@@ -51,10 +50,6 @@ def _full_download_section() -> dict[str, Any]:
         "poll_interval_seconds": 30.0,
         "disk_cap_bytes": 1_000_000_000,
         "endpoint": {"name": "amule-dl", "host": "amuled", "port": 4713, "password": "dl-secret"},
-        "staging_dir": "/data/staging",
-        "quarantine_dir": "/data/quarantine",
-        "verifier_url": "http://verifier:8000",
-        "verify": {"poll_interval_seconds": 10.0},  # no client_timeout → default 180
     }
 
 
@@ -295,7 +290,7 @@ def test_download_absent_is_observer() -> None:
 
 
 def test_download_enabled_false_is_observer_without_requiring_wiring() -> None:
-    # enabled:false ⇒ we do NOT read the rest: a missing verifier_url is NOT an error.
+    # enabled:false ⇒ we do NOT read the rest: a missing endpoint is NOT an error.
     raw = _minimal_raw() | {"download": {"enabled": False}}
     cfg = parse_crawler_config(raw, _env())
     assert cfg.download is None
@@ -319,7 +314,7 @@ def test_download_section_must_be_a_mapping() -> None:
         parse_crawler_config(raw, _env())
 
 
-def test_download_enabled_true_requires_endpoint_and_dirs() -> None:
+def test_download_enabled_true_requires_the_endpoint() -> None:
     raw = _minimal_raw() | {
         "download": {"enabled": True, "poll_interval_seconds": 30, "disk_cap_bytes": 1024}
     }  # wiring missing
@@ -334,20 +329,7 @@ def test_download_enabled_true_full_is_download_mode() -> None:
         poll_interval_seconds=30.0,
         disk_cap_bytes=1_000_000_000,
         endpoint=AmuleEndpoint(name="amule-dl", host="amuled", port=4713, password="dl-secret"),
-        staging_dir="/data/staging",
-        quarantine_dir="/data/quarantine",
-        verifier_url="http://verifier:8000",
-        verify=VerifyConfig(poll_interval_seconds=10.0, client_timeout_seconds=180.0),
     )
-
-
-def test_download_verify_client_timeout_is_parsed_when_present() -> None:
-    section = _full_download_section()
-    section["verify"] = {"poll_interval_seconds": 10.0, "client_timeout_seconds": 240.0}
-    raw = _minimal_raw() | {"download": section}
-    cfg = parse_crawler_config(raw, _env())
-    assert cfg.download is not None
-    assert cfg.download.verify.client_timeout_seconds == 240.0
 
 
 def test_download_poll_interval_must_be_positive() -> None:

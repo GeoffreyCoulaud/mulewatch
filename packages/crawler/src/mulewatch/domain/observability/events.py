@@ -68,22 +68,6 @@ class DownloadCompleted:
 
 
 @dataclass(frozen=True)
-class PromotionFailed:
-    ed2k_hash: str
-
-
-@dataclass(frozen=True)
-class VerificationCompleted:
-    target_id: str
-    verdict: str
-
-
-@dataclass(frozen=True)
-class VerifierUnavailable:
-    first_occurrence: bool
-
-
-@dataclass(frozen=True)
 class ConnectedInstancesSampled:
     network: str
     count: int
@@ -95,11 +79,6 @@ class SearchCapabilitySampled:
     # sampled every cycle → binary gauge. Complements the AllInstancesBlind counter (cumulative,
     # edge-triggered): this one carries the live 0/1 signal Grafana alerts on.
     capable: bool
-
-
-@dataclass(frozen=True)
-class VerificationQueueDepthSampled:
-    count: int
 
 
 @dataclass(frozen=True)
@@ -136,12 +115,8 @@ type Event = (
     | DecisionRecorded
     | DownloadQueued
     | DownloadCompleted
-    | PromotionFailed
-    | VerificationCompleted
-    | VerifierUnavailable
     | ConnectedInstancesSampled
     | SearchCapabilitySampled
-    | VerificationQueueDepthSampled
     | CrawlerStarted
     | PortSyncTriggered
     | HighIdRecovered

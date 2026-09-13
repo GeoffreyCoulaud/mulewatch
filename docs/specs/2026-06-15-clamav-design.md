@@ -1,5 +1,8 @@
 # Design — check `clamav` (3ᵉ source de verdict, par signatures)
 
+> **Obsolete since 2026-09-13.** The subsystem described here left the project's scope.
+> See `docs/specs/2026-09-13-scope-reduction-catalog-notify-download.md`.
+
 > **Nature** : design spec **actionnable** d'une tâche **structurante** du backlog
 > (`2026-06-15-backlog-parallelization-design.md` §5, worktree **WT-verifier**, exécutée AVANT
 > `ring-noyau` dans le même worktree). Le design est **figé** (co-conçu avec Geoffrey) ; ce doc le

@@ -56,14 +56,6 @@ MATCH_DECISION_COLUMNS = (
     "decided_at",
     "node_id",
 )
-FILE_VERIFICATION_COLUMNS = (
-    "ed2k_hash",
-    "verdict",
-    "real_meta",
-    "checks",
-    "verified_at",
-    "node_id",
-)
 FILE_OBSERVATION_RANGE_COLUMNS = (
     "ed2k_hash",
     "bucket",
@@ -86,7 +78,6 @@ _COLUMNS_BY_TABLE: Mapping[str, Sequence[str]] = {
     "file_observations": FILE_OBSERVATION_COLUMNS,
     "source_observations": SOURCE_OBSERVATION_COLUMNS,
     "match_decisions": MATCH_DECISION_COLUMNS,
-    "file_verifications": FILE_VERIFICATION_COLUMNS,
     "file_observation_ranges": FILE_OBSERVATION_RANGE_COLUMNS,
 }
 
@@ -130,7 +121,6 @@ def make_catalog(
                 "file_observations",
                 "source_observations",
                 "match_decisions",
-                "file_verifications",
                 "file_observation_ranges",
             ):
                 rows = content.get(table)

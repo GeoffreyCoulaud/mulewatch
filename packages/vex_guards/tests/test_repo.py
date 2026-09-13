@@ -17,20 +17,20 @@ def test_display_path_renders_an_out_of_repo_path_verbatim() -> None:
     assert repo.display_path(Path("/tmp/x")) == "/tmp/x"
 
 
-def test_dockerfiles_are_the_two_image_dockerfiles() -> None:
+def test_dockerfiles_are_the_shipped_image_dockerfiles() -> None:
     files = repo.dockerfiles()
-    assert [p.parent.name for p in files] == ["crawler", "verifier"]
+    assert [p.parent.name for p in files] == ["crawler"]
     assert all(p.name == "Dockerfile" and p.is_file() for p in files)
 
 
 def test_source_dirs_are_the_shipped_packages_only() -> None:
     names = {p.parent.name for p in repo.source_dirs()}
-    assert names == {"crawler", "verifier", "matching"}
+    assert names == {"crawler", "matching"}
     assert "vex_guards" not in names
 
 
 def test_vex_files_point_at_security_dir() -> None:
     files = repo.vex_files()
-    assert set(files) == {"crawler", "verifier"}
-    assert files["verifier"].name == "verifier.vex.openvex.json"
-    assert files["verifier"].is_file()
+    assert set(files) == {"crawler"}
+    assert files["crawler"].name == "crawler.vex.openvex.json"
+    assert files["crawler"].is_file()

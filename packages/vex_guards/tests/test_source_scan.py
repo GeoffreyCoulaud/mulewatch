@@ -121,7 +121,7 @@ def test_base_image_is_alpine_flags_only_the_non_alpine_dockerfile_among_two(
     # One image is alpine, the other drifted to slim: the guard must flag the
     # drifted one specifically (the old "any alpine passes" logic wrongly stayed green).
     alpine_df = _named_dockerfile(tmp_path, "crawler", "FROM python:3.14-alpine\n")
-    slim_df = _named_dockerfile(tmp_path, "verifier", "FROM python:3.14-slim\n")
+    slim_df = _named_dockerfile(tmp_path, "matching", "FROM python:3.14-slim\n")
     guards: dict[str, SourceGuard] = {"CVE-A": BaseImageIsAlpine()}
     violations = evaluate(guards, [], [alpine_df, slim_df])
     assert [v.cve for v in violations] == ["CVE-A"]
@@ -130,7 +130,7 @@ def test_base_image_is_alpine_flags_only_the_non_alpine_dockerfile_among_two(
 
 def test_base_image_is_alpine_passes_when_both_dockerfiles_are_alpine(tmp_path: Path) -> None:
     a = _named_dockerfile(tmp_path, "crawler", "FROM python:3.14-alpine\n")
-    b = _named_dockerfile(tmp_path, "verifier", "FROM alpine:3.20\n")
+    b = _named_dockerfile(tmp_path, "matching", "FROM alpine:3.20\n")
     guards: dict[str, SourceGuard] = {"CVE-A": BaseImageIsAlpine()}
     assert evaluate(guards, [], [a, b]) == []
 

@@ -1,35 +1,25 @@
-"""e2e smoke of the ASSEMBLED docker compose stack, without VPN (packaging spec §5 — F-D1).
+"""e2e smoke of the ASSEMBLED docker compose stack, without VPN (packaging spec §5 - F-D1).
 
 Dedicated run: ( cd packages/crawler && uv run pytest -m compose_integration --no-cov )
-Docker + docker compose v2 required. Brings up verifier + crawler + amuled (gluetun removed via
-tests/smoke/compose.yaml) and asserts the WIRING — NO real download (amuled has neither an eD2k
-server nor a VPN; only its EC server is exercised):
-  1. `docker compose build` succeeds (the 2 images build).
-  2. download: verifier becomes healthy (/health 200) AND the crawler stays Up.
-  3. observer: crawler starts WITHOUT verifier and stays Up.
-  4. download fail-fast: download crawler with verifier_url but verifier ABSENT => exit != 0.
+Docker + docker compose v2 required. Brings up amuled + crawler (the whole stack:
+tests/smoke/compose.yaml has no profiles) and asserts the WIRING, NO real download (amuled has
+neither an eD2k server nor a VPN; only its EC server is exercised):
+  1. `docker compose build` succeeds (the image builds).
+  2. the crawler stays Up and its in-process webui answers /health.
+  3. both deployment entry points render with `docker compose config`.
 Ephemeral volumes: each scenario runs `docker compose down -v` in a finally.
 
 Mechanics established EMPIRICALLY (compose v5, Docker 29):
   * The compose files' relative paths are resolved against the project-directory. We PIN it
-    explicitly to `_REPO_ROOT` via `--project-directory` (cf. `_run`): `./tests/smoke/...`,
-    `context: .` and `./deploy/config/verifier.yml` resolve deterministically, without depending
-    on the default (cwd vs the `-f` file's directory). The `subprocess.run` calls also run
-    `cwd=_REPO_ROOT`.
+    explicitly to `_REPO_ROOT` via `--project-directory` (cf. `_run`): `./tests/smoke/...` and
+    `context: .` resolve deterministically, without depending on the default (cwd vs the `-f`
+    file's directory). The `subprocess.run` calls also run `cwd=_REPO_ROOT`.
   * The DBs are written by the crawler (uid 999, ``read_only: true``) into the REAL named
     volumes ``catalog-db``/``local-db`` (mounted ``/data/catalog`` + ``/data/local``). The
     Dockerfile creates these mount points owned by ``nonroot`` => an EMPTY named volume inherits
     999:999 ownership at first mount, so the non-root crawler can create its SQLite files there.
     The smoke DELIBERATELY exercises this real persistence path to catch any perms regression
     (root-owned named volume => ``unable to open database file``).
-  * Download: an override re-adds ``depends_on: { verifier: service_healthy }`` (absent from the
-    smoke base so the ``observer`` profile is valid) => DETERMINISTIC startup after the verifier
-    is healthy.
-  * Observer: an override re-mounts ``crawler.observer.yml`` (without a download section) and we
-    bring up the ``observer`` profile (the verifier service does not exist there).
-  * Fail-fast: an override forces ``restart: "no"`` (otherwise ``unless-stopped`` loops forever);
-    we bring up amuled+crawler WITHOUT a profile (=> verifier ABSENT); the download crawler
-    health-checks the verifier at startup, fails, and FREEZES in ``exited`` with a code != 0.
 """
 
 import json
@@ -48,7 +38,7 @@ pytestmark = pytest.mark.compose_integration
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _SMOKE = _REPO_ROOT / "tests/smoke/compose.yaml"
 
-# In CI, the build step pre-builds the images and passes IMAGE_TAG; the smoke then consumes them
+# In CI, the build step pre-builds the image and passes IMAGE_TAG; the smoke then consumes it
 # WITHOUT a rebuild. Locally (IMAGE_TAG absent) we rebuild via compose, as before.
 _IMAGE_TAG = os.environ.get("IMAGE_TAG")
 _USES_PREBUILT = _IMAGE_TAG is not None
@@ -60,29 +50,14 @@ _ENTRY_POINTS: tuple[tuple[str, str], ...] = (
     ("compose", "deploy/compose.yaml"),
     ("gluetun", "deploy/gluetun.compose.yml"),
 )
-# `download` is the only remaining compose profile in the deploy stacks (monitoring gone — the
-# webui is served in-process by the crawler now; prometheus/grafana are in the DEFAULT service set).
-_PROFILE_CASES: tuple[tuple[str, ...], ...] = ((), ("download",))
-_CONFIG_CASES: tuple[tuple[tuple[str, str], tuple[str, ...]], ...] = tuple(
-    (entry, profiles) for entry in _ENTRY_POINTS for profiles in _PROFILE_CASES
-)
-_CONFIG_CASE_IDS = [
-    f"{label}-{'+'.join(profiles) if profiles else 'none'}"
-    for (label, _path), profiles in _CONFIG_CASES
-]
-
-# Always rendered, with or without --profile download (royal-road: prometheus/grafana are
-# always-on since deploy/compose.yaml + deploy/gluetun.compose.yml stopped gating them behind a
-# profile). The webui is no longer a service — the crawler serves it in-process (spec P4).
-_ALWAYS_ON_SERVICES = frozenset({"crawler", "amuled", "prometheus", "grafana"})
-# Gated behind --profile download in base.compose.yml (docker-proxy is gluetun-stack-only and
-# asserted in test_entrypoint_config_renders).
-_DOWNLOAD_ONLY_SERVICES = frozenset({"verifier", "freshclam"})
+# No compose profile anywhere: every service of a stack starts unconditionally.
+_ALWAYS_ON_SERVICES = frozenset({"crawler", "amuled"})
+# VPN-stack-only: gluetun itself plus the docker-proxy that serves the port-sync.
+_GLUETUN_ONLY_SERVICES = frozenset({"gluetun", "docker-proxy"})
 
 _CONFIG_ENV = {
     "WIREGUARD_PRIVATE_KEY": "x",
     "AMULE_EC_PASSWORD": "x",
-    "GRAFANA_PWD": "x",
     "SERVER_COUNTRIES": "",
     "LISTEN_PORT": "4662",
 }
@@ -97,34 +72,6 @@ _ENV_STUB = {
     "AMULE_EC_PASSWORD": "smoke-unused",
     "SERVER_COUNTRIES": "",
 }
-
-# Volume lists for the overrides: we mount the smoke configs + the REAL named volumes
-# (catalog-db/local-db/quarantine). The non-root crawler (uid 999) creates its SQLite DBs there —
-# the Dockerfile owns the mount points as nonroot so that empty volumes inherit
-# 999:999. The bind paths stay relative to the project-directory (pinned to _REPO_ROOT).
-_DOWNLOAD_LOCAL_VOLUMES = [
-    "./tests/smoke/crawler.yml:/app/config/crawler.yml:ro",
-    "./tests/smoke/targets.yml:/app/config/targets.yml:ro",
-    "./deploy/config/crawler/matcher.yml:/app/config/matcher.yml:ro",
-    "quarantine:/data/quarantine",
-    "catalog-db:/data/catalog",
-    "local-db:/data/local",
-]
-_OBSERVER_LOCAL_VOLUMES = [
-    "./tests/smoke/crawler.observer.yml:/app/config/crawler.yml:ro",
-    "./tests/smoke/targets.yml:/app/config/targets.yml:ro",
-    "./deploy/config/crawler/matcher.yml:/app/config/matcher.yml:ro",
-    "quarantine:/data/quarantine",
-    "catalog-db:/data/catalog",
-    "local-db:/data/local",
-]
-
-
-def _write_override(tmp_path: Path, name: str, crawler_body: str) -> Path:
-    """Write a scenario override file (YAML) under tmp_path and return its path."""
-    path = tmp_path / name
-    path.write_text(crawler_body)
-    return path
 
 
 def _run(*args: str, files: tuple[Path, ...], timeout: float) -> subprocess.CompletedProcess[str]:
@@ -157,15 +104,8 @@ def _run(*args: str, files: tuple[Path, ...], timeout: float) -> subprocess.Comp
 
 
 def _down(files: tuple[Path, ...]) -> None:
-    """Idempotent tear-down: removes the project's containers + volumes + orphans.
-
-    ``--profile download`` is MANDATORY: with no active profile, ``down`` ignores
-    profile-gated services (compose v5) and would leave a verifier from a previous scenario
-    running (the verifier service is only defined in the ``download`` profile). The ``download``
-    profile is a superset (amuled+crawler+verifier), so it also cleans up the
-    observer/fail-fast scenarios.
-    """
-    _run("--profile", "download", "down", "-v", "--remove-orphans", files=files, timeout=180)
+    """Idempotent tear-down: removes the project's containers + volumes + orphans."""
+    _run("down", "-v", "--remove-orphans", files=files, timeout=180)
 
 
 def _service_state(service: str, files: tuple[Path, ...]) -> tuple[str, int]:
@@ -234,121 +174,37 @@ def project_files() -> Iterator[tuple[Path, ...]]:
         _down(base)
 
 
-@pytest.mark.skipif(_USES_PREBUILT, reason="images prebuilt in CI — nothing to build")
+@pytest.mark.skipif(_USES_PREBUILT, reason="image prebuilt in CI - nothing to build")
 def test_build_succeeds(project_files: tuple[Path, ...]) -> None:
-    result = _run("--profile", "download", "build", files=project_files, timeout=900)
+    result = _run("build", files=project_files, timeout=900)
     assert result.returncode == 0, result.stderr
 
 
-def test_download_verifier_healthy_and_crawler_up(
-    project_files: tuple[Path, ...], tmp_path: Path
-) -> None:
-    override = _write_override(
-        tmp_path,
-        "download.override.yaml",
-        _yaml_crawler(
-            depends_on=(
-                "    depends_on:\n"
-                "      amuled:\n"
-                "        condition: service_started\n"
-                "      verifier:\n"
-                "        condition: service_healthy\n"
-            ),
-            volumes=_DOWNLOAD_LOCAL_VOLUMES,
-        ),
-    )
-    files = (*project_files, override)
-    result = _run("--profile", "download", "up", "-d", *_BUILD_FLAGS, files=files, timeout=900)
+def test_crawler_stays_up_and_serves_its_webui(project_files: tuple[Path, ...]) -> None:
+    result = _run("up", "-d", *_BUILD_FLAGS, files=project_files, timeout=900)
     assert result.returncode == 0, result.stderr
 
-    # depends_on: service_healthy => the verifier is already healthy when the crawler starts.
-    assert _service_state("verifier", files)[0] == "running"
-    assert _wait_state("crawler", "running", files)[0] == "running"
-
-    # /health via exec in the verifier (the verify-internal network is internal, no Internet).
-    health = _run(
-        "exec",
-        "-T",
-        "verifier",
-        "python",
-        "-c",
-        "import urllib.request;print(urllib.request.urlopen('http://localhost:8000/health').status)",
-        files=files,
-        timeout=60,
-    )
-    assert health.returncode == 0, health.stderr
-    assert health.stdout.strip() == "200"
-
-    # The crawler now ALSO serves the read-only webui in-process (spec P4). Poll its /health from
+    assert _wait_state("amuled", "running", project_files)[0] == "running"
+    assert _wait_state("crawler", "running", project_files)[0] == "running"
+    # The crawler ALSO serves the read-only webui in-process (spec P4). Poll its /health from
     # inside the crawler container (exec; no host port needed): the webui thread binds shortly
     # AFTER the container is `running`, so this is a readiness probe, not a one-shot check. Proves
     # the single process crawls AND serves HTTP without a separate service.
-    _wait_webui_health(files)
+    _wait_webui_health(project_files)
 
 
-def test_observer_starts_without_verifier(project_files: tuple[Path, ...], tmp_path: Path) -> None:
-    override = _write_override(
-        tmp_path,
-        "observer.override.yaml",
-        _yaml_crawler(
-            depends_on=None,
-            volumes=_OBSERVER_LOCAL_VOLUMES,
-        ),
-    )
-    files = (*project_files, override)
-    result = _run("--profile", "observer", "up", "-d", *_BUILD_FLAGS, files=files, timeout=900)
-    assert result.returncode == 0, result.stderr
-
-    # The observer profile does NOT define the verifier; the crawler starts anyway and stays Up.
-    assert _wait_state("crawler", "running", files)[0] == "running"
-
-
-def test_download_without_verifier_fails_fast(
-    project_files: tuple[Path, ...], tmp_path: Path
-) -> None:
-    override = _write_override(
-        tmp_path,
-        "failfast.override.yaml",
-        _yaml_crawler(
-            depends_on=None,
-            volumes=_DOWNLOAD_LOCAL_VOLUMES,
-            restart_no=True,
-        ),
-    )
-    files = (*project_files, override)
-    # We bring up ONLY amuled + crawler (without `--profile download`) => the verifier is ABSENT.
-    # Download config (verifier_url present) => the crawler health-checks the verifier at startup,
-    # fails, and with restart: "no" FREEZES in exited (no restart loop).
-    result = _run("up", "-d", *_BUILD_FLAGS, "amuled", "crawler", files=files, timeout=900)
-    assert result.returncode == 0, result.stderr
-
-    state, exit_code = _wait_state("crawler", "exited", files)
-    assert state == "exited"
-    assert exit_code != 0
-
-
-@pytest.mark.parametrize("entry,profiles", _CONFIG_CASES, ids=_CONFIG_CASE_IDS)
-def test_entrypoint_config_renders(entry: tuple[str, str], profiles: tuple[str, ...]) -> None:
-    """`docker compose -f <stack file> [--profile download] config` renders without error.
+@pytest.mark.parametrize(
+    ("label", "path"), _ENTRY_POINTS, ids=[label for label, _ in _ENTRY_POINTS]
+)
+def test_entrypoint_config_renders(label: str, path: str) -> None:
+    """`docker compose -f <stack file> config` renders without error.
 
     Locks in include + forward-refs + anchors/merge + interpolation (no daemon required; the
-    bind-mount sources need not exist for `config`). Also asserts the resulting service set:
-    prometheus/grafana render in the DEFAULT set (no profile needed; the crawler serves the webui
-    in-process), and `--profile download` is the only lever that adds verifier/freshclam
-    (docker-proxy too, in the gluetun stack).
+    bind-mount sources need not exist for `config`). Also asserts the resulting service set: no
+    profile gates anything, so both stacks render crawler + amuled, and the VPN stack adds
+    gluetun + docker-proxy.
     """
-    label, path = entry
-    profile_flags: list[str] = []
-    for profile in profiles:
-        profile_flags += ["--profile", profile]
-    command = [
-        "docker",
-        "compose",
-        "-f",
-        path,
-        *profile_flags,
-        "config",
-    ]
+    command = ["docker", "compose", "-f", path, "config"]
     result = subprocess.run(
         command,
         cwd=_REPO_ROOT,
@@ -363,32 +219,7 @@ def test_entrypoint_config_renders(entry: tuple[str, str], profiles: tuple[str, 
     assert isinstance(rendered, dict)
     services = set(rendered.get("services", {}))
     assert services >= _ALWAYS_ON_SERVICES, f"{path}: missing always-on services, got {services}"
-    if "download" in profiles:
-        assert services >= _DOWNLOAD_ONLY_SERVICES, (
-            f"{path}: missing download services, got {services}"
-        )
-    else:
-        assert not (_DOWNLOAD_ONLY_SERVICES & services), (
-            f"{path}: download-only services present without --profile download: {services}"
-        )
-    if label == "gluetun":
-        assert ("docker-proxy" in services) == ("download" in profiles), (
-            f"{path}: docker-proxy must render iff --profile download, got {services}"
-        )
-
-
-def _yaml_crawler(
-    *,
-    depends_on: str | None,
-    volumes: list[str],
-    restart_no: bool = False,
-) -> str:
-    """Compose a `services.crawler` override (volumes !override; tmpfs /tmp inherited from base)."""
-    lines = ["services:", "  crawler:"]
-    if restart_no:
-        lines.append('    restart: !override "no"')
-    if depends_on is not None:
-        lines.append(depends_on.rstrip("\n"))
-    lines.append("    volumes: !override")
-    lines += [f"      - {volume}" for volume in volumes]
-    return "\n".join(lines) + "\n"
+    expected_gluetun = _GLUETUN_ONLY_SERVICES if label == "gluetun" else frozenset()
+    assert _GLUETUN_ONLY_SERVICES & services == expected_gluetun, (
+        f"{path}: unexpected VPN-stack services, got {services}"
+    )

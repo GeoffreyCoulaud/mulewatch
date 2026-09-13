@@ -1,10 +1,9 @@
-# Stack par défaut (royal road) : sans VPN, amuled en réseau direct.
-# La webui est servie in-process par le crawler (port 8080) ; prometheus + grafana sont
-# toujours actifs, sans profil à ajouter.
-# Low-ID par défaut ; High-ID = ouvrir LISTEN_PORT.
-# Lancer (depuis deploy/) :
+# Default stack: no VPN, amuled on a direct network.
+# The webui is served in-process by the crawler (port 8080). Every service starts
+# unconditionally: there is no compose profile.
+# Low-ID by default; High-ID means opening LISTEN_PORT.
+# Run (from deploy/):
 #   docker compose up -d
-#   docker compose --profile download up -d   # + téléchargement et vérification antivirus
 name: mulewatch
 
 include:
@@ -19,9 +18,13 @@ services:
     ports:
       - "${LISTEN_PORT:-4662}:4662"
       - "${LISTEN_PORT:-4662}:4662/udp"
+    # The container path /data/quarantine is a legacy name kept on purpose: it is amuled's
+    # IncomingDir in amule.conf, inside the amule-state volume. Renaming it would force an edit
+    # of that file on every existing deployment, for a cosmetic gain.
     volumes:
       - amule-state:/home/amule/.aMule
-      - quarantine:/data/quarantine
+      - ./downloads/incoming:/data/quarantine
+      - ./downloads/temp:/data/amule-temp
     networks:
       ec:
         aliases: [amuled]

@@ -1,5 +1,8 @@
 # Spec — emule-indexer : D-verify (pipeline de vérification, NO-OP)
 
+> **Obsolete since 2026-09-13.** The subsystem described here left the project's scope.
+> See `docs/specs/2026-09-13-scope-reduction-catalog-notify-download.md`.
+
 > **Sous-projet** : deuxième des trois issus de la scission de « Plan D ». Ordre :
 > **D-download** (capacité de téléchargement, spec `2026-06-13-download-orchestration-design.md`)
 > → **D-verify** (CE document : le pipeline de vérification full-mode bout-en-bout avec un

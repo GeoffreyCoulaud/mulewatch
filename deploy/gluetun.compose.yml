@@ -1,12 +1,9 @@
-# Stack VPN (gluetun). amuled partage la netns de gluetun ;
-# docker-proxy pour le port-sync.
-# La webui est servie in-process par le crawler (port 8080) ; prometheus + grafana sont
-# toujours actifs, sans profil à ajouter.
-# High-ID auto : VPN_PORT_FORWARDING=on (.env)
-#   + port_sync.enabled: true (crawler.yml).
-# Lancer :
+# VPN stack (gluetun). amuled shares gluetun's netns; docker-proxy serves the port-sync.
+# The webui is served in-process by the crawler (port 8080). Every service starts
+# unconditionally: there is no compose profile.
+# Automatic High-ID: VPN_PORT_FORWARDING=on (.env) + port_sync.enabled: true (crawler.yml).
+# Run:
 #   docker compose -f deploy/gluetun.compose.yml up -d
-#   docker compose -f deploy/gluetun.compose.yml --profile download up -d
 name: mulewatch
 
 include:
@@ -37,14 +34,17 @@ services:
     depends_on: [gluetun]
     environment:
       GUI_PWD: ${AMULE_EC_PASSWORD:?}
+    # The container path /data/quarantine is a legacy name kept on purpose: it is amuled's
+    # IncomingDir in amule.conf, inside the amule-state volume. Renaming it would force an edit
+    # of that file on every existing deployment, for a cosmetic gain.
     volumes:
       - amule-state:/home/amule/.aMule
-      - quarantine:/data/quarantine
+      - ./downloads/incoming:/data/quarantine
+      - ./downloads/temp:/data/amule-temp
     restart: unless-stopped
 
   docker-proxy:
     image: wollomatic/socket-proxy:1.12.2
-    profiles: [download]
     command:
       - "-loglevel=info"
       - "-allowfrom=0.0.0.0/0"
@@ -56,9 +56,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [ec]
     # Root REQUIRED explicitly: the wollomatic image is built USER 65534, but the bind-mounted Docker
-    # socket appears root:root (Docker Desktop) or root:docker (native Docker) -- only root can reach
-    # it. Still confined: cap_drop ALL + read_only + no-new-privileges + allowlist restricted to a
-    # single endpoint POST /containers/amuled/restart.
+    # socket appears root:root (Docker Desktop) or root:docker (native Docker), and only root can
+    # reach it. Still confined: cap_drop ALL + read_only + no-new-privileges + allowlist restricted
+    # to a single endpoint POST /containers/amuled/restart.
     user: "0:0"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

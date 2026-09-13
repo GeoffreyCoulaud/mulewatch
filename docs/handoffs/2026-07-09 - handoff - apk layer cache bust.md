@@ -1,5 +1,8 @@
 # Handoff: automatic apk-layer cache-bust (verifier image)
 
+> **Obsolete since 2026-09-13.** The subsystem described here left the project's scope.
+> See `docs/specs/2026-09-13-scope-reduction-catalog-notify-download.md`.
+
 Branch `fix/apk-layer-cache-bust`, full gate green, verified with real `docker build`s
 (Docker Desktop, amd64). Ready to push + PR. Touches `deploy`/CI, so it goes through a PR.
 
