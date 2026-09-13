@@ -11,8 +11,11 @@ services:
       - ec
     environment:
       GUI_PWD: smoke-ec-password
+      INCOMING_DIR: /downloads/incoming
+      TEMP_DIR: /downloads/temp
     volumes:
       - amule-state:/home/amule/.aMule
+      - downloads:/downloads
     restart: unless-stopped
 
   crawler:
@@ -43,9 +46,9 @@ services:
       - ./tests/smoke/crawler.yml:/app/config/crawler.yml:ro
       - ./tests/smoke/targets.yml:/app/config/targets.yml:ro
       - ./deploy/config/crawler/matcher.yml:/app/config/matcher.yml:ro
-      # Read-only, for statvfs only (download.output_dir). amuled keeps its IncomingDir inside
-      # amule-state here, so this measures the filesystem the downloads actually land on.
-      - amule-state:/data/downloads:ro
+      # Read-only, for statvfs only (download.output_dir): the same volume amuled writes its
+      # finished files to, so the crawler measures the filesystem that actually fills up.
+      - downloads:/data/downloads:ro
       - catalog-db:/data/catalog
       - local-db:/data/local
     restart: unless-stopped
@@ -58,3 +61,4 @@ volumes:
   catalog-db: {}
   local-db: {}
   amule-state: {}
+  downloads: {}

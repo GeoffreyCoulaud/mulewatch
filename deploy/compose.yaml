@@ -15,12 +15,15 @@ services:
     container_name: amuled
     environment:
       GUI_PWD: ${AMULE_EC_PASSWORD:?}
+      INCOMING_DIR: /data/quarantine
+      TEMP_DIR: /data/amule-temp
     ports:
       - "${LISTEN_PORT:-4662}:4662"
       - "${LISTEN_PORT:-4662}:4662/udp"
-    # The container path /data/quarantine is a legacy name kept on purpose: it is amuled's
-    # IncomingDir in amule.conf, inside the amule-state volume. Renaming it would force an edit
-    # of that file on every existing deployment, for a cosmetic gain.
+    # INCOMING_DIR and TEMP_DIR are rewritten into amule.conf by the image entrypoint on every
+    # start. Without them the image defaults to /downloads/incoming, which is NOT bind-mounted:
+    # finished files would land in the container layer and vanish when it is recreated.
+    # /data/quarantine is a legacy name kept so existing nodes need no amule.conf edit.
     volumes:
       - amule-state:/home/amule/.aMule
       - ./downloads/incoming:/data/quarantine
