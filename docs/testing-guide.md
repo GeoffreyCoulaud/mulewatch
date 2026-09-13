@@ -57,14 +57,50 @@ The project has **two levels**:
 
 | Marker | Package | What it validates | Docker? | Other prerequisites | Command |
 |---|---|---|---|---|---|
-| `ec_integration` | crawler | The EC adapter (auth, network status, search cycle, get/set port) against a real amuled | **Yes** (testcontainers) | Image `ngosang/amule:3.0.0-1` | `( cd packages/crawler && uv run pytest -m ec_integration --no-cov )` |
-| `download_integration` | crawler | The EC mechanics of downloading (`add_link` into the download queue) against a real amuled | **Yes** (testcontainers) | Image `ngosang/amule:3.0.0-1` | `( cd packages/crawler && uv run pytest -m download_integration --no-cov )` |
-| `orchestration_integration` | crawler | A full crawl loop (one cycle plus a bounded shutdown) against a real amuled | **Yes** (testcontainers) | Image `ngosang/amule:3.0.0-1` | `( cd packages/crawler && uv run pytest -m orchestration_integration --no-cov )` |
+| `ec_integration` | crawler | The EC adapter (auth, network status, search cycle, get/set port) against a real amuled | **Yes** (you start it) | An amuled you provide, pointed at by `MULEWATCH_TEST_EC_HOST` (§3.0) | `( cd packages/crawler && uv run pytest -m ec_integration --no-cov )` |
+| `download_integration` | crawler | The EC mechanics of downloading (`add_link` into the download queue) against a real amuled | **Yes** (you start it) | Same amuled as above (§3.0) | `( cd packages/crawler && uv run pytest -m download_integration --no-cov )` |
+| `orchestration_integration` | crawler | A full crawl loop (one cycle plus a bounded shutdown) against a real amuled | **Yes** (you start it) | Same amuled as above (§3.0) | `( cd packages/crawler && uv run pytest -m orchestration_integration --no-cov )` |
 | `compose_integration` | crawler | Smoke e2e of the assembled docker compose stack (no VPN): wiring only | **Yes** (compose v2) | docker compose v2; one image build | `( cd packages/crawler && uv run pytest -m compose_integration --no-cov )` |
 
 ---
 
 ## 3. One section per marker (lightest to heaviest)
+
+### 3.0 The amuled the three EC suites need (start it yourself)
+
+`ec_integration`, `download_integration` and `orchestration_integration` all talk to the SAME
+`amuled`, and **none of them starts it**: the caller provides one and points the suites at it with
+three environment variables. They used to start their own container through `testcontainers`, which
+is unusable on hosts where Docker cannot create a veth pair on its default `bridge` network (the
+failure mode we hit for months: `failed to add the host (veth...) <=> sandbox (veth...) pair
+interfaces: operation not supported`). A plain `docker run` with a published port works everywhere.
+
+| Variable | Required | Default | Meaning |
+|---|---|---|---|
+| `MULEWATCH_TEST_EC_HOST` | **Yes** | none | Host of the EC server. **Absent, and the three suites SKIP** with a message repeating the command below. |
+| `MULEWATCH_TEST_EC_PORT` | No | `4712` | EC port. |
+| `MULEWATCH_TEST_EC_PASSWORD` | No | `indexer-ec-test` | EC password (`GUI_PWD` of the daemon). |
+
+Start a throwaway daemon, wait for its EC server, run the suites, throw it away:
+
+```bash
+docker run -d --rm --name mulewatch-test-amuled \
+    -e GUI_PWD=indexer-ec-test -p 4712:4712 ngosang/amule:3.0.0-1
+until docker logs mulewatch-test-amuled 2>&1 | grep -q 'listening on 0.0.0.0:4712'; do sleep 2; done
+
+export MULEWATCH_TEST_EC_HOST=127.0.0.1
+export MULEWATCH_TEST_EC_PORT=4712
+export MULEWATCH_TEST_EC_PASSWORD=indexer-ec-test
+( cd packages/crawler && uv run pytest -m "ec_integration or download_integration or orchestration_integration" --no-cov )
+
+docker rm -f mulewatch-test-amuled
+```
+
+The daemon is stateful (it persists preferences and the download queue in its container), so the
+suites are only reliably repeatable against a FRESH one: recreate it rather than reusing a
+long-lived container.
+
+---
 
 ### 3.1 `ec_integration` (crawler, **Docker required**)
 
@@ -74,11 +110,8 @@ search, progress, fetch, stop cycle runs. The second file (`test_amuled_preferen
 the **listen-port get/set** (High-ID port-sync): `get_listen_port()` reads a plausible port, and the
 `set -> get` round trip returns the value that was set.
 
-**Exact prerequisites.**
-- **Docker** (the tests use `testcontainers`, which starts a container).
-- **Image** `ngosang/amule:3.0.0-1` (pulled automatically if missing).
-- Readiness is awaited on the log line `listening on 0.0.0.0:4712` (startup timeout: 180 s).
-- No environment variable to set (the EC password `indexer-ec-test` is internal to the test).
+**Exact prerequisites.** An amuled started per **§3.0** and `MULEWATCH_TEST_EC_HOST` exported.
+Without it the suite skips (it never fails on absence, and never silently passes).
 
 > The ephemeral container **has no eD2k network access**: a search may return `EC_OP_FAILED` or
 > empty results. The tests **tolerate that explicitly**: what is validated is the **request/response
@@ -102,15 +135,15 @@ for the partfile-hash decoding bug (the hash lives in the `EC_TAG_PARTFILE_HASH 
 not in the parent's own value), hence a realistic hash and size (~700 MiB), **never** the MD4 of the
 empty file (which amuled treats as instantly complete and does not list).
 
-**Exact prerequisites.** Same as `ec_integration`: **Docker** + image `ngosang/amule:3.0.0-1`,
-readiness on `listening on 0.0.0.0:4712`.
+**Exact prerequisites.** Same as `ec_integration` (§3.0).
 
 **Command.**
 ```bash
 ( cd packages/crawler && uv run pytest -m download_integration --no-cov )
 ```
 
-**Expected.** 1 test passed (`test_add_link_then_appears_in_download_queue`). Real completion is not
+**Expected.** 2 tests passed (`test_add_link_then_appears_in_download_queue` and
+`test_shared_files_round_trips`). Real completion is not
 reachable (no eD2k sources): only the add_link, queue, status cycle is validated.
 
 ---
@@ -118,13 +151,13 @@ reachable (no eD2k sources): only the add_link, queue, status cycle is validated
 ### 3.3 `orchestration_integration` (crawler, **Docker required**)
 
 **What it proves.** A real `CrawlerApp` (real `AmuleEcClient` + real SQLite databases on `tmp_path`)
-runs **one full cycle** against a Docker `amuled` then **shuts down cleanly** within a 120 s
+runs **one full cycle** against the provided `amuled` then **shuts down cleanly** within a 120 s
 `wait_for`. The key assertion: the cycle index advanced (`read_cycle_index() >= 1`), proving a cycle
 really completed.
 
-**Exact prerequisites.** Same as `ec_integration`: **Docker** + image `ngosang/amule:3.0.0-1`,
-readiness on `listening on 0.0.0.0:4712`. The test loads the matcher config from the single source
-of truth, `deploy/config/crawler/matcher.yml`.
+**Exact prerequisites.** Same as `ec_integration` (§3.0). The test loads the matcher config from
+the single source of truth, `deploy/config/crawler/matcher.yml`, and runs with the webui disabled
+(its bind is a fixed `0.0.0.0:8080`, which would collide with whatever already listens there).
 
 **Command.**
 ```bash
@@ -180,7 +213,7 @@ cleaned up). Budget several minutes (the build and the up sit under 900 s timeou
 
 To be able to run **every** suite:
 
-- **Docker** + **docker compose v2**. The EC suites use `testcontainers` (which pulls
+- **Docker** + **docker compose v2**. The EC suites talk to an amuled **you** start (§3.0, image
   `ngosang/amule:3.0.0-1`); the compose suite drives `docker compose` directly.
 - A **`.env`** (copied from `deploy/.env.example`) for **manual** compose commands:
   `WIREGUARD_PRIVATE_KEY`, `SERVER_COUNTRIES`, `AMULE_EC_PASSWORD`. Note that the
@@ -199,22 +232,21 @@ Already in CI:
   - `build-and-verify`: one job **per architecture on its native runner** (`amd64` on
     `ubuntu-latest`, `arm64` on `ubuntu-24.04-arm`). Each builds the crawler image and then runs
     **`compose_integration`** against that locally built image (`IMAGE_TAG=ci-<sha>`);
+  - `ec-integration`: starts one `ngosang/amule:3.0.0-1` with `docker run -p 4712:4712`, waits for
+    its EC log line, then runs **`ec_integration`, `download_integration` and
+    `orchestration_integration`** in one pytest call against it. Runner Docker can create a veth,
+    so the network failure that blocks these suites on some developer machines does not apply;
   - `gate`: the single aggregation check required by branch protection.
 - `.github/workflows/pr.yml` also runs the `vex-checks` job (`poe vex-source-claims` +
   `poe vex-claim-coverage`).
 - `.github/workflows/grype-scan.yml` scans the published image daily and reports into Code scanning.
 
-Leads for the suites that are **not** yet in CI:
+Every marker now runs in CI. The only suites still absent are the ones belonging to other
+packages (see their sections above).
 
-| Marker | Realistic on GitHub Actions? | How |
-|---|---|---|
-| `ec_integration` | **Yes** | Docker is available on the Ubuntu runners; `testcontainers` pulls `ngosang/amule:3.0.0-1`. Container startup takes tens of seconds. |
-| `download_integration` | **Yes** | Same as above; it is one test. |
-| `orchestration_integration` | **Yes** | Same as above; budget ~2 minutes for the cycle plus the bounded shutdown. |
-
-A reasonable order to add them: `ec_integration`, then `download_integration`, then
-`orchestration_integration` (they share the same container fixture, so the cost is mostly the image
-pull).
+The `ec-integration` job runs on `ubuntu-latest` only, not on both arches: it exercises the EC
+protocol code, which is pure Python and architecture-independent. The arch-sensitive artefact is
+the crawler image, and that is what `build-and-verify` covers on both runners.
 
 ---
 

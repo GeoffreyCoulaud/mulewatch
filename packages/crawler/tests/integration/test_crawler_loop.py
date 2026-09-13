@@ -1,18 +1,15 @@
-"""Lightweight end-to-end: the REAL crawl loop against a testcontainers amuled (spec §8).
+"""Lightweight end-to-end: the REAL crawl loop against a REAL amuled (spec §8).
 
 Dedicated run: uv run pytest -m orchestration_integration --no-cov
-Validates that a real ``CrawlerApp`` — real ``AmuleEcClient`` + real SQLite DBs — runs
-ONE full cycle against a Docker ``amuled`` then stops CLEANLY. The results may be
+Validates that a real ``CrawlerApp`` (real ``AmuleEcClient`` + real SQLite DBs) runs
+ONE full cycle against the provided ``amuled`` then stops CLEANLY. The results may be
 empty (no guaranteed eD2k network access): it is the LOOP (startup, search, cataloging,
 bounded shutdown) that is validated, not the richness of the results.
 """
 
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from testcontainers.core.container import DockerContainer
-from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
 from catalog_matching.models import TargetSegment
 from catalog_matching.validation import parse_matcher_config
@@ -21,6 +18,7 @@ from mulewatch.adapters.config.crawler_config import (
     AmuleEndpoint,
     BackoffConfig,
     CrawlerConfig,
+    WebuiConfig,
 )
 from mulewatch.adapters.config.yaml_loader import load_yaml
 from mulewatch.adapters.decision_signal_asyncio import AsyncioDecisionSignal
@@ -30,11 +28,10 @@ from mulewatch.adapters.persistence_sqlite.scheduler_state_repository import (
 )
 from mulewatch.composition.app import CrawlerApp
 from mulewatch.ports.mule_client import NetworkStatus
+from tests.integration.conftest import EcEndpoint
 
 pytestmark = pytest.mark.orchestration_integration
 
-_EC_PASSWORD = "indexer-ec-test"
-_IMAGE = "ngosang/amule:3.0.0-1"
 _MATCHER = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler" / "matcher.yml"
 _TARGETS = (
     TargetSegment(
@@ -47,29 +44,13 @@ _TARGETS = (
 )
 
 
-@pytest.fixture(scope="module")
-def amuled() -> Iterator[tuple[str, int]]:
-    ready = LogMessageWaitStrategy(r"listening on 0\.0\.0\.0:4712").with_startup_timeout(180)
-    container = (
-        DockerContainer(_IMAGE)
-        .with_env("GUI_PWD", _EC_PASSWORD)
-        .with_exposed_ports(4712)
-        .waiting_for(ready)
-    )
-    try:
-        container.start()
-        yield container.get_container_host_ip(), int(container.get_exposed_port(4712))
-    finally:
-        container.stop()
-
-
 class _ShutdownAfterFirstCycleClient:
     """Wraps a real client and triggers shutdown on the 2nd cycle's status poll.
 
     We do NOT trigger on the 1st poll (start of the 1st cycle): a shutdown set during the status
     poll cancels the in-flight cycle BEFORE its final ``write_cycle_state``, and the index would
     never advance (verified empirically). So we let the 1st cycle COMPLETE (it writes
-    ``cycle_index=1``), then we trigger shutdown on the 2nd cycle's 1st poll — the index stays at
+    ``cycle_index=1``), then we trigger shutdown on the 2nd cycle's 1st poll. The index stays at
     1, proof that a full cycle actually ran. The ``cycle_interval`` is tiny → the 2nd cycle starts
     right after the 1st (the run stays bounded, well under the 120 s ``wait_for``)."""
 
@@ -105,12 +86,11 @@ class _ShutdownAfterFirstCycleClient:
 
 
 @pytest.mark.asyncio
-async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_path: Path) -> None:
+async def test_real_loop_runs_one_cycle_and_stops(amuled: EcEndpoint, tmp_path: Path) -> None:
     import asyncio
 
     from mulewatch.adapters.mule_ec.client import AmuleEcClient
 
-    host, port = amuled
     matcher_config = parse_matcher_config(load_yaml(_MATCHER))
     crawler_config = CrawlerConfig(
         # Tiny interval: the 2nd cycle starts right after the 1st (which wrote its index)
@@ -127,10 +107,20 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: tuple[str, int], tmp_p
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=60.0, factor=2.0, jitter_ratio=0.3),
         decision_poll_interval_seconds=5.0,
         shutdown_deadline_seconds=30.0,
-        amules=(AmuleEndpoint(name="amule-1", host=host, port=port, password=_EC_PASSWORD),),
+        amules=(
+            AmuleEndpoint(
+                name="amule-1",
+                host=amuled.host,
+                port=amuled.port,
+                password=amuled.password,
+            ),
+        ),
         catalog_db_path=str(tmp_path / "catalog.db"),
         local_db_path=str(tmp_path / "local.db"),
         node_id=None,
+        # The webui binds a FIXED 0.0.0.0:8080; off here so the test never collides with
+        # whatever already listens there on the developer's machine.
+        webui=WebuiConfig(enabled=False),
     )
     app_holder: dict[str, CrawlerApp] = {}
 

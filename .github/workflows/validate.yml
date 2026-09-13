@@ -109,12 +109,43 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # The three EC suites talk to an amuled the CALLER provides (docs/testing-guide.md 3.0). The
+  # runner's Docker can create a veth, so a published-port `docker run` is all it takes.
+  ec-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-uv-env
+        with:
+          save-cache: 'false'  # lint is the x86 cache writer
+      - name: Start a throwaway amuled
+        run: |
+          docker run -d --rm --name amuled \
+            -e GUI_PWD=indexer-ec-test -p 4712:4712 ngosang/amule:3.0.0-1
+          for _ in $(seq 1 90); do
+            # `if`, not `&&`: the step runs under `set -e`, where a bare failing grep aborts it.
+            if docker logs amuled 2>&1 | grep -q 'listening on 0.0.0.0:4712'; then exit 0; fi
+            sleep 2
+          done
+          echo "::error::amuled never announced its EC server"
+          docker logs amuled
+          exit 1
+      - name: EC, download and orchestration integration
+        run: |
+          cd packages/crawler
+          uv run pytest -m "ec_integration or download_integration or orchestration_integration" \
+            --no-cov -q
+        env:
+          MULEWATCH_TEST_EC_HOST: 127.0.0.1
+          MULEWATCH_TEST_EC_PORT: '4712'
+          MULEWATCH_TEST_EC_PASSWORD: indexer-ec-test
+
   # Single aggregation gate for branch protection: require only `validate / gate` instead of the
   # individual (matrix-suffixed) job checks, stable when jobs/matrix legs change. `if: always()`
   # is essential: GitHub treats a *skipped* required check as passing, so the gate must always run
   # and fail explicitly rather than be skipped when an upstream job fails.
   gate:
-    needs: [lint, test, build-and-verify]
+    needs: [lint, test, build-and-verify, ec-integration]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
