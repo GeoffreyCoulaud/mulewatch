@@ -1,178 +1,157 @@
-# Déployer un nœud mulewatch
+# Deploying a mulewatch node
 
-Le sujet du catalogue est **le fichier, jamais la personne**.
+The catalog's subject is **the file, never the person**.
 
-Ce guide vous mène de zéro à un nœud qui tourne. Par défaut, il tourne en mode **observer** : il
-cherche et catalogue, mais ne télécharge ni ne partage rien. À la fin, vous aurez un catalogue web
-sur `http://localhost:8080` et des tableaux de bord sur `http://localhost:3000`.
+This guide takes you from nothing to a running node. Out of the box the node searches, catalogues,
+notifies, and downloads the files it confidently identifies into a `downloads/` folder next to your
+compose file. When you are done you will have a web catalog on `http://localhost:8080`.
 
-Votre adresse IP est visible des autres pairs du réseau eMule : c'est le fonctionnement public et
-normal de ce réseau. Ce que mulewatch fait et ne fait pas est détaillé dans
-[légalité et confidentialité](../legal-and-privacy.md) ; pour masquer votre IP derrière un VPN, voir
-l'annexe A.
+Your IP address is visible to the other peers of the eMule network: that is how this network
+publicly and normally works. What mulewatch does and does not do is detailed in
+[legality and privacy](../legal-and-privacy.md); to hide your IP behind a VPN, see annex A.
 
-Suivez les sept étapes dans l'ordre : elles suffisent à obtenir un nœud qui tourne. Chacune se
-termine par un **Point de contrôle** qui vous dit ce que vous devez voir, et sinon quelle fiche de
-dépannage ouvrir. Les variantes (VPN, téléchargement, High-ID, monitoring) sont en annexe : faites
-d'abord les sept étapes, puis lisez seulement l'annexe qui vous concerne, chacune décrivant ce
-qu'elle ajoute à cette voie.
+Follow the seven steps in order: they are enough to get a running node. Each one ends with a
+**Checkpoint** telling you what you should see, and which troubleshooting entry to open otherwise.
+The variants (VPN, catalog-only, High-ID, ports) are in the annexes: do the seven steps first, then
+read only the annex that concerns you, each of which describes what it adds to this path.
 
 ---
 
-## 1. Ce qu'il vous faut
+## 1. What you need
 
-- **Une machine qui reste allumée.** Un vieux PC ou un mini-PC suffit : le nœud n'est utile que
-  s'il veille en continu. Inutile d'y toucher une fois lancé.
-- **Une connexion Internet permanente.**
-- **Environ 2 Go de RAM libres** et **environ 5 Go d'espace disque** au départ (le catalogue grossit
-  lentement ensuite).
-- **De quoi ouvrir un terminal** : l'application Terminal sous macOS et Linux, PowerShell sous
-  Windows.
+- **A machine that stays on.** An old PC or a mini-PC is enough: a node is only useful if it watches
+  continuously. You will not need to touch it once started.
+- **A permanent Internet connection.**
+- **About 2 GB of free RAM** and **about 5 GB of free disk** to start with. The catalog then grows
+  slowly, and downloaded files accumulate on top of that: see
+  [administration runbook, § Planification disque](administration.md#planification-disque).
+- **A way to open a terminal**: the Terminal app on macOS and Linux, PowerShell on Windows.
 
 ---
 
-## 2. Installer Docker
+## 2. Install Docker
 
-mulewatch tourne dans Docker. Installez-le depuis la page officielle, tenue à jour et valable pour
-chaque système : <https://docs.docker.com/get-started/get-docker/>.
+mulewatch runs in Docker. Install it from the official page, which is kept up to date and valid for
+every system: <https://docs.docker.com/get-started/get-docker/>.
 
-- **Windows / macOS** : installez Docker Desktop, puis **lancez-le** et attendez qu'il indique qu'il
-  tourne.
-- **Linux** : installez Docker Engine (choix « Server » sur cette page), puis suivez ses étapes de
-  post-installation pour utiliser `docker` sans `sudo`.
+- **Windows / macOS**: install Docker Desktop, then **start it** and wait until it reports that it
+  is running.
+- **Linux**: install Docker Engine (the "Server" choice on that page), then follow its
+  post-installation steps so you can use `docker` without `sudo`.
 
-**Point de contrôle.** Tapez :
+**Checkpoint.** Type:
 
 ```
 docker compose version
 ```
 
-Vous devez voir une ligne du type `Docker Compose version v2.x.x` (plus récent convient aussi). Si
-vous obtenez `command not found` ou une version `1.x`, ouvrez la fiche
-[« Docker introuvable ou compose v1 »](troubleshooting.md#docker-introuvable-ou-compose-v1). Si plus
-tard une commande répond `Cannot connect to the Docker daemon` (sous Windows
-`error during connect ...`), c'est que le moteur Docker n'est pas démarré : ouvrez la fiche
-[« Docker est installé mais ne répond pas »](troubleshooting.md#docker-est-installé-mais-ne-répond-pas).
+You should see a line like `Docker Compose version v2.x.x` (a newer number is fine too). If you get
+`command not found` or a `1.x` version, open the entry
+["Docker introuvable ou compose v1"](troubleshooting.md#docker-introuvable-ou-compose-v1). If later
+on a command answers `Cannot connect to the Docker daemon` (on Windows
+`error during connect ...`), the Docker engine is not started: open the entry
+["Docker est installé mais ne répond pas"](troubleshooting.md#docker-est-installé-mais-ne-répond-pas).
 
 ---
 
-## 3. Créer votre dossier de travail
+## 3. Create your working folder
 
-1. Ouvrez <https://github.com/GeoffreyCoulaud/mulewatch>, cliquez sur le bouton vert **`Code`**, puis
-   sur **`Download ZIP`**.
-2. Décompressez le fichier téléchargé. À l'intérieur se trouve un dossier **`deploy`** : c'est le
-   seul dont vous avez besoin.
-3. **Copiez ce dossier `deploy`** là où vous voulez travailler et renommez-le à votre guise, par
-   exemple **`mulewatch`**. Ce sera votre **dossier de travail**. Le reste du ZIP ne sert pas, vous
-   pouvez le supprimer.
-4. Ouvrez un terminal **dans ce dossier de travail** : clic droit « Ouvrir dans le terminal » sous
-   Windows ; sous macOS/Linux, déplacez-vous-y avec `cd`.
+1. Open <https://github.com/GeoffreyCoulaud/mulewatch>, click the green **`Code`** button, then
+   **`Download ZIP`**.
+2. Unzip the downloaded file. Inside there is a **`deploy`** folder: it is the only one you need.
+3. **Copy that `deploy` folder** wherever you want to work and rename it as you like, for example
+   **`mulewatch`**. That is your **working folder**. The rest of the ZIP is not needed, you can
+   delete it.
+4. Open a terminal **in that working folder**: right click "Open in Terminal" on Windows; on
+   macOS/Linux, `cd` into it.
 
-Si vous connaissez git, l'alternative équivalente est
-`git clone https://github.com/GeoffreyCoulaud/mulewatch.git`, puis prenez son sous-dossier `deploy`
-comme dossier de travail.
+If you know git, the equivalent alternative is
+`git clone https://github.com/GeoffreyCoulaud/mulewatch.git`, then take its `deploy` subfolder as
+your working folder.
 
-**Point de contrôle.** Depuis ce dossier, tapez :
+**Checkpoint.** From that folder, type:
 
 ```
 ls
 ```
 
-La liste doit contenir **`compose.yaml`** (sous Windows/PowerShell, `ls` affiche un tableau :
-cherchez `compose.yaml` dans la colonne `Name`). Sinon, vous n'êtes pas dans le bon dossier :
-placez-vous dans le dossier de travail (celui qui contient `compose.yaml`) et réessayez.
+The listing must contain **`compose.yaml`** (on Windows/PowerShell, `ls` prints a table: look for
+`compose.yaml` in the `Name` column). Otherwise you are not in the right folder: move into the
+working folder (the one containing `compose.yaml`) and try again.
 
 ---
 
-## 4. Vos deux mots de passe
+## 4. Your password
 
-Votre dossier de travail contient un fichier `.env.example`. **Faites-en une copie nommée `.env`**,
-ouvrez cette copie dans un éditeur de texte et remplacez les deux valeurs `change-me` :
+Your working folder contains a file called `.env.example`. **Make a copy of it named `.env`**, open
+that copy in a text editor, and replace the `change-me` value of:
 
-- `AMULE_EC_PASSWORD` : un mot de passe d'au moins **12 caractères**, que vous inventez. Il relie le
-  crawler au client eMule ; notez-le quelque part.
-- `GRAFANA_PWD` : le mot de passe du compte `admin` des tableaux de bord.
+- `AMULE_EC_PASSWORD`: a password of at least **12 characters**, of your own choosing. It links the
+  crawler to the eMule client; write it down somewhere.
 
-Laissez tout le reste tel quel (les autres valeurs ne servent qu'aux variantes en annexe). Ne
-laissez pas les `change-me` en place : ce sont deux mots de passe en clair, donc deux portes
-ouvertes.
+Leave everything else as it is (the other values only matter for the annex variants). Do not leave
+`change-me` in place: it is a plaintext password, so an open door.
 
-> Le fichier `.env` commence par un point, donc le Finder de macOS et certains gestionnaires de
-> fichiers Linux le **cachent**. Le plus fiable, partout, est de le créer et l'éditer depuis le
-> terminal : `cp .env.example .env`, puis `nano .env` (macOS/Linux) ou `notepad .env` (Windows).
+> The `.env` file starts with a dot, so the macOS Finder and some Linux file managers **hide** it.
+> The most reliable way everywhere is to create and edit it from the terminal:
+> `cp .env.example .env`, then `nano .env` (macOS/Linux) or `notepad .env` (Windows).
 
 ---
 
-## 5. Lancer
+## 5. Start it
 
-Depuis votre dossier de travail :
+From your working folder:
 
 ```
 docker compose up -d
 ```
 
-Au tout premier lancement, Docker télécharge les images : cela peut prendre quelques minutes selon
-votre connexion.
+On the very first run, Docker downloads the images: this can take a few minutes depending on your
+connection.
 
-**Point de contrôle.** Une fois la commande revenue, tapez :
+**Checkpoint.** Once the command returns, type:
 
 ```
 docker compose ps
 ```
 
-Vous devez voir **quatre services**, chacun avec un statut qui commence par `Up` : `crawler`,
-`amuled`, `prometheus`, `grafana`. (`crawler` peut passer à `Up (healthy)` après quelques secondes :
-c'est encore mieux.) Si un service est en `Restarting` ou `Exited`, ouvrez la fiche
-[« Un conteneur redémarre en boucle »](troubleshooting.md#un-conteneur-redémarre-en-boucle). Si le
-lancement échoue sur un message de port déjà utilisé, ouvrez la fiche
-[« Le port est déjà pris »](troubleshooting.md#le-port-est-déjà-pris).
+You should see **two services**, each with a status starting with `Up`: `crawler` and `amuled`.
+(`crawler` may turn to `Up (healthy)` after a few seconds: even better.) If a service is
+`Restarting` or `Exited`, open the entry
+["Un conteneur redémarre en boucle"](troubleshooting.md#un-conteneur-redémarre-en-boucle). If the
+start fails on a message about a port already in use, open the entry
+["Le port est déjà pris"](troubleshooting.md#le-port-est-déjà-pris).
 
 ---
 
-## 6. Voir votre nœud
+## 6. See your node
 
-Ouvrez **<http://localhost:8080>** dans votre navigateur : c'est le catalogue, en lecture seule.
-Vous devez voir le tableau de bord de mulewatch, avec l'identifiant de votre nœud et la liste des
-épisodes ciblés (colonne **Statut** à `none` au départ). **Si cette page s'affiche, votre nœud
-tourne.**
+Open **<http://localhost:8080>** in your browser: this is the catalog, read only. You should see the
+mulewatch dashboard, with your node identifier and the list of target episodes (the **Status**
+column reads `none` at first). **If that page loads, your node is running.**
 
-Le catalogue est **vide au début** et se remplit au fil des heures, à mesure que des fichiers sont
-croisés sur le réseau (certaines cibles rares peuvent prendre des jours à réapparaître : c'est le
-principe du lost media). Pour suivre l'activité de recherche, ouvrez la page **Nodes** : après le
-premier cycle (quelques minutes), elle affiche le numéro du dernier cycle et son horodatage, qui
-avancent à chaque rechargement.
+The catalog is **empty at first** and fills up over the hours, as files are crossed on the network
+(some rare targets can take days to reappear: that is the nature of lost media). To follow search
+activity, open the **Nodes** page: after the first cycle (a few minutes), it shows the number and
+timestamp of the last cycle, which advance on every reload.
 
-Les **tableaux de bord** sont sur **<http://localhost:3000>** (Grafana). Connectez-vous avec
-l'identifiant `admin` et le mot de passe `GRAFANA_PWD` choisi à l'étape 4.
+Downloaded files land in the **`downloads/incoming`** folder of your working folder (partial files
+sit in `downloads/temp` meanwhile). Nothing inspects them: mulewatch never opens a downloaded file,
+so checking that a file really is the episode you wanted is up to you.
 
-Si votre nœud tourne sur un serveur distant, remplacez `localhost` par l'adresse IP ou le nom de ce
-serveur.
+If your node runs on a remote server, replace `localhost` with that server's IP address or name.
 
-**Point de contrôle.** La page <http://localhost:8080> s'ouvre et affiche le tableau de bord
-(identifiant du nœud, liste des cibles). Si elle ne se charge pas du tout (connexion refusée), ouvrez
-la fiche [« La webui reste vide »](troubleshooting.md#la-webui-reste-vide).
-
-> Si Grafana refuse le mot de passe `admin` que vous avez choisi (souvent une coquille dans
-> `GRAFANA_PWD`) : Grafana ne l'applique qu'à son **premier** démarrage, il faut donc réinitialiser
-> son état local. Depuis votre dossier de travail (pile VPN : ajoutez `-f gluetun.compose.yml` à
-> chaque commande) :
->
-> ```
-> docker compose down
-> docker volume rm mulewatch_grafana-data
-> docker compose up -d
-> ```
->
-> Vous ne perdez que l'état local de Grafana : les tableaux de bord sont reprovisionnés depuis des
-> fichiers, et le catalogue n'est pas touché.
+**Checkpoint.** The page <http://localhost:8080> opens and shows the dashboard (node identifier,
+target list). If it does not load at all (connection refused), open the entry
+["La webui reste vide"](troubleshooting.md#la-webui-reste-vide).
 
 ---
 
-## 7. Vivre avec le nœud
+## 7. Living with the node
 
-Votre nœud est autonome. Quelques gestes utiles, tous depuis votre dossier de travail :
+Your node is autonomous. A few useful gestures, all from your working folder:
 
-- **Mettre à jour.** Les images ne se mettent **pas** à jour toutes seules : vous décidez quand.
+- **Updating.** The images do **not** update by themselves: you decide when.
 
   ```
   docker compose pull
@@ -182,156 +161,133 @@ Votre nœud est autonome. Quelques gestes utiles, tous depuis votre dossier de t
   docker compose up -d
   ```
 
-  `up -d` ne recrée que les conteneurs dont l'image a changé. Vos données ne bougent pas.
+  `up -d` only recreates the containers whose image changed. Your data does not move.
 
-- **Arrêter le nœud.**
+- **Stopping the node.**
 
   ```
   docker compose down
   ```
 
-  Le catalogue et l'état vivent dans des volumes Docker nommés : ils **persistent**. Un `down` puis
-  un `up -d` plus tard retrouve tout. Pour **tout effacer** (catalogue compris), il faudrait ajouter
-  `-v` à `down` : ne le faites que si c'est vraiment votre intention.
+  The catalog and the node state live in named Docker volumes: they **persist**. A `down` followed
+  by an `up -d` later finds everything again. To **erase everything** (the catalog included) you
+  would have to add `-v` to `down`: only do that if you really mean it. Note that `-v` does not
+  touch `downloads/`, which is a plain folder on your disk, not a Docker volume.
 
-- **Redémarrage de la machine.** Les conteneurs reviennent seuls au démarrage de l'hôte (Docker doit
-  être lancé en service système). Aucune commande à retaper.
+- **Host reboot.** The containers come back on their own when the host boots (Docker must start as a
+  system service). No command to retype.
 
-**Point de contrôle.** Vous pouvez le vérifier : un `docker compose down` suivi d'un
-`docker compose up -d` retrouve, sur <http://localhost:8080>, tout ce que le catalogue avait déjà vu.
-Vos données survivent à l'arrêt.
+**Checkpoint.** You can verify this: a `docker compose down` followed by a `docker compose up -d`
+finds, on <http://localhost:8080>, everything the catalog had already seen. Your data survives a
+shutdown.
 
-> Cycle de vie plus en détail (diagnostic après panne, planification disque, reboot) :
-> [runbook d'administration, § Cycle de vie & données](administration.md#cycle-de-vie--données).
-> Si votre nœud a été créé **avant le renommage en `mulewatch`** et semble avoir perdu son catalogue
-> après une mise à jour, la même section explique comment récupérer les anciens volumes.
+> Lifecycle in more detail (diagnosis after a failure, disk planning, reboot):
+> [administration runbook, § Cycle de vie & données](administration.md#cycle-de-vie--données).
+> If your node was created **before the rename to `mulewatch`** and seems to have lost its catalog
+> after an update, the same section explains how to recover the old volumes.
 
 ---
 
-## Annexe A. Passer derrière un VPN
+## Annex A. Going behind a VPN
 
-Pour masquer votre IP des autres pairs eD2k/Kad, faites passer amuled par un VPN grâce au conteneur
-`gluetun`.
+To hide your IP from the other eD2k/Kad peers, route amuled through a VPN with the `gluetun`
+container.
 
-**Delta par rapport à la voie royale :**
+**Delta from the main path:**
 
-1. **Un fournisseur VPN qui supporte WireGuard.** C'est indispensable : gluetun établit le tunnel en
+1. **A VPN provider that supports WireGuard.** This is required: gluetun establishes the tunnel over
    WireGuard.
-2. **Trois variables supplémentaires** dans votre `.env` :
+2. **Three extra variables** in your `.env`:
 
-   | Variable | Quoi |
+   | Variable | What |
    |---|---|
-   | `WIREGUARD_PRIVATE_KEY` | La clé privée WireGuard, fournie dans l'espace client de votre VPN. |
-   | `VPN_SERVICE_PROVIDER` | Le nom du fournisseur, par exemple `protonvpn`, `pia`, `privatevpn`. |
-   | `SERVER_COUNTRIES` | Le ou les pays de sortie, en anglais, par exemple `Switzerland`. |
+   | `WIREGUARD_PRIVATE_KEY` | The WireGuard private key, provided in your VPN's customer area. |
+   | `VPN_SERVICE_PROVIDER` | The provider name, for example `protonvpn`, `pia`, `privatevpn`. |
+   | `SERVER_COUNTRIES` | The exit country or countries, in English, for example `Switzerland`. |
 
-3. **Un autre fichier de pile.** Au lieu de `docker compose up -d`, vous utilisez la pile
-   `gluetun.compose.yml`, et vous ajoutez `-f gluetun.compose.yml` à **chaque** commande compose
-   ensuite (`ps`, `logs`, `pull`, `down`...) :
+3. **A different stack file.** Instead of `docker compose up -d`, you use the `gluetun.compose.yml`
+   stack, and you add `-f gluetun.compose.yml` to **every** compose command afterwards (`ps`,
+   `logs`, `pull`, `down`, and so on):
 
    ```
    docker compose -f gluetun.compose.yml up -d
    ```
 
-Cette pile ajoute un service `gluetun` : `docker compose -f gluetun.compose.yml ps` affiche donc cinq
-services au lieu de quatre. amuled partage le réseau de gluetun. Si vous combinez VPN **et** mode
-download (annexe B), un service `docker-proxy` démarre en plus (un proxy du socket Docker utilisé
-par le port-sync) : sa présence dans `ps` est normale.
+This stack adds two services: `gluetun` itself, and `docker-proxy`, a confined Docker-socket proxy
+used by the port-sync of annex C. So `docker compose -f gluetun.compose.yml ps` shows **four**
+services instead of two. amuled shares gluetun's network.
 
 ---
 
-## Annexe B. Activer le mode download
+## Annex B. Catalog-only mode (no downloading)
 
-En mode observer (défaut), le nœud ne télécharge rien. Le mode **download** ajoute le téléchargement
-d'un candidat sûr, dans un environnement isolé, avec vérification antivirus avant catalogage. Rien
-n'est jamais re-partagé ni exécuté.
+By default a node downloads the candidates it confidently identifies. If you only want to catalog
+and be notified, without any file landing on your disk:
 
-> **À lire avant d'activer le mode download.** Quatre contraintes de déploiement doivent être
-> respectées, sinon les fichiers finis restent bloqués sans être catalogués (échec silencieux) :
-> volume `quarantine` partagé entre crawler et amuled, volume sur un système de fichiers Linux normal
-> (pas vfat/NTFS/HFS), pas de catégories amuled, et un amuled dédié au crawler avec un jeu partagé
-> restreint. Le détail est dans
-> [`docs/reference/2026-06-17-amuled-completion-behavior.md`](../reference/2026-06-17-amuled-completion-behavior.md).
-
-**Delta par rapport à la voie royale :**
-
-1. Dans `config/crawler/crawler.yml`, passez `download.enabled: false` à **`true`**.
-2. Ajoutez `--profile download` à **chaque** commande compose :
+1. In `config/crawler/crawler.yml`, set `download.enabled: true` to **`false`**.
+2. Restart from your working folder:
 
    ```
-   docker compose --profile download up -d
+   docker compose up -d
    ```
 
-   (Derrière un VPN, combinez avec l'annexe A : `-f gluetun.compose.yml --profile download`.)
+Nothing else changes: the same two services start, the same web catalog is served, notifications
+still go out. Only the download loop is not wired, so `downloads/incoming` stays empty.
 
-Ce profil ajoute deux services, `verifier` et `freshclam` :
-`docker compose --profile download ps` doit les montrer `Up` en plus des quatre autres. Côté RAM,
-le verifier peut consommer jusqu'à 2 Go à lui seul (analyse antivirus) : prévoyez de la marge
-au-delà des ~2 Go du mode observer.
-
-**Comportements transitoires normaux au premier démarrage en download :**
-
-- Le `crawler` **redémarre en boucle pendant 1 à 2 minutes** : il refuse de démarrer tant que le
-  `verifier` n'est pas sain. Dès que le verifier répond, la boucle se stabilise.
-- Les tout premiers fichiers ressortent avec le verdict **`suspicious`** le temps que clamav
-  télécharge sa base de signatures (**5 à 20 minutes** selon la connexion). Ensuite les verdicts se
-  normalisent.
+> This is a **config flag**, not a different stack: there is no compose profile to add or remove,
+> in either direction.
 
 ---
 
-## Annexe C. High-ID (optionnel)
+## Annex C. High-ID (optional)
 
-Par défaut, votre nœud est **Low-ID** : il catalogue et télécharge, mais avec moins de sources
-directes. Devenir **High-ID** (joignable de l'extérieur) apporte plus de sources et une recherche
-plus efficace. Ce n'est **pas requis** pour cataloguer. Deux voies, selon votre pile :
+By default your node is **Low-ID**: it catalogues and downloads, but with fewer direct sources.
+Becoming **High-ID** (reachable from the outside) brings more sources and a more efficient search.
+It is **not required** to catalog. Two routes, depending on your stack:
 
-| Voie | Comment l'activer |
+| Route | How to enable it |
 |---|---|
-| **Pile par défaut, port ouvert** | Redirigez `LISTEN_PORT` (par défaut `4662`, en TCP **et** UDP) depuis votre box/routeur vers cette machine. Si vous changez de port, ajustez `LISTEN_PORT` dans votre `.env`. |
-| **Pile VPN (gluetun), port forwarding** | Mettez `VPN_PORT_FORWARDING=on` dans votre `.env` **et** `port_sync.enabled: true` dans `config/crawler/crawler.yml`. Votre fournisseur VPN doit supporter le port forwarding ([liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)). |
+| **Default stack, open port** | Forward `LISTEN_PORT` (default `4662`, both TCP **and** UDP) from your router to this machine. If you change the port, adjust `LISTEN_PORT` in your `.env`. |
+| **VPN stack (gluetun), port forwarding** | Set `VPN_PORT_FORWARDING=on` in your `.env` **and** `port_sync.enabled: true` in `config/crawler/crawler.yml`. Your VPN provider must support port forwarding ([gluetun list](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)). |
 
-Compromis, activation pas à pas et vérification :
-[runbook d'administration, § High-ID](administration.md#high-id-optionnel--devenir-joignable).
+Trade-offs, step-by-step enabling and verification:
+[administration runbook, § High-ID](administration.md#high-id-optionnel--devenir-joignable).
 
 ---
 
-## Annexe D. Régler le monitoring
+## Annex D. Ports and metrics
 
-Le catalogue (webui) et les tableaux de bord (Prometheus + Grafana) sont **toujours actifs**, sans
-profil à ajouter. Quelques réglages, tous depuis votre dossier de travail :
+- **Changing the web catalog's port.** In your `.env`, `WEBUI_PORT` (default `8080`). Useful if that
+  port is already taken on your machine.
+- **Metrics.** The crawler exposes a Prometheus `/metrics` endpoint on the port configured by
+  `observability.metrics.port` in `config/crawler/crawler.yml` (default `9090`). **No Prometheus and
+  no Grafana ship with the stack**: if you want dashboards, point your own Prometheus at the
+  crawler. That port is not published on the host by default, so either attach your Prometheus to
+  the stack's `ec` network, or add a port mapping to the `crawler` service.
+- **Turning metrics off.** Set `observability.metrics.enabled: false` in
+  `config/crawler/crawler.yml`. The crawler and the catalog keep working normally.
 
-- **Changer les ports.** Dans votre `.env`, `WEBUI_PORT` (défaut `8080`) et `GRAFANA_PORT` (défaut
-  `3000`). Utile si ces ports sont déjà pris sur votre machine.
-- **Se passer des tableaux de bord.** Si vous ne voulez que le catalogue, arrêtez les deux services
-  de métriques :
-
-  ```
-  docker compose stop grafana prometheus
-  ```
-
-  Le crawler et le catalogue continuent normalement.
-
-Détail des métriques et exposition derrière un reverse proxy :
-[runbook d'administration, § Métriques Prometheus](administration.md#métriques-prometheus) et
+Metric details and exposure behind a reverse proxy:
+[administration runbook, § Métriques Prometheus](administration.md#métriques-prometheus) and
 [§ Exposition derrière un reverse proxy](administration.md#exposition-derrière-un-reverse-proxy).
 
 ---
 
-## Glossaire minimal
+## Minimal glossary
 
-| Terme | Signification |
+| Term | Meaning |
 |---|---|
-| **service** | Une brique du nœud : un conteneur géré par `docker compose` (par exemple `crawler`, `amuled`, `grafana`). |
-| **eD2k / Kad** | Les deux réseaux d'eMule surveillés : eDonkey2000 (serveurs centralisés) et Kademlia (décentralisé, sans serveur). |
-| **Low-ID / High-ID** | La joignabilité de votre nœud sur eD2k. High-ID = la machine est accessible de l'extérieur (plus de sources directes). Low-ID fonctionne aussi, en moins optimal. |
-| **quarantine** | Le dossier isolé où atterrissent les fichiers téléchargés (mode download) avant leur vérification antivirus. |
+| **service** | One brick of the node: a container managed by `docker compose` (for example `crawler`, `amuled`). |
+| **eD2k / Kad** | The two eMule networks being watched: eDonkey2000 (central servers) and Kademlia (decentralised, serverless). |
+| **Low-ID / High-ID** | How reachable your node is on eD2k. High-ID = the machine is reachable from the outside (more direct sources). Low-ID works too, just less optimally. |
+| **IncomingDir** | The folder where the eMule client writes a finished file. Here it is bind-mounted to `downloads/incoming` in your working folder. |
 
 ---
 
-## Pour aller plus loin
+## Going further
 
-- [Runbook d'administration](administration.md) : cycle de vie, High-ID, réglage RAM/clamav,
-  métriques, durcissement, outils de catalogue, limites connues.
-- [Runbook de dépannage](troubleshooting.md) : du symptôme à la cause à la solution.
-- [Légalité et confidentialité](../legal-and-privacy.md) : ce que mulewatch fait, et surtout ce
-  qu'il ne fait pas.
+- [Administration runbook](administration.md): lifecycle, High-ID, metrics, hardening, catalog
+  tools, known limits.
+- [Troubleshooting runbook](troubleshooting.md): from symptom to cause to fix.
+- [Legality and privacy](../legal-and-privacy.md): what mulewatch does, and above all what it does
+  not do.

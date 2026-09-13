@@ -1,66 +1,66 @@
 # mulewatch
 
-mulewatch surveille le réseau eMule (eD2k + Kad) en continu pour retrouver des médias perdus.
-Sa première mission : le doublage français de *Keroro mission Titar* (Teletoon, 2008),
-aujourd'hui en grande partie introuvable.
+mulewatch continuously watches the eMule network (eD2k + Kad) to recover lost media. Its first
+mission: the French dub of *Keroro mission Titar* (Teletoon, 2008), today largely impossible to
+find.
 
-Ces épisodes ne disparaissent pas tout à fait. Ils réapparaissent par intermittence, le temps
-qu'un détenteur se connecte, puis s'éclipsent. Une recherche manuelle tombe presque toujours au
-mauvais moment. Une veille permanente et distribuée, non : plusieurs chercheurs font tourner un
-nœud, chacun cherche sans relâche, catalogue ce qu'il croise, et alerte dès qu'un épisode
-manquant refait surface.
+These episodes have not quite disappeared. They resurface intermittently, for as long as a holder
+stays connected, then vanish again. A manual search almost always comes at the wrong moment. A
+permanent, distributed watch does not: several searchers each run a node, each one searches
+tirelessly, catalogues what it crosses, and raises an alert the moment a missing episode shows up.
 
-> **Éthique.** Le sujet du catalogue est le fichier, jamais la personne. mulewatch ne piste
-> personne et ne cherche à désanonymiser personne : il note qu'un fichier existe, où et quand il
-> a été vu, rien de plus.
+> **Ethics.** The catalog's subject is the file, never the person. mulewatch tracks nobody and
+> tries to deanonymize nobody: it records that a file exists, where and when it was seen, and
+> nothing more.
 
-## Monter un nœud
+## Running a node
 
-Compter une quinzaine de minutes une fois Docker installé. L'installation de Docker et le premier
-téléchargement des images viennent en plus, selon votre connexion. Installer Docker est de loin
-l'étape la plus difficile : le reste tient en une commande et deux mots de passe à choisir.
+Budget about fifteen minutes once Docker is installed. Installing Docker and pulling the images
+come on top, depending on your connection. Installing Docker is by far the hardest step: the rest
+is one command and one password to choose.
 
-Par défaut, un nœud tourne en mode **observer** : il ne télécharge rien et ne partage rien. Il
-cherche, catalogue, et peut notifier. Une fois lancé, un catalogue web est disponible sur
-http://localhost:8080 et des tableaux de bord sur http://localhost:3000.
+A node searches, catalogues, notifies, and downloads what it confidently identifies. Downloading
+can be turned off (`download.enabled: false` in `config/crawler/crawler.yml`) for a catalog-only
+node. Once started, the web catalog is available on http://localhost:8080.
 
-Le pas-à-pas complet (secrets à renseigner, variante derrière VPN, mode téléchargement optionnel)
-vit dans le [guide de déploiement](docs/runbooks/deployment.md). En cas de souci, le
-[guide de dépannage](docs/runbooks/troubleshooting.md) va du symptôme à la cause à la solution.
+The full walkthrough (secrets to fill in, the VPN variant, High-ID) lives in the
+[deployment guide](docs/runbooks/deployment.md). When something goes wrong, the
+[troubleshooting guide](docs/runbooks/troubleshooting.md) goes from symptom to cause to fix.
 
-## Comment ça marche
+## How it works
 
-Un nœud répète une boucle simple :
+A node repeats a simple loop:
 
-1. **Chercher.** Il embarque un client eMule et lance en continu des recherches dérivées de la
-   liste des épisodes cibles, sur les deux réseaux d'eMule.
-2. **Évaluer.** Chaque fichier vu est confronté à cette liste (titres, numéros, dates de
-   diffusion) et reçoit un score de confiance.
-3. **Cataloguer.** Tout ce qui est vu est consigné : empreinte de contenu, taille, moment de la
-   rencontre.
-4. **Alerter.** Quand une cible manquante apparaît, une notification part avec le lien `ed2k://`
-   pour la récupérer.
-5. **Télécharger (optionnel).** En mode complet, un candidat sûr est téléchargé dans un
-   environnement isolé, vérifié, puis catalogué, sans jamais être re-partagé ni exécuté.
+1. **Search.** It embeds an eMule client and continuously runs searches derived from the list of
+   target episodes, on both of eMule's networks.
+2. **Evaluate.** Every file seen is confronted with that list (titles, numbers, broadcast dates)
+   and gets a confidence tier.
+3. **Catalog.** Everything seen is recorded: content fingerprint, filename, size, moment of the
+   encounter.
+4. **Notify.** When a missing target appears, a notification goes out with the `ed2k://` link to
+   fetch it.
+5. **Download.** A confidently identified candidate is queued on the eMule client, which writes
+   the finished file into your output directory. Nothing opens it, and mulewatch never inspects
+   its contents: judging whether the file really is the episode is yours to do.
 
-Les catalogues de plusieurs nœuds **fusionnent sans conflit** : chaque fichier étant identifié par
-son empreinte de contenu, deux chercheurs qui voient le même fichier écrivent la même ligne.
+The catalogs of several nodes **merge without conflict**: since each file is identified by its
+content fingerprint, two searchers who see the same file write the same row.
 
-## Pour les développeurs
+## For developers
 
-Python ≥ 3.14, workspace `uv`, architecture Clean/Hexagonal, `mypy --strict`, TDD strict (les
-tests sont la spec), 100 % de couverture de branches par paquet.
+Python >= 3.14, `uv` workspace, Clean/Hexagonal architecture, `mypy --strict`, strict TDD (the
+tests are the spec), 100 % branch coverage per package.
 
 ```bash
-./scripts/setup-dev.sh   # installe l'environnement (uv sync --dev) et le hook de pré-push
-uv run poe check         # le gate complet : lint, types, SQL, tests
+./scripts/setup-dev.sh   # install the environment (uv sync --dev) and the pre-push hook
+uv run poe check         # the full gate: lint, types, SQL, tests
 ```
 
-- Conception : [spec MVP du crawler](docs/specs/2026-06-10-crawler-mvp-design.md)
-- Tests : [guide de test](docs/testing-guide.md)
-- Déploiement : [guide de déploiement](docs/runbooks/deployment.md)
-- Éthique et vie privée : [légalité et confidentialité](docs/legal-and-privacy.md)
+- Design: [crawler MVP spec](docs/specs/2026-06-10-crawler-mvp-design.md)
+- Tests: [testing guide](docs/testing-guide.md)
+- Deployment: [deployment guide](docs/runbooks/deployment.md)
+- Ethics and privacy: [legality and privacy](docs/legal-and-privacy.md)
 
 ---
 
-mulewatch est un outil générique. *Keroro mission Titar* (VF) est sa première mission.
+mulewatch is a generic tool. *Keroro mission Titar* (French dub) is its first mission.

@@ -6,8 +6,8 @@ Chaque fiche suit le même format : **symptôme (ce que vous voyez à l'écran) 
 - **Le déploiement bloque (premiers pas)** : juste en dessous. Les blocages du tout premier
   déploiement, dans l'ordre de la [voie royale](deployment.md). Chaque fiche prolonge un **Point de
   contrôle** du guide : ouvrez celle vers laquelle le guide vous renvoie.
-- **Diagnostics avancés (opérateurs)** : plus bas. Mode download, High-ID/port-sync, stockage &
-  droits, verdicts du verifier, récupération après panne. Certaines de ces sections demandent une
+- **Diagnostics avancés (opérateurs)** : plus bas. Téléchargement, High-ID/port-sync, stockage &
+  droits, récupération après panne. Certaines de ces sections demandent une
   familiarité Linux/Docker et le signalent à leur ouverture.
 
 Pour *monter* un nœud, voir le [runbook de déploiement](deployment.md) ; pour le *régler*, le
@@ -22,7 +22,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
 
 > **Où lancer ces commandes.** Toutes les commandes ci-dessous se lancent depuis votre **dossier de
 > travail** (le dossier qui contient `compose.yaml`, créé à
-> [l'étape 3 du guide](deployment.md#3-créer-votre-dossier-de-travail)). Les chemins sont donc
+> [l'étape 3 du guide](deployment.md#3-create-your-working-folder)). Les chemins sont donc
 > relatifs : `.env`, `config/...`.
 
 ### Docker introuvable ou compose v1
@@ -47,7 +47,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
      Vous devez lire `Docker Compose version v2.x.x` (un numéro plus récent convient aussi). Si vous
      ne voyez toujours qu'un `docker-compose` v1, installez Docker Engine (v2) comme ci-dessus : la
      commande en deux mots est indispensable.
-- **Retour au guide.** [Étape 2 : Installer Docker](deployment.md#2-installer-docker).
+- **Retour au guide.** [Étape 2 : Installer Docker](deployment.md#2-install-docker).
 
 ### Docker est installé mais ne répond pas
 
@@ -75,20 +75,20 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
      ```
      docker ps
      ```
-- **Retour au guide.** [Étape 2 : Installer Docker](deployment.md#2-installer-docker) et
-  [étape 5 : Lancer](deployment.md#5-lancer).
+- **Retour au guide.** [Étape 2 : Installer Docker](deployment.md#2-install-docker) et
+  [étape 5 : Lancer](deployment.md#5-start-it).
 
 ### Une valeur change-me est restée dans .env
 
 - **Symptôme.** Au Point de contrôle de l'étape 4, la commande de vérification **affiche une ligne**
   au lieu de ne rien afficher :
   ```
-  grep -E '(AMULE_EC_PASSWORD|GRAFANA_PWD)=change-me' .env
+  grep -E 'AMULE_EC_PASSWORD=change-me' .env
   ```
-  (elle imprime la ligne fautive, par exemple `GRAFANA_PWD=change-me`). Symptôme possible plus tard :
-  le crawler journalise une erreur d'authentification, ou Grafana refuse votre mot de passe.
-- **Cause.** L'un des deux mots de passe obligatoires est encore la valeur d'exemple `change-me` :
-  vous avez oublié une ligne, ou édité la mauvaise.
+  (elle imprime la ligne fautive). Symptôme possible plus tard : le crawler journalise une erreur
+  d'authentification.
+- **Cause.** Le mot de passe obligatoire est encore la valeur d'exemple `change-me` : vous avez
+  oublié la ligne, ou édité la mauvaise.
 - **Solution.**
   1. Rouvrez le fichier (son nom commence par un point ; le plus simple est de l'éditer au
      terminal). Sous **macOS / Linux** :
@@ -100,35 +100,24 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
      notepad .env
      ```
      Remplacez la valeur après le `=` sur la ligne signalée : `AMULE_EC_PASSWORD` (au moins 12
-     caractères) et/ou `GRAFANA_PWD`. Dans `nano`, enregistrez avec **Ctrl+O** puis **Entrée**,
+     caractères). Dans `nano`, enregistrez avec **Ctrl+O** puis **Entrée**,
      quittez avec **Ctrl+X** ; dans le Bloc-notes, enregistrez avec **Ctrl+S**.
   2. Revérifiez : la commande de contrôle ne doit **plus rien afficher**.
      ```
-     grep -E '(AMULE_EC_PASSWORD|GRAFANA_PWD)=change-me' .env
+     grep -E 'AMULE_EC_PASSWORD=change-me' .env
      ```
      Sous **Windows (PowerShell)** :
      ```
-     Select-String -Path .env -Pattern 'AMULE_EC_PASSWORD=change-me|GRAFANA_PWD=change-me'
+     Select-String -Path .env -Pattern 'AMULE_EC_PASSWORD=change-me'
      ```
   3. Relancez la pile **depuis votre dossier de travail** : `up -d` ne recrée que ce qui a changé.
      ```
      docker compose up -d
      ```
-  4. **Cas particulier `GRAFANA_PWD`.** Grafana n'applique ce mot de passe qu'à son **premier**
-     démarrage : s'il a déjà démarré avec l'ancienne valeur, réinitialisez aussi son état local
-     (depuis votre dossier de travail) :
-     ```
-     docker compose down
-     docker volume rm mulewatch_grafana-data
-     docker compose up -d
-     ```
-     Vous ne perdez que l'état local de Grafana : les tableaux de bord sont provisionnés depuis
-     des fichiers, et le catalogue n'est pas touché.
 - **Ce qui n'est PAS un problème.** Il reste normalement d'autres `change-me` dans le fichier (la
   ligne de commentaire, ou `WIREGUARD_PRIVATE_KEY` réservé au VPN de l'annexe A) : la commande de
-  contrôle ci-dessus les **ignore** exprès. Seuls `AMULE_EC_PASSWORD` et `GRAFANA_PWD` comptent pour
-  la voie royale.
-- **Retour au guide.** [Étape 4 : Vos deux mots de passe](deployment.md#4-vos-deux-mots-de-passe).
+  contrôle ci-dessus les **ignore** exprès. Seul `AMULE_EC_PASSWORD` compte pour la voie royale.
+- **Retour au guide.** [Étape 4 : votre mot de passe](deployment.md#4-your-password).
 
 ### Un conteneur redémarre en boucle
 
@@ -142,7 +131,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   ```
   docker compose logs <service>
   ```
-  (remplacez `<service>` par le nom du conteneur en boucle, par exemple `crawler` ou `grafana`). La
+  (remplacez `<service>` par le nom du conteneur en boucle, par exemple `crawler` ou `amuled`). La
   dernière page du journal dit presque toujours pourquoi. Causes fréquentes :
 - **Mot de passe EC absent ou incohérent (`crawler`).** Le journal du crawler se termine par une
   erreur d'authentification (`EcAuthError`, mot de passe EC refusé) et le conteneur redémarre. Sur
@@ -167,22 +156,14 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   est maintenu au fil de l'eau, sans tri), puis remettez la valeur d'origine. À titre de repère, la
   migration 0004 construit son index sur 1,19 million d'observations en environ 5 s pour un pic
   d'environ 150 Mo.
-- **Grafana sans mot de passe (`grafana`).** Si `docker compose up -d` s'arrête tout de suite avec
-  `required variable GRAFANA_PWD is missing a value`, c'est que `GRAFANA_PWD` est vide dans `.env` :
-  renseignez-le (même fiche que ci-dessus), puis relancez.
-- **Crawler en mode download qui attend le verifier (normal).** Si vous avez activé le mode download
-  (annexe B), le crawler **redémarre volontairement pendant 1 à 2 minutes** le temps que le
-  `verifier` devienne sain : c'est attendu, la boucle se stabilise seule. Si elle dure au-delà de
-  5 minutes, voir la fiche opérateur
-  [« Le crawler redémarre en boucle au démarrage (mode download) »](#le-crawler-redémarre-en-boucle-au-démarrage-mode-download).
-- **Retour au guide.** [Étape 5 : Lancer](deployment.md#5-lancer) et
-  [étape 6 : Voir votre nœud](deployment.md#6-voir-votre-nœud).
+- **Retour au guide.** [Étape 5 : Lancer](deployment.md#5-start-it) et
+  [étape 6 : Voir votre nœud](deployment.md#6-see-your-node).
 
 ### Le port est déjà pris
 
 - **Symptôme.** Au lancement, `docker compose up -d` s'arrête avec un message du type :
   ```
-  Error ... failed to bind host port for 0.0.0.0:3000: address already in use
+  Error ... failed to bind host port for 0.0.0.0:8080: address already in use
   ```
   Le mot-clé est **`bind: address already in use`**. Un autre programme occupe déjà ce port sur
   votre machine.
@@ -192,7 +173,6 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   | Port par défaut | Variable à changer dans `.env` | Sert à |
   |---|---|---|
   | `8080` | `WEBUI_PORT` | le catalogue web (servi en intra-processus par le service `crawler`) |
-  | `3000` | `GRAFANA_PORT` | les tableaux de bord Grafana |
   | `4662` | `LISTEN_PORT` | le port eMule (toujours publié ; surtout utile en High-ID, annexe C) |
 
 - **Solution.** Ouvrez `.env`, donnez au port concerné une valeur libre (par exemple
@@ -205,7 +185,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   ```
   Pensez ensuite à ouvrir la nouvelle adresse dans le navigateur (par exemple
   <http://localhost:8090> au lieu de 8080).
-- **Retour au guide.** [Étape 5 : Lancer](deployment.md#5-lancer).
+- **Retour au guide.** [Étape 5 : Lancer](deployment.md#5-start-it).
 
 ### amuled ne se connecte à rien
 
@@ -241,7 +221,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
     `latest` ou `2.3.3-*` casse l'amorçage du premier run **sans erreur évidente**. Ce point est
     détaillé dans la fiche opérateur
     [« amuled ne se connecte à aucun serveur ni réseau »](#amuled-ne-se-connecte-à-aucun-serveur-ni-réseau-image--tunnel).
-- **Retour au guide.** [Étape 6 : Voir votre nœud](deployment.md#6-voir-votre-nœud).
+- **Retour au guide.** [Étape 6 : Voir votre nœud](deployment.md#6-see-your-node).
 
 ### La webui reste vide
 
@@ -267,14 +247,14 @@ Deux situations très différentes se cachent derrière « la webui est vide » 
   S'il est `Up` mais la page reste inaccessible, le port est peut-être remappé ou occupé (voir
   [« Le port est déjà pris »](#le-port-est-déjà-pris)) : confirmez l'adresse, par défaut
   <http://localhost:8080> (sur un serveur distant, remplacez `localhost` par son IP).
-- **Retour au guide.** [Étape 6 : Voir votre nœud](deployment.md#6-voir-votre-nœud).
+- **Retour au guide.** [Étape 6 : Voir votre nœud](deployment.md#6-see-your-node).
 
 ---
 
 ## Diagnostics avancés (opérateurs)
 
-Les sections qui suivent vont plus loin que le premier déploiement : mode download, High-ID,
-stockage, verdicts, récupération. La plupart restent accessibles (lecture de logs, redémarrage de
+Les sections qui suivent vont plus loin que le premier déploiement : téléchargement, High-ID,
+stockage, récupération. La plupart restent accessibles (lecture de logs, redémarrage de
 service) ; **High-ID/port-sync et Stockage & droits exigent une familiarité Linux/Docker** et le
 signalent à leur ouverture. Si vous bloquez sur une étape qui dépasse votre confort, l'option de
 repli sûre est presque toujours de *repartir d'un volume propre* (voir « Récupération après panne »
@@ -320,10 +300,10 @@ plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'un état 
   *(Si une version 4.x sort dans le futur, ré-évaluer la compatibilité avant migration : ce projet
   n'a été éprouvé qu'avec 3.0.0-1.)*
 
-### Le crawler refuse de démarrer : « variable d'environnement '…' référencée mais absente »
+### Le crawler refuse de démarrer : « environment variable '…' referenced but not set »
 
 - **Symptôme.** `docker compose logs crawler` affiche
-  `Config invalide, refus de démarrer : … : variable d'environnement 'AMULE_EC_PASSWORD' référencée mais absente`,
+  `Invalid config, refusing to start: … : environment variable 'AMULE_EC_PASSWORD' referenced but not set`,
   alors que la variable est bien renseignée dans `.env`.
 - **Cause.** Compose ne lit `.env` que pour substituer les `${...}` **dans les fichiers compose**.
   Le crawler, lui, interpole les `${VAR}` de `crawler.yml` depuis **son propre** environnement de
@@ -353,79 +333,33 @@ plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'un état 
 
 ---
 
-## Mode download (téléchargement + vérification)
+## Downloads
 
-### Le crawler redémarre en boucle au démarrage (mode download)
+### A finished file never shows up in `downloads/incoming`
 
-- **Cause.** En mode download, le crawler **refuse de démarrer** si le verifier ne répond pas (pas de
-  téléchargement sans vérification) ; son `restart: unless-stopped` le relance tant que le verifier
-  n'est pas sain : c'est le comportement attendu.
-- **Solution rapide.** Le crawler finit par démarrer dès que le verifier est sain. Pour éviter les
-  redémarrages initiaux, démarrez le verifier d'abord, puis le reste :
-  ```bash
-  docker compose -f gluetun.compose.yml --profile download up -d verifier
-  docker compose -f gluetun.compose.yml --profile download up -d
-  ```
-- **Si la boucle persiste > 5 min**, diagnostic en escalier :
-  1. **Le verifier a-t-il démarré proprement ?** `docker compose logs verifier --tail 50` : vous
-     devez voir une ligne `Uvicorn running on http://0.0.0.0:8000` (ou similaire). Si vous voyez
-     `OOMKilled` ou `Killed`, c'est un manque de mémoire, voir « Un fichier sain ressort suspicious »
-     ci-dessous (cause #2 : manque de RAM avec clamav).
-  2. **Le verifier est-il joignable depuis le réseau du crawler ?** `docker compose exec crawler
-     wget -qO- http://verifier:8000/healthz` (si `wget` n'est pas dispo, `curl` aussi) : doit
-     renvoyer un JSON `{"status":"ok"}`. Si `Connection refused`, le verifier est down ; si `Name
-     resolution failure`, le service n'est pas sur le même réseau Docker (config compose suspecte).
-  3. **L'URL du verifier est-elle correcte ?** Ouvrir `config/crawler/crawler.yml` et
-     vérifier que `download.verifier_url` pointe sur `http://verifier:8000` (nom de service compose,
-     pas `localhost` ni IP). Une mauvaise URL → le crawler ne joint jamais le verifier, peu importe
-     son état.
-
-### Un fichier manifestement sain ressort `suspicious`
-
-Trois causes possibles, de la plus probable à la moins :
-
-1. **La base clamav n'est pas encore synchronisée.** Au premier démarrage en mode download, le sidecar
-   `freshclam` télécharge ~300-500 Mo (quelques minutes) ; tant qu'elle manque, clamav rend
-   `suspicious` par défaut (jamais `clean` sans base). **C'est transitoire** : attendez la fin de la
-   première synchro, le fichier sera re-scanné.
-2. **Le scan se fait tuer faute de mémoire.** `clamscan` charge toute la base en RAM ; si les limites
-   sont trop basses, l'OOM-killer tue le scan avant la fin → `suspicious`. Augmentez
-   `RLIMIT_AS_BYTES_CLAMAV` / `RLIMIT_CPU_S_CLAMAV` et le `mem_limit` du verifier (voir
-   [runbook d'administration](administration.md), « Analyse antivirus (clamav) »).
-3. **Accroc de droits sur la quarantaine** (voir « Droits cross-user sur la quarantaine » plus bas).
-
-### Le sidecar `freshclam` redémarre en boucle (`chown … Operation not permitted`)
-
-- **Cause.** `freshclam` utilise l'image **tierce** officielle `clamav/clamav`, dont l'entrypoint
-  `/init` tourne en root et exige structurellement plusieurs capabilities (`chown -R` de la base,
-  `install` du `/run/clamav`, drop de privilèges vers l'utilisateur `clamav`, écriture du log). Sous
-  notre plancher `cap_drop: ALL`, le premier `chown` échoue en EPERM ; l'entrypoint étant en
-  `set -e`, le conteneur meurt → `restart: unless-stopped` reboucle. C'est le symptôme des lignes
-  `chown: /var/lib/clamav/…: Operation not permitted`.
-- **Solution.** On **n'impose pas** `cap_drop: ALL` à `freshclam` (image tierce, même posture
-  qu'amuled, cf. [CLAUDE.md § Confinement](../../CLAUDE.md)). Le service garde `no-new-privileges`
-  mais **pas** de `cap_drop` (`base.compose.yml`). Le volume `clamav-db` existant n'a pas
-  besoin d'être réinitialisé : le `chown` de l'entrypoint réussira au prochain boot.
-
-### Le fichier fini n'est pas récupéré (reste dans l'IncomingDir, non catalogué)
-
-- **Cause.** Une des 4 contraintes du mode download n'est pas respectée. Détail et rationale dans
-  [`reference/2026-06-17-amuled-completion-behavior.md` § Contraintes de déploiement](../reference/2026-06-17-amuled-completion-behavior.md#contraintes-de-déploiement-résumé).
-- **Solution : vérifier les 4 contraintes dans l'ordre :**
-  1. **IncomingDir d'amuled = dossier quarantaine du crawler ?** Vérifier dans la config amuled
-     (`amule.conf` → `IncomingDir=`) ; doit pointer sur le même chemin monté que `staging_dir` /
-     `quarantine_dir` du crawler. Le plus souvent : `/data/quarantine` côté amuled et côté crawler
-     (même volume Docker `quarantine`).
-  2. **Le volume est-il sur un FS Linux ?** `docker inspect mulewatch_quarantine | grep
-     Mountpoint` puis `stat -f -c %T <mountpoint>` sur l'hôte → doit être `ext2/ext3` (= ext4),
-     `btrfs`, `overlayfs`, etc. Pas `vfat`, `ntfs`, `fuseblk`. Si vous êtes sur Docker Desktop
-     macOS, le mapping vers HFS+/APFS échoue.
-  3. **Y a-t-il des catégories amuled actives ?** Dans `amule.conf` ou via EC : aucune catégorie
-     ne doit avoir un `Path=` non vide qui redirigerait le fichier ailleurs que dans IncomingDir.
-  4. **Le jeu partagé d'amuled est-il restreint ?** Il doit contenir uniquement les fichiers
-     téléchargés par le crawler (qui les remet à la quarantaine à chaque cycle), pas une grosse
-     bibliothèque pré-existante. Sinon `shared_files()` retourne trop de hits et la détection de
-     complétion devient lente / instable.
+- **What happens normally.** amuled writes a finished file straight into its `IncomingDir`, which the
+  compose stacks bind-mount to `./downloads/incoming` in your working folder. The crawler detects the
+  completion from amuled's shared-files list (the hash is shared **and** has left the download
+  queue), flips the download to `completed` and notifies. It never moves, opens or inspects the
+  file.
+- **Check the state the crawler sees first.** If the webui still shows the download as `downloading`,
+  it simply has not finished: nothing is broken.
+- **If the crawler says `completed` but the folder is empty**, amuled put the file somewhere else.
+  Two causes, in order:
+  1. **An amuled category is redirecting the destination.** In `amule.conf` (or through the GUI), no
+     category may carry a non-empty `Path=` that sends the finished file outside `IncomingDir`.
+  2. **`IncomingDir` does not point at the bind-mounted path.** In `amule.conf`, `IncomingDir=` must
+     be the container path the compose file mounts (`/data/quarantine`, a legacy name kept on purpose
+     so existing deployments do not have to edit that file). Check it from inside the container:
+     ```bash
+     docker compose exec amuled sh -c 'grep -E "^(Incoming|Temp)Dir" /home/amule/.aMule/amule.conf'
+     ```
+- **Keep amuled dedicated to the crawler.** `shared_files()` is queried on every download cycle, so
+  do not point this amuled at a large pre-existing shared library: completion detection gets slower
+  and noisier. Background and sources:
+  [`reference/2026-06-17-amuled-completion-behavior.md`](../reference/2026-06-17-amuled-completion-behavior.md)
+  (its constraints 1 and 2, about a shared quarantine volume, no longer apply: the quarantine step
+  was removed on 2026-09-13).
 
 ---
 
@@ -492,7 +426,7 @@ Plusieurs causes, à vérifier dans cet ordre :
 
 ### Volume `/data` déjà peuplé : permission refusée
 
-- **Cause.** Le crawler tourne en `user: 999`. Les images pré-créent `/data/{catalog,local,quarantine}`
+- **Cause.** Le crawler tourne en `user: 999`. L'image pré-crée `/data/catalog` et `/data/local`
   en `nonroot`, donc un volume nommé **vide** hérite de la bonne propriété. Mais un volume **déjà
   peuplé** (root-owned) garde ses droits.
 - **Solution.** Le nom de projet Docker Compose est fixé à `mulewatch` (`name: mulewatch` dans
@@ -509,42 +443,28 @@ Plusieurs causes, à vérifier dans cet ordre :
   docker run --rm -v mulewatch_catalog-db:/d alpine chown -R 999:999 /d
   ```
 
-### Droits cross-user sur la quarantaine
+### The `downloads/` folder is not writable by amuled
 
-- **Cause.** `amuled` est une image **tierce** lancée avec **son propre user** : conformément au
-  choix de confinement acté ([CLAUDE.md § Confinement posture](../../CLAUDE.md), 2026-06-17), on
-  **n'impose pas** notre durcissement (cap_drop, user dédié, etc.) à amuled. Risque résiduel
-  assumé : si amuled était compromis, l'attaquant accéderait au volume quarantaine. C'est un
-  **non-objectif assumé pour v0.x**, pas un manque non vu (voir aussi
-  [runbook d'administration § Limites connues](administration.md#limites-connues--follow-ups)).
+- **Cause.** `amuled` is a **third-party** image run with **its own user**: per the confinement
+  decision on record ([AGENTS.md § Confinement posture](../../AGENTS.md), 2026-06-17), we do **not**
+  impose our hardening (cap_drop, dedicated user and so on) on it. Accepted residual risk: a
+  compromised amuled reaches the bind-mounted output directory. This is a **deliberate non-goal for
+  v0.x**, not an oversight (see also
+  [administration runbook § Limites connues](administration.md#limites-connues--follow-ups)).
 
-  Conséquence opérationnelle : le volume `quarantine` est écrit à la fois par amuled (fichiers
-  finis) et par le crawler (déplacement atomique) ; un accroc de droits cross-user peut survenir au
-  tout premier vrai téléchargement.
-- **Solution.** À surveiller au premier téléchargement réel ; si un déplacement échoue pour cause
-  de droits :
+  Operational consequence: `./downloads/incoming` and `./downloads/temp` are created by Docker on
+  first `up` if they do not exist, and Docker creates a missing bind-mount source **owned by root**.
+  If amuled's user cannot write there, downloads never start or never finish.
+- **Symptom.** amuled's log reports a write or permission error on its temp or incoming directory,
+  and nothing ever lands in `downloads/`.
+- **Fix.** From your working folder, give the folders to the uid amuled runs as (read it from the
+  running container first):
   ```bash
-  docker volume ls | grep quarantine   # trouver le nom exact du volume
-  docker run --rm -v <nom-du-volume>:/q alpine chown -R 999:999 /q
+  docker compose exec amuled id            # the uid:gid amuled actually runs as
+  sudo chown -R <uid>:<gid> downloads/
   ```
-
----
-
-## Comprendre les verdicts du verifier
-
-Quand vous regardez un fichier dans la WebUI ou la base, vous voyez un **verdict** parmi 4 valeurs.
-Voici ce que chacun signifie concrètement :
-
-| Verdict | Signification | Que faire ? |
-|---|---|---|
-| `clean` | Tous les checks activés ont passé (`type_sniff` reconnaît le format, `ffprobe` lit les pistes média, `clamav` ne trouve aucune signature de virus). | Le fichier est probablement sain. Vous pouvez le récupérer depuis la quarantaine. **Ce n'est pas une garantie d'absence de virus** : c'est l'absence de signature connue dans la base clamav. |
-| `suspicious` | Au moins un check a échoué ou n'a pas pu se prononcer (ex. base clamav non encore prête, scan tué par manque de mémoire, ffprobe incapable de lire). | Lire la colonne `explanation` du verdict : elle dit lequel des checks a échoué et pourquoi. Causes fréquentes : base clamav pas encore synchronisée (transitoire), manque de mémoire (cf. runbook administration), ou fichier réellement étrange. |
-| `malicious` | Clamav a trouvé une signature de virus connue. | **N'extrayez pas le fichier de la quarantaine.** Si vous pensez à un faux positif, vérifiez la signature dans la base clamav et remontez à clamav (pas à ce projet). |
-| `unknown` | Le verifier n'a pas pu être interrogé du tout (verifier down, timeout, erreur réseau). | Voir « Le crawler redémarre en boucle » plus haut. |
-
-> Un fichier `clean` n'est pas certifié inoffensif : c'est l'absence de signature dans une base
-> donnée. Pour les fichiers à enjeu (binaires exécutables, archives), faites une vérification
-> supplémentaire avant d'ouvrir.
+  Creating `downloads/incoming` and `downloads/temp` yourself **before** the first `up -d` avoids the
+  problem entirely, since they then keep your ownership.
 
 ---
 
@@ -556,9 +476,9 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 - **Symptôme.** Le crawler refuse de se connecter à amuled (`EC auth failed` dans les logs).
 - **Solution.** Choisissez un nouveau mot de passe, mettez à jour `AMULE_EC_PASSWORD` dans `.env`
-  ET `amules[].password` dans `config/crawler/crawler.yml`, puis redémarrez :
+  ET `amules[].password` (et `download.endpoint.password`) dans `config/crawler/crawler.yml`, puis redémarrez :
   ```bash
-  docker compose -f gluetun.compose.yml --profile <mode> up -d --force-recreate amuled crawler
+  docker compose -f gluetun.compose.yml up -d --force-recreate amuled crawler
   ```
   Pas de perte de catalogue (le mot de passe ne protège que le canal EC, pas les données).
 
@@ -570,23 +490,19 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
   un par un en vérifiant la syntaxe (pas d'espaces autour du `=`, pas de guillemets autour des
   valeurs sauf nécessaire), puis `mv .env.new .env`. Évite d'avoir à débugger un fichier corrompu.
 
-### Un fichier est bloqué dans la quarantaine
+### Where do I find a downloaded file?
 
-- **Symptôme.** Le fichier est listé dans la WebUI avec un verdict `suspicious` mais vous savez
-  qu'il est sain (et vous voulez le récupérer).
-- **Solution.** La quarantaine est un volume Docker (`<projet>_quarantine`). Pour y accéder :
-  ```bash
-  docker volume ls | grep quarantine                       # nom exact
-  docker run --rm -it -v <nom-du-volume>:/q alpine ls /q   # lister
-  docker run --rm -v <nom-du-volume>:/q -v "$PWD":/out alpine cp /q/<fichier> /out/
-  ```
-  Le fichier est copié dans votre dossier courant. Vérifiez-le indépendamment avant de l'ouvrir.
+- **Answer.** In `downloads/incoming`, inside your working folder: it is a plain folder on your disk,
+  not a Docker volume, so `docker compose down -v` does not touch it. Files that are still
+  downloading sit in `downloads/temp`.
+- **Nothing has inspected that file.** mulewatch never opens a downloaded file: no type check, no
+  media probe, no antivirus scan. Check it yourself before opening it.
 
 ### Je veux repartir de zéro (catalogue effacé)
 
 - **Solution destructive (irréversible).** Arrêtez tout et supprimez les volumes :
   ```bash
-  docker compose -f gluetun.compose.yml --profile <mode> down -v
+  docker compose -f gluetun.compose.yml down -v
   ```
   Le `-v` est ce qui efface. Sans lui, les volumes (donc le catalogue) sont préservés.
   Sauvegardez d'abord ce que vous tenez à garder.
@@ -597,11 +513,11 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 ### Lancer une commande ponctuelle dans une image
 
-Les images ont un entrypoint exec-form `["python","-m","<pkg>"]`. Pour exécuter autre chose, passez
+L'image a un entrypoint exec-form `["python","-m","mulewatch"]`. Pour exécuter autre chose, passez
 par `--entrypoint` :
 
 ```bash
-docker run --rm --entrypoint python <image> -c "import re2, rapidfuzz; print('ok')"
+docker run --rm --entrypoint python <image> -c "import rapidfuzz; print('ok')"
 ```
 
 ### Valider la configuration sans rien démarrer
@@ -610,6 +526,6 @@ docker run --rm --entrypoint python <image> -c "import re2, rapidfuzz; print('ok
 uv run python -m mulewatch validate-config
 ```
 
-Charge + valide les 4 configs et sort en erreur (code ≠ 0) si l'une est invalide, **sans rien
+Charge + valide les 3 configs et sort en erreur (code ≠ 0) si l'une est invalide, **sans rien
 démarrer**. À lancer **avant** un déploiement (entre étape 3 et étape 4 du [runbook de déploiement](deployment.md))
 ou après une modification de config.

@@ -409,9 +409,9 @@ def _map_partfile(entry: EcTag) -> DownloadEntry | None:
 def _map_shared_file(entry: EcTag) -> SharedFileEntry | None:
     """An ``EC_TAG_KNOWNFILE`` entry → ``SharedFileEntry``, or ``None`` if unusable.
 
-    Hash = dedicated child ``EC_TAG_PARTFILE_HASH`` (HASH16, 16 bytes); name = child
-    ``EC_TAG_PARTFILE_NAME`` (TRUE on-disk name, ``GetFileName`` amuled-side, post-cleanup/dedup).
-    No usable hash OR no name → discarded (tolerance to unknowns, like ``_map_partfile``).
+    Hash = dedicated child ``EC_TAG_PARTFILE_HASH`` (HASH16, 16 bytes). Only the hash is read:
+    an absent or undecodable ``EC_TAG_PARTFILE_NAME`` must NOT discard the entry, since that
+    would suppress the completion signal and strand the download in ``downloading``.
     """
     hash_tag = entry.find(codes.EC_TAG_PARTFILE_HASH)
     if (
@@ -420,11 +420,4 @@ def _map_shared_file(entry: EcTag) -> SharedFileEntry | None:
         or len(hash_tag.value) != 16
     ):
         return None
-    name_tag = entry.find(codes.EC_TAG_PARTFILE_NAME)
-    if name_tag is None:
-        return None
-    try:
-        name = name_tag.string_value()
-    except EcProtocolError:
-        return None
-    return SharedFileEntry(ed2k_hash=hash_tag.value.hex(), name=name)
+    return SharedFileEntry(ed2k_hash=hash_tag.value.hex())

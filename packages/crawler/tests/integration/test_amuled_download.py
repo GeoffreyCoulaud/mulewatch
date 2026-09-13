@@ -76,9 +76,8 @@ async def test_add_link_then_appears_in_download_queue(amuled: tuple[str, int]) 
 async def test_shared_files_round_trips(amuled: tuple[str, int]) -> None:
     # EMPIRICALLY confirms the GET_SHARED_FILES → SHARED_FILES request/response cycle and that
     # the decoding does not raise (opcodes 0x10/0x22). On a fresh amuled the list may be empty;
-    # the mapping (EC_TAG_KNOWNFILE 0x0400 container, name/hash) is covered by the unit tests +
-    # the upstream source. If entries come back, they are valid SharedFileEntry (32-hex hash,
-    # name).
+    # the mapping (EC_TAG_KNOWNFILE 0x0400 container, hash) is covered by the unit tests +
+    # the upstream source. If entries come back, they are valid SharedFileEntry (32-hex hash).
     host, port = amuled
     client = AmuleEcClient(host, port, _EC_PASSWORD, timeout=30.0)
     await client.connect()
@@ -86,6 +85,6 @@ async def test_shared_files_round_trips(amuled: tuple[str, int]) -> None:
         shared = await client.shared_files()
         assert isinstance(shared, tuple)
         assert all(isinstance(e, SharedFileEntry) for e in shared)
-        assert all(len(e.ed2k_hash) == 32 and e.name for e in shared)
+        assert all(len(e.ed2k_hash) == 32 for e in shared)
     finally:
         await client.close()
