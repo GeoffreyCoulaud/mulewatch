@@ -3,7 +3,7 @@
 Ce guide s'adresse à qui **exploite et règle** un nœud déjà monté. Pour *monter* la stack, commencez
 par le **[Runbook de déploiement](deployment.md)** ; pour résoudre un problème concret, le
 **[Runbook de dépannage](troubleshooting.md)**. On trouve ici le cycle de vie du nœud, le
-High-ID (optionnel), l'analyse antivirus, les métriques, le durcissement noyau, les outils de
+High-ID (optionnel), les métriques, le durcissement conteneur, les outils de
 catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jamais la personne**.
 
 ---
@@ -11,16 +11,18 @@ catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jama
 ## Cycle de vie & données
 
 - **Persistance.** Le catalogue et l'état vivent dans des **volumes Docker nommés** (`catalog-db`,
-  `local-db`, `quarantine`, `amule-state`, et `clamav-db` en mode download). Ils **persistent** à la
+  `local-db`, `amule-state`). Ils **persistent** à la
   recréation des conteneurs : ne lancez `docker compose down` **avec `-v`** que si vous voulez
-  réellement **effacer** le catalogue.
+  réellement **effacer** le catalogue. Les fichiers téléchargés, eux, ne sont pas dans un volume :
+  ils vivent dans `downloads/incoming` et `downloads/temp` de votre dossier de travail (montages
+  bind), que `-v` ne touche pas.
 - **Arrêter le nœud** : `docker compose -f gluetun.compose.yml down`
   (remplacez par `docker compose down` si vous utilisez la stack sans VPN conteneur,
   celle par défaut).
 - **Mettre à jour** : re-tirez les images puis relancez :
   ```bash
-  docker compose -f gluetun.compose.yml --profile download pull
-  docker compose -f gluetun.compose.yml --profile download up -d
+  docker compose -f gluetun.compose.yml pull
+  docker compose -f gluetun.compose.yml up -d
   ```
 - **Redémarrage de la machine hôte.** Les conteneurs ont `restart: unless-stopped` : ils reviennent
   seuls au boot de l'hôte (Docker doit démarrer en service système). **Aucune commande à relancer.**
@@ -36,12 +38,12 @@ catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jama
   ```bash
   docker run --rm -v deploy_catalog-db:/src -v mulewatch_catalog-db:/dst alpine sh -c "cp -a /src/. /dst/"
   docker run --rm -v deploy_local-db:/src -v mulewatch_local-db:/dst alpine sh -c "cp -a /src/. /dst/"
-  docker run --rm -v deploy_quarantine:/src -v mulewatch_quarantine:/dst alpine sh -c "cp -a /src/. /dst/"
   docker run --rm -v deploy_amule-state:/src -v mulewatch_amule-state:/dst alpine sh -c "cp -a /src/. /dst/"
   ```
-  Ajoutez `deploy_clamav-db` (si vous utilisiez le mode download) avec le même patron. Les volumes
-  `deploy_prometheus-data` et `deploy_grafana-data` (historique de métriques, régénérable) ne sont
-  pas critiques : vous pouvez les laisser derrière ou les copier avec la même recette. Vérifiez
+  Les volumes `deploy_quarantine`, `deploy_clamav-db`, `deploy_prometheus-data` et
+  `deploy_grafana-data`, s'ils existent encore, appartiennent à des services retirés le
+  2026-09-13 : rien ne les relit, vous pouvez les supprimer une fois la migration vérifiée.
+  Vérifiez
   ensuite avec `docker run --rm -v mulewatch_catalog-db:/d alpine ls -la /d` que le fichier
   `catalog.db` est bien présent avant de supprimer les anciens volumes `deploy_*`.
 
@@ -53,9 +55,8 @@ Si le nœud tourne mais ne semble plus catalogue / télécharge plus rien :
 |---|---|---|
 | Le crawler tourne mais aucune nouvelle observation depuis > 1 h | `docker compose logs crawler --tail 100` | Cherchez « EC unavailable », « no servers » ou « cycle » récent. Si pas de cycle, amuled est probablement déconnecté du réseau (voir [runbook-troubleshooting](troubleshooting.md)). |
 | Téléchargements bloqués en QUEUED | `docker compose logs crawler \| grep -i download` | Vérifier que amuled est en High-ID **ou** qu'il a des sources (sources directes nécessaires en Low-ID). |
-| Tous les fichiers ressortent `suspicious` | `docker compose logs verifier --tail 100` | Voir clamav rlimits ci-dessous : probable manque de RAM pour le scan. |
-| Le verifier crash périodiquement (logs `Killed`) | `docker stats verifier` | RAM insuffisante. Augmentez `mem_limit` ou désactivez clamav. |
-| Un volume Docker se remplit | `docker system df -v` | Catalogue trop gros (voir Compaction) ou quarantaine accumulée. |
+| Un téléchargement fini n'apparaît pas dans `downloads/incoming` | `docker compose logs amuled --tail 100` | Voir la fiche [« A finished file never shows up »](troubleshooting.md#a-finished-file-never-shows-up-in-downloadsincoming). |
+| Le disque se remplit | `docker system df -v` puis `du -sh downloads/` | Catalogue trop gros (voir Compaction) ou fichiers téléchargés accumulés : le plafond disque ne borne que les octets *en vol*, pas le total. |
 
 Pour les symptômes inconnus, voir le [runbook de dépannage](troubleshooting.md).
 
@@ -68,13 +69,14 @@ vos cibles) :
   eMule 2026 ; ré-évaluer si vous activez un grand nombre de cibles). La compaction (cf. Outils de
   catalogue) ramène l'historique au-delà de 90 jours à un rollup journalier : taux de compression
   élevé.
-- **`quarantine`** : taille des fichiers en cours de vérification (transitoire) + ceux remis à
-  l'opérateur (variable, dépend de votre politique de purge).
-- **`clamav-db`** : ~300-500 Mo (base de signatures, mise à jour quotidienne).
+- **`downloads/`** : les fichiers téléchargés, qui **s'accumulent sans borne** (rien ne les purge).
+  Le plafond `download.disk_cap_bytes` est un compte des téléchargements *en cours*, pas une mesure
+  du disque : c'est à vous de faire le ménage dans `downloads/incoming`.
 - **`amule-state`** : qq Mo (server.met, nodes.dat, prefs).
 
-Si votre VPS / NAS approche de saturation, lancez `docker system df -v` pour identifier le volume
-fautif, puis `python -m mulewatch.compact` (cf. Outils de catalogue) ou purgez la quarantaine.
+Si votre VPS / NAS approche de saturation, lancez `docker system df -v` et `du -sh downloads/`
+pour identifier le coupable, puis `python -m mulewatch.compact` (cf. Outils de catalogue) ou
+faites le ménage dans `downloads/incoming`.
 
 ---
 
@@ -113,8 +115,8 @@ quand certains réglages combinés sont incohérents.
 
 1. **VPN avec port forwarding** + `VPN_PORT_FORWARDING: "on"` dans `.env` (cherchez les fournisseurs
    marqués `PORT_FORWARDING: yes` dans la [liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)).
-2. Le service **`docker-proxy`** (profil download, stack `gluetun.compose.yml`), qui redémarre
-   amuled de façon confinée (le crawler ne voit jamais le socket Docker directement).
+2. Le service **`docker-proxy`**, présent d'office dans la stack `gluetun.compose.yml`, qui
+   redémarre amuled de façon confinée (le crawler ne voit jamais le socket Docker directement).
 3. Dans `config/crawler/crawler.yml` : basculez `port_sync.enabled: true` (le bloc est
    présent par défaut avec les URL déjà configurées : `gluetun_control_url` et `restarter_url` ;
    réglage fin optionnel via les autres champs de la section).
@@ -134,7 +136,7 @@ au risque**.
 >   juridictions** : c'est vrai dès qu'on fait tourner un nœud, route B ou non. Le risque pratique
 >   pour ce projet est **statistiquement faible** (eMule est un réseau de niche en 2026, et la cible,
 >   des médias perdus aux ayants droit inactifs, mobilise peu) mais **n'est pas nul** ; il dépend
->   surtout de votre juridiction. Voir [`docs/legal-and-privacy.md`](legal-and-privacy.md) pour la
+>   surtout de votre juridiction. Voir [`docs/legal-and-privacy.md`](../legal-and-privacy.md) pour la
 >   discussion détaillée (ce que le catalogue stocke et ne stocke pas, ce qu'un VPN protège vraiment,
 >   responsabilités de l'opérateur).
 > - **Surface d'attaque réseau.** Un port entrant ouvert, c'est un point d'entrée de plus sur votre
@@ -145,98 +147,30 @@ au risque**.
 
 ---
 
-## Analyse antivirus (clamav) : provisioning & réglage
+## Prometheus metrics
 
-En **mode download**, le verifier ajoute une 3ᵉ source de verdict : un scan **par signatures**
-(`clamscan`) qui produit un verdict `malicious` quand un fichier correspond à une signature de
-virus connue. C'est **activé par défaut** dans le profil download (`ENABLED_CHECKS:
-type_sniff,ffprobe,clamav` dans `base.compose.yml`).
+The crawler exposes a Prometheus endpoint on the port set by `observability.metrics.port` in
+`config/crawler/crawler.yml` (default `9090`, `enabled: true` by default). **No Prometheus and no
+Grafana container ships with the stack**: if you want dashboards, point your own Prometheus at the
+crawler.
 
-> **Ce que clamav fait, et ce qu'il ne fait pas.** Il détecte les virus dont la signature est connue
-> dans sa base : c'est un **filet** opportuniste, pas une garantie. Un fichier `clean` selon clamav
-> n'est pas certifié inoffensif ; un fichier `malicious` est très probablement infecté. Ne lui faites
-> pas porter une promesse qu'il ne tient pas.
+That port is not published on the host by default. Two ways to reach it:
 
-**Comment la base arrive (sans casser l'isolement réseau du verifier).** Le verifier n'a **aucune
-sortie Internet** (réseau `internal: true`) : il ne peut donc pas mettre à jour la base lui-même. Un
-**sidecar `freshclam`** (service séparé sur le réseau `egress`) télécharge et tient à jour la base
-dans un **volume partagé `clamav-db`** ; le verifier le **lit en lecture seule**. L'isolement du
-verifier est préservé.
+- attach your Prometheus container to the stack's `ec` network, and scrape `crawler:9090`;
+- or publish the port yourself by adding a mapping to the `crawler` service in `base.compose.yml`
+  (and treat it like the webui: no auth, so keep it off the open Internet).
 
-### Premier démarrage
-
-Au premier démarrage en mode download, `freshclam` télécharge la base de signatures
-(**~300-500 Mo**). Durée typique (en 2026, à ré-évaluer si les bases grossissent) : **3-5 min en
-fibre, 10-20 min en ADSL/4G**.
-
-**Comment vérifier que la base est prête :**
-
-```bash
-docker compose -f gluetun.compose.yml logs freshclam | grep -iE "updated|main\.cvd"
-```
-
-Vous devez voir une ligne du type `freshclam: ClamAV update process started ... main.cvd updated`.
-
-**Pendant la synchro, tous les fichiers ressortent `suspicious`** : c'est défensif (clamav ne dit
-jamais `clean` sans base). Une fois la base prête, les **nouveaux** fichiers reçoivent un verdict
-normal ; en revanche, **les fichiers déjà passés en `suspicious` ne sont pas re-scannés
-automatiquement**. Si vous voulez les re-vérifier, il faut les re-soumettre manuellement (laisser
-amuled les re-télécharger, ou utiliser un outil dédié si vous en avez).
-
-L'image du verifier grossit de **~50-80 Mo** (moteur `libclamav` + `clamscan` ; **pas** la base, qui
-vit dans le volume : c'est tout l'intérêt du sidecar).
-
-### Mémoire et limites : calibration à valider
-
-> ⚠️ **Hypothèse non validée en prod.** Les valeurs ci-dessous (1,5 Gio d'adressage, 120 s CPU,
-> `mem_limit` 2 Gio sur le conteneur verifier) sont une **première calibration homelab**, pas
-> validée par un test contre l'image de prod. Si vous observez le symptôme décrit plus bas, c'est
-> probablement qu'elles sont sous-dimensionnées pour votre contexte.
-
-`clamscan` charge **toute la base en mémoire** : les rlimits du sous-processus d'analyse sont
-**relâchés** quand clamav est actif (≈1,5 Gio d'adressage, 120 s CPU, réglables via
-`RLIMIT_AS_BYTES_CLAMAV` / `RLIMIT_CPU_S_CLAMAV`), et le `mem_limit` du conteneur verifier est
-relevé à **2 Gio** en conséquence (sinon le cgroup tue le scan avant que le rlimit ne s'applique).
-
-**Symptôme typique d'un sous-dimensionnement** : un fichier **sain** ressort systématiquement
-`suspicious`, même longtemps après que `freshclam` ait annoncé la base prête. Cause probable : le
-scan est tué par manque de mémoire avant d'avoir pu rendre son verdict. **Procédure d'ajustement** :
-doublez les deux valeurs (`RLIMIT_AS_BYTES_CLAMAV` à 3 Gio, `mem_limit` du verifier à 4 Gio),
-redémarrez le verifier, retestez. Si le symptôme persiste, doublez encore.
-
-> **Désactiver clamav** : retirez `clamav` de `ENABLED_CHECKS` (le verifier retombe sur
-> `type_sniff,ffprobe`) et, si vous voulez, ne lancez pas le sidecar. Le **smoke test** et le profil
-> **observer** tournent déjà sans clamav. C'est une option valide sur machine peu RAM (< 4 Go).
-
----
-
-## Métriques Prometheus
-
-> **Optionnel.** Cette section ne concerne que les opérateurs qui veulent **scraper** les métriques
-> du nœud depuis un système de monitoring **externe** (Prometheus + Grafana qu'ils gèrent par
-> ailleurs). Si vous voulez juste voir les métriques sur un dashboard sans rien configurer : Grafana
-> est déjà inclus par défaut (cf. [runbook de déploiement, annexe D : Régler le monitoring](deployment.md#annexe-d-régler-le-monitoring)),
-> ouvrez-le directement, le scrape est déjà configuré et le dashboard est livré clé en main.
-
-Le crawler et le verifier exposent des métriques Prometheus.
-
-- **crawler** : sur un port HTTP dédié (`observability.metrics.port` dans `config/crawler/crawler.yml`),
-  accessible depuis le réseau `ec`.
-- **verifier** : sur son port de service (par défaut `8000`), route `/metrics`. Comme le verifier est
-  sur un réseau **sans sortie Internet**, un Prometheus externe doit **rejoindre ce réseau** (ou vous
-  exposez le port sur l'hôte).
-
-Exemple de `scrape_config` (à coller dans votre `prometheus.yml` externe) :
+Example `scrape_config` for your own `prometheus.yml`:
 
 ```yaml
 scrape_configs:
   - job_name: 'mulewatch-crawler'
     static_configs:
-      - targets: ['crawler:9090']   # port configurable
-  - job_name: 'mulewatch-verifier'
-    static_configs:
-      - targets: ['verifier:8000']  # même port que le service (/metrics)
+      - targets: ['crawler:9090']   # the port is configurable
 ```
+
+Setting `observability.metrics.enabled: false` turns the endpoint off entirely; the crawl and the
+webui are unaffected.
 
 ---
 
@@ -245,14 +179,14 @@ scrape_configs:
 Tous ces outils sont **opérateurs et ponctuels** (pas de boucle, jamais déclenchés par le crawler) et
 **ne mutent jamais une base en place** : ils lisent une source et écrivent un fichier neuf.
 
-- **Validation de config** : `uv run python -m mulewatch validate-config` charge + valide les 4
+- **Validation de config** : `uv run python -m mulewatch validate-config` charge + valide les 3
   configs et sort en erreur (code ≠ 0) si l'une est invalide, **sans rien démarrer**. À lancer avant
   un déploiement.
 - **Fusion de catalogues** : `uv run python -m mulewatch.merge --output catalog-merged.db
   source-a.db source-b.db …` consolide N `catalog.db` (un par chercheur/campagne) en un seul,
   **idempotent** (re-merger est un no-op) et safe-by-default (pas d'écrasement sans `--force` ;
   `--into <source>` pour fusionner dans une source existante). **Cycle de partage entre chercheurs
-  documenté dans [docs/README § Collaboration entre chercheurs](README.md#collaboration-entre-chercheurs).**
+  documenté dans [docs/README § Collaboration between searchers](../README.md#collaboration-between-searchers).**
 - **Compaction du catalogue** : `uv run python -m mulewatch.compact catalog.db -o
   catalog-compact.db [--keep-recent-days 90]` réduit la **seule** table qui croît sans borne,
   `file_observations` (une ligne par fichier observé à chaque cycle). Le brut des `--keep-recent-days`
@@ -281,7 +215,7 @@ Tous ces outils sont **opérateurs et ponctuels** (pas de boucle, jamais déclen
   selon votre trafic et le nombre de cibles), très en deçà d'un budget de 50 Go/an.
 
 Pour valider/tester en profondeur (suites d'intégration, smoke, CI), voir le
-[guide des tests](testing-guide.md).
+[guide des tests](../testing-guide.md).
 
 ---
 
@@ -306,7 +240,7 @@ Effets d'un changement de policy :
 
 Un gros changement de policy peut donc émettre une rafale de notifications (bornée aux fichiers dont
 le palier a réellement changé) : c'est voulu. Le passage est idempotent (la garde anti-redondance
-n'écrit une ligne que sur un vrai changement) et tourne dans les deux modes (observer et download).
+n'écrit une ligne que sur un vrai changement) et tourne que le téléchargement soit activé ou non.
 
 ---
 
@@ -323,15 +257,15 @@ son `ReaderProvider`, jamais une connexion en écriture.
 
 Rien de spécial à lancer : la WebUI est servie **en intra-processus** par le service `crawler`, donc
 elle démarre et s'arrête **avec lui**, sans service ni profil dédié. N'importe laquelle des commandes
-de lancement du [Runbook de déploiement](deployment.md#5-lancer) la met en ligne, observer comme
-download.
+de lancement du [Runbook de déploiement](deployment.md#5-start-it) la met en ligne, que le
+téléchargement soit activé ou non.
 
 ```bash
-# Stack sans VPN, observer (catalogue seul) : la WebUI est servie par le crawler
+# Stack sans VPN : la WebUI est servie par le crawler
 docker compose up -d
 
-# Stack sans VPN, download (catalogue + téléchargements) : idem
-docker compose --profile download up -d
+# Stack VPN : idem
+docker compose -f gluetun.compose.yml up -d
 ```
 
 ### Routes disponibles
@@ -339,8 +273,8 @@ docker compose --profile download up -d
 | Route | Description |
 |---|---|
 | `/` | Tableau de bord : couverture par cible (épisodes trouvés/manquants) |
-| `/files` | Liste paginée des fichiers ; filtres `?target=`, `?tier=`, `?verdict=`, `?q=` |
-| `/files/{ed2k_hash}` | Détail d'un fichier (observations, décisions, vérifications, explication du matching) |
+| `/files` | Liste paginée des fichiers ; filtres `?target=`, `?tier=`, `?q=` |
+| `/files/{ed2k_hash}` | Détail d'un fichier (observations, décisions, explication du matching) |
 | `/targets/{target_id}` | Fichiers d'une cible (alias de `/files?target=`) |
 | `/node` | État du nœud CRAWLER : `node_id` + entrées du `scheduler_state` (last_full_cycle_at, etc.). N'expose PAS l'état réseau amuled (l'EC n'est pas joignable depuis le webui). |
 | `/controls` | Contrôles d'exécution : forcer une passe de recherche maintenant, mettre en pause / reprendre la surveillance, redémarrer le service (sortie de processus propre ; le `restart: unless-stopped` du conteneur le relance). Ce sont des POST qui **modifient l'état**, sans jeton CSRF ni authentification, par conception. |
@@ -397,7 +331,7 @@ webui.example.com {
 > simultané, le noyau peut refuser les `mmap` sur un FS monté `ro`). En intra-processus, ce
 > raisonnement de montage est **caduc** (plus de conteneur séparé à monter) ; la garantie repose
 > désormais entièrement sur `mode=ro` + `query_only`. Voir
-> [`reference/2026-06-22-webui-wal-readonly.md`](reference/2026-06-22-webui-wal-readonly.md).*
+> [`reference/2026-06-22-webui-wal-readonly.md`](../reference/2026-06-22-webui-wal-readonly.md).*
 
 ---
 
@@ -411,7 +345,7 @@ Prérequis : [cosign](https://github.com/sigstore/cosign) installé.
 L'identité attendue est le workflow de release du dépôt :
 
 ```sh
-IMAGE=ghcr.io/geoffreycoulaud/mulewatch-crawler:latest   # ou mulewatch-verifier
+IMAGE=ghcr.io/geoffreycoulaud/mulewatch-crawler:latest
 IDENTITY='^https://github.com/GeoffreyCoulaud/mulewatch/.github/workflows/release.yml@refs/'
 ISSUER=https://token.actions.githubusercontent.com
 ```
@@ -460,50 +394,43 @@ par digest d'architecture. Le détail de la chaîne et du triage VEX est dans `S
   pas « corriger » sans rouvrir la décision. À surveiller : `file_observations` croît sans borne, et
   c'est une **future** migration triant cette table qui pose le risque, pas 0004 (ponctuelle, déjà
   passée).
-- **Sandbox noyau, choix actés (2026-06-17, updated 2026-06-29)** : la sandbox optionnelle gVisor
-  (`runsc`) a été retirée du projet (YAGNI). Le plancher portable universel est suffisant :
-  conteneur durci (`cap_drop: ALL`, `no-new-privileges`, `read_only`, `internal`) + seccomp
-  par-enfant + rlimits, sur **n'importe quel** hôte Docker (Linux, Windows, macOS). Plusieurs
-  alternatives d'isolation niveau noyau ont été évaluées puis **écartées explicitement** :
-  - Isolation par-enfant « étendue » (`net=none`, bwrap/montages RO réels, tmpfs dédié) :
-    chacune de ces options exige `CAP_SYS_ADMIN` (qui annulerait le `cap_drop: ALL` du conteneur)
-    ou des user namespaces non privilégiés (non portables : dépendants d'un réglage sysctl hôte,
-    en conflit avec le seccomp par défaut de Docker). Gain
-    **marginal** face aux protections déjà en place (le seccomp par-enfant refuse déjà les sockets ;
-    le réseau du verifier n'a **aucune sortie Internet** via `internal: true` ; le rootfs est
-    monté en lecture seule).
-  - Seccomp en mode « allowlist » (autoriser explicitement une liste fermée d'appels système) :
-    **écarté** car trop fragile, risque de faux positifs sur un média sain. Le seccomp par-enfant
-    actuel utilise une **blocklist** (refuser explicitement les appels dangereux) : moins strict
-    mais plus robuste.
+- **Container hardening, decisions on record (2026-06-17, updated 2026-06-29, narrowed
+  2026-09-13)**: the optional gVisor (`runsc`) sandbox was dropped as YAGNI, and the per-child
+  seccomp blocklist and rlimits left the project on 2026-09-13 along with the analysis child they
+  confined. What remains, and is enough, is the portable floor applied to our own container on
+  **any** Docker host (Linux, Windows, macOS): `cap_drop: ALL`, `no-new-privileges`, a `read_only`
+  rootfs, a size-capped `tmpfs` for `/tmp`, `pids_limit` and `mem_limit`. Nothing in the crawler
+  spawns a subprocess over untrusted input any more, and nothing ever opens a downloaded file.
+  Kernel-level isolation beyond that stays **explicitly out of scope**: `net=none`, bwrap and real
+  read-only mount namespaces each require either `CAP_SYS_ADMIN` (which would cancel the container's
+  own `cap_drop: ALL`) or unprivileged user namespaces (not portable: they depend on a host sysctl
+  and conflict with Docker's default seccomp profile).
 - **port-sync, validation réelle** : la boucle est construite ; sa validation **bout-en-bout**
   (port-check High-ID réel derrière le VPN) se fait via un déploiement réel.
-- **DV10 (download → quarantaine)**, Statut : **chaîne complète confirmée par lecture des sources
-  amont d'amuled** (cf. [`docs/reference/2026-06-17-amuled-completion-behavior.md`](reference/2026-06-17-amuled-completion-behavior.md)),
-  mais **non validée par un test bout-en-bout sur transfert réel** (la suite e2e correspondante a
-  été abandonnée : voir le guide des tests). Le décodage `shared_files()` contre un vrai amuled est
-  en revanche couvert par `download_integration`. Conséquence : si vous montez un nœud en mode
-  download, considérez la chaîne complète comme **fonctionnelle d'après lecture du code** mais
-  **non éprouvée en production réelle** ; remontez tout comportement inattendu.
+- **Download completion, real-world validation**: the chain is **confirmed by reading amuled's
+  upstream sources** (see
+  [`docs/reference/2026-06-17-amuled-completion-behavior.md`](../reference/2026-06-17-amuled-completion-behavior.md))
+  and one **real transfer on a production node on 2026-09-11**, but there is **no end-to-end test on
+  a real transfer** (that e2e suite was abandoned, see the testing guide). The `shared_files()`
+  decoding against a real amuled *is* covered by `download_integration`.
 
-  Mécanique : à la complétion, amuled déplace le fichier vers son **IncomingDir** ; le statut ne
-  passe complet qu'**après** le déplacement (pas de race). Le crawler détecte la complétion par
-  **« partagé ET absent de la file de download »** (auto-partagé par amuled à la complétion ; un
-  partiel est partagé lui aussi, la file les sépare, cf. CORRECTION 2026-09-11 dans la référence) et
-  promeut au **vrai nom on-disk** rapporté par amuled : la collision de nom (`nom(0).ext`) est gérée
-  par construction. Les **contraintes de déploiement** qui en découlent (IncomingDir = quarantaine,
-  FS Linux, pas de catégories, amuled dédié) sont décrites dans la
-  [référence amuled-completion-behavior](reference/2026-06-17-amuled-completion-behavior.md#contraintes-de-déploiement-résumé)
-  (source unique) et signalées dans le [runbook de déploiement](deployment.md) (mode download).
+  Mechanics: on completion amuled moves the file into its **IncomingDir** and only then flips the
+  status to complete (no race). The crawler detects completion as **"shared AND absent from the
+  download queue"** (amuled auto-shares a completed file, but it shares partials too, so the queue is
+  what separates them, see CORRECTION 2026-09-11 in the reference). It then records the state and
+  notifies: since 2026-09-13 nothing moves the file, so the old quarantine promotion and its
+  name-collision handling are gone, and with them the constraints about a shared quarantine volume
+  and a Linux filesystem. What still holds: **no amuled category** redirecting the destination, and
+  an amuled **dedicated** to the crawler with a **small shared set**.
 
-  **Terrain 2026-09-11** : premier transfert réel sur un nœud de production. Les Q1/Q2 sont
-  confirmées, mais trois défauts de déploiement/code ont été trouvés (IncomingDir hors volume
-  partagé, droits, et la détection de complétion ci-dessus) plus la reconnexion EC manquante de la
-  boucle de download. Détail et correctifs : `docs/handoffs/2026-09-11 - handoff - download chain
-  stalls on the live node.md` (voir aussi [handoffs/](handoffs/) pour l'entrée la plus récente).
+  **Consequence of dropping the promotion step, not yet measured**: completed files now stay in
+  `IncomingDir` forever, so amuled's shared-files list grows without bound, and it is read on every
+  download cycle. On a long-lived node with many completed downloads, expect completion detection to
+  get slower. Pruning `downloads/incoming` is the operator's job.
+
 - **WebUI (lecture seule)** : **point clos**. La WebUI est désormais servie **en intra-processus**
   par le crawler (plus de conteneur séparé, donc plus de montage inter-conteneurs). La garantie
   lecture seule repose sur `mode=ro` + `PRAGMA query_only=ON` ; l'ancien montage Docker `:ro` WAL
   est caduc. Voir section « WebUI » plus haut et
-  [`docs/reference/2026-06-22-webui-wal-readonly.md`](reference/2026-06-22-webui-wal-readonly.md).
+  [`docs/reference/2026-06-22-webui-wal-readonly.md`](../reference/2026-06-22-webui-wal-readonly.md).
 - **Hub central / rétention** : non planifiés à ce stade.

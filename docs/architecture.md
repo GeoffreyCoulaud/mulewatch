@@ -1,23 +1,25 @@
-# Architecture & comportement — mulewatch
+# Architecture and behaviour: mulewatch
 
-> Vue d'ensemble lisible du système : sous-systèmes, interactions, et cycles de vie runtime.
-> Pour la **conception détaillée** voir `docs/specs/` (la spec MVP fait foi) ; pour **opérer** un
-> nœud voir `docs/runbooks/` ; pour l'**état courant/prochain pas** voir `docs/handoffs/` (le plus
-> récent). Ce document décrit *comment ça marche*, pas *comment déployer*.
+> A readable overview of the system: subsystems, interactions, and runtime lifecycles.
+> For the **detailed design** see `docs/specs/` (the MVP spec is authoritative); to **operate** a
+> node see `docs/runbooks/`; for the **current state and next step** see `docs/handoffs/` (the most
+> recent one). This document describes *how it works*, not *how to deploy it*.
 >
-> Ancrage code : la table « Où le code vit » de `CLAUDE.md` donne le fichier de chaque sous-système.
+> Code anchor: the "Where the code lives" table in `AGENTS.md` gives the file for each subsystem.
 
-## 1. En une phrase
+## 1. In one sentence
 
-`mulewatch` surveille en continu le réseau eMule (eD2k + Kad, via un `amuled` piloté en
-protocole **EC**) pour retrouver les épisodes VF perdus de *Keroro mission Titar*, en cataloguant
-toute la métadonnée croisée au passage. **Le sujet du catalogue est le fichier, jamais la personne.**
+`mulewatch` continuously watches the eMule network (eD2k + Kad, through an `amuled` driven over the
+**EC** protocol) to recover the lost French-dub episodes of *Keroro mission Titar*, cataloguing
+every piece of metadata it crosses along the way. **The catalog's subject is the file, never the
+person.**
 
-## 2. Vue d'ensemble des sous-systèmes
+## 2. Subsystem overview
 
-Un **workspace uv** de quatre paquets, plus des dépendances externes.
+A **uv workspace** of three packages, plus external dependencies.
 
-**Contexte — le nœud et l'extérieur** (tout le trafic réseau d'`amuled` passe par le VPN) :
+**Context: the node and the outside world** (under the VPN stack, all of `amuled`'s network traffic
+goes through the tunnel):
 
 ```mermaid
 flowchart LR
@@ -25,80 +27,80 @@ flowchart LR
   amuled["amuled"]
   gluetun["gluetun · VPN"]
   ed2k(("eD2k / Kad"))
-  verifier["Verifier"]
-  prom["Prometheus"]
-  notif["Mail / Slack"]
+  prom["Prometheus · operator's own"]
+  notif["Mail / Slack / Discord"]
+  out[("./downloads/incoming")]
 
   crawler -->|EC| amuled
-  amuled -->|"tout le trafic"| gluetun
+  amuled -->|"all traffic"| gluetun
   gluetun --> ed2k
-  crawler -->|"POST /verify"| verifier
-  crawler -->|metrics| prom
-  verifier -->|metrics| prom
-  crawler -->|"notifs · URL apprise"| notif
+  amuled -->|"finished files"| out
+  crawler -->|"/metrics · scraped"| prom
+  crawler -->|"notifications · apprise URL"| notif
 ```
 
-**Composants internes & données partagées** (le crawler écrit, le webui lit ; `matching` est une
-lib importée) :
+No Prometheus or Grafana container ships with the stack: the crawler exposes `/metrics` and an
+operator who wants dashboards points their own Prometheus at it.
+
+**Internal components and shared data** (the crawler writes, the webui reads; `matching` is an
+imported library):
 
 ```mermaid
 flowchart RL
   crawler["Crawler"]
-  webui["WebUI"]
+  webui["WebUI · in-process"]
   catalog[("catalog.db")]
   local[("local.db")]
   matching(["matching · lib"])
 
-  crawler -->|écrit| catalog
-  crawler -->|écrit| local
-  crawler -->|importe| matching
-  webui -->|"lecture seule"| catalog
-  webui -->|importe| matching
+  crawler -->|writes| catalog
+  crawler -->|writes| local
+  crawler -->|imports| matching
+  webui -->|"read-only"| catalog
+  webui -->|imports| matching
 ```
 
-| Paquet | Dist | Rôle |
+| Package | Dist | Role |
 |---|---|---|
-| `mulewatch` | `mulewatch` | **Crawler** : pilote `amuled` en EC, boucles recherche/download/vérification, persistance, observabilité. |
-| `download_verifier` | `download-verifier` | **Verifier** : service HTTP qui analyse un fichier téléchargé dans un process enfant confiné. |
-| `catalog_matching` | `catalog-matching` | **Moteur de matching** (lib partagée) : policy déclarative fichier→épisode. Importée par crawler et webui. |
-| `catalog_webui` | `catalog-webui` | **WebUI** : lecteur *read-only* du catalogue. |
+| `mulewatch` | `mulewatch` | **Crawler**: drives `amuled` over EC, runs the search and download loops, persistence, observability. Contains the in-process webui subpackage `mulewatch.webui` (read-only catalog viewer). |
+| `catalog_matching` | `catalog-matching` | **Matching engine** (shared library): declarative file to episode policy. Imported by the crawler and by the webui. |
+| `vex_guards` | `vex-guards` | **Dev/CI tooling**: keeps our OpenVEX claims honest. Never shipped in a prod image. |
 
-**Frontières strictes** (invariants) : le crawler n'importe jamais `download_verifier` (il l'appelle
-en HTTP) ; le verifier n'importe jamais `mulewatch` ; seul un test de contrat croise la frontière.
+**Strict boundaries** (invariants): `catalog_matching` is pure and never imports `mulewatch`;
+`vex_guards` is never imported by shipped code.
 
-## 3. Deux modes de fonctionnement
+## 3. Two run modes, one topology
 
-Le mode découle **de la config** (`crawler.yml`, section `download`) — pas d'un flag séparé.
+The mode follows **from the config** (`crawler.yml`, `download` section), not from a separate flag
+and not from a compose profile. Both compose stacks assemble the same services either way.
 
 ```mermaid
 flowchart TB
   app["Supervision · TaskGroup"]
-  app --> s["Recherche"]
-  app -->|"si download"| d["Download"]
-  app -->|"si download"| v["Vérification"]
-  app -->|"si port_sync"| p["Port-sync"]
+  app --> s["Search"]
+  app -->|"if download"| d["Download"]
+  app -->|"if port_sync"| p["Port-sync"]
 ```
 
-- **Observer** (`download` absent/`enabled: false`) : **seule la boucle recherche tourne** — on
-  catalogue, on ne télécharge rien.
-- **Download** (`download.enabled: true`) : recherche **+** download **+** vérification. Démarrage
-  *fail-fast* sur un health-check du verifier.
-- **Port-sync** (section `port_sync` présente) : boucle indépendante, orthogonale au mode, pour tenir
-  le **High-ID** derrière le VPN (voir §9).
+- **Download** (`download.enabled: true`, the shipped default): search **plus** download.
+- **Catalog only** (`download` absent or `enabled: false`): **only the search loop runs**. The node
+  catalogues and notifies, and downloads nothing.
+- **Port-sync** (`port_sync` section present and enabled): an independent loop, orthogonal to the
+  mode, that holds the **High-ID** behind the VPN (see §9).
 
-Chaque boucle est une itération suivie d'un sommeil (`*_interval_seconds` de config), supervisée par
-un `TaskGroup` : une boucle qui plante loudly annule les sœurs (fail-fast), mais les erreurs d'I/O
-*attendues* sont absorbées à l'intérieur d'un cycle (voir §10, discipline de frontière).
+Each loop is one iteration followed by a sleep (`*_interval_seconds` from the config), supervised by
+a `TaskGroup`: a loop that crashes loudly cancels its siblings (fail-fast), but *expected* I/O
+errors are absorbed inside a cycle (see §10, boundary discipline).
 
-## 4. Architecture interne du crawler (Clean / Hexagonal)
+## 4. Internal architecture of the crawler (Clean / Hexagonal)
 
-Le graphe de dépendances est un DAG orienté vers le **domaine pur**.
+The dependency graph is a DAG pointing at the **pure domain**.
 
 ```mermaid
 flowchart TB
   comp["composition/"]
   appl["application/"]
-  dom["domain/ · pur"]
+  dom["domain/ · pure"]
   ports["ports/ · protocols"]
   adp["adapters/ · I/O"]
 
@@ -106,59 +108,59 @@ flowchart TB
   appl --> dom
   appl --> ports
   dom --> ports
-  comp -->|injecte| adp
-  adp -.->|implémentent| ports
+  comp -->|injects| adp
+  adp -.->|implement| ports
 ```
 
-- **`domain/`** est **pur** : aucune I/O, pas de `yaml`/DB/réseau/horloge/logging, pas de lecture
-  d'env. L'interpolation `${VAR}` de `crawler.yml` est résolue par l'adapter config **avant** que
-  quoi que ce soit n'atteigne le domaine.
-- **`application/`** orchestre les use-cases async en parlant à des **ports** (protocols).
-- **`adapters/`** portent toute l'I/O et implémentent les ports structurellement.
-- **`composition/`** (`CrawlerApp`, `python -m mulewatch`) charge la config, valide *fail-fast*,
-  câble les adapters concrets, et supervise les boucles.
+- **`domain/`** is **pure**: no I/O, no `yaml`/DB/network/clock/logging, no env reads. The `${VAR}`
+  interpolation in `crawler.yml` is resolved by the config adapter **before** anything reaches the
+  domain.
+- **`application/`** orchestrates the async use-cases by talking to **ports** (protocols).
+- **`adapters/`** carry all the I/O and satisfy the ports structurally.
+- **`composition/`** (`CrawlerApp`, `python -m mulewatch`) loads the config, validates it
+  *fail-fast*, wires the concrete adapters, and supervises the loops.
 
-## 5. Le cycle de recherche
+## 5. The search cycle
 
-C'est le cœur du système en mode observer, et sa raison d'être : **être présent 24/7** pour attraper
-un fichier rare à l'instant où une source le partage. Un cycle balaie tous les mots-clés sur tous les
-canaux et toutes les instances `amuled`.
+This is the heart of the system and its reason to exist: **being there 24/7** to catch a rare file
+the instant a source shares it. One cycle sweeps every keyword over every channel and every `amuled`
+instance.
 
 ```mermaid
 flowchart TD
-  start["Début · cycle_index"]
-  cov["Relève couverture"]
-  kw["Mots-clés<br/>keroro · titar"]
-  shuf["Ordre seedé"]
-  q["File LIFO<br/>mots-clés × canaux"]
-  pool["Pool de workers"]
-  persist["Persiste avance<br/>+ backoff"]
+  start["Start · cycle_index"]
+  cov["Read coverage"]
+  kw["Keywords<br/>keroro · titar"]
+  shuf["Seeded order"]
+  q["LIFO queue<br/>keywords × channels"]
+  pool["Worker pool"]
+  persist["Persist progress<br/>+ backoff"]
 
   start --> cov --> kw --> shuf --> q --> pool --> persist
-  cov -. "HEALTHY / DEGRADED / BLIND" .-> tel[["télémétrie"]]
+  cov -. "HEALTHY / DEGRADED / BLIND" .-> tel[["telemetry"]]
 ```
 
-Points clés du parcours :
+Key points along the way:
 
-- **Deux canaux** par mot-clé : `SearchChannel.GLOBAL` (eD2k multi-serveurs) et `SearchChannel.KAD`.
-  Une tâche = *(mot-clé, canal)*.
-- **Mots-clés minimaux, issus de config** : `search.keywords` (défaut `keroro` + `titar`). `keroro`
-  ratisse large ; `titar` est une **sentinelle FR** rare, non-saturable (voir le handoff
-  simplification recherche pour le *pourquoi* — la donnée réelle a montré que chercher plus n'aide
-  pas). La génération de mots-clés par cible a été retirée.
-- **Ordre seedé par nœud** (`node_id : cycle_index`) : deux nœuds divergent (angles morts temporels
-  supprimés), un même nœud rejoue le même ordre à cycle égal.
-- **File LIFO + pool de workers** : chaque worker pilote une instance `amuled`. Un worker dont
-  l'instance est en **backoff** ré-enfile la tâche *au sommet* pour qu'un **pair** la prenne
-  immédiatement (pas de perte, pas de boucle infinie). Si toutes les instances sont en backoff, la
-  tâche est *droppée* avec une trace de télémétrie.
-- **Couverture ≠ liveness** : « le process vit » n'implique pas « on peut trouver maintenant ». Une
-  instance est *search-capable* si HighID eD2k **ou** Kad connecté ; l'agrégat donne
-  `HEALTHY / DEGRADED / BLIND`. `BLIND` est loggé fort (edge-triggered, anti-spam).
-- **Résilience** : une `RepositoryError` en fin de cycle est absorbée → l'index n'avance pas → le
-  cycle est rejoué au tour suivant (état append-only, pas de corruption).
+- **Two channels** per keyword: `SearchChannel.GLOBAL` (multi-server eD2k) and `SearchChannel.KAD`.
+  One task = *(keyword, channel)*.
+- **Minimal keywords, from config**: `search.keywords` (default `keroro` + `titar`). `keroro` casts
+  a wide net; `titar` is a rare, non-saturable **French sentinel** (see the search-simplification
+  handoff for the *why*: real data showed that searching more does not help). Per-target keyword
+  generation was removed.
+- **Per-node seeded order** (`node_id : cycle_index`): two nodes diverge (no shared temporal blind
+  spots), while a single node replays the same order for the same cycle.
+- **LIFO queue + worker pool**: each worker drives one `amuled` instance. A worker whose instance is
+  in **backoff** re-queues the task *on top* so a **peer** picks it up immediately (nothing is lost,
+  no infinite loop). If every instance is in backoff, the task is *dropped* with a telemetry trace.
+- **Coverage is not liveness**: "the process is alive" does not imply "we can find something right
+  now". An instance is *search-capable* if it has an eD2k HighID **or** is connected to Kad; the
+  aggregate yields `HEALTHY / DEGRADED / BLIND`. `BLIND` is logged loudly (edge-triggered,
+  anti-spam).
+- **Resilience**: a `RepositoryError` at the end of a cycle is absorbed, the index does not advance,
+  and the cycle is replayed next round (append-only state, no corruption).
 
-### 5.1 Une tâche de recherche, de bout en bout
+### 5.1 One search task, end to end
 
 ```mermaid
 sequenceDiagram
@@ -166,119 +168,116 @@ sequenceDiagram
   participant A as amuled
   participant C as catalog.db
   participant E as MatchingEngine
-  participant D as Signal download
+  participant D as Download signal
 
   W->>A: start_search(keyword, channel)
-  loop jusqu'à 100% ou budget écoulé
+  loop until 100% or budget exhausted
     W->>A: search_progress()
   end
   W->>A: fetch_results()
   A-->>W: FileObservation[]
-  loop chaque observation
+  loop each observation
     W->>C: record_observation()
     W->>E: evaluate(candidate)
     E-->>W: MatchDecision | None
-    alt décision
+    alt decision
       W->>C: record_decision(target_id, tier, rule)
-      W-)D: nudge (si tier download)
+      W-)D: nudge (if download tier)
     end
   end
   W->>A: stop_search()
 ```
 
-- Un résultat EC devient une `FileObservation` via `adapters/mule_ec/mapping.py` (capture-all : le
-  hash MD4, le nom, la taille, le nombre de sources, plus tous les tags bruts). **EC n'expose aucune
-  métadonnée média sur les résultats de recherche** — durée/codec n'arrivent qu'après download, au
-  verifier.
-- L'observation est écrite (`files` + `file_observations`) **puis** matchée. La décision
-  (`target_id`, `rule_name`, `tier`) va dans `match_decisions`. En mode download, un tier `download`
-  *nudge* la boucle download pour qu'elle réagisse sans attendre son intervalle.
-- Un échec applicatif EC (`EC_OP_FAILED`) met le **canal** de cette instance en **backoff** (base ×
-  facteur^échecs + jitter), persisté en fin de cycle.
+- An EC result becomes a `FileObservation` through `adapters/mule_ec/mapping.py` (capture-all: the
+  MD4 hash, the name, the size, the source count, plus every raw tag). **EC exposes no media
+  metadata on search results**: there is no duration, codec or bitrate anywhere, and since content
+  verification left the scope nothing downstream supplies it either. The catalog therefore holds
+  exactly what eD2k search reports.
+- The observation is written (`files` + `file_observations`) **then** matched. The decision
+  (`target_id`, `rule_name`, `tier`) goes into `match_decisions`. In download mode, a `download`
+  tier *nudges* the download loop so it reacts without waiting for its interval.
+- An EC application failure (`EC_OP_FAILED`) puts that instance's **channel** into **backoff** (base
+  × factor^failures + jitter), persisted at the end of the cycle.
 
-## 6. Du fichier à la décision — le moteur de matching
+## 6. From file to decision: the matching engine
 
-Depuis que la recherche est « bête » (2 mots-clés), **c'est le matcher qui porte toute la
-précision**. C'est un **moteur fixe minimal + une policy 100 % en YAML** (données validées
-*fail-fast*, pas de code par cible).
+Now that the search is "dumb" (2 keywords), **the matcher carries all the precision**. It is a
+**minimal fixed engine plus a 100 % YAML policy** (data validated *fail-fast*, no per-target code).
 
 ```mermaid
 flowchart LR
-  yaml["policy YAML"]
-  tgt["cibles"]
+  yaml["YAML policy"]
+  tgt["targets"]
   eng["MatchingEngine"]
   cand["FileCandidate"]
-  dec{"décision ?"}
+  dec{"decision?"}
 
   yaml --> eng
   tgt --> eng
   cand --> eng --> dec
-  dec -->|download| a1["télécharger"]
-  dec -->|notify| a2["alerter"]
-  dec -->|catalog| a3["cataloguer"]
-  dec -->|None| a4["écarter"]
+  dec -->|download| a1["download"]
+  dec -->|notify| a2["alert"]
+  dec -->|catalog| a3["catalog"]
+  dec -->|None| a4["discard"]
 ```
 
-- **Deux natures de tokens** : *identifiants d'épisode* (spécifiques à la cible : numéro de segment,
-  couverture de titre) vs *marqueurs de source* (agnostiques : `teletoon`, `idf1`, `vf`). Un marqueur
-  seul n'identifie aucun épisode → il ne fait qu'**upgrader** une identification faible
-  (`notify → download`), jamais la porter seul.
-- **Gardes universelles** : `is_keroro` (franchise **et** non-étranger) préfixe chaque règle ;
-  `is_episode` (= `is_keroro` **et** pas un clip) préfixe chaque règle *actionnable*. L'anti-match
-  `foreign_lang` vit **dans** `is_keroro`, donc un fichier étranger est **écarté**, pas catalogué.
-- **Format à trois voies** : vidéo → tiers actionnables ; archive → `notify` (revue) ; le reste
-  (mp3, pdf…) → seulement le catalogue permissif (invariant « cataloguer toute la métadonnée »).
-- **Décision déterministe** : parmi toutes les règles qui matchent (sur toutes les cibles), on prend
-  le **tier le plus haut** (`download > notify > catalog`), départage par index de règle puis
-  `target_id`. L'explication est *retournée* (pour le webui), jamais loggée.
+- **Two natures of tokens**: *episode identifiers* (target-specific: segment number, title coverage)
+  versus *source markers* (agnostic: `teletoon`, `idf1`, `vf`). A marker alone identifies no
+  episode, so it only **upgrades** a weak identification (`notify -> download`), never carries one
+  on its own.
+- **Universal guards**: `is_keroro` (franchise **and** not foreign) prefixes every rule;
+  `is_episode` (= `is_keroro` **and** not a clip) prefixes every *actionable* rule. The anti-match
+  `foreign_lang` lives **inside** `is_keroro`, so a foreign file is **discarded**, not catalogued.
+- **Three-way format split**: video gets the actionable tiers; an archive gets `notify` (for review);
+  everything else (mp3, pdf and so on) gets only the permissive catalog tier (the "catalog every
+  piece of metadata" invariant).
+- **Deterministic decision**: among every rule that matches (across every target), take the
+  **highest tier** (`download > notify > catalog`), broken by rule index then `target_id`. The
+  explanation is *returned* (for the webui), never logged.
 
-## 7. Download → complétion → quarantaine → vérification
+## 7. Download to completion
 
-Actif seulement en mode download. Une itération de `run_download_cycle` enchaîne quatre étapes ; la
-vérification est une boucle consommatrice séparée.
+Active in download mode only. One iteration of `run_download_cycle` chains three steps over a single
+EC connection.
 
 ```mermaid
 flowchart TD
-  dec["Décision<br/>tier download"]
-  cand["Candidats neufs"]
+  dec["Decision<br/>download tier"]
+  cand["New candidates"]
   pol["download_policy"]
   add["add_link · amuled"]
   mon["Monitor"]
-  comp["Complétion<br/>via shared_files"]
-  quar["Quarantaine<br/>os.replace"]
-  enq["Enqueue vérif"]
-  ver["Cycle vérif"]
-  child["Enfant confiné"]
-  verd["Verdict"]
+  comp["Completion<br/>via shared_files"]
+  done["state = completed<br/>+ notification"]
 
   dec --> cand --> pol --> add
-  add --> mon --> comp --> quar --> enq --> ver --> child --> verd
+  add --> mon --> comp --> done
 ```
 
-Invariants porteurs (à ne pas violer) :
+Load-bearing invariants (do not violate):
 
-- **Le crawler PROD ne lit jamais les octets téléchargés.** La complétion est un **signal positif**
-  (le fichier apparaît dans la liste des partagés d'`amuled`), jamais une inférence sur le contenu.
-- La promotion en quarantaine est un **`os.replace` seul** (déplacement atomique, anti-traversal sur
-  le basename). Les octets ne sont lus **que** dans l'enfant jetable du verifier.
-- La `download_policy` est conservatrice : skip si `tier ≠ download`, si la cible est `complete`, si
-  le hash est déjà téléchargé (dédup), ou si le plafond disque serait dépassé. Un épisode déjà
-  `found` **se re-télécharge** quand un *nouveau* hash le matche (redondance d'archivage voulue).
+- **The crawler PROD never reads the downloaded bytes, and never touches the output directory at
+  all.** Completion is a **positive signal**: the hash appears in `amuled`'s shared-files list
+  **and** has left the download queue (amuled shares partial downloads too, so the queue is what
+  separates a completion from a partial). It is never an inference about the content.
+- **Nothing moves the finished file.** amuled writes straight into its own `IncomingDir`,
+  bind-mounted to `./downloads/incoming` on the host; the crawler records the state change and
+  notifies, nothing more.
+- **Nothing inspects the file.** There is no type sniffing, no `ffprobe`, no antivirus scan: since
+  the scope reduction of 2026-09-13, judging whether a completed download really is the episode is a
+  manual step performed by the operator on the output directory.
+- `download_policy` is conservative: skip if `tier != download`, if the target is `complete`, if the
+  hash was already downloaded (dedup), or if the disk cap would be exceeded. An episode already
+  `found` **is downloaded again** when a *new* hash matches it (deliberate archival redundancy).
+- The disk cap (`download.disk_cap_bytes`) is **accounting, not measurement**: it is the sum of the
+  sizes of non-terminal downloads held in `local.db`, and there is no `statvfs` call anywhere. It
+  therefore bounds bytes *in flight*, never total disk usage: completed files accumulate without
+  bound.
 
-### 7.1 Le service verifier
+`DownloadState` is a closed enum: `queued -> downloading -> completed`, or `failed`. `completed` and
+`failed` are both terminal for the cap.
 
-Un service Starlette **isolé** (`packages/verifier/`), appelé en HTTP :
-
-- `POST /verify` `{hash, expected}` → `{verdict, real_meta, checks}` ; `GET /health` (liveness, le
-  crawler fail-fast au démarrage) ; `GET /metrics` (Prometheus).
-- Chaque fichier est analysé dans un **process enfant confiné** (rlimits + seccomp blocklist +
-  timeout, tempdir, refus des symlinks). Les checks : `type_sniff` (puremagic), `ffprobe`
-  (durée/codec/bitrate), et `clamav` optionnel. Le verdict est le **pire-cas** des checks.
-- Posture de confinement : le plancher portable est le durcissement conteneur (`cap_drop: ALL`,
-  `no-new-privileges`, `read_only`, réseau `internal`) + seccomp par enfant + rlimits (voir la spec
-  ring-noyau et l'administration runbook).
-
-## 8. Persistance — deux bases, deux rôles
+## 8. Persistence: two databases, two roles
 
 ```mermaid
 flowchart LR
@@ -286,33 +285,36 @@ flowchart LR
     f["files"]
     fo["file_observations"]
     md["match_decisions"]
-    fv["file_verifications"]
     src["sources"]
   end
-  subgraph loc["local.db · par nœud"]
+  subgraph loc["local.db · per node"]
     nr["node_runtime"]
-    vt["verification_tasks"]
     dl["downloads"]
     ss["scheduler_state"]
   end
 ```
 
-- **`catalog.db`** : le savoir accumulé, **append-only** (triggers `BEFORE UPDATE/DELETE → ABORT`),
-  donc N nœuds → 1 catalogue par fusion (`python -m mulewatch.merge`). Les insertions sont
-  **idempotentes** (`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`) → sûres à un redémarrage mi-écriture.
-- **`local.db`** : l'état runtime du nœud (identité, file de vérification avec bail, suivi des
-  downloads, avance du scheduler + backoff). **Jamais fusionné** — propre à chaque nœud.
+- **`catalog.db`** (schema version 5): the accumulated knowledge, **append-only** (`BEFORE
+  UPDATE/DELETE -> ABORT` triggers), so N nodes merge into one catalog (`python -m
+  mulewatch.merge`). Inserts are **idempotent** (`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`), so
+  they are safe across a restart mid-write.
+- **`local.db`** (schema version 4): the node's runtime state (identity, download tracking, the
+  scheduler's progress and backoff). **Never merged**: it belongs to one node.
 
-## 9. Port-sync High-ID (optionnel)
+Migration `catalog/0005` dropped `file_verifications` and `local/0004` dropped `verification_tasks`,
+rewriting any surviving `quarantined` download row to `completed` (that value left `DownloadState`,
+and reading it back would raise).
 
-Derrière un VPN, le port entrant change ; sans High-ID, la connectabilité (et donc la couverture)
-se dégrade. La boucle port-sync : lit le **port forwardé vivant** de gluetun → si différent du port
-d'`amuled`, appelle `set_listen_port` en EC → **redémarre** le conteneur `amuled` pour re-binder →
-re-vérifie le High-ID. Rate-limité (≤ 1 restart / fenêtre) ; si le port reste faux, alerte
-edge-triggered (audience OPERATIONS). *Risque assumé : High-ID augmente l'exposition — voir
-administration runbook.*
+## 9. High-ID port-sync (optional)
 
-## 10. Observabilité
+Behind a VPN the inbound port changes; without a High-ID, connectability (and therefore coverage)
+degrades. The port-sync loop reads gluetun's **live forwarded port**, and if it differs from
+`amuled`'s port calls `set_listen_port` over EC, then **restarts** the `amuled` container so it
+rebinds, then re-checks the High-ID. It is rate-limited (at most one restart per window); if the
+port stays wrong, an edge-triggered alert fires (OPERATIONS audience). *Accepted risk: a High-ID
+increases exposure, see the administration runbook.*
+
+## 10. Observability
 
 ```mermaid
 flowchart LR
@@ -320,8 +322,8 @@ flowchart LR
   desc["describe()<br/>→ Report"]
   disp["Dispatcher"]
   log["logs"]
-  prom["Prometheus"]
-  notif["Notifs<br/>URL apprise"]
+  prom["/metrics"]
+  notif["Notifications<br/>apprise URL"]
 
   uc --> desc --> disp
   disp --> log
@@ -329,34 +331,38 @@ flowchart LR
   disp -->|best-effort| notif
 ```
 
-Le **domaine** émet des `Event` purs ; une **policy** pure (`describe`) les route en `Report`
-(sévérité de log + instructions de métrique + audiences COMMUNITY/OPERATIONS) ; l'**adapter**
-dispatcher applique. **Discipline de frontière (E-D13)** : les pannes de notifieur (apprise) ou du
-verifier sont **absorbées** (dégradation) ; un échec d'un composant 100 %-testé en process (ex.
-`PrometheusSink`) **crash loudly** — c'est un bug, pas un aléa transitoire.
+The **domain** emits pure `Event`s; a pure **policy** (`describe`) routes them into `Report`s (log
+severity + metric instructions + COMMUNITY/OPERATIONS audiences); the **adapter** dispatcher applies
+them. The Prometheus endpoint is served by the crawler itself on `observability.metrics.port`
+(default `9090`); nothing scrapes it out of the box, so publish that port and point your own
+Prometheus at it if you want dashboards.
 
-## 11. Invariants de conception (récapitulatif)
+**Boundary discipline (E-D13)**: notifier failures (apprise) and EC failures are **absorbed**
+(degradation); a failure in a 100 %-tested in-process component (for instance `PrometheusSink`)
+**crashes loudly**, because that is a bug, not a transient.
 
-- **Le sujet du catalogue est le fichier, jamais la personne** — pas de tracking, pas de
-  déanonymisation.
-- **Le crawler PROD ne lit jamais les octets** ; complétion = signal positif ; promotion = `os.replace`.
-- **Frontières de paquets** : crawler ⇏ verifier, verifier ⇏ crawler (seul le test de contrat croise).
-- **Deux modes** pilotés par la config (observer / download).
-- **Policy de matching 100 % en YAML** ; le moteur reste fixe et minimal.
-- **`domain/` pur** ; toute l'I/O dans `adapters/` ; le graphe de dépendances est un DAG.
-- **`catalog.db` append-only et fusionnable ; `local.db` jamais fusionné.**
-- **Discipline de frontière** : absorber l'I/O externe attendue, laisser crasher le code interne testé.
+## 11. Design invariants (recap)
 
-## 12. Repères de code
+- **The catalog's subject is the file, never the person**: no tracking, no deanonymization.
+- **The crawler PROD never reads the bytes and never touches the output directory**; completion is a
+  positive signal.
+- **Package boundaries**: `catalog_matching` never imports `mulewatch`; `vex_guards` is never
+  imported by shipped code.
+- **Two run modes** driven by the config (download / catalog-only), one compose topology.
+- **Matching policy 100 % in YAML**; the engine stays fixed and minimal.
+- **`domain/` is pure**; all the I/O lives in `adapters/`; the dependency graph is a DAG.
+- **`catalog.db` is append-only and mergeable; `local.db` is never merged.**
+- **Boundary discipline**: absorb expected external I/O failures, let tested internal code crash.
 
-| Sous-système | Emplacement (sous `packages/crawler/src/mulewatch/` sauf mention) |
+## 12. Code landmarks
+
+| Subsystem | Location (under `packages/crawler/src/mulewatch/` unless noted) |
 |---|---|
-| Boucles & câblage | `composition/app.py` (`CrawlerApp`), `python -m mulewatch` |
-| Use-cases | `application/run_search_cycle.py`, `run_download_cycle.py`, `run_verification_cycle.py`, `port_sync_loop.py` |
-| Recherche (pur) | `domain/search/` (`keywords`, `cycle`, `backoff`, `coverage`) |
-| Matching | `packages/matching/src/catalog_matching/` (moteur + policy `deploy/config/crawler/matcher.yml`) |
-| Frontière EC | `adapters/mule_ec/` (codec / transport / client) ; ports `ports/mule_client.py`, `ports/mule_download_client.py` |
-| Persistance | `adapters/persistence_sqlite/` (`.sql` migrations, repos) |
-| Observabilité | `domain/observability/`, `adapters/observability/` |
-| Verifier | `packages/verifier/src/download_verifier/` (`app.py`, `check.py`, `checks/`) |
-| WebUI | `packages/webui/src/catalog_webui/` |
+| Loops and wiring | `composition/app.py` (`CrawlerApp`), `python -m mulewatch` |
+| Use-cases | `application/run_search_cycle.py`, `run_download_cycle.py`, `port_sync_loop.py` |
+| Search (pure) | `domain/search/` (`keywords`, `cycle`, `backoff`, `coverage`) |
+| Matching | `packages/matching/src/catalog_matching/` (engine + policy `deploy/config/crawler/matcher.yml`) |
+| EC boundary | `adapters/mule_ec/` (codec / transport / client); ports `ports/mule_client.py`, `ports/mule_download_client.py` |
+| Persistence | `adapters/persistence_sqlite/` (`.sql` migrations, repos) |
+| Observability | `domain/observability/`, `adapters/observability/` |
+| WebUI | `webui/` (in-process, own thread) |

@@ -37,16 +37,15 @@ class _StubDownloadClient:
         return NetworkStatus(ed2k_id=1, ed2k_high=True, kad_status=KadStatus.CONNECTED)
 
 
-def test_shared_file_entry_carries_hash_and_real_name() -> None:
-    entry = SharedFileEntry(ed2k_hash="a" * 32, name="Keroro 62a.avi")
+def test_shared_file_entry_carries_the_hash() -> None:
+    entry = SharedFileEntry(ed2k_hash="a" * 32)
     assert entry.ed2k_hash == "a" * 32
-    assert entry.name == "Keroro 62a.avi"
 
 
 def test_shared_file_entry_is_frozen() -> None:
-    entry = SharedFileEntry(ed2k_hash="a" * 32, name="x.avi")
+    entry = SharedFileEntry(ed2k_hash="a" * 32)
     with pytest.raises(FrozenInstanceError):
-        entry.name = "y.avi"  # type: ignore[misc]
+        entry.ed2k_hash = "b" * 32  # type: ignore[misc]
 
 
 def test_download_entry_is_frozen() -> None:

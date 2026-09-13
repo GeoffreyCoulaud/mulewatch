@@ -238,11 +238,11 @@ def _knownfile_entry(hash_hex: str, name: str) -> EcTag:
     )
 
 
-def test_map_shared_file_extracts_hash_and_name() -> None:
+def test_map_shared_file_extracts_hash() -> None:
     from mulewatch.adapters.mule_ec.client import _map_shared_file
 
     entry = _map_shared_file(_knownfile_entry(_HASH, "Keroro 62a.avi"))
-    assert entry == SharedFileEntry(ed2k_hash=_HASH, name="Keroro 62a.avi")
+    assert entry == SharedFileEntry(ed2k_hash=_HASH)
 
 
 def test_map_shared_file_without_hash_is_none() -> None:
@@ -257,7 +257,9 @@ def test_map_shared_file_without_hash_is_none() -> None:
     assert _map_shared_file(no_hash) is None
 
 
-def test_map_shared_file_without_name_is_none() -> None:
+def test_map_shared_file_without_name_is_still_mapped() -> None:
+    # Completion is keyed on the hash alone. A missing name must NOT suppress the signal:
+    # dropping the entry would strand the download in ``downloading`` forever.
     from mulewatch.adapters.mule_ec.client import _map_shared_file
 
     no_name = EcTag(
@@ -266,7 +268,7 @@ def test_map_shared_file_without_name_is_none() -> None:
         b"\x01",
         (EcTag(codes.EC_TAG_PARTFILE_HASH, codes.EC_TAGTYPE_HASH16, bytes.fromhex(_HASH), ()),),
     )
-    assert _map_shared_file(no_name) is None
+    assert _map_shared_file(no_name) == SharedFileEntry(ed2k_hash=_HASH)
 
 
 def test_map_shared_file_with_wrong_length_hash_is_none() -> None:
@@ -284,10 +286,10 @@ def test_map_shared_file_with_wrong_length_hash_is_none() -> None:
     assert _map_shared_file(bad) is None
 
 
-def test_map_shared_file_with_invalid_name_tag_is_none() -> None:
+def test_map_shared_file_with_invalid_name_tag_is_still_mapped() -> None:
     from mulewatch.adapters.mule_ec.client import _map_shared_file
 
-    # name tag of STRING type but WITHOUT a terminating NUL → string_value() raises EcProtocolError.
+    # An undecodable name tag must not suppress the completion signal either: the hash is intact.
     bad_name = EcTag(codes.EC_TAG_PARTFILE_NAME, codes.EC_TAGTYPE_STRING, b"no-nul", ())
     entry = EcTag(
         codes.EC_TAG_KNOWNFILE,
@@ -298,7 +300,7 @@ def test_map_shared_file_with_invalid_name_tag_is_none() -> None:
             bad_name,
         ),
     )
-    assert _map_shared_file(entry) is None
+    assert _map_shared_file(entry) == SharedFileEntry(ed2k_hash=_HASH)
 
 
 @pytest.mark.asyncio
@@ -310,8 +312,8 @@ async def test_shared_files_maps_entries() -> None:
     client = _connected_client(_ScriptedTransport([reply]))
     shared = await client.shared_files()
     assert shared == (
-        SharedFileEntry(ed2k_hash=_HASH, name="A.avi"),
-        SharedFileEntry(ed2k_hash="b" * 32, name="B.avi"),
+        SharedFileEntry(ed2k_hash=_HASH),
+        SharedFileEntry(ed2k_hash="b" * 32),
     )
 
 
@@ -334,7 +336,7 @@ async def test_shared_files_skips_non_knownfile_top_level_tags() -> None:
     )
     client = _connected_client(_ScriptedTransport([reply]))
     shared = await client.shared_files()
-    assert shared == (SharedFileEntry(ed2k_hash=_HASH, name="A.avi"),)
+    assert shared == (SharedFileEntry(ed2k_hash=_HASH),)
 
 
 @pytest.mark.asyncio
@@ -350,7 +352,7 @@ async def test_shared_files_skips_unmappable_knownfile_entries() -> None:
     reply = EcPacket(codes.EC_OP_SHARED_FILES, (no_hash, _knownfile_entry(_HASH, "A.avi")))
     client = _connected_client(_ScriptedTransport([reply]))
     shared = await client.shared_files()
-    assert shared == (SharedFileEntry(ed2k_hash=_HASH, name="A.avi"),)
+    assert shared == (SharedFileEntry(ed2k_hash=_HASH),)
 
 
 @pytest.mark.asyncio

@@ -1,339 +1,236 @@
-# Guide des tests — mulewatch
+# Testing guide: mulewatch
 
-Ce guide décrit **comment lancer les tests d'intégration** (les suites « lourdes » désélectionnées
-par défaut), leurs **prérequis exacts** et **ce qu'on doit attendre** en sortie. Il complète le
-[runbook de déploiement](runbooks/deployment.md) : le runbook explique comment faire tourner la
-stack, ce guide-ci explique comment la **valider**.
+This guide describes **how to run the integration suites** (the heavy ones, deselected by default),
+their **exact prerequisites**, and **what to expect** on output. It complements the
+[deployment runbook](runbooks/deployment.md): the runbook explains how to make the stack run, this
+guide explains how to **validate** it.
 
-Public visé : **dev local + CI**. Pas pour les opérateurs (qui n'ont pas à lancer les suites de
-tests). Tout ce qui suit est **extrait du code réel** (fichiers de test, `pyproject.toml`, fichiers
-compose). Quand un prérequis n'est pas vérifiable dans le code, c'est noté « à confirmer ».
+Audience: **local dev and CI**. Not for operators (who have no reason to run the test suites).
+Everything below is **extracted from the real code** (test files, `pyproject.toml`, compose files).
+Where a prerequisite cannot be checked in the code, it is marked "to be confirmed".
 
-> **La suite e2e « transfert réel » a été abandonnée** (et son scaffolding supprimé du dépôt) — voir
-> la note dans le handoff / `CLAUDE.md`. Raison : pour qu'un vrai `amuled` signale un download terminé
-> il faudrait orchestrer/reverse-engineerer des outils tiers (`amuled`, `ed2kd`), ce qui valide surtout
-> du comportement tiers de confiance, pas notre code (même motif que la couche port-forwarding gluetun).
-> DV10 reste couvert par les **unit-tests** + une **hypothèse de déploiement** (`staging_dir` =
-> l'Incoming d'amuled, à confirmer en prod réelle). Ce guide ne couvre donc plus que **6** marqueurs.
-
----
-
-## 1. Vue d'ensemble — la pyramide de tests
-
-Le projet a **deux niveaux** :
-
-1. **Le gate unitaire** (lancé par défaut, **100 % de couverture de branches** imposée). C'est ce
-   que vérifient le hook pre-push et la CI, via une source unique dans `pyproject.toml`
-   (`[tool.poe.tasks]`) :
-
-   ```bash
-   uv run poe check     # le gate complet : lint-all + test (ce que lancent pre-push et CI)
-   uv run poe test      # les 4 suites unitaires seules, chacune dans son propre process
-   ```
-
-   > La tâche `test` reste **par paquet** : elle lance `pytest` avec `cwd = packages/<pkg>` pour
-   > chacun des 4 paquets, en processus séparés, pour garder la couverture isolée. Un `uv run pytest`
-   > nu depuis la racine **n'est pas** le gate (la racine n'a pas de config pytest ; un `conftest.py`
-   > racine neutralise toute collecte → `exit 5`).
-
-   Les `addopts` de chaque paquet **désélectionnent** tous les marqueurs d'intégration
-   (`-m "not ec_integration and not …"`), donc le gate ne les exécute jamais — ils sont aussi exclus
-   de la mesure de couverture.
-
-2. **Les suites d'intégration** (désélectionnées par défaut, lancées **à la demande**). Chacune
-   porte un **marqueur** pytest. On les lance une par une avec `--no-cov` (sinon le seuil de 100 %
-   appliqué au paquet entier fait « échouer » un run focalisé, même quand les tests passent) :
-
-   ```bash
-   ( cd packages/<pkg> && uv run pytest -m <marqueur> --no-cov )
-   ```
-
-   Ces suites exigent des ressources externes (Docker, ffmpeg, clamav…). **Elles ne tournent pas
-   dans un sandbox sans accès réseau/Docker complet** : lancez-les sur une vraie machine.
+> **The "real transfer" e2e suite was abandoned** (and its scaffolding deleted from the repo). The
+> reason: making a real `amuled` report a finished download would mean orchestrating and
+> reverse-engineering third-party tools (`amuled`, `ed2kd`), which mostly validates trusted
+> third-party behaviour rather than our code (the same argument as for the gluetun port-forwarding
+> layer). Completion detection stays covered by **unit tests** plus the deployment constraints
+> documented in `docs/reference/2026-06-17-amuled-completion-behavior.md`.
 
 ---
 
-## 2. Tableau récapitulatif des marqueurs
+## 1. Overview: the test pyramid
 
-| Marqueur | Paquet | Ce que ça valide | Docker ? | Autres prérequis | Commande |
+The project has **two levels**:
+
+1. **The unit gate** (run by default, **100 % branch coverage** enforced). This is what the pre-push
+   hook and CI check, through a single source of truth in `pyproject.toml`
+   (`[tool.poe.tasks]`):
+
+   ```bash
+   uv run poe check     # the full gate: lint-all + test (what pre-push and CI run)
+   uv run poe test      # the 3 unit suites alone, each in its own process
+   ```
+
+   > The `test` task stays **per package**: it runs `pytest` with `cwd = packages/<pkg>` for each of
+   > the 3 packages, in separate processes, to keep coverage isolated. A bare `uv run pytest` from
+   > the repo root is **not** the gate (the root has no pytest config, and a root `conftest.py`
+   > neutralises collection, giving `exit 5`).
+
+   Each package's `addopts` **deselect** every integration marker
+   (`-m "not ec_integration and not …"`), so the gate never runs them, and they are excluded from
+   coverage measurement.
+
+2. **The integration suites** (deselected by default, run **on demand**). Each one carries a pytest
+   **marker**. Run them one at a time with `--no-cov` (otherwise the package-wide 100 % threshold
+   makes a focused run "fail" even when the tests pass):
+
+   ```bash
+   ( cd packages/<pkg> && uv run pytest -m <marker> --no-cov )
+   ```
+
+   These suites need external resources (Docker). **They do not run in a sandbox without full
+   network and Docker access**: run them on a real machine.
+
+---
+
+## 2. Marker summary
+
+| Marker | Package | What it validates | Docker? | Other prerequisites | Command |
 |---|---|---|---|---|---|
-| `verify_integration` | crawler | Boucle de vérification ↔ vrai service verifier (in-process via ASGI) | Non | Aucun (les 2 paquets installés via `uv sync --dev`) | `( cd packages/crawler && uv run pytest -m verify_integration --no-cov )` |
-| `analysis_integration` | verifier | Spawn réel de l'enfant confiné + vrai ffprobe (+ clamav/seccomp si dispo) | Non | **ffmpeg/ffprobe** (obligatoire) ; clamscan+base et seccomp/libseccomp (optionnels, sinon skip) | `( cd packages/verifier && uv run pytest -m analysis_integration --no-cov )` |
-| `ec_integration` | crawler | Adaptateur EC (auth, statut réseau, cycle de recherche, get/set port) ↔ amuled réel | **Oui** (testcontainers) | Image `ngosang/amule:3.0.0-1` | `( cd packages/crawler && uv run pytest -m ec_integration --no-cov )` |
-| `download_integration` | crawler | Mécaniques EC du download (`add_link` → file de download) ↔ amuled réel | **Oui** (testcontainers) | Image `ngosang/amule:3.0.0-1` | `( cd packages/crawler && uv run pytest -m download_integration --no-cov )` |
-| `orchestration_integration` | crawler | Boucle de crawl complète (un cycle + arrêt borné) ↔ amuled réel | **Oui** (testcontainers) | Image `ngosang/amule:3.0.0-1` | `( cd packages/crawler && uv run pytest -m orchestration_integration --no-cov )` |
-| `compose_integration` | crawler | Smoke e2e de la stack docker compose assemblée (sans VPN) — câblage seul | **Oui** (compose v2) | docker compose v2 ; build des 2 images | `( cd packages/crawler && uv run pytest -m compose_integration --no-cov )` |
-
-> **La suite e2e « transfert réel » a été abandonnée** — voir l'encadré en intro et la note dans le
-> handoff / `CLAUDE.md`. DV10 (`resolve_staging_path`, `os.replace`/promote, boucle download, détection
-> de complétion) reste couvert par les **unit-tests** + une **hypothèse de déploiement** (`staging_dir`
-> = l'Incoming d'amuled).
+| `ec_integration` | crawler | The EC adapter (auth, network status, search cycle, get/set port) against a real amuled | **Yes** (testcontainers) | Image `ngosang/amule:3.0.0-1` | `( cd packages/crawler && uv run pytest -m ec_integration --no-cov )` |
+| `download_integration` | crawler | The EC mechanics of downloading (`add_link` into the download queue) against a real amuled | **Yes** (testcontainers) | Image `ngosang/amule:3.0.0-1` | `( cd packages/crawler && uv run pytest -m download_integration --no-cov )` |
+| `orchestration_integration` | crawler | A full crawl loop (one cycle plus a bounded shutdown) against a real amuled | **Yes** (testcontainers) | Image `ngosang/amule:3.0.0-1` | `( cd packages/crawler && uv run pytest -m orchestration_integration --no-cov )` |
+| `compose_integration` | crawler | Smoke e2e of the assembled docker compose stack (no VPN): wiring only | **Yes** (compose v2) | docker compose v2; one image build | `( cd packages/crawler && uv run pytest -m compose_integration --no-cov )` |
 
 ---
 
-## 3. Une section par marqueur (du plus léger au plus lourd)
+## 3. One section per marker (lightest to heaviest)
 
-### 3.1 `verify_integration` (crawler, **sans Docker**)
+### 3.1 `ec_integration` (crawler, **Docker required**)
 
-**Ce que ça prouve.** La boucle de vérification du crawler (`run_verification_cycle`) parle au **vrai
-service verifier** monté **in-process** (pas de Docker) : un fichier est pré-placé en quarantaine, une
-tâche est enfilée, et le cycle réel (claim → verify via RPC → record → complete) produit une ligne
-`file_verifications` avec verdict `suspicious` (3 octets ne sont pas un média). Cela valide le contrat
-de fil DTO↔réponse + l'écriture durable, sans vrai download.
+**What it proves.** The EC adapter talks to a **real `amuled`**: the auth hash formula is validated
+against the daemon, auth fails with a wrong password, the network status decodes, and the full
+search, progress, fetch, stop cycle runs. The second file (`test_amuled_preferences.py`) validates
+the **listen-port get/set** (High-ID port-sync): `get_listen_port()` reads a plausible port, and the
+`set -> get` round trip returns the value that was set.
 
-**Prérequis exacts.**
-- **Aucun outil externe.** Le service `download_verifier` tourne in-process via
-  `httpx.ASGITransport`. Le test importe `download_verifier.app.build_app` et `mulewatch.*` — les
-  deux paquets doivent être installés (`uv sync --dev`, déjà fait pour le gate).
-- Aucun `skipif` ni variable d'environnement requis pour **cette** suite — elle tourne sur tout
-  système où le gate tourne. (Les variables d'environnement listées en §4 concernent d'autres
-  suites comme `compose_integration`.)
+**Exact prerequisites.**
+- **Docker** (the tests use `testcontainers`, which starts a container).
+- **Image** `ngosang/amule:3.0.0-1` (pulled automatically if missing).
+- Readiness is awaited on the log line `listening on 0.0.0.0:4712` (startup timeout: 180 s).
+- No environment variable to set (the EC password `indexer-ec-test` is internal to the test).
 
-**Commande.**
-```bash
-( cd packages/crawler && uv run pytest -m verify_integration --no-cov )
-```
+> The ephemeral container **has no eD2k network access**: a search may return `EC_OP_FAILED` or
+> empty results. The tests **tolerate that explicitly**: what is validated is the **request/response
+> cycle**, not the richness of the results.
 
-**Attendu.** 1 test passé (`test_verify_loop_produces_suspicious_row`). Pas de skip.
-
----
-
-### 3.2 `analysis_integration` (verifier, **sans Docker**, mais ffmpeg/seccomp)
-
-**Ce que ça prouve.** Le côté verifier exécute **pour de vrai** le confinement (re-exec de l'enfant
-jetable, rlimits, `setsid`, kill du groupe au timeout, env minimal) et le **vrai ffprobe** sur de
-vrais échantillons, plus — si l'environnement le permet — le **filtre seccomp réel**.
-
-> **Pas de test d'intégration clamav.** Le check `clamav` reste du code de prod (opt-in via
-> `ENABLED_CHECKS`), couvert à 100 % par des tests unitaires à runner stubbé (`test_clamav.py`,
-> `test_pipeline.py`, `test_analysis_child.py`). Les anciens tests `analysis_integration` clamav ont
-> été **délibérément retirés** : ils ne prouvaient que le comportement d'une **brique tierce de
-> confiance** (`clamscan` reconnaît EICAR / la sémantique de ses codes retour), pas notre code.
-
-**Deux sous-cas, gérés par des `skipif` :**
-
-1. **ffprobe (obligatoire pour l'essentiel des tests).** `skipif` actif si `ffmpeg` **ou** `ffprobe`
-   est absent du PATH (`shutil.which`). Ces tests génèrent un petit média réel avec ffmpeg
-   (`-f lavfi … -f matroska`) et vérifient les verdicts : média sain → `clean` + `real_meta` non
-   vide ; ELF/shebang → `malicious` ; texte → `suspicious` ; egress sur-dimensionné → `suspicious` ;
-   timeout (`ANALYSIS_TIMEOUT_S=0.001`) → `suspicious` ; fichier absent → `error`.
-
-2. **seccomp (tourne dès que faisable — souvent par défaut).** `skipif` actif **seulement** si poser
-   un filtre seccomp minimal n'est pas faisable. Le test le détecte en posant un filtre `ALLOW` dans
-   un enfant `os.fork()` jetable : il faut **`pyseccomp`** (déjà dans le lock) + **`libseccomp`**
-   (présent sur la plupart des Linux) + un **`no_new_privs` posable** (possible pour tout process sur
-   lui-même). Donc sur une machine Linux typique, ce test **ne skippe pas** : il tourne et vérifie
-   qu'un média sain reste `clean` sous le ring noyau (`SECCOMP_ENABLED=1`, qui est le **défaut**).
-
-**Variables d'environnement reconnues** (toutes lues par `AnalysisConfig.from_env`) :
-`ENABLED_CHECKS`, `FFPROBE_PATH`, `CLAMSCAN_PATH`, `CLAMAV_DB_DIR`, `ANALYSIS_TIMEOUT_S`,
-`RLIMIT_CPU_S`, `RLIMIT_AS_BYTES`, `RLIMIT_NPROC`, `RLIMIT_NOFILE`, `RLIMIT_FSIZE_BYTES`,
-`EGRESS_CAP_BYTES`, `HEADER_BYTES`, `QUARANTINE_DIR`, `SECCOMP_ENABLED`, plus les overrides
-conditionnels clamav `RLIMIT_AS_BYTES_CLAMAV` (défaut 1,5 Gio) / `RLIMIT_CPU_S_CLAMAV` (défaut 120 s).
-
-> **`RLIMIT_NPROC` en dev bare-metal.** Symptôme : un test d'analyse crashe avec `BlockingIOError`
-> ou `Resource temporarily unavailable` au moment du `fork()`. Cause : `RLIMIT_NPROC` est **global
-> par UID** (pas par sous-arbre) ; le défaut (64) est sain dans l'image Docker (UID dédié peu
-> peuplé) mais bloque `fork()` sur une machine de dev où l'UID a déjà beaucoup de processus. Les
-> tests posent automatiquement `RLIMIT_NPROC=4096` pour contourner — c'est un workaround côté
-> tests, pas un bug du code.
-
-> **Dimensionnement des rlimits clamav (hypothèse, non testé).** Quand `clamav` est activé,
-> `clamscan` mmap toute la base de signatures : on relâche `RLIMIT_AS_BYTES_CLAMAV` à **1,5 Gio** et
-> on cale le `mem_limit` du service verifier à **2 Gio** dans `deploy/base.compose.yml`. C'est un **choix
-> optimiste assumé**, pas validé par un test (la calibration n'aurait de sens que contre l'image de
-> prod, pas un `clamscan` bare-metal — d'où le retrait des tests d'intégration clamav). Si, en prod,
-> un média **sain** ressort `suspicious`, le signal est de **relever `RLIMIT_AS_BYTES_CLAMAV` et le
-> `mem_limit`**.
-
-**Commande.**
-```bash
-( cd packages/verifier && uv run pytest -m analysis_integration --no-cov )
-```
-
-**Attendu.** 8 tests au total ; le nombre de passés/skippés dépend de ce qui est provisionné :
-- **ffmpeg + `libseccomp` présents (cas Linux courant)** → **8 passés** (7 ffprobe + 1 seccomp),
-  zéro skip. *C'est le résultat de référence.*
-- **ffmpeg seul, sans `libseccomp`** → **7 passés** (ffprobe) ; le test seccomp **skippe**.
-
----
-
-### 3.3 `ec_integration` (crawler, **Docker requis**)
-
-**Ce que ça prouve.** L'adaptateur EC parle à un **vrai `amuled`** : la formule de hash d'auth est
-validée contre le daemon, l'auth échoue avec un mauvais mot de passe, le statut réseau est décodé, et
-le cycle complet recherche → progress → fetch → stop tourne. Le second fichier
-(`test_amuled_preferences.py`) valide le **get/set du port d'écoute** (port-sync High-ID) :
-`get_listen_port()` lit un port plausible, et le round-trip `set → get` rend la valeur posée.
-
-**Prérequis exacts.**
-- **Docker** (les tests utilisent `testcontainers`, qui démarre un conteneur).
-- **Image** `ngosang/amule:3.0.0-1` (tirée automatiquement si absente).
-- Readiness attendue via le log `listening on 0.0.0.0:4712` (timeout de démarrage : 180 s).
-- Aucune variable d'environnement à poser (le mot de passe EC `indexer-ec-test` est interne au test).
-
-> Le conteneur éphémère **n'a pas d'accès réseau eD2k** : une recherche peut renvoyer
-> `EC_OP_FAILED` ou des résultats vides. Les tests le **tolèrent explicitement** — c'est le **cycle
-> requête/réponse** qui est validé, pas la richesse des résultats.
-
-**Commande.**
+**Command.**
 ```bash
 ( cd packages/crawler && uv run pytest -m ec_integration --no-cov )
 ```
 
-**Attendu.** 6 tests passés (4 dans `test_amuled_ec.py` + 2 dans `test_amuled_preferences.py`), aucun
-skip. Tolérance interne au `EC_OP_FAILED` (le test passe quand même).
+**Expected.** 6 tests passed (4 in `test_amuled_ec.py` + 2 in `test_amuled_preferences.py`), no
+skips. `EC_OP_FAILED` is tolerated internally (the test still passes).
 
 ---
 
-### 3.4 `download_integration` (crawler, **Docker requis**)
+### 3.2 `download_integration` (crawler, **Docker required**)
 
-**Ce que ça prouve.** Les mécaniques EC du download contre un vrai `amuled` : `add_link` est accepté
-et le lien apparaît dans `download_queue` avec un statut lisible. C'est le **garde-fou de régression**
-du bug de décodage du hash de partfile (le hash vit dans l'enfant `EC_TAG_PARTFILE_HASH 0x031E`, pas
-dans la valeur propre du parent) — d'où un hash et une taille réalistes (~700 Mio), **jamais** la MD4
-du fichier vide (qu'amuled traite comme instantanément complet et ne liste pas).
+**What it proves.** The EC mechanics of downloading against a real `amuled`: `add_link` is accepted
+and the link shows up in `download_queue` with a readable status. This is the **regression guard**
+for the partfile-hash decoding bug (the hash lives in the `EC_TAG_PARTFILE_HASH 0x031E` child tag,
+not in the parent's own value), hence a realistic hash and size (~700 MiB), **never** the MD4 of the
+empty file (which amuled treats as instantly complete and does not list).
 
-**Prérequis exacts.** Identiques à `ec_integration` : **Docker** + image `ngosang/amule:3.0.0-1`,
-readiness sur `listening on 0.0.0.0:4712`.
+**Exact prerequisites.** Same as `ec_integration`: **Docker** + image `ngosang/amule:3.0.0-1`,
+readiness on `listening on 0.0.0.0:4712`.
 
-**Commande.**
+**Command.**
 ```bash
 ( cd packages/crawler && uv run pytest -m download_integration --no-cov )
 ```
 
-**Attendu.** 1 test passé (`test_add_link_then_appears_in_download_queue`). La complétion réelle n'est
-pas atteignable (pas de sources eD2k) : seul le cycle add_link → file → statut est validé.
+**Expected.** 1 test passed (`test_add_link_then_appears_in_download_queue`). Real completion is not
+reachable (no eD2k sources): only the add_link, queue, status cycle is validated.
 
 ---
 
-### 3.5 `orchestration_integration` (crawler, **Docker requis**)
+### 3.3 `orchestration_integration` (crawler, **Docker required**)
 
-**Ce que ça prouve.** Un `CrawlerApp` réel (vrais `AmuleEcClient` + vraies bases SQLite sur
-`tmp_path`) tourne **un cycle complet** contre un `amuled` Docker puis **s'arrête proprement** dans la
-limite d'un `wait_for` de 120 s. L'assertion clé : l'index de cycle a avancé (`read_cycle_index() >= 1`),
-preuve qu'un cycle a vraiment complété.
+**What it proves.** A real `CrawlerApp` (real `AmuleEcClient` + real SQLite databases on `tmp_path`)
+runs **one full cycle** against a Docker `amuled` then **shuts down cleanly** within a 120 s
+`wait_for`. The key assertion: the cycle index advanced (`read_cycle_index() >= 1`), proving a cycle
+really completed.
 
-**Prérequis exacts.** Identiques à `ec_integration` : **Docker** + image `ngosang/amule:3.0.0-1`,
-readiness sur `listening on 0.0.0.0:4712`. Le test charge la config matcher depuis la source de
-vérité unique `deploy/config/crawler/matcher.yml`.
+**Exact prerequisites.** Same as `ec_integration`: **Docker** + image `ngosang/amule:3.0.0-1`,
+readiness on `listening on 0.0.0.0:4712`. The test loads the matcher config from the single source
+of truth, `deploy/config/crawler/matcher.yml`.
 
-**Commande.**
+**Command.**
 ```bash
 ( cd packages/crawler && uv run pytest -m orchestration_integration --no-cov )
 ```
 
-**Attendu.** 1 test passé (`test_real_loop_runs_one_cycle_and_stops`). Résultats de recherche
-possiblement vides : c'est la **boucle** (démarrage → recherche → catalogage → arrêt borné) qui est
-validée.
+**Expected.** 1 test passed (`test_real_loop_runs_one_cycle_and_stops`). Search results may well be
+empty: what is validated is the **loop** (startup, search, cataloguing, bounded shutdown).
 
 ---
 
-### 3.6 `compose_integration` — smoke (crawler, **Docker + compose v2 requis**)
+### 3.4 `compose_integration`: the smoke stack (crawler, **Docker + compose v2 required**)
 
-**Ce que ça prouve.** La stack `docker compose` **assemblée** (verifier + crawler + amuled,
-**sans gluetun**) démarre et se câble correctement — **aucun octet de contenu n'est téléchargé**.
-Quatre scénarios :
-1. `docker compose build` réussit (les 2 images se construisent) ;
-2. **download** : le verifier devient *healthy* (`/health` → 200) et le crawler reste *Up* ;
-3. **observer** : le crawler démarre **sans** verifier et reste *Up* ;
-4. **download fail-fast** : crawler en mode download mais verifier **absent** → le crawler health-check le
-   verifier au boot, échoue, et **se fige en `exited`** avec un code de sortie ≠ 0.
+**What it proves.** The **assembled** `docker compose` stack (amuled + crawler, **no gluetun**)
+starts and wires itself correctly. **No content byte is ever downloaded.** Three things:
+1. `docker compose build` succeeds (the image builds);
+2. the crawler stays `Up` and its in-process webui answers `/health` (polled through `docker compose
+   exec`, so no host port is needed);
+3. both deployment entry points render with `docker compose config`, and the rendered service set is
+   asserted: no profile gates anything, so both stacks render `crawler` + `amuled`, and the VPN
+   stack adds `gluetun` + `docker-proxy`.
 
-Le smoke exerce **délibérément** le chemin de persistance réel (vrais volumes nommés
-`catalog-db`/`local-db`/`quarantine`, crawler non-root uid 999, rootfs `read_only`) pour attraper toute
-régression de permissions (un volume nommé root-owned ferait échouer SQLite : `unable to open database
-file`).
+The smoke **deliberately** exercises the real persistence path (real named volumes `catalog-db` and
+`local-db`, non-root crawler uid 999, `read_only` rootfs) to catch any permissions regression (a
+root-owned named volume would make SQLite fail with `unable to open database file`).
 
-**Prérequis exacts.**
-- **Docker** + **docker compose v2** (le test pilote `docker compose …` par `subprocess`).
-- Les builds tournent **depuis la racine du dépôt** (le test fixe `cwd = repo root`).
-- Les variables gluetun sont **stubées** par le test lui-même (`WIREGUARD_PRIVATE_KEY`,
-  `AMULE_EC_PASSWORD`, `SERVER_COUNTRIES`) car compose les interpole au parse même si gluetun est
-  désactivé — **rien à poser côté opérateur**.
-- Fichiers compose utilisés : `tests/smoke/compose.yaml` (autonome) + overrides temporaires par
-  scénario + `deploy/compose.yaml` et `deploy/gluetun.compose.yml` pour
-  `test_entrypoint_config_renders` ; configs smoke sous `tests/smoke/`.
-- Le test n'importe **aucun** module `mulewatch` (préserve le 100 % branch du paquet).
+**Exact prerequisites.**
+- **Docker** + **docker compose v2** (the test drives `docker compose …` through `subprocess`).
+- Builds run **from the repo root** (the test pins `cwd = repo root` and `--project-directory`).
+- The gluetun variables are **stubbed by the test itself** (`WIREGUARD_PRIVATE_KEY`,
+  `AMULE_EC_PASSWORD`, `SERVER_COUNTRIES`) because compose interpolates them at parse time even
+  when gluetun is not part of the stack: **nothing for the operator to set**.
+- Compose files used: `tests/smoke/compose.yaml` (standalone) plus `deploy/compose.yaml` and
+  `deploy/gluetun.compose.yml` for `test_entrypoint_config_renders`; the smoke configs live under
+  `tests/smoke/`.
+- The test imports **no** `mulewatch` module (this preserves the package's 100 % branch coverage).
 
-**Commande.**
+**Command.**
 ```bash
 ( cd packages/crawler && uv run pytest -m compose_integration --no-cov )
 ```
 
-**Attendu.** 4 tests de cycle de vie + 4 cas paramétrés `test_entrypoint_config_renders` (2 points
-d'entrée `compose`/`gluetun` × 2 combos de profil, aucun et `download`) = **8 tests passés**. Chaque
-cas paramétré vérifie aussi le jeu de services rendu (`webui`/`prometheus`/`grafana` toujours
-présents ; `verifier`/`freshclam` uniquement avec `--profile download`). Chaque scénario de cycle
-de vie fait son `docker compose down -v` dans un `finally` (volumes éphémères nettoyés). Prévoir
-plusieurs minutes (le build + le up sont sous des timeouts de 900 s).
+**Expected.** **4 tests passed** locally: `test_build_succeeds`,
+`test_crawler_stays_up_and_serves_its_webui`, and the 2 parametrized `test_entrypoint_config_renders`
+cases (`compose` and `gluetun`). In CI the image is prebuilt and `IMAGE_TAG` is set, so
+`test_build_succeeds` **skips** (3 passed, 1 skipped) and the `up` reuses the prebuilt image. Each
+lifecycle scenario runs its own `docker compose down -v` in a `finally` (ephemeral volumes are
+cleaned up). Budget several minutes (the build and the up sit under 900 s timeouts).
 
 ---
 
-## 4. Prérequis machine (récapitulatif installable)
+## 4. Machine prerequisites (installable summary)
 
-Pour pouvoir lancer **toutes** les suites :
+To be able to run **every** suite:
 
-- **Docker** + **docker compose v2** (`ec/download/orchestration/compose_integration`). Les
-  suites EC utilisent `testcontainers` (tire l'image `ngosang/amule:3.0.0-1`) ; la suite compose
-  pilote `docker compose` directement.
-- **ffmpeg / ffprobe** (`analysis_integration` — obligatoire pour les tests ffprobe). Sans cet
-  outil, les tests ffprobe sont skip silencieusement (vous verrez 7 passés au lieu de 8). Installer
-  depuis [ffmpeg.org/download](https://ffmpeg.org/download.html) (ou votre gestionnaire de paquets
-  préféré). Vérifier : `ffprobe -version`.
-- **clamav** : `clamscan` + une base de signatures (`freshclam` peuple `/var/lib/clamav`, ou pointez
-  `CLAMAV_DB_DIR` ailleurs) — **optionnel** ; sans base, les tests clamav sont skippés.
-- **libseccomp + `pyseccomp`** (déjà dans le lock du paquet verifier) + un `no_new_privs` posable —
-  **optionnel** ; sinon les tests seccomp sont skippés.
-- Un **`.env`** (copié de `deploy/.env.example`) pour les commandes compose **manuelles** : `WIREGUARD_PRIVATE_KEY`,
-  `SERVER_COUNTRIES`, `AMULE_EC_PASSWORD`. Note : le test
-  `compose_integration` **stube lui-même** ces variables, donc le `.env` n'est pas requis pour le lancer.
+- **Docker** + **docker compose v2**. The EC suites use `testcontainers` (which pulls
+  `ngosang/amule:3.0.0-1`); the compose suite drives `docker compose` directly.
+- A **`.env`** (copied from `deploy/.env.example`) for **manual** compose commands:
+  `WIREGUARD_PRIVATE_KEY`, `SERVER_COUNTRIES`, `AMULE_EC_PASSWORD`. Note that the
+  `compose_integration` test **stubs these itself**, so the `.env` is not required to run it.
 
 ---
 
-## 5. Intégration CI (pistes — pas du code prêt à coller)
+## 5. CI integration
 
-Ce qui est **déjà** en CI :
-- `.github/workflows/ci.yml` (le **gate**) : ruff + format + sqlfluff + mypy + les deux gates
-  `pytest` par paquet (100 % branch). Sur `push` et `pull_request`. **Ne lance aucun marqueur
-  d'intégration.**
-- `.github/workflows/images.yml` : le job **`smoke`** lance **déjà `compose_integration`** (build
-  amd64 + smoke) et **GATE** le job `publish` (buildx multi-arch amd64+arm64 → GHCR). Déclenché sur
-  `push main` / tags `v*` / `workflow_dispatch` (**pas** sur PR).
+Already in CI:
 
-Pistes par marqueur (faisabilité GitHub Actions) :
+- `.github/workflows/validate.yml` is the reusable **gate**, called by `pr.yml` (on pull requests)
+  and by `release.yml` (on a tag push). Its jobs:
+  - `lint`: `uv run poe lint-all` (ruff, format, mypy, sqlfluff, template check);
+  - `test`: `uv run poe test` (the 3 per-package unit suites, 100 % branch each);
+  - `build-and-verify`: one job **per architecture on its native runner** (`amd64` on
+    `ubuntu-latest`, `arm64` on `ubuntu-24.04-arm`). Each builds the crawler image and then runs
+    **`compose_integration`** against that locally built image (`IMAGE_TAG=ci-<sha>`);
+  - `gate`: the single aggregation check required by branch protection.
+- `.github/workflows/pr.yml` also runs the `vex-checks` job (`poe vex-source-claims` +
+  `poe vex-claim-coverage`).
+- `.github/workflows/grype-scan.yml` scans the published image daily and reports into Code scanning.
 
-| Marqueur | Réaliste en GHA ? | Comment |
+Leads for the suites that are **not** yet in CI:
+
+| Marker | Realistic on GitHub Actions? | How |
 |---|---|---|
-| `verify_integration` | **Oui, facile** | Aucun service externe ; juste `uv sync --dev` puis le run. Le moins coûteux → **à ajouter en premier** (idéalement dans `ci.yml`). |
-| `analysis_integration` (ffprobe) | **Oui** | `apt-get install -y ffmpeg` sur le runner, puis le run. Les sous-cas clamav/seccomp se skippent proprement → pas de flakiness. |
-| `analysis_integration` (clamav) | **Oui mais plus lent** | `apt-get install -y clamav` + `freshclam` (téléchargement ~300 Mo) avant le run. Coûteux ; envisager un cache de la base. |
-| `analysis_integration` (seccomp) | **Oui, probable** | `libseccomp` est généralement présent sur les runners Ubuntu et `no_new_privs` est posable → le test **tourne** (confirmé : il tourne déjà dans le sandbox de dev). S'il n'est pas faisable sur un runner donné, il se **skippe** (jamais d'échec). |
-| `ec / download / orchestration_integration` | **Oui** | Docker est disponible sur les runners Ubuntu ; `testcontainers` tire `ngosang/amule:3.0.0-1`. Démarrage du conteneur ~ dizaines de secondes. |
-| `compose_integration` | **Oui — déjà fait** | Déjà dans `images.yml` (job `smoke`). |
+| `ec_integration` | **Yes** | Docker is available on the Ubuntu runners; `testcontainers` pulls `ngosang/amule:3.0.0-1`. Container startup takes tens of seconds. |
+| `download_integration` | **Yes** | Same as above; it is one test. |
+| `orchestration_integration` | **Yes** | Same as above; budget ~2 minutes for the cycle plus the bounded shutdown. |
 
-**Ordre d'ajout raisonnable** (du moins coûteux / plus stable au plus lourd) :
-1. `verify_integration` (gratuit, in-process) ;
-2. `analysis_integration` côté ffprobe (apt ffmpeg) ;
-3. les suites EC (`ec` → `download` → `orchestration`) — Docker, déjà disponible ;
-4. `analysis_integration` côté clamav (apt + base, plus lent) ;
-5. `analysis_integration` côté seccomp (après avoir confirmé `no_new_privs` en GHA).
+A reasonable order to add them: `ec_integration`, then `download_integration`, then
+`orchestration_integration` (they share the same container fixture, so the cost is mostly the image
+pull).
 
 ---
 
-## 6. Outils de diagnostic (mesure, dev)
+## 6. Diagnostic tools (measurement, dev)
 
-Outils ponctuels destinés au **développeur** (mesure/diagnostic, pas exploitation) :
+One-off tools aimed at the **developer** (measurement and diagnosis, not operation):
 
-- **Sonde richesse EC** : `uv run python -m mulewatch.tools.ec_probe --all-tags …` dumpe **tous**
-  les tags bruts d'un résultat de recherche réel (mappés + non mappés) — sert à mesurer le taux de
-  remplissage des champs exposés par EC. C'est un outil de **diagnostic** : un déploiement n'en a pas
-  besoin (cf. le constat « EC n'expose aucune métadonnée média sur les résultats de recherche »).
+- **EC richness probe**: `uv run python -m mulewatch.tools.ec_probe --all-tags …` dumps **every** raw
+  tag of a real search result (mapped and unmapped). It is what measured the fill rate of the fields
+  EC exposes. This is a **diagnostic** tool: a deployment does not need it (see the finding "EC
+  exposes no media metadata on search results").
 
 ---
 
-## 7. Voir aussi
+## 7. See also
 
-- [Runbook de déploiement](runbooks/deployment.md) — pour **déployer et exploiter** un nœud
-  (le runbook renvoie ici pour la validation en profondeur).
-- [Index de la doc](README.md) — aiguillage par audience (opérateur / développeur / historique).
+- [Deployment runbook](runbooks/deployment.md): to **deploy and run** a node (it points back here
+  for in-depth validation).
+- [Documentation index](README.md): routing by audience (operator / developer / history).

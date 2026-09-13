@@ -408,7 +408,7 @@ async def test_shared_hash_still_in_the_download_queue_is_not_a_completion() -> 
     # the download queue: a finished file left ``m_filelist``.
     client = FakeDownloadClient(
         queue=[(DownloadEntry(ed2k_hash=_A, size_done=20, size_full=100),)],
-        shared=[(SharedFileEntry(ed2k_hash=_A, name="Keroro.avi"),)],
+        shared=[(SharedFileEntry(ed2k_hash=_A),)],
     )
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING
@@ -428,7 +428,7 @@ async def test_shared_hash_absent_from_the_download_queue_is_a_completion() -> N
     # running.
     client = FakeDownloadClient(
         queue=[(DownloadEntry(ed2k_hash=_B, size_done=1, size_full=10),)],
-        shared=[(SharedFileEntry(ed2k_hash=_A, name="Keroro.avi"),)],
+        shared=[(SharedFileEntry(ed2k_hash=_A),)],
     )
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING
@@ -522,7 +522,7 @@ async def test_monitor_repo_error_still_promotes_completions_in_same_cycle() -> 
         # _A is NOT in the queue: it completed (that is why it is shared and why the completion
         # must be recorded in this very cycle). _B is queued and fails its set_state transition.
         queue=[(DownloadEntry(ed2k_hash=_B, size_done=0, size_full=0),)],
-        shared=[(SharedFileEntry(ed2k_hash=_A, name="keroro_062a.avi"),)],
+        shared=[(SharedFileEntry(ed2k_hash=_A),)],
     )
     downloads = FakeDownloadRepo(fail_set_state_for={_B})
     # _A already DOWNLOADING (no transition by _monitor); _B QUEUED → _monitor will try
@@ -564,8 +564,8 @@ async def test_one_hash_repo_failure_does_not_starve_other_completions() -> None
     client = FakeDownloadClient(
         shared=[
             (
-                SharedFileEntry(ed2k_hash=_A, name="a.avi"),
-                SharedFileEntry(ed2k_hash=_B, name="b.avi"),
+                SharedFileEntry(ed2k_hash=_A),
+                SharedFileEntry(ed2k_hash=_B),
             )
         ],
     )
@@ -735,7 +735,7 @@ async def test_add_link_rejected_for_one_hash_does_not_block_the_next() -> None:
 async def test_completion_and_new_candidate_in_the_same_cycle() -> None:
     # _A completed via the SHARED files (recorded this cycle); _B is a new candidate
     # (queued + link).
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="a.avi"),)])
+    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A),)])
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING
     downloads.sizes[_A] = 10
@@ -776,7 +776,7 @@ async def test_emits_download_queued() -> None:
 @pytest.mark.asyncio
 async def test_emits_download_completed() -> None:
     telemetry = RecordingTelemetry()
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
+    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A),)])
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING
     downloads._target_ids[_A] = "062A"
@@ -801,7 +801,7 @@ async def test_completion_repo_failure_does_not_starve_new_candidates() -> None:
     # _handle_completions raises RepositoryError (set_state fails on the shared hash _A)
     # → _queue_new_candidates AND _add_links run ANYWAY for _B:
     # a step-2 repo failure does not starve step 3 (anti-starvation, I2).
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="a.avi"),)])
+    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A),)])
     downloads = FakeDownloadRepo(fail_set_state_for={_A})  # step 2 raises RepositoryError
     downloads.states[_A] = DownloadState.DOWNLOADING  # shared → completed step 2 (set_state raises)
     downloads.sizes[_A] = 10
@@ -827,7 +827,7 @@ async def test_candidate_repo_failure_does_not_starve_completions() -> None:
     # Symmetric: _queue_new_candidates raises RepositoryError (record_queued fails) → the
     # step-2 completions were recorded ANYWAY (observable effect). The failure of
     # step 3 does not starve step 2.
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="a.avi"),)])
+    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A),)])
     downloads = FakeDownloadRepo(fail_record=True)  # step 3 raises RepositoryError
     downloads.states[_A] = DownloadState.DOWNLOADING  # _A shared → completed step 2
     downloads.sizes[_A] = 10
@@ -933,7 +933,7 @@ async def test_add_links_repo_failure_is_tolerated_and_does_not_raise() -> None:
 async def test_shared_file_for_tracked_hash_is_completed() -> None:
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="Keroro 62a.avi"),)])
+    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A),)])
     deps = _deps(
         client=client,
         downloads=downloads,
@@ -946,7 +946,7 @@ async def test_shared_file_for_tracked_hash_is_completed() -> None:
 @pytest.mark.asyncio
 async def test_shared_file_for_untracked_hash_is_ignored() -> None:
     downloads = FakeDownloadRepo()  # _A not tracked by the crawler
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
+    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A),)])
     deps = _deps(
         client=client,
         downloads=downloads,
@@ -967,7 +967,7 @@ async def test_already_completed_shared_hash_is_not_recompleted() -> None:
     downloads = _NoSetStateRepo()
     downloads.states[_A] = DownloadState.COMPLETED
     telemetry = RecordingTelemetry()
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
+    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A),)])
     deps = _deps(
         client=client,
         downloads=downloads,
@@ -982,7 +982,7 @@ async def test_already_completed_shared_hash_is_not_recompleted() -> None:
 async def test_failed_shared_hash_is_not_completed() -> None:
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.FAILED
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
+    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A),)])
     deps = _deps(
         client=client,
         downloads=downloads,

@@ -43,13 +43,12 @@ class SharedFileEntry:
     """An entry of amuled's SHARED files list (``EC_OP_SHARED_FILES`` response).
 
     A downloaded file is auto-shared by amuled on completion (POSITIVE completion signal,
-    cf. design 2026-06-17). ``name`` is the REAL on-disk name (``GetFileName`` on amuled's
-    side, post-cleanup AND post-dedup ``name(0).ext``); ``ed2k_hash`` (lowercase hex 32) is
-    used to match a tracked download. NO byte is read (EC metadata only, spec §4).
+    cf. design 2026-06-17). ``ed2k_hash`` (lowercase hex 32) matches a tracked download, and
+    is the ONLY field: the crawler never needs the on-disk name, since it never touches the
+    file. NO byte is read (EC metadata only, spec §4).
     """
 
     ed2k_hash: str
-    name: str
 
 
 class MuleDownloadClient(Protocol):
