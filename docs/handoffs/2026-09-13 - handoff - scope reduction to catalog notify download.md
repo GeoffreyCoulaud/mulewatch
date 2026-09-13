@@ -134,14 +134,22 @@ SELECT state, COUNT(*) FROM downloads GROUP BY state;
 - **The completion path has not been observed end to end** since the promotion step was removed.
   The `_map_shared_file` fix in particular changes what amuled entries are accepted, and only unit
   tests cover it.
-- `ec_integration`, `orchestration_integration` and `download_integration` were not run: they need
-  Docker with a real amuled, which the sandbox cannot provide.
+- `ec_integration`, `orchestration_integration` and `download_integration` **cannot run on this
+  machine at all**, and that is not a sandbox limitation: attempted from a real shell on
+  2026-09-13, every one errors at fixture setup with `failed to create endpoint
+  testcontainers-ryuk-... on network bridge: failed to add the host (veth...) <=> sandbox (veth...)
+  pair interfaces: operation not supported`. It hits the Ryuk container and the amuled container
+  alike, with or without `TESTCONTAINERS_RYUK_DISABLED=true` (already established in the
+  2026-06-15 and 2026-09-11 handoffs: do not retry it). `compose_integration` passes because
+  compose builds its own networks instead of using the default `bridge`. These three need a host
+  whose Docker can create veth pairs.
 
 ## Suggested next step
 
-Bring the stack up on the real node, run the integration markers from a real shell, and watch one
-download go from queued to completed with its notification. That single observation closes every
-item in the section above.
+Bring the stack up on the real node and watch one download go from queued to completed with its
+notification. That is the only remaining way to validate the completion path, since the
+testcontainers suites cannot run here. Remember the two new migration steps: the three replacement
+config keys, and the crawler's read-only `./downloads:/data/downloads:ro` mount.
 
 After that, `v2.0.0` is the version to tag (breaking: schema, compose topology, config schema, one
 distribution removed).
