@@ -268,7 +268,7 @@ Trade-offs, step-by-step enabling and verification:
   `config/crawler/crawler.yml`. The crawler and the catalog keep working normally.
 
 Metric details and exposure behind a reverse proxy:
-[administration runbook, § Métriques Prometheus](administration.md#métriques-prometheus) and
+[administration runbook, § Prometheus metrics](administration.md#prometheus-metrics) and
 [§ Exposition derrière un reverse proxy](administration.md#exposition-derrière-un-reverse-proxy).
 
 ---
