@@ -34,16 +34,12 @@ services:
     depends_on: [gluetun]
     environment:
       GUI_PWD: ${AMULE_EC_PASSWORD:?}
-      INCOMING_DIR: /data/quarantine
-      TEMP_DIR: /data/amule-temp
-    # The image writes amule.conf ONLY if it does not exist yet, so these two matter on the very
-    # first start and never again. Without them it picks /downloads/incoming, which is NOT
-    # bind-mounted: finished files land in the container layer and vanish when it is recreated.
-    # Changing them later has no effect; edit amule.conf in the amule-state volume instead.
+    # /downloads is where the image puts IncomingDir and TempDir by default, so we bind there and
+    # touch no amuled setting. The image writes amule.conf only when absent: overriding the paths
+    # would take effect on the first boot alone, and drift from the image on any later change.
     volumes:
       - amule-state:/home/amule/.aMule
-      - ./downloads/incoming:/data/quarantine
-      - ./downloads/temp:/data/amule-temp
+      - ./downloads:/downloads
     restart: unless-stopped
 
   docker-proxy:
