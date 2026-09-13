@@ -2,7 +2,7 @@
 
 OBSERVER mode (spec §2): observe, catalog, decide, loop — nothing else. DOWNLOAD mode
 activates via ``download.enabled: true`` in the config (the unified parser then wires the
-download + verification loops). Loads the unified crawler config (``crawler.yml``) + ``targets`` +
+download loop). Loads the unified crawler config (``crawler.yml``) + ``targets`` +
 the matcher config (fail-fast at the slightest issue → refuses to start, spec §5/§14), assembles the
 real adapters (clock/RNG/nudge), then ``asyncio.run(app.run())``. The clean & bounded shutdown is
 carried by ``CrawlerApp`` (spec §6).
@@ -109,11 +109,10 @@ def validate_config(argv: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     """CLI entry. Returns an exit code (0 = clean shutdown, 1 = invalid config).
 
-    The ``try`` ALSO covers ``asyncio.run(app.run())``: the full-mode gate (``download.enabled``)
-    raises a ``ConfigError`` AT RUNTIME — verifier health-check KO — which is a refusal to start
-    just like a build-time invalid config. So we render it with the SAME clean message +
-    non-zero exit code (instead of a bare traceback). The resources are already closed cleanly
-    by ``run`` (LIFO stack) before the raise.
+    The ``try`` ALSO covers ``asyncio.run(app.run())``: a ``ConfigError`` raised at RUNTIME by
+    ``run`` is a refusal to start just like a build-time invalid config, so we render it with the
+    SAME clean message + non-zero exit code (instead of a bare traceback). The resources are
+    already closed cleanly by ``run`` (LIFO stack) before the raise.
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     tokens = sys.argv[1:] if argv is None else argv

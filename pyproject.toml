@@ -3,14 +3,12 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 mulewatch = { workspace = true }
-download-verifier = { workspace = true }
 catalog-matching = { workspace = true }
 vex-guards = { workspace = true }
 
 [dependency-groups]
 dev = [
   "mulewatch",
-  "download-verifier",
   "catalog-matching",
   "vex-guards",
   "pytest>=9.1.1",
@@ -31,8 +29,6 @@ src = [
   "packages/crawler/tests",
   "packages/matching/src",
   "packages/matching/tests",
-  "packages/verifier/src",
-  "packages/verifier/tests",
   "packages/vex_guards/src",
   "packages/vex_guards/tests",
 ]
@@ -43,27 +39,18 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.14"
 strict = true
-# Stratégie de résolution des noms de modules dans le workspace :
-# - `packages/crawler/tests/` a un `__init__.py` (imports `from tests.…` internes) → paquet `tests`.
-#   Le webui vit désormais sous ce paquet : `packages/crawler/tests/webui/` a aussi un `__init__.py`
-#   → sous-paquet `tests.webui` (noms `test_webui_<chose>` déjà uniques, aucune collision).
-# - `packages/verifier/tests/` et `packages/matching/tests/` n'ont PAS de `__init__.py` → modules
-#   plats. Les noms de fichiers de tests plats doivent être uniques pour éviter les collisions mypy
-#   (ex. `test_config` → renommé `test_matcher_config` côté matching).
+# Module-name resolution across the workspace: `packages/crawler/tests/` has an `__init__.py`
+# (so does `tests/webui/`), making it the `tests` package. The other packages' test dirs have
+# none, so their test files are flat modules whose basenames must stay unique (hence
+# `test_matcher_config` rather than `test_config` in matching).
 files = [
   "packages/crawler/src",
   "packages/crawler/tests",
   "packages/matching/src",
   "packages/matching/tests",
-  "packages/verifier/src",
-  "packages/verifier/tests",
   "packages/vex_guards/src",
   "packages/vex_guards/tests",
 ]
-
-[[tool.mypy.overrides]]
-module = "pyseccomp"
-ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "testcontainers.*"
@@ -93,6 +80,5 @@ help = "Run every package's unit suite (per-package 100% branch coverage)"
 sequence = [
   { cmd = "pytest", cwd = "packages/matching" },
   { cmd = "pytest", cwd = "packages/crawler" },
-  { cmd = "pytest", cwd = "packages/verifier" },
   { cmd = "pytest", cwd = "packages/vex_guards" },
 ]

@@ -1,5 +1,4 @@
-# crawler.yml SMOKE — mode DOWNLOAD (download.enabled: true =>
-# health-check verifier au démarrage). Cadences courtes.
+# SMOKE crawler.yml: download mode (download.enabled: true), short intervals.
 cycle_interval_seconds: 5.0
 search_poll_budget_seconds: 3.0
 search_poll_interval_seconds: 1.0
@@ -26,7 +25,7 @@ search:
 catalog_db_path: /data/catalog/catalog.db
 local_db_path: /data/local/local.db
 
-# webui servie in-process par le crawler (spec P4) — 0.0.0.0 pour l'atteindre via docker exec.
+# webui served in-process by the crawler; 0.0.0.0 so docker exec can reach it.
 webui:
   enabled: true
   host: 0.0.0.0
@@ -41,9 +40,3 @@ download:
     host: amuled
     port: 4712
     password: smoke-ec-password
-  staging_dir: /data/quarantine
-  quarantine_dir: /data/quarantine
-  verifier_url: http://verifier:8000
-  verify:
-    poll_interval_seconds: 3.0
-    client_timeout_seconds: 30.0

@@ -10,9 +10,6 @@ from vex_guards.descriptors import (
     BinaryNotInvoked,
     Guard,
     ModuleNotImported,
-    PackageAbsent,
-    PackageMinVersion,
-    SubprocessDenies,
 )
 
 GUARDS: dict[str, Guard] = {
@@ -23,8 +20,5 @@ GUARDS: dict[str, Guard] = {
     "CVE-2025-15366": ModuleNotImported("imaplib"),
     "CVE-2025-15367": ModuleNotImported("poplib"),
     "CVE-2025-60876": BinaryNotInvoked("wget"),
-    "GHSA-cq8v-f236-94qc": SubprocessDenies("ffmpeg"),
     "CVE-2026-12003": BaseImageIsAlpine(),
-    "CVE-2026-58055": PackageAbsent("nghttp2"),
-    "CVE-2016-1405": PackageMinVersion("clamav", "0.99"),
 }

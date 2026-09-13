@@ -15,13 +15,11 @@ from catalog_matching.validation import parse_matcher_config
 from mulewatch.adapters.config.crawler_config import (
     AmuleEndpoint,
     BackoffConfig,
-    ConfigError,
     CrawlerConfig,
     DownloadConfig,
     MetricsConfig,
     ObservabilityConfig,
     PortSyncConfig,
-    VerifyConfig,
     WebuiConfig,
 )
 from mulewatch.adapters.config.yaml_loader import load_yaml
@@ -34,7 +32,6 @@ from mulewatch.application.edge_state import EdgeState
 from mulewatch.application.search_worker import BackoffRegistry
 from mulewatch.composition.app import CrawlerApp, WebuiServer, default_client_factory
 from mulewatch.domain.observation import FileObservation
-from mulewatch.ports.content_verifier import VerificationResult
 from mulewatch.ports.mule_client import KadStatus, MuleUnreachableError, NetworkStatus
 from mulewatch.ports.mule_download_client import DownloadEntry, SharedFileEntry
 from mulewatch.ports.telemetry import Telemetry
@@ -109,25 +106,17 @@ def _crawler_config(
     )
 
 
-def _download_config(tmp_path: Path) -> DownloadConfig:
-    staging = tmp_path / "staging"
-    quarantine = tmp_path / "quarantine"
-    staging.mkdir(exist_ok=True)
-    quarantine.mkdir(exist_ok=True)
+def _download_config() -> DownloadConfig:
     return DownloadConfig(
         poll_interval_seconds=30.0,
         disk_cap_bytes=1_000_000_000,
         endpoint=AmuleEndpoint(name="dl", host="h", port=4799, password="p"),
-        staging_dir=str(staging),
-        quarantine_dir=str(quarantine),
-        verifier_url="http://verifier:8000",
-        verify=VerifyConfig(poll_interval_seconds=10.0, client_timeout_seconds=180.0),
     )
 
 
 def _full_crawler_config(tmp_path: Path) -> CrawlerConfig:
-    """FULL-mode config: ``download`` section present (endpoint/dirs/verifier_url/verify)."""
-    return _crawler_config(tmp_path, download=_download_config(tmp_path))
+    """FULL-mode config: ``download`` section present (enabled + endpoint)."""
+    return _crawler_config(tmp_path, download=_download_config())
 
 
 def _port_sync_config() -> PortSyncConfig:
@@ -496,14 +485,6 @@ def test_default_download_client_factory_builds_an_amule_client() -> None:
     assert isinstance(default_download_client_factory(endpoint), AmuleEcClient)
 
 
-def test_default_verifier_factory_builds_an_http_verifier() -> None:
-    from mulewatch.adapters.verifier_http import HttpContentVerifier
-    from mulewatch.composition.app import default_verifier_factory
-
-    verifier = default_verifier_factory("http://verifier:8000", 180.0)
-    assert isinstance(verifier, HttpContentVerifier)
-
-
 # A close that drags FAR beyond the armed bound (0.05 s) and FAR beyond the assertion
 # threshold (3 s), yet stays BELOW the external guard (30 s). Only the INTERNAL bound
 # (armed by ``reschedule``) can cut a close this slow fast enough to land under the
@@ -658,25 +639,8 @@ async def test_backfill_skipped_when_marker_already_matches_fingerprint(
 
 
 # ---------------------------------------------------------------------------
-# Full mode (download.enabled): health gate + wiring of the 2 loops
+# Full mode (download.enabled): wiring of the download loop
 # ---------------------------------------------------------------------------
-
-
-class FakeContentVerifier:
-    """Test ContentVerifier: scriptable health, NO-OP verdict."""
-
-    def __init__(self, *, healthy: bool = True) -> None:
-        self._healthy = healthy
-        self.closed = False
-
-    async def verify(self, ed2k_hash: str, expected: object) -> VerificationResult:
-        return VerificationResult(verdict="unverified", real_meta={}, checks=())
-
-    async def health(self) -> bool:
-        return self._healthy
-
-    async def aclose(self) -> None:
-        self.closed = True
 
 
 class FakeDownloadClient(FakeMuleClient):
@@ -726,16 +690,19 @@ class _UnreachableDownloadClient(FakeDownloadClient):
 
 
 @pytest.mark.asyncio
-async def test_observer_mode_runs_without_download_or_verify_loops(
+async def test_observer_mode_runs_without_the_download_loop(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # download absent → observer: starts, runs one cycle, stops; no verifier
-    # built, no download/verify loop. (Plan C behavior unchanged.)
+    # download absent → observer: starts, runs one cycle, stops; no download client built.
     holder: dict[str, CrawlerApp] = {}
-    verifier = FakeContentVerifier()
+    built: list[AmuleEndpoint] = []
 
     def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
         return _ShutdownOnStatusClient(holder)
+
+    def download_factory(endpoint: AmuleEndpoint) -> FakeDownloadClient:
+        built.append(endpoint)
+        return FakeDownloadClient()
 
     app = CrawlerApp(
         crawler_config=_crawler_config(tmp_path),  # no download → observer
@@ -746,24 +713,21 @@ async def test_observer_mode_runs_without_download_or_verify_loops(
         signal_hub=RecordingSignal(),
         policy_fingerprint=_FP,
         client_factory=factory,
-        verifier_factory=lambda url, _timeout: verifier,
+        download_client_factory=download_factory,
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
-    assert verifier.closed is False  # observer: the verifier is never used/closed
+    assert built == []  # observer: no download connection is ever opened
 
 
 @pytest.mark.asyncio
-async def test_full_mode_health_ok_runs_both_loops(
+async def test_full_mode_runs_the_download_loop(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
     # The shutdown is driven DETERMINISTICALLY by the DOWNLOAD loop itself (the download
     # client fires the shutdown on its 1st queue poll) → we prove that the BODY of the download
-    # loop ran (not just that the task was created), without a timing race. The
-    # body of the VERIFICATION loop is covered by its unit tests (Task 9); HERE we
-    # cover the WIRING (its task is created in the TaskGroup) + the health-check + the teardown.
+    # loop ran (not just that the task was created), without a timing race.
     holder: dict[str, CrawlerApp] = {}
-    verifier = FakeContentVerifier(healthy=True)
     download_client = _ShutdownOnQueueDownloadClient(holder)
 
     def search_factory(endpoint: AmuleEndpoint) -> FakeMuleClient:
@@ -779,40 +743,11 @@ async def test_full_mode_health_ok_runs_both_loops(
         policy_fingerprint=_FP,
         client_factory=search_factory,
         download_client_factory=lambda endpoint: download_client,
-        verifier_factory=lambda url, _timeout: verifier,
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
-    # full: the verifier was health-checked and cleanly closed at shutdown.
-    assert verifier.closed is True
     # the download loop ran ≥ 1 cycle (body ran, not just the task created).
     assert download_client.queue_calls >= 1
-
-
-@pytest.mark.asyncio
-async def test_full_mode_health_failure_is_fail_fast(
-    tmp_path: Path, matcher_config: MatcherConfig
-) -> None:
-    verifier = FakeContentVerifier(healthy=False)  # health() → False → fail-fast
-
-    def search_factory(endpoint: AmuleEndpoint) -> FakeMuleClient:
-        return FakeMuleClient()
-
-    app = CrawlerApp(
-        crawler_config=_full_crawler_config(tmp_path),
-        targets=_TARGETS,
-        matcher_config=matcher_config,
-        clock=FakeClock(),
-        rng=_NoopRng(),
-        signal_hub=RecordingSignal(),
-        policy_fingerprint=_FP,
-        client_factory=search_factory,
-        download_client_factory=lambda endpoint: FakeDownloadClient(),
-        verifier_factory=lambda url, _timeout: verifier,
-    )
-    with pytest.raises(ConfigError, match="verifier"):
-        await app.run()
-    assert verifier.closed is True  # the verifier client is closed even on fail-fast
 
 
 @pytest.mark.asyncio
@@ -820,9 +755,8 @@ async def test_full_mode_tolerates_download_daemon_unreachable_at_startup(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
     # the download daemon unreachable at startup is TOLERATED (handoff / DV8): we do NOT
-    # fail, the loops are armed anyway (the loop's backoff governs the retries).
+    # fail, the loop is armed anyway (its backoff governs the retries).
     holder: dict[str, CrawlerApp] = {}
-    verifier = FakeContentVerifier(healthy=True)
 
     def search_factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
         return _ShutdownOnStatusClient(holder)
@@ -840,23 +774,21 @@ async def test_full_mode_tolerates_download_daemon_unreachable_at_startup(
         policy_fingerprint=_FP,
         client_factory=search_factory,
         download_client_factory=download_factory,
-        verifier_factory=lambda url, _timeout: verifier,
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)  # does not raise: connect tolerated
-    assert verifier.closed is True  # full started (loops armed), verifier closed at shutdown
 
 
 class _BlockingPollClock(FakeClock):
     """Clock whose LONG sleeps (≥ 5 s) BLOCK for good (on an Event that is never set).
 
-    Models the IN-CYCLE sleep of the loops: ``download._sleep_or_nudge`` (30 s poll) and the
-    verify poll (10 s) stay BLOCKED in ``clock.sleep`` - so these loops CANNOT
-    re-test ``self._shutdown`` on their own; only an explicit CANCELLATION by ``_supervise``
-    gets them out. A BARRIER: as soon as BOTH loops (download 30 s + verify 10 s) have entered
-    a long sleep, we ARM ``self._shutdown`` - the shutdown is thus requested while they
-    are blocked. If ``_supervise`` did NOT cancel them, the ``TaskGroup`` would wait forever and
-    the armed ``shutdown_deadline`` would fire a ``TimeoutError`` (force-exit): the test would
+    Models the IN-CYCLE sleep of the download loop (``_sleep_or_nudge``, 30 s poll): it stays
+    BLOCKED in ``clock.sleep``, so the loop CANNOT re-test ``self._shutdown`` on its own; only
+    an explicit CANCELLATION by ``_supervise`` gets it out. A BARRIER: as soon as the download
+    poll has entered a long sleep, we ARM ``self._shutdown`` - the shutdown is thus requested
+    while it is blocked. If ``_supervise`` did NOT cancel it, the ``TaskGroup`` would wait
+    forever and the armed ``shutdown_deadline`` would fire a ``TimeoutError`` (force-exit): the
+    test would
     fail fail-closed. The SHORT sleeps (search inter-keyword pauses) yield immediately
     (determinism, no real time). The search inter-cycle sleep (≥ 5 s) also blocks → it is
     exited by the cancellation of ``loop_task`` (already in place)."""
@@ -871,32 +803,31 @@ class _BlockingPollClock(FakeClock):
         if seconds < 5.0:
             await super().sleep(seconds)  # short pause: yields (instantaneous)
             return
-        # Long sleep (in-cycle poll of a loop, or search inter-cycle): we note the pace
-        # and, as soon as BOTH polls of the new loops (30 s download + 10 s verify) are
-        # blocked, we request the shutdown WHILE they sleep, then we BLOCK for good.
+        # Long sleep (in-cycle poll of a loop, or search inter-cycle): we note the pace and,
+        # as soon as the download poll (30 s) is blocked, we request the shutdown WHILE it
+        # sleeps, then we BLOCK for good.
         self._blocked_long_polls.add(seconds)
-        if {10.0, 30.0} <= self._blocked_long_polls:
+        if 30.0 in self._blocked_long_polls:
             self._app_holder["app"]._shutdown.set()
         await self._never.wait()  # NEVER resolves: exit only via cancellation
 
 
 @pytest.mark.asyncio
-async def test_full_mode_shutdown_cancels_download_and_verify_loops_promptly(
+async def test_full_mode_shutdown_cancels_the_download_loop_promptly(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
     # REGRESSION (holistic review): at shutdown, ``_supervise`` must EXPLICITLY cancel the
-    # download/verify loops (sibling tasks of the search ``loop_task``). Without this, they stay
-    # blocked in their in-cycle sleep (``_sleep_or_nudge`` does NOT watch ``self._shutdown``),
-    # the ``TaskGroup`` waits on their poll (30 s/10 s), the ``shutdown_deadline`` fires a
+    # download loop (sibling task of the search ``loop_task``). Without this, it stays
+    # blocked in its in-cycle sleep (``_sleep_or_nudge`` does NOT watch ``self._shutdown``),
+    # the ``TaskGroup`` waits on its poll (30 s), the ``shutdown_deadline`` fires a
     # ``TimeoutError`` FIRST and the shutdown is FORCED - not clean. Here: a clock whose long
-    # sleeps BLOCK, which ARMS the shutdown once both loops are blocked in their poll. If the
+    # sleeps BLOCK, which ARMS the shutdown once the loop is blocked in its poll. If the
     # cancellation happens, ``run()`` RETURNS promptly (without reaching the deadline); otherwise
     # it would ``TimeoutError`` (deadline) or block until the external guard → fail-closed failure.
     holder: dict[str, CrawlerApp] = {}
-    verifier = FakeContentVerifier(healthy=True)
     clock = _BlockingPollClock(holder)
 
-    # _full_crawler_config: download poll 30 s, verify poll 10 s, shutdown_deadline 30 s.
+    # _full_crawler_config: download poll 30 s, shutdown_deadline 30 s.
     app = CrawlerApp(
         crawler_config=_full_crawler_config(tmp_path),
         targets=_TARGETS,
@@ -907,14 +838,12 @@ async def test_full_mode_shutdown_cancels_download_and_verify_loops_promptly(
         policy_fingerprint=_FP,
         client_factory=lambda endpoint: FakeMuleClient(),
         download_client_factory=lambda endpoint: FakeDownloadClient(),
-        verifier_factory=lambda url, _timeout: verifier,
     )
     holder["app"] = app
     # The external guard (3 s of REAL time) is WELL below the shutdown_deadline (30 s) AND below
     # the polls (10 s/30 s): it can only fire if the shutdown is NOT prompt. With the
     # cancellation, the run returns within a few event-loop ticks (no real time is consumed).
     await asyncio.wait_for(app.run(), timeout=3.0)
-    assert verifier.closed is True  # clean shutdown: teardown did close the verifier
 
 
 @pytest.mark.asyncio
@@ -922,17 +851,16 @@ async def test_full_mode_shutdown_leaves_no_task_leaked(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
     # T12 - shutdown INVARIANT "no task leak". The ``TaskGroup`` guarantees BY
-    # CONSTRUCTION that on exit from ``run()`` none of the 3 loops (search/download/verify)
-    # survives: its ``__aexit__`` waits for ALL its tasks to finish, and ``_supervise``
+    # CONSTRUCTION that on exit from ``run()`` neither loop (search/download) survives: its
+    # ``__aexit__`` waits for ALL its tasks to finish, and ``_supervise``
     # cancels them ALL explicitly at shutdown. This test LOCKS the invariant: it would fail if
     # a future regression detached a loop from the ``TaskGroup`` (``asyncio.create_task`` outside
     # the group) or forgot to cancel a sibling task - a ``pending`` task would then survive
-    # ``run()``. We prove it by DIFFERENCE: the tasks born DURING ``run()`` (full = 3
+    # ``run()``. We prove it by DIFFERENCE: the tasks born DURING ``run()`` (full = both
     # loops blocked in their sleep, shutdown armed once blocked) must ALL be
     # finished once ``run()`` has returned. The ``_BlockingPollClock`` forces the worst case: the
     # loops can only exit VIA the explicit cancellation by ``_supervise``.
     holder: dict[str, CrawlerApp] = {}
-    verifier = FakeContentVerifier(healthy=True)
     clock = _BlockingPollClock(holder)
     app = CrawlerApp(
         crawler_config=_full_crawler_config(tmp_path),
@@ -944,16 +872,14 @@ async def test_full_mode_shutdown_leaves_no_task_leaked(
         policy_fingerprint=_FP,
         client_factory=lambda endpoint: FakeMuleClient(),
         download_client_factory=lambda endpoint: FakeDownloadClient(),
-        verifier_factory=lambda url, _timeout: verifier,
     )
     holder["app"] = app
     before = asyncio.all_tasks()  # snapshot BEFORE (the test task + pytest-asyncio infra)
     await asyncio.wait_for(app.run(), timeout=3.0)
-    # Tasks born DURING the run (the 3 loops of the TaskGroup): all must be finished.
+    # Tasks born DURING the run (the loops of the TaskGroup): all must be finished.
     # No ``pending`` task must remain - otherwise a loop leaked the lifecycle.
     leaked = [task for task in asyncio.all_tasks() - before if not task.done()]
     assert leaked == [], f"leaked tasks after shutdown: {leaked!r}"
-    assert verifier.closed is True  # clean shutdown confirmed (full teardown)
 
 
 # ---------------------------------------------------------------------------
@@ -1072,7 +998,6 @@ async def test_emits_crawler_started_full_mode(
 ) -> None:
     """CrawlerStarted(mode='full') emitted at boot in full mode."""
     holder: dict[str, CrawlerApp] = {}
-    verifier = FakeContentVerifier(healthy=True)
     download_client = _ShutdownOnQueueDownloadClient(holder)
 
     app = CrawlerApp(
@@ -1085,7 +1010,6 @@ async def test_emits_crawler_started_full_mode(
         policy_fingerprint=_FP,
         client_factory=lambda e: FakeMuleClient(),
         download_client_factory=lambda endpoint: download_client,
-        verifier_factory=lambda url, _timeout: verifier,
     )
     holder["app"] = app
     with caplog.at_level(logging.INFO, logger="mulewatch.observability"):

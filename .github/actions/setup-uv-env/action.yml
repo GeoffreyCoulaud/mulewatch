@@ -4,7 +4,7 @@ inputs:
   save-cache:
     description: >
       Whether this job saves the uv cache. Keep 'true' on exactly ONE job per runner
-      architecture (the cache writer) and set 'false' on the others — two jobs saving the
+      architecture (the cache writer) and set 'false' on the others: two jobs saving the
       same key concurrently race and emit an "unable to reserve cache" warning. Every job
       still restores.
     required: false

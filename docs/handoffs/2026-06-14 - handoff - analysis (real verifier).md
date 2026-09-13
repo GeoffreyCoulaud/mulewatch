@@ -1,5 +1,8 @@
 # Handoff — emule-indexer (D-analysis : le VRAI verifier — confinement + checks réels)
 
+> **Obsolete since 2026-09-13.** The subsystem described here left the project's scope.
+> See `docs/specs/2026-09-13-scope-reduction-catalog-notify-download.md`.
+
 > Continuation guide. Le plus récent des handoffs = point d'entrée. Lis aussi le précédent
 > (`2026-06-14 - handoff - verification pipeline.md`) pour le contexte D-verify (la plomberie
 > full-mode que D-analysis remplit), et la spec `docs/superpowers/specs/2026-06-14-analysis-design.md`.

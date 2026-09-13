@@ -2,15 +2,14 @@
 
 ``LocalReader`` exposes one read:
 
-- ``node_state()`` — full node state: downloads, verification tasks,
-  scheduler KV, node identity.
+- ``node_state()`` — full node state: downloads, scheduler KV, node identity.
 
 All SQL lives in module constants, parameterized (no value interpolation).
 """
 
 import sqlite3
 
-from mulewatch.webui.domain.views import DownloadRow, NodeState, VerifTaskRow
+from mulewatch.webui.domain.views import DownloadRow, NodeState
 
 # ---------------------------------------------------------------------------
 # SQL constants
@@ -26,17 +25,6 @@ SELECT
     size_bytes
 FROM downloads
 ORDER BY queued_at ASC, ed2k_hash ASC
-"""
-
-_SQL_VERIF_TASKS = """\
-SELECT
-    ed2k_hash,
-    status,
-    attempts,
-    enqueued_at,
-    lease_until
-FROM verification_tasks
-ORDER BY enqueued_at ASC, id ASC
 """
 
 _SQL_SCHEDULER = """\
@@ -62,7 +50,6 @@ class LocalReader:
     def node_state(self) -> NodeState:
         """Return the full node state read from local.db."""
         dl_rows = self._conn.execute(_SQL_DOWNLOADS).fetchall()
-        vt_rows = self._conn.execute(_SQL_VERIF_TASKS).fetchall()
         sched_rows = self._conn.execute(_SQL_SCHEDULER).fetchall()
 
         node_id_row = self._conn.execute(_SQL_NODE_RUNTIME_KEY, ("node_id",)).fetchone()
@@ -80,17 +67,6 @@ class LocalReader:
             for row in dl_rows
         )
 
-        verification_tasks = tuple(
-            VerifTaskRow(
-                ed2k_hash=row["ed2k_hash"],
-                status=row["status"],
-                attempts=row["attempts"],
-                enqueued_at=row["enqueued_at"],
-                lease_until=row["lease_until"],
-            )
-            for row in vt_rows
-        )
-
         scheduler = {row["key"]: row["value"] for row in sched_rows}
 
         node_id: str | None = node_id_row["value"] if node_id_row is not None else None
@@ -98,7 +74,6 @@ class LocalReader:
 
         return NodeState(
             downloads=downloads,
-            verification_tasks=verification_tasks,
             scheduler=scheduler,
             node_id=node_id,
             created_at=created_at,

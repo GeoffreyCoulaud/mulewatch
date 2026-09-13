@@ -22,7 +22,7 @@ pragma would commit an ORPHAN observation. The rollback catches ``BaseException`
 import json
 import re
 import sqlite3
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator
 from contextlib import suppress
 
 from catalog_matching.engine import (
@@ -50,11 +50,6 @@ INSERT INTO file_observations (
 
 _INSERT_DECISION = """
 INSERT INTO match_decisions (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)
-VALUES (?, ?, ?, ?, ?, ?)
-"""
-
-_INSERT_VERIFICATION = """
-INSERT INTO file_verifications (ed2k_hash, verdict, real_meta, checks, verified_at, node_id)
 VALUES (?, ?, ?, ?, ?, ?)
 """
 
@@ -243,34 +238,3 @@ class SqliteCatalogRepository:
                     media_length_sec=row[3],
                     bitrate_kbps=row[4],
                 )
-
-    def record_verification(
-        self,
-        ed2k_hash: str,
-        verdict: str,
-        real_meta: Mapping[str, object],
-        checks: Sequence[object],
-    ) -> None:
-        """INSERT alone (autocommit) of a verdict (verify spec §5). Append-only (trigger).
-
-        Templated on ``record_decision``: canonical hash guard BEFORE the INSERT (a
-        non-canonical hash is a caller bug → clear ``PersistenceError``, not an opaque FK
-        diagnostic); ``real_meta``/``checks`` serialized as JSON (``ensure_ascii=False``, the
-        NO-OP verdict leaves them empty but D-analysis will fill them); ``verified_at``/``node_id``
-        stamped by the adapter (the domain ignores persistence columns). Unknown file → FK
-        violated → ``PersistenceError`` via ``wrap_sqlite_errors``.
-        """
-        if not _CANONICAL_HASH_RE.fullmatch(ed2k_hash):
-            raise PersistenceError(f"non-canonical eD2k hash: {ed2k_hash!r}")
-        with wrap_sqlite_errors():
-            self._connection.execute(
-                _INSERT_VERIFICATION,
-                (
-                    ed2k_hash,
-                    verdict,
-                    json.dumps(real_meta, ensure_ascii=False),
-                    json.dumps(list(checks), ensure_ascii=False),
-                    utc_iso(self._clock()),
-                    self._node_id,
-                ),
-            )

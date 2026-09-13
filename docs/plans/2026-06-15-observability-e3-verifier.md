@@ -1,5 +1,8 @@
 # Observabilité — Plan E.3 (verifier) Implementation Plan
 
+> **Obsolete since 2026-09-13.** The subsystem described here left the project's scope.
+> See `docs/specs/2026-09-13-scope-reduction-catalog-notify-download.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommandé) ou superpowers:executing-plans. Steps en checkbox (`- [ ]`). **Indépendant de E.2** (ne dépend que des deps partagées). Le verifier **n'importe RIEN de `emule_indexer`** (frontière de paquet — vérifier que ça reste vrai).
 
 **Goal:** Doter le **verifier** (`download_verifier`) d'observabilité minimale — `log_level` par YAML, route `/metrics`, instrumentation technique de `/verify` — sans la machinerie d'événements (crawler-only, E-D10).

@@ -8,7 +8,7 @@ is why ``record_decision`` receives the hash ALONGSIDE the decision (``MatchDeci
 not carry the content key, by principle: a domain without persistence columns).
 """
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -57,9 +57,6 @@ class CatalogRepository(Protocol):
     ``None``. ``iter_reevaluation_rows`` streams every hash's latest observation as a
     :class:`ReevalRow` (spec re-evaluation §6), for the startup backfill to rebuild a
     candidate per hash. These reads are harmless (no write).
-    ``record_verification`` (spec verify §5) appends a ``file_verifications`` row (append-only
-    catalog, tagged ``node_id``) — the verdict decision is made elsewhere (the verifier), the
-    adapter only persists.
     ``record_retraction`` (spec §7) appends a per-target ``match_decisions`` row
     (``rule_name=""``, ``tier="retracted"``) marking ``target_id`` as no longer matching this
     file — the append-only table has no delete, so exclusion is an appended row.
@@ -78,11 +75,3 @@ class CatalogRepository(Protocol):
     def last_observation(self, ed2k_hash: str) -> ObservedFile | None: ...
 
     def iter_reevaluation_rows(self) -> Iterator[ReevalRow]: ...
-
-    def record_verification(
-        self,
-        ed2k_hash: str,
-        verdict: str,
-        real_meta: Mapping[str, object],
-        checks: Sequence[object],
-    ) -> None: ...

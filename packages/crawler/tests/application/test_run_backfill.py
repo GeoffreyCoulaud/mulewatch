@@ -10,7 +10,6 @@ import pytest
 
 from mulewatch.application.reevaluate_catalog import ReevalSummary
 from mulewatch.application.run_backfill import run_backfill_if_policy_changed
-from mulewatch.ports.local_state_repository import ClaimedTask
 
 _SUMMARY = ReevalSummary(evaluated=3, written=1)
 
@@ -24,24 +23,6 @@ class FakeLocalRepo:
 
     def node_id(self) -> str:
         return "node"
-
-    def enqueue_verification(self, ed2k_hash: str) -> bool:
-        return True
-
-    def claim_verification(self) -> ClaimedTask | None:
-        return None
-
-    def complete_verification(self, task_id: int) -> None:
-        return None
-
-    def fail_verification(self, task_id: int) -> None:
-        return None
-
-    def reclaim_expired(self) -> int:
-        return 0
-
-    def count_pending_verifications(self) -> int:
-        return 0
 
     def last_backfill_policy(self) -> str | None:
         return self._stored_policy

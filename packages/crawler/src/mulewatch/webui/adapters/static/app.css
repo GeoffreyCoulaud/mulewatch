@@ -174,7 +174,7 @@ pre {
   letter-spacing: normal;
 }
 
-/* Colonnes de droite (Tier, Verdict) : ouvre vers la gauche pour rester dans la page */
+/* Rightmost column (Tier): open leftwards to stay inside the page */
 .th-tip--end { left: auto; right: 0; }
 
 .th-tip p { margin: 0 0 0.35rem; font-size: 0.82rem; line-height: 1.45; }

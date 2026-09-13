@@ -25,9 +25,9 @@ from .helpers import (
     stamp_user_version,
 )
 
-# The current catalog schema version = the count of catalog migrations (0001, 0002, 0003, 0004).
+# The current catalog schema version = the count of catalog migrations (0001 through 0005).
 # open_catalog stamps the output to it; the guard rejects any source that is not at it.
-_CURRENT_SCHEMA_VERSION = 4
+_CURRENT_SCHEMA_VERSION = 5
 
 
 def _file_observation(ed2k_hash: str, *, node_id: str, observed_at: str) -> dict[str, object]:
@@ -76,14 +76,6 @@ def _full_catalog(letter: str, *, node_id: str) -> dict[str, list[dict[str, obje
                 "node_id": node_id,
             }
         ],
-        "file_verifications": [
-            {
-                "ed2k_hash": ed2k,
-                "verdict": "clean",
-                "verified_at": "t1",
-                "node_id": node_id,
-            }
-        ],
     }
 
 
@@ -93,7 +85,6 @@ _ALL_TABLES = (
     "file_observations",
     "source_observations",
     "match_decisions",
-    "file_verifications",
 )
 
 
@@ -238,7 +229,6 @@ def test_t6_fk_order_inserts_identity_first(tmp_path: Path) -> None:
     assert count(out, "file_observations") == 1
     assert count(out, "source_observations") == 1
     assert count(out, "match_decisions") == 1
-    assert count(out, "file_verifications") == 1
 
 
 def test_t14_aich_first_wins_a_then_b(tmp_path: Path) -> None:

@@ -19,8 +19,6 @@ from tests.application.test_run_download_cycle import (
     FakeClock,
     FakeDownloadClient,
     FakeDownloadRepo,
-    FakeLocalRepo,
-    FakeQuarantine,
 )
 
 
@@ -44,17 +42,12 @@ class RecordingSignal:
 def _loop_deps(
     *, signal: RecordingSignal, shutdown: asyncio.Event, poll_interval: float = 30.0
 ) -> DownloadLoopDeps:
-    from pathlib import Path
-
     return DownloadLoopDeps(
         client=FakeDownloadClient(),
-        quarantine=FakeQuarantine(),
         downloads=FakeDownloadRepo(),
         catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
         targets=_TARGETS,
         disk_cap_bytes=1_000_000,
-        staging_dir=Path("/staging"),
         clock=FakeClock(),
         telemetry=RecordingTelemetry(),
         signal=signal,

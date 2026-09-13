@@ -21,12 +21,10 @@ _CATALOG_TABLES = {
     "sources",
     "source_observations",
     "match_decisions",
-    "file_verifications",
     "file_observation_ranges",
 }
 _LOCAL_TABLES = {
     "node_runtime",
-    "verification_tasks",
     "downloads",
     "scheduler_state",
     "backfill_state",
@@ -46,23 +44,20 @@ def _table_names(connection: sqlite3.Connection) -> set[str]:
     return {row[0] for row in rows}
 
 
-def test_open_catalog_creates_the_seven_tables_and_versions_the_schema(tmp_path: Path) -> None:
+def test_open_catalog_creates_the_six_tables_and_versions_the_schema(tmp_path: Path) -> None:
     connection = open_catalog(tmp_path / "catalog.db")
     try:
         assert _table_names(connection) == _CATALOG_TABLES
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
     finally:
         connection.close()
 
 
-def test_open_local_creates_the_tables_and_the_partial_unique_index(tmp_path: Path) -> None:
+def test_open_local_creates_the_tables_and_versions_the_schema(tmp_path: Path) -> None:
     connection = open_local(tmp_path / "local.db")
     try:
         assert _table_names(connection) == _LOCAL_TABLES
-        index_sql = connection.execute(
-            "SELECT sql FROM sqlite_master WHERE name = 'idx_verification_tasks_active_hash'"
-        ).fetchone()[0]
-        assert "WHERE status IN ('pending', 'in_progress')" in index_sql
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
     finally:
         connection.close()
 
@@ -105,7 +100,7 @@ def test_reopen_is_idempotent_and_keeps_data(tmp_path: Path) -> None:
     first.close()
     second = open_catalog(path)  # versions already applied: NO script replays
     try:
-        assert second.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert second.execute("PRAGMA user_version").fetchone()[0] == 5
         assert second.execute("SELECT count(*) FROM files").fetchone()[0] == 1
     finally:
         second.close()

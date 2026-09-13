@@ -1,7 +1,6 @@
 import asyncio
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import pytest
 
@@ -9,7 +8,7 @@ from catalog_matching.engine import DownloadCandidate
 from catalog_matching.models import TargetSegment
 from mulewatch.application.run_download_cycle import DownloadDeps, run_download_cycle
 from mulewatch.domain.download.states import DownloadState
-from mulewatch.domain.observability.events import DownloadCompleted, DownloadQueued, PromotionFailed
+from mulewatch.domain.observability.events import DownloadCompleted, DownloadQueued
 from mulewatch.ports.catalog_repository import ObservedFile
 from mulewatch.ports.mule_client import (
     KadStatus,
@@ -103,28 +102,6 @@ class FakeDownloadClient:
         return NetworkStatus(ed2k_id=1, ed2k_high=True, kad_status=KadStatus.CONNECTED)
 
 
-class FakeQuarantine:
-    """Fake Quarantine FAITHFUL to the contract: ``promote`` does an ``os.replace`` that CONSUMES
-    the source. A re-promote of the same hash (source already consumed, target already in place)
-    reproduces the behavior of the real ``FilesystemQuarantine.promote`` — see that branch.
-    ``fail_for`` simulates an FS failure (``OSError``) on the first promote."""
-
-    def __init__(self, *, fail_for: set[str] | None = None) -> None:
-        self.promoted: list[tuple[Path, str]] = []
-        self._fail_for = fail_for or set()
-        self._consumed: set[str] = set()
-
-    def promote(self, staging_path: Path, ed2k_hash: str) -> None:
-        if ed2k_hash in self._fail_for:
-            raise OSError("rename impossible")
-        if ed2k_hash in self._consumed:
-            # source already consumed by an earlier promotion (target quarantine/<hash> in
-            # place): the real FilesystemQuarantine.promote is idempotent → no-op success.
-            return
-        self._consumed.add(ed2k_hash)
-        self.promoted.append((staging_path, ed2k_hash))
-
-
 class FakeDownloadRepo:
     """In-memory downloads repo (the contract of SqliteDownloadRepository, without SQL).
 
@@ -199,21 +176,6 @@ class FakeCatalogReads:
         return self._observations.get(ed2k_hash)
 
 
-class FakeLocalRepo:
-    """enqueue_verification (idempotent) captured; ``fail_enqueue`` raises ``RepositoryError``."""
-
-    def __init__(self, *, fail_enqueue: bool = False) -> None:
-        self.enqueued: list[str] = []
-        self._fail_enqueue = fail_enqueue
-
-    def enqueue_verification(self, ed2k_hash: str) -> bool:
-        if self._fail_enqueue:
-            raise RepositoryError("enqueue_verification failed")
-        first = ed2k_hash not in self.enqueued
-        self.enqueued.append(ed2k_hash)
-        return first
-
-
 class FakeClock:
     def __init__(self) -> None:
         self._now = datetime(2026, 6, 13, tzinfo=UTC)
@@ -235,23 +197,18 @@ def _candidate(hash_hex: str, target_id: str) -> DownloadCandidate:
 def _deps(
     *,
     client: FakeDownloadClient,
-    quarantine: FakeQuarantine,
     downloads: FakeDownloadRepo,
     catalog: FakeCatalogReads,
-    local: FakeLocalRepo,
     disk_cap: int = 1_000_000,
     telemetry: RecordingTelemetry | None = None,
     targets: Sequence[TargetSegment] | None = None,
 ) -> DownloadDeps:
     return DownloadDeps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=catalog,
-        local=local,
         targets=targets if targets is not None else _TARGETS,
         disk_cap_bytes=disk_cap,
-        staging_dir=Path("/staging"),
         clock=FakeClock(),
         telemetry=telemetry or RecordingTelemetry(),
     )
@@ -267,10 +224,8 @@ async def test_new_candidate_is_queued_and_link_added() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert downloads.states[_A] is DownloadState.QUEUED
@@ -289,10 +244,8 @@ async def test_already_downloaded_candidate_is_deduped() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert client.added_links == []  # dedup: no new link
@@ -324,10 +277,8 @@ async def test_two_segment_candidates_same_hash_dedup_to_one_download() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
         telemetry=telemetry,
         targets=targets,
     )
@@ -355,10 +306,8 @@ async def test_complete_target_candidate_is_skipped() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert client.added_links == []
@@ -375,10 +324,8 @@ async def test_disk_cap_defers_candidate() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
         disk_cap=100,  # 500 > 100 → defers
     )
     await run_download_cycle(deps)
@@ -395,10 +342,8 @@ async def test_candidate_without_observation_is_skipped() -> None:
     catalog = FakeCatalogReads(candidates=(_candidate(_A, "062A"),), observations={})
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert client.added_links == []
@@ -411,10 +356,8 @@ async def test_monitor_marks_in_progress_when_not_complete() -> None:
     downloads.states[_A] = DownloadState.QUEUED
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert downloads.states[_A] is DownloadState.DOWNLOADING
@@ -422,17 +365,13 @@ async def test_monitor_marks_in_progress_when_not_complete() -> None:
 
 @pytest.mark.asyncio
 async def test_monitor_does_not_regress_terminal_or_completed_queue_entry() -> None:
-    # _monitor: a tracked hash that is TERMINAL/already completed (quarantined/failed/completed)
-    # present in the amuled queue MUST NOT regress to DOWNLOADING (monitor's skip branch).
+    # _monitor: a tracked hash in a TERMINAL state (completed/failed) present in the amuled
+    # queue MUST NOT regress to DOWNLOADING (monitor's skip branch).
     class _NoSetStateRepo(FakeDownloadRepo):
         def set_state(self, ed2k_hash: str, state: DownloadState) -> None:
             raise AssertionError("set_state must not be called (terminal/completed state)")
 
-    for terminal in (
-        DownloadState.QUARANTINED,
-        DownloadState.FAILED,
-        DownloadState.COMPLETED,
-    ):
+    for terminal in (DownloadState.FAILED, DownloadState.COMPLETED):
         client = FakeDownloadClient(
             queue=[(DownloadEntry(ed2k_hash=_A, size_done=3, size_full=10),)]
         )
@@ -440,10 +379,8 @@ async def test_monitor_does_not_regress_terminal_or_completed_queue_entry() -> N
         repo.states[_A] = terminal
         deps = _deps(
             client=client,
-            quarantine=FakeQuarantine(),
             downloads=repo,
             catalog=FakeCatalogReads(),
-            local=FakeLocalRepo(),
         )
         await run_download_cycle(deps)
         assert repo.states[_A] is terminal  # unchanged
@@ -456,32 +393,11 @@ async def test_monitor_ignores_unknown_queue_entries() -> None:
     downloads = FakeDownloadRepo()
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert _B not in downloads.states
-
-
-@pytest.mark.asyncio
-async def test_promote_failure_keeps_completed_and_does_not_enqueue() -> None:
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
-    downloads = FakeDownloadRepo()
-    downloads.states[_A] = DownloadState.DOWNLOADING
-    quarantine = FakeQuarantine(fail_for={_A})
-    local = FakeLocalRepo()
-    deps = _deps(
-        client=client,
-        quarantine=quarantine,
-        downloads=downloads,
-        catalog=FakeCatalogReads(),
-        local=local,
-    )
-    await run_download_cycle(deps)
-    assert downloads.states[_A] is DownloadState.COMPLETED  # stays completed (retry)
-    assert local.enqueued == []  # does NOT enqueue
 
 
 @pytest.mark.asyncio
@@ -496,19 +412,13 @@ async def test_shared_hash_still_in_the_download_queue_is_not_a_completion() -> 
     )
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING
-    quarantine = FakeQuarantine()
-    local = FakeLocalRepo()
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=local,
     )
     await run_download_cycle(deps)
     assert downloads.states[_A] is DownloadState.DOWNLOADING  # NOT flipped to COMPLETED
-    assert quarantine.promoted == []  # nothing promoted
-    assert local.enqueued == []  # nothing sent to verification
 
 
 @pytest.mark.asyncio
@@ -522,19 +432,13 @@ async def test_shared_hash_absent_from_the_download_queue_is_a_completion() -> N
     )
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING
-    quarantine = FakeQuarantine()
-    local = FakeLocalRepo()
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=local,
     )
     await run_download_cycle(deps)
-    assert downloads.states[_A] is DownloadState.QUARANTINED
-    assert quarantine.promoted == [(Path("/staging/Keroro.avi"), _A)]
-    assert local.enqueued == [_A]
+    assert downloads.states[_A] is DownloadState.COMPLETED
 
 
 @pytest.mark.asyncio
@@ -552,10 +456,8 @@ async def test_cycle_reconnects_a_dead_transport_before_any_io() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert client.connect_calls == 1
@@ -571,10 +473,8 @@ async def test_reconnect_failure_skips_the_iteration_without_raising() -> None:
     downloads = FakeDownloadRepo()
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=FakeCatalogReads(candidates=(_candidate(_A, "062A"),)),
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)  # does not raise
     assert client.connect_calls == 1  # the reconnect was ATTEMPTED
@@ -588,10 +488,8 @@ async def test_unreachable_client_is_tolerated_and_iteration_skipped() -> None:
     downloads = FakeDownloadRepo()
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=FakeCatalogReads(candidates=(_candidate(_A, "062A"),)),
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)  # does not raise
     assert client.added_links == []  # iteration skipped (no candidates processed)
@@ -607,10 +505,8 @@ async def test_repository_error_is_absorbed() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)  # does not raise (RepositoryError absorbed)
 
@@ -619,12 +515,12 @@ async def test_repository_error_is_absorbed() -> None:
 async def test_monitor_repo_error_still_promotes_completions_in_same_cycle() -> None:
     # Regression logic-download#2: if ``_monitor`` raises ``RepositoryError`` (set_state down on
     # another hash), the old code set ``states={}`` then called ``_handle_completions``
-    # → each shared hash → ``states.get(...) is None`` → ignored → NO completion promoted
+    # → each shared hash → ``states.get(...) is None`` → ignored → NO completion recorded
     # in the whole cycle (latency +1 cycle although we already have the signal). The fix re-reads
     # ``active_states()`` BEFORE ``_handle_completions`` so the completions are seen.
     client = FakeDownloadClient(
-        # _A is NOT in the queue: it completed (that is why it is shared and why the promotion
-        # must happen in this very cycle). _B is queued and fails its set_state transition.
+        # _A is NOT in the queue: it completed (that is why it is shared and why the completion
+        # must be recorded in this very cycle). _B is queued and fails its set_state transition.
         queue=[(DownloadEntry(ed2k_hash=_B, size_done=0, size_full=0),)],
         shared=[(SharedFileEntry(ed2k_hash=_A, name="keroro_062a.avi"),)],
     )
@@ -633,18 +529,14 @@ async def test_monitor_repo_error_still_promotes_completions_in_same_cycle() -> 
     # set_state(_B, DOWNLOADING) which raises → step 1 crashes, but _A is complete in shared.
     downloads.states[_A] = DownloadState.DOWNLOADING
     downloads.states[_B] = DownloadState.QUEUED
-    quarantine = FakeQuarantine()
-    local = FakeLocalRepo()
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=local,
     )
     await run_download_cycle(deps)
-    assert local.enqueued == [_A]  # _A's completion is promoted despite the failure of _monitor
-    assert downloads.states[_A] is DownloadState.QUARANTINED
+    # _A's completion is recorded despite the failure of _monitor on _B
+    assert downloads.states[_A] is DownloadState.COMPLETED
 
 
 @pytest.mark.asyncio
@@ -657,19 +549,17 @@ async def test_active_states_repo_failure_is_absorbed_at_step_2() -> None:
     downloads = FakeDownloadRepo(fail_active_states=True)
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)  # does not raise (both RepositoryError are absorbed)
 
 
 @pytest.mark.asyncio
 async def test_one_hash_repo_failure_does_not_starve_other_completions() -> None:
-    # Regression error-boundary#2: a ``RepositoryError`` in ``_promote_completion`` of hash N
+    # Regression error-boundary#2: a ``RepositoryError`` in ``_record_completion`` of hash N
     # used to bubble up to the cycle handler, abandoning N+1, N+2 of the same shared_files. The fix
-    # isolates PER HASH (try/except around _promote_completion), honoring the "isolated per
+    # isolates PER HASH (try/except around _record_completion), honoring the "isolated per
     # step" intent of the comment (I2).
     client = FakeDownloadClient(
         shared=[
@@ -679,23 +569,18 @@ async def test_one_hash_repo_failure_does_not_starve_other_completions() -> None
             )
         ],
     )
-    # _A and _B in DOWNLOADING; set_state(_A, ...) crashes → _promote_completion of _A raises;
-    # _B must nonetheless be promoted (intra-cycle continuity).
+    # _A and _B in DOWNLOADING; set_state(_A, ...) crashes → _record_completion of _A raises;
+    # _B must nonetheless be completed (intra-cycle continuity).
     downloads = FakeDownloadRepo(fail_set_state_for={_A})
     downloads.states[_A] = DownloadState.DOWNLOADING
     downloads.states[_B] = DownloadState.DOWNLOADING
-    quarantine = FakeQuarantine()
-    local = FakeLocalRepo()
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=local,
     )
     await run_download_cycle(deps)
-    assert _B in local.enqueued  # _B is promoted despite the failure on _A
-    assert downloads.states[_B] is DownloadState.QUARANTINED
+    assert downloads.states[_B] is DownloadState.COMPLETED  # despite the failure on _A
 
 
 @pytest.mark.asyncio
@@ -713,10 +598,8 @@ async def test_intra_cycle_disk_cap_accounts_for_links_added_this_cycle() -> Non
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
         disk_cap=1000,
     )
     await run_download_cycle(deps)
@@ -735,10 +618,8 @@ async def test_candidate_for_unknown_target_is_treated_as_complete() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert client.added_links == []
@@ -761,10 +642,8 @@ async def test_monitor_no_op_when_state_already_matches() -> None:
     repo.states[_A] = DownloadState.DOWNLOADING
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=repo,
         catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert repo.states[_A] is DownloadState.DOWNLOADING
@@ -780,10 +659,8 @@ async def test_queued_download_without_observation_emits_no_link() -> None:
     downloads.sizes[_A] = 100
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=FakeCatalogReads(observations={}),  # no observation
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert client.added_links == []
@@ -801,10 +678,8 @@ async def test_add_link_unreachable_keeps_queued_and_is_tolerated() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)  # does not raise
     assert downloads.states[_A] is DownloadState.QUEUED  # stays queued → caught up
@@ -823,10 +698,8 @@ async def test_add_link_rejected_marks_failed_and_does_not_crash() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)  # does not raise (application failure tolerated per hash)
     assert downloads.states[_A] is DownloadState.FAILED  # link rejected → marked failed
@@ -848,10 +721,8 @@ async def test_add_link_rejected_for_one_hash_does_not_block_the_next() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert downloads.states[_A] is DownloadState.FAILED  # rejected
@@ -862,28 +733,23 @@ async def test_add_link_rejected_for_one_hash_does_not_block_the_next() -> None:
 
 @pytest.mark.asyncio
 async def test_completion_and_new_candidate_in_the_same_cycle() -> None:
-    # _A completed via the SHARED files (promoted this cycle); _B is a new candidate
-    # (enqueued + link).
+    # _A completed via the SHARED files (recorded this cycle); _B is a new candidate
+    # (queued + link).
     client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="a.avi"),)])
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING
     downloads.sizes[_A] = 10
-    quarantine = FakeQuarantine()
-    local = FakeLocalRepo()
     catalog = FakeCatalogReads(
         candidates=(_candidate(_B, "062A"),),
         observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
     )
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=catalog,
-        local=local,
     )
     await run_download_cycle(deps)
-    assert downloads.states[_A] is DownloadState.QUARANTINED  # completed → promoted + enqueued
-    assert local.enqueued == [_A]
+    assert downloads.states[_A] is DownloadState.COMPLETED  # shared and out of the queue
     assert downloads.states[_B] is DownloadState.QUEUED  # new → enqueued
     assert any(_B in link for link in client.added_links)  # + link emitted
 
@@ -899,10 +765,8 @@ async def test_emits_download_queued() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
         telemetry=telemetry,
     )
     await run_download_cycle(deps)
@@ -910,7 +774,7 @@ async def test_emits_download_queued() -> None:
 
 
 @pytest.mark.asyncio
-async def test_emits_download_completed_on_promotion() -> None:
+async def test_emits_download_completed() -> None:
     telemetry = RecordingTelemetry()
     client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
     downloads = FakeDownloadRepo()
@@ -918,33 +782,12 @@ async def test_emits_download_completed_on_promotion() -> None:
     downloads._target_ids[_A] = "062A"
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
         telemetry=telemetry,
     )
     await run_download_cycle(deps)
     assert any(isinstance(e, DownloadCompleted) and e.target_id == "062A" for e in telemetry.events)
-
-
-@pytest.mark.asyncio
-async def test_emits_promotion_failed() -> None:
-    telemetry = RecordingTelemetry()
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
-    downloads = FakeDownloadRepo()
-    downloads.states[_A] = DownloadState.DOWNLOADING
-    quarantine = FakeQuarantine(fail_for={_A})  # promote raises → PromotionFailed
-    deps = _deps(
-        client=client,
-        quarantine=quarantine,
-        downloads=downloads,
-        catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
-        telemetry=telemetry,
-    )
-    await run_download_cycle(deps)
-    assert any(type(e).__name__ == "PromotionFailed" for e in telemetry.events)
 
 
 # ---------------------------------------------------------------------------
@@ -955,101 +798,54 @@ async def test_emits_promotion_failed() -> None:
 
 @pytest.mark.asyncio
 async def test_completion_repo_failure_does_not_starve_new_candidates() -> None:
-    # _handle_completions raises RepositoryError (enqueue_verification fails on the shared hash
-    # _A) → _queue_new_candidates AND _add_links run ANYWAY for _B:
+    # _handle_completions raises RepositoryError (set_state fails on the shared hash _A)
+    # → _queue_new_candidates AND _add_links run ANYWAY for _B:
     # a step-2 repo failure does not starve step 3 (anti-starvation, I2).
     client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="a.avi"),)])
-    downloads = FakeDownloadRepo()
-    downloads.states[_A] = DownloadState.DOWNLOADING  # shared → promoted step 2 (enqueue raises)
+    downloads = FakeDownloadRepo(fail_set_state_for={_A})  # step 2 raises RepositoryError
+    downloads.states[_A] = DownloadState.DOWNLOADING  # shared → completed step 2 (set_state raises)
     downloads.sizes[_A] = 10
     catalog = FakeCatalogReads(
         candidates=(_candidate(_B, "062A"),),  # new candidate step 3
         observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
     )
-    local = FakeLocalRepo(fail_enqueue=True)  # step 2 raises RepositoryError
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=local,
     )
     await run_download_cycle(deps)  # does not raise
     # Observable effect of step 3: _B enqueued AND its link emitted despite the step-2 failure.
     assert downloads.states[_B] is DownloadState.QUEUED
     assert any(_B in link for link in client.added_links)
-    # _A stays COMPLETED (the enqueue failure left step 2 incomplete → retry next round).
-    assert downloads.states[_A] is DownloadState.COMPLETED
+    # _A stays DOWNLOADING (the set_state failure left step 2 incomplete → retry next round).
+    assert downloads.states[_A] is DownloadState.DOWNLOADING
 
 
 @pytest.mark.asyncio
 async def test_candidate_repo_failure_does_not_starve_completions() -> None:
     # Symmetric: _queue_new_candidates raises RepositoryError (record_queued fails) → the
-    # step-2 completions were promoted ANYWAY (observable effect). The failure of
+    # step-2 completions were recorded ANYWAY (observable effect). The failure of
     # step 3 does not starve step 2.
     client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="a.avi"),)])
     downloads = FakeDownloadRepo(fail_record=True)  # step 3 raises RepositoryError
-    downloads.states[_A] = DownloadState.DOWNLOADING  # _A shared → promoted step 2
+    downloads.states[_A] = DownloadState.DOWNLOADING  # _A shared → completed step 2
     downloads.sizes[_A] = 10
-    quarantine = FakeQuarantine()
-    local = FakeLocalRepo()
     catalog = FakeCatalogReads(
         candidates=(_candidate(_B, "062A"),),  # new candidate → record_queued will raise
         observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
     )
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=catalog,
-        local=local,
     )
     await run_download_cycle(deps)  # does not raise
-    # Observable effect of step 2: _A promoted + enqueued despite the step-3 failure.
-    assert downloads.states[_A] is DownloadState.QUARANTINED
-    assert local.enqueued == [_A]
+    # Observable effect of step 2: _A completed despite the step-3 failure.
+    assert downloads.states[_A] is DownloadState.COMPLETED
     # _B was NOT enqueued (record_queued raised) → no link emitted for it.
     assert _B not in downloads.states
     assert client.added_links == []
-
-
-@pytest.mark.asyncio
-async def test_completion_recovers_after_transient_enqueue_failure() -> None:
-    # Regression logic-download#0: a TRANSIENT enqueue_verification failure AFTER a successful
-    # promote (source already consumed by os.replace) must NOT block the file forever.
-    # Next cycle, enqueue restored + idempotent promote → the file ends up QUARANTINED +
-    # enqueued, instead of looping forever on PromotionFailed (consumed source not found).
-    downloads = FakeDownloadRepo()
-    downloads.states[_A] = DownloadState.DOWNLOADING
-    quarantine = FakeQuarantine()  # SHARED across cycles: models source consumption
-    shared = (SharedFileEntry(ed2k_hash=_A, name="a.avi"),)
-
-    # Cycle 1: promote succeeds (source consumed) then enqueue raises RepositoryError.
-    await run_download_cycle(
-        _deps(
-            client=FakeDownloadClient(shared=[shared]),
-            quarantine=quarantine,
-            downloads=downloads,
-            catalog=FakeCatalogReads(),
-            local=FakeLocalRepo(fail_enqueue=True),
-        )
-    )
-    assert downloads.states[_A] is DownloadState.COMPLETED  # stuck at completed this round
-    assert (Path("/staging") / "a.avi", _A) in quarantine.promoted  # source ALREADY consumed
-
-    # Cycle 2: enqueue restored. The hash is still shared, state COMPLETED → re-promotion.
-    local_ok = FakeLocalRepo()
-    await run_download_cycle(
-        _deps(
-            client=FakeDownloadClient(shared=[shared]),
-            quarantine=quarantine,
-            downloads=downloads,
-            catalog=FakeCatalogReads(),
-            local=local_ok,
-        )
-    )
-    assert downloads.states[_A] is DownloadState.QUARANTINED  # recovered, no more infinite loop
-    assert local_ok.enqueued == [_A]
 
 
 @pytest.mark.asyncio
@@ -1061,22 +857,16 @@ async def test_monitor_unreachable_aborts_subsequent_steps() -> None:
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.COMPLETED  # a pending completion (step 2)
     downloads.sizes[_A] = 10
-    quarantine = FakeQuarantine()
-    local = FakeLocalRepo()
     catalog = FakeCatalogReads(
         candidates=(_candidate(_B, "062A"),),  # a candidate (step 3)
         observations={_B: ObservedFile(filename="b.avi", size_bytes=100)},
     )
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=catalog,
-        local=local,
     )
     await run_download_cycle(deps)  # does not raise (tolerated) but EVERYTHING is skipped
-    assert quarantine.promoted == []  # step 2 NOT executed (abort before)
-    assert local.enqueued == []
     assert downloads.states[_A] is DownloadState.COMPLETED  # unchanged
     assert _B not in downloads.states  # step 3 NOT executed
     assert client.added_links == []
@@ -1099,10 +889,8 @@ async def test_monitor_repo_failure_is_isolated_and_does_not_starve_candidates()
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)  # does not raise
     # Step 3 ran despite the step-1 failure: _B enqueued + link emitted.
@@ -1130,200 +918,106 @@ async def test_add_links_repo_failure_is_tolerated_and_does_not_raise() -> None:
     )
     deps = _deps(
         client=client,
-        quarantine=FakeQuarantine(),
         downloads=downloads,
         catalog=catalog,
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)  # does NOT raise (step-4 RepositoryError tolerated)
 
 
 # ---------------------------------------------------------------------------
-# Completion via the EC SHARED files (positive signal) + promotion to the REAL NAME (DV10-Q2).
+# Completion via the EC SHARED files (positive signal).
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_shared_file_for_tracked_hash_is_promoted_with_real_name() -> None:
+async def test_shared_file_for_tracked_hash_is_completed() -> None:
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING
-    quarantine = FakeQuarantine()
     client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="Keroro 62a.avi"),)])
-    local = FakeLocalRepo()
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=local,
     )
     await run_download_cycle(deps)
-    assert (Path("/staging") / "Keroro 62a.avi", _A) in quarantine.promoted
-    assert downloads.states[_A] is DownloadState.QUARANTINED
-    assert local.enqueued == [_A]
-
-
-@pytest.mark.asyncio
-async def test_shared_name_with_traversal_is_confined_to_basename() -> None:
-    # shared name = HOSTILE input (CLAUDE.md "filenames are hostile input"): a name with
-    # traversal MUST NOT escape staging_dir — the os.replace SOURCE stays confined to the
-    # basename (_safe_basename, non-None branch).
-    downloads = FakeDownloadRepo()
-    downloads.states[_A] = DownloadState.DOWNLOADING
-    quarantine = FakeQuarantine()
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="../../etc/passwd"),)])
-    deps = _deps(
-        client=client,
-        quarantine=quarantine,
-        downloads=downloads,
-        catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
-    )
-    await run_download_cycle(deps)
-    (path, _) = quarantine.promoted[0]
-    assert path == Path("/staging") / "passwd"  # confined to the basename
-    assert ".." not in path.parts
-    assert path.parent == Path("/staging")
-
-
-@pytest.mark.asyncio
-async def test_already_completed_shared_hash_is_promoted_without_restamping() -> None:
-    # _A already COMPLETED (a previous round stamped it but promote had failed) reappears in
-    # the shared files → promotion succeeds this time WITHOUT re-stamping COMPLETED (branch
-    # `current is COMPLETED` of _promote_completion: skip the set_state, promote directly).
-    class _NoCompletedSetStateRepo(FakeDownloadRepo):
-        def set_state(self, ed2k_hash: str, state: DownloadState) -> None:
-            if state is DownloadState.COMPLETED:
-                raise AssertionError("must not re-stamp COMPLETED (already completed)")
-            super().set_state(ed2k_hash, state)
-
-    downloads = _NoCompletedSetStateRepo()
-    downloads.states[_A] = DownloadState.COMPLETED
-    quarantine = FakeQuarantine()
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
-    local = FakeLocalRepo()
-    deps = _deps(
-        client=client,
-        quarantine=quarantine,
-        downloads=downloads,
-        catalog=FakeCatalogReads(),
-        local=local,
-    )
-    await run_download_cycle(deps)
-    assert (Path("/staging") / "x.avi", _A) in quarantine.promoted
-    assert downloads.states[_A] is DownloadState.QUARANTINED
-    assert local.enqueued == [_A]
+    assert downloads.states[_A] is DownloadState.COMPLETED
 
 
 @pytest.mark.asyncio
 async def test_shared_file_for_untracked_hash_is_ignored() -> None:
-    downloads = FakeDownloadRepo()  # _A non suivi
-    quarantine = FakeQuarantine()
+    downloads = FakeDownloadRepo()  # _A not tracked by the crawler
     client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
-    assert quarantine.promoted == []
+    assert _A not in downloads.states
 
 
 @pytest.mark.asyncio
-async def test_already_quarantined_shared_hash_is_not_repromoted() -> None:
-    downloads = FakeDownloadRepo()
-    downloads.states[_A] = DownloadState.QUARANTINED
-    quarantine = FakeQuarantine()
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
-    deps = _deps(
-        client=client,
-        quarantine=quarantine,
-        downloads=downloads,
-        catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
-    )
-    await run_download_cycle(deps)
-    assert quarantine.promoted == []
+async def test_already_completed_shared_hash_is_not_recompleted() -> None:
+    # A completed file stays in amuled's shared list forever. Without the terminal skip, every
+    # cycle would re-stamp it and re-fire the community notification.
+    class _NoSetStateRepo(FakeDownloadRepo):
+        def set_state(self, ed2k_hash: str, state: DownloadState) -> None:
+            raise AssertionError("must not re-stamp an already completed download")
 
-
-@pytest.mark.asyncio
-async def test_degenerate_shared_name_is_skipped() -> None:
-    downloads = FakeDownloadRepo()
-    downloads.states[_A] = DownloadState.DOWNLOADING
-    quarantine = FakeQuarantine()
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name=".."),)])
-    deps = _deps(
-        client=client,
-        quarantine=quarantine,
-        downloads=downloads,
-        catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
-    )
-    await run_download_cycle(deps)
-    assert quarantine.promoted == []
-    # degenerate name → guard BEFORE the completed stamp: the state stays unchanged (DOWNLOADING),
-    # re-judged next round if amuled finally reports a usable name. (Concern raised: the
-    # test spec said COMPLETED, but the spec's prod code returns BEFORE stamping.)
-    assert downloads.states[_A] is DownloadState.DOWNLOADING
-
-
-@pytest.mark.asyncio
-async def test_promotion_failure_leaves_completed_for_retry() -> None:
-    downloads = FakeDownloadRepo()
-    downloads.states[_A] = DownloadState.DOWNLOADING
-    quarantine = FakeQuarantine(fail_for={_A})
-    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
-    local = FakeLocalRepo()
+    downloads = _NoSetStateRepo()
+    downloads.states[_A] = DownloadState.COMPLETED
     telemetry = RecordingTelemetry()
+    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=local,
         telemetry=telemetry,
     )
     await run_download_cycle(deps)
-    assert downloads.states[_A] is DownloadState.COMPLETED
-    assert local.enqueued == []
-    assert any(isinstance(e, PromotionFailed) for e in telemetry.events)
+    assert not any(isinstance(e, DownloadCompleted) for e in telemetry.events)
 
 
 @pytest.mark.asyncio
-async def test_monitor_promotes_queued_to_downloading_not_completed() -> None:
+async def test_failed_shared_hash_is_not_completed() -> None:
+    downloads = FakeDownloadRepo()
+    downloads.states[_A] = DownloadState.FAILED
+    client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A, name="x.avi"),)])
+    deps = _deps(
+        client=client,
+        downloads=downloads,
+        catalog=FakeCatalogReads(),
+    )
+    await run_download_cycle(deps)
+    assert downloads.states[_A] is DownloadState.FAILED
+
+
+@pytest.mark.asyncio
+async def test_monitor_moves_queued_to_downloading_not_completed() -> None:
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.QUEUED
     client = FakeDownloadClient(
         queue=[(DownloadEntry(ed2k_hash=_A, size_done=10, size_full=10),)],
         shared=[()],  # not yet shared → no completion
     )
-    quarantine = FakeQuarantine()
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)
     assert downloads.states[_A] is DownloadState.DOWNLOADING  # NOT completed (bytes ignored)
-    assert quarantine.promoted == []
 
 
 @pytest.mark.asyncio
 async def test_shared_files_unreachable_aborts_iteration_gracefully() -> None:
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.DOWNLOADING
-    client = FakeDownloadClient(shared_failures=[MuleUnreachableError("flux mort")])
-    quarantine = FakeQuarantine()
+    client = FakeDownloadClient(shared_failures=[MuleUnreachableError("dead stream")])
     deps = _deps(
         client=client,
-        quarantine=quarantine,
         downloads=downloads,
         catalog=FakeCatalogReads(),
-        local=FakeLocalRepo(),
     )
     await run_download_cycle(deps)  # does not raise
-    assert quarantine.promoted == []
+    assert downloads.states[_A] is DownloadState.DOWNLOADING

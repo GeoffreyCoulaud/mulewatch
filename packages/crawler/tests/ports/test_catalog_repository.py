@@ -1,4 +1,4 @@
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator
 
 from catalog_matching.engine import (
     DecisionRecord,
@@ -17,7 +17,6 @@ class _StubRepository:
         self.observations: list[FileObservation] = []
         self.decisions: list[tuple[str, MatchDecision]] = []
         self.retractions: list[tuple[str, str]] = []
-        self.verifications: list[tuple[str, str, dict[str, object], list[object]]] = []
 
     def record_observation(self, observation: FileObservation) -> None:
         self.observations.append(observation)
@@ -49,15 +48,6 @@ class _StubRepository:
                 ),
             )
         )
-
-    def record_verification(
-        self,
-        ed2k_hash: str,
-        verdict: str,
-        real_meta: Mapping[str, object],
-        checks: Sequence[object],
-    ) -> None:
-        self.verifications.append((ed2k_hash, verdict, dict(real_meta), list(checks)))
 
 
 def test_protocol_is_satisfied_structurally() -> None:
@@ -94,8 +84,6 @@ def test_protocol_is_satisfied_structurally() -> None:
             bitrate_kbps=None,
         ),
     )
-    repository.record_verification(observation.ed2k_hash, "unverified", {"k": 1}, ["c"])
     assert stub.observations == [observation]
     assert stub.decisions == [(observation.ed2k_hash, decision)]
     assert stub.retractions == [(observation.ed2k_hash, "062A")]
-    assert stub.verifications == [(observation.ed2k_hash, "unverified", {"k": 1}, ["c"])]

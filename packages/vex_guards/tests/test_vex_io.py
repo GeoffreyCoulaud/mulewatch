@@ -29,10 +29,26 @@ def test_load_claims_keeps_not_affected_only(tmp_path: Path) -> None:
     assert load_claims(path) == {"CVE-1": "vulnerable_code_not_present"}
 
 
-def test_all_claims_merges_and_agrees_on_shared_cves() -> None:
+def test_all_claims_reads_the_shipped_vex_documents() -> None:
     claims = all_claims(list(repo.vex_files().values()))
     assert claims["CVE-2026-11940"] == "vulnerable_code_not_in_execute_path"
-    assert claims["CVE-2016-1405"] == "vulnerable_code_not_present"
+
+
+def test_all_claims_merges_and_agrees_on_shared_cves(tmp_path: Path) -> None:
+    # Two documents claiming the same CVE with the same justification merge silently.
+    statement: dict[str, object] = {
+        "vulnerability": {"name": "CVE-SHARED"},
+        "status": "not_affected",
+        "justification": "vulnerable_code_not_present",
+    }
+    dir_a = tmp_path / "a"
+    dir_b = tmp_path / "b"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    first = _write(dir_a, [statement])
+    second = _write(dir_b, [statement])
+
+    assert all_claims([first, second]) == {"CVE-SHARED": "vulnerable_code_not_present"}
 
 
 def test_all_claims_raises_on_conflicting_justifications(tmp_path: Path) -> None:

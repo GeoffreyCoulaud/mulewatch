@@ -1,5 +1,8 @@
 # Spec — emule-indexer : ring noyau (filtre seccomp-bpf par-enfant d'analyse)
 
+> **Obsolete since 2026-09-13.** The subsystem described here left the project's scope.
+> See `docs/specs/2026-09-13-scope-reduction-catalog-notify-download.md`.
+
 > **🔵 Dépréciée 2026-06-29** : gVisor a été retiré du projet (YAGNI). La baseline de hardening (`cap_drop: ALL`, `read_only`, `no-new-privileges`, seccomp, rlimits) est suffisante. Cette spec est conservée pour l'historique des décisions de conception ; le seccomp-bpf par-enfant et la blocklist restent en vigueur.
 >
 > **Sous-projet** : tâche **structurante** de la Vague 1 (worktree **WT-verifier**, séquencée

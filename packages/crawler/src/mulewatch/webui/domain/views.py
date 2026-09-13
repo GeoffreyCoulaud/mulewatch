@@ -75,7 +75,6 @@ class FileRow:
     source_count: int  # source count (latest observation)
     last_seen: str  # observed_at of the latest observation (ISO-8601 UTC)
     decisions: tuple[FileDecision, ...]  # current decisions, latest per target, 0..N
-    last_verdict: str | None  # latest verification verdict (per file, not per target)
 
 
 # ---------------------------------------------------------------------------
@@ -111,25 +110,14 @@ class DecisionView:
 
 
 @dataclass(frozen=True)
-class VerificationRow:
-    """A verification result."""
-
-    id: int
-    verdict: str
-    verified_at: str
-    node_id: str
-
-
-@dataclass(frozen=True)
 class FileDetail:
-    """Full view of a file: timeline + current decisions + verdicts."""
+    """Full view of a file: timeline + current decisions."""
 
     ed2k_hash: str
     size_bytes: int
     aich_hash: str | None
     observations: tuple[ObservationRow, ...]
     decisions: tuple[DecisionView, ...]  # current decisions, latest per target, 0..N
-    verifications: tuple[VerificationRow, ...]
 
 
 # ---------------------------------------------------------------------------
@@ -150,17 +138,6 @@ class DownloadRow:
 
 
 @dataclass(frozen=True)
-class VerifTaskRow:
-    """A verification task (verification_tasks table)."""
-
-    ed2k_hash: str
-    status: str
-    attempts: int
-    enqueued_at: str
-    lease_until: str | None
-
-
-@dataclass(frozen=True)
 class SchedulerEntry:
     """A scheduler key/value pair (precomputed for the template)."""
 
@@ -170,10 +147,9 @@ class SchedulerEntry:
 
 @dataclass(frozen=True)
 class NodeState:
-    """Full node state: downloads, verifications, scheduler, identity."""
+    """Full node state: downloads, scheduler, identity."""
 
     downloads: tuple[DownloadRow, ...]
-    verification_tasks: tuple[VerifTaskRow, ...]
     scheduler: Mapping[str, str]  # all scheduler_state pairs
     node_id: str | None  # None if absent from node_runtime
     created_at: str | None  # None if absent from node_runtime
@@ -204,8 +180,8 @@ class FileRowDisplay:
     excluding retractions and the legacy ``target_id == ""`` sentinel: those never reach
     this layer). Each current decision becomes one ``DecisionCell`` in ``decisions_display``:
 
-    - no decisions at all → ``decisions_display`` is empty and ``tier_display`` /
-      ``verdict_display`` are the literal ``"·"``.
+    - no decisions at all → ``decisions_display`` is empty and ``tier_display`` is the
+      literal ``"·"``.
     - per decision, ``DecisionCell.target``/``.title`` resolve via
       ``composition.app._resolve_target_display``: ``tier == "catalog"`` → ``"unidentified"``
       / ``"·"`` (the ``keroro_large`` catch-all, the only catalog-tier rule); otherwise the
@@ -214,9 +190,6 @@ class FileRowDisplay:
       target_id no longer in the current targets.yaml) → the raw id + ``"·"``.
     - ``tier_display`` is the shared tier when all decisions agree, else each decision listed
       as ``"{target_id}: {tier}"`` joined with ``" · "``.
-    - ``verdict_display`` is a single per-file value (verification is per file, not per
-      target): the latest verdict, or ``"pending"`` when at least one decision exists but no
-      verdict has been recorded yet.
     """
 
     ed2k_hash: str
@@ -227,8 +200,6 @@ class FileRowDisplay:
     size_display: str  # human_size(size_bytes)
     last_seen_display: str  # short_timestamp(last_seen)
     tier_display: str  # shared tier, or "target_id: tier" per decision joined with " · "
-    verdict_display: str  # last_verdict; "pending" if decisions exist but no verdict yet;
-    # "·" if there are no current decisions at all
     ed2k_link: str
 
 
@@ -380,7 +351,6 @@ class FileDetailDisplay:
     aich_hash_display: str  # aich_hash or "·"
     observations: tuple[ObservationRow, ...]
     decisions: tuple[DecisionView, ...]  # 0..N elements: for template iteration
-    verifications: tuple[VerificationRow, ...]
     ed2k_link: str  # precomputed from the latest observation
     # Explanation fields (None if no explanation available)
     explanation_target_id: str | None

@@ -28,8 +28,6 @@ _SEED = (
     f" VALUES ('u', '{_HASH}', '[]', 't', 'n')",
     f"INSERT INTO match_decisions (ed2k_hash, target_id, rule_name, tier, decided_at, node_id)"
     f" VALUES ('{_HASH}', '062A', 'r', 'download', 't', 'n')",
-    f"INSERT INTO file_verifications (ed2k_hash, verdict, verified_at, node_id)"
-    f" VALUES ('{_HASH}', 'pending', 't', 'n')",
 )
 
 _UPDATES = {
@@ -38,7 +36,6 @@ _UPDATES = {
     "sources": "UPDATE sources SET client_name = 'autre'",
     "source_observations": "UPDATE source_observations SET nickname = 'autre'",
     "match_decisions": "UPDATE match_decisions SET tier = 'notify'",
-    "file_verifications": "UPDATE file_verifications SET verdict = 'ok'",
 }
 
 

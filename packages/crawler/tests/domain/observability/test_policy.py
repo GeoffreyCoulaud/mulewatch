@@ -129,75 +129,6 @@ CASES: list[tuple[ev.Event, Report]] = [
         ),
     ),
     (
-        ev.PromotionFailed(ed2k_hash="a" * 32),
-        Report(
-            Severity.WARNING,
-            f"quarantine promotion failed: {'a' * 32}",
-            (MetricInstruction(MetricName.PROMOTION_FAILURES, "inc"),),
-        ),
-    ),
-    (
-        ev.VerificationCompleted(target_id="062A", verdict="clean"),
-        Report(
-            Severity.INFO,
-            "verification 062A: verdict=clean",
-            (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", "clean"),)),),
-            _COMMUNITY,
-        ),
-    ),
-    (
-        ev.VerificationCompleted(target_id="062A", verdict="suspicious"),
-        Report(
-            Severity.INFO,
-            "verification 062A: verdict=suspicious",
-            (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", "suspicious"),)),),
-            _OPERATIONS,
-        ),
-    ),
-    (
-        ev.VerificationCompleted(target_id="062A", verdict="malicious"),
-        Report(
-            Severity.WARNING,
-            "verification 062A: verdict=malicious",
-            (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", "malicious"),)),),
-            _OPERATIONS,
-        ),
-    ),
-    (
-        ev.VerificationCompleted(target_id="062A", verdict="error"),
-        Report(
-            Severity.WARNING,
-            "verification 062A: verdict=error",
-            (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", "error"),)),),
-        ),
-    ),
-    (
-        # UNKNOWN verdict → defensive
-        ev.VerificationCompleted(target_id="062A", verdict="bogus"),
-        Report(
-            Severity.WARNING,
-            "verification 062A: verdict=bogus",
-            (MetricInstruction(MetricName.VERIFICATIONS, "inc", (("verdict", "bogus"),)),),
-        ),
-    ),
-    (
-        ev.VerifierUnavailable(first_occurrence=True),
-        Report(
-            Severity.WARNING,
-            "verifier unreachable",
-            (MetricInstruction(MetricName.VERIFIER_UNAVAILABLE, "inc"),),
-            _OPERATIONS,
-        ),
-    ),
-    (
-        ev.VerifierUnavailable(first_occurrence=False),
-        Report(
-            Severity.WARNING,
-            "verifier unreachable",
-            (MetricInstruction(MetricName.VERIFIER_UNAVAILABLE, "inc"),),
-        ),
-    ),
-    (
         ev.ConnectedInstancesSampled(network="ed2k", count=2),
         Report(
             Severity.DEBUG,
@@ -223,14 +154,6 @@ CASES: list[tuple[ev.Event, Report]] = [
             Severity.DEBUG,
             "search-capable: no",
             (MetricInstruction(MetricName.SEARCH_CAPABLE, "set", (), 0.0),),
-        ),
-    ),
-    (
-        ev.VerificationQueueDepthSampled(count=5),
-        Report(
-            Severity.DEBUG,
-            "verification queue: 5 pending",
-            (MetricInstruction(MetricName.VERIFICATION_QUEUE_DEPTH, "set", (), 5.0),),
         ),
     ),
     (

@@ -4,10 +4,7 @@ import dataclasses
 
 import pytest
 
-from mulewatch.domain.observability.events import (
-    ObservationRecorded,
-    VerificationCompleted,
-)
+from mulewatch.domain.observability.events import DownloadCompleted, ObservationRecorded
 
 
 def test_observation_recorded_carries_network() -> None:
@@ -16,9 +13,9 @@ def test_observation_recorded_carries_network() -> None:
 
 
 def test_event_is_frozen() -> None:
-    event = VerificationCompleted(target_id="062A", verdict="clean")
+    event = DownloadCompleted(target_id="062A", ed2k_hash="a" * 32)
     # Pass the attribute via a variable to avoid ruff B010 while still
     # triggering FrozenInstanceError at runtime (frozen=True).
-    attr = "verdict"
+    attr = "target_id"
     with pytest.raises(dataclasses.FrozenInstanceError):
-        setattr(event, attr, "malicious")
+        setattr(event, attr, "063A")

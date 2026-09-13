@@ -2,20 +2,18 @@
 
 PURE domain: no I/O. ``DownloadState`` is the CLOSED enum of a download's lifecycle on the
 crawler side: ``queued`` (link added to amuled) → ``downloading`` (amuled is pulling it) →
-``completed`` (bytes complete on amuled's side, still in staging) → ``quarantined`` (moved
-out of staging by an atomic rename, verification queued); ``failed`` if amuled reports an
-error.
+``completed`` (amuled finished it and shares it from its IncomingDir); ``failed`` if amuled
+reports an error. Nothing reads or moves the file afterwards.
 
 The APPLICATION disk cap (spec §7) only counts ACTIVE downloads: a terminal state
-(``completed``/``quarantined``/``failed``) no longer consumes in-flight download quota (a
-``completed`` no longer grows and will be promoted on the next iteration). This is the only
+(``completed``/``failed``) no longer consumes in-flight download quota. This is the only
 business judgment made here; computing the sum lives in the repo adapter.
 """
 
 from enum import StrEnum
 
 # DECISION D7: terminal for the cap (no longer consume active quota).
-_TERMINAL_STATES = frozenset({"completed", "quarantined", "failed"})
+_TERMINAL_STATES = frozenset({"completed", "failed"})
 
 
 class DownloadState(StrEnum):
@@ -24,7 +22,6 @@ class DownloadState(StrEnum):
     QUEUED = "queued"
     DOWNLOADING = "downloading"
     COMPLETED = "completed"
-    QUARANTINED = "quarantined"
     FAILED = "failed"
 
 

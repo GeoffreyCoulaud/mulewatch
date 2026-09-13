@@ -3,7 +3,7 @@
 APPLICATION layer. A SINGLE task, serial, on the sole download EC connection (spec §3/§5):
 no frame interleaving. ``run_download_cycle`` runs ONE iteration (testable without a
 shutdown event); ``download_loop`` repeats it then waits ``poll_interval`` OR the nudge
-(``DecisionSignal``), until a shutdown event - wired by ``CrawlerApp`` in D-verify.
+(``DecisionSignal``), until a shutdown event - wired by ``CrawlerApp``.
 
 Flow of one iteration (spec §5, DECISION D8):
   0. CONNECT + QUEUE SNAPSHOT: ``connect()`` (idempotent, and the ONLY thing that re-arms a
@@ -14,10 +14,9 @@ Flow of one iteration (spec §5, DECISION D8):
      Completion is NO LONGER inferred from bytes (see ``_monitor``).
   2. COMPLETIONS: ``shared_files()`` → each tracked hash present in amuled's SHARED files AND
      absent from the queue (amuled shares PARTIAL downloads too, so the queue is what separates a
-     completion from a partial, see ``_handle_completions``) → ``set_state(completed)`` →
-     ``quarantine.promote(staging_dir / name)`` → ``enqueue_verification`` → ``quarantined``.
-     Idempotent: ``promote`` fails → stays ``completed``, does NOT enqueue, retry next round
-     (the hash stays in the shared files); already ``quarantined``/``failed`` → skipped.
+     completion from a partial, see ``_handle_completions``) → ``set_state(completed)``. The file
+     stays where amuled put it: nothing moves it, nothing reads it. Already
+     ``completed``/``failed`` → skipped, so the completion notification fires once.
   3. CANDIDATES: ``catalog.download_decisions()`` (latest=download) ∖ ``downloads`` → for
      each, ``download_policy`` (target status, dedup, cap) → if ``download``:
      ``build_ed2k_link`` (from ``last_observation``) → ``add_link`` → ``record_queued``.
@@ -28,7 +27,7 @@ the iteration. Step 0 re-arms the connection on EVERY iteration (``connect()`` i
 that is what makes "the client reconnects next round" true. Without it the loop stayed wedged on
 "EC client not connected (call connect() first)" forever after any amuled restart (field,
 2026-09-04 to 09-11: 7 days of a dead download loop, one warning per 30 s).
-``RepositoryError`` → absorbed (log + continue). ``promote`` fails → stays ``completed``.
+``RepositoryError`` → absorbed (log + continue).
 NEVER abandon a stalled download. Determinism: ``Clock``/``sleep`` injected.
 """
 
@@ -37,7 +36,6 @@ import logging
 from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Protocol
 
 from catalog_matching.ed2k_link import build_ed2k_link
@@ -45,37 +43,20 @@ from catalog_matching.engine import DownloadCandidate
 from catalog_matching.models import TargetSegment
 from mulewatch.domain.download.policy import DownloadVerdict, download_policy
 from mulewatch.domain.download.states import DownloadState
-from mulewatch.domain.observability.events import (
-    DownloadCompleted,
-    DownloadQueued,
-    PromotionFailed,
-)
+from mulewatch.domain.observability.events import DownloadCompleted, DownloadQueued
 from mulewatch.ports.catalog_repository import ObservedFile
 from mulewatch.ports.clock import Clock
 from mulewatch.ports.decision_signal import DecisionSignal
 from mulewatch.ports.mule_client import MuleSearchFailedError, MuleUnreachableError
 from mulewatch.ports.mule_download_client import DownloadEntry, MuleDownloadClient
-from mulewatch.ports.quarantine import Quarantine
 from mulewatch.ports.repository_errors import RepositoryError
 from mulewatch.ports.telemetry import Telemetry
 
 _logger = logging.getLogger("mulewatch.application.run_download_cycle")
 
 # Conventional subject of the download nudge (DECISION D13). D-download subscribes to THIS
-# subject; the signal("download") wiring on the producer side (pipeline) lands in D-verify.
+# subject; the producer side (the pipeline) calls signal("download").
 DOWNLOAD_NUDGE_SUBJECT = "download"
-
-
-def _safe_basename(name: str) -> str | None:
-    """Traversal-safe confined basename; ``None`` if degenerate (``""``/``.``/``..``).
-
-    The name comes from amuled (external input - defense in depth, cf. CLAUDE.md "filenames
-    are hostile input"): we confine the SOURCE of ``os.replace`` to ``staging_dir``.
-    """
-    base = Path(name).name
-    if base in {"", ".", ".."}:
-        return None
-    return base
 
 
 class DownloadRepository(Protocol):
@@ -114,38 +95,21 @@ class CatalogReader(Protocol):
     def last_observation(self, ed2k_hash: str) -> ObservedFile | None: ...
 
 
-class VerificationQueue(Protocol):
-    """STRUCTURAL Protocol of verification enqueuing (subset of LocalStateRepository).
-
-    The loop depends only on ``enqueue_verification``; the minimal test fake need not
-    implement claim/complete/fail/reclaim. The real ``SqliteLocalStateRepository`` satisfies it.
-    """
-
-    def enqueue_verification(self, ed2k_hash: str) -> bool: ...
-
-
 @dataclass
 class DownloadDeps:
     """Dependencies of the download loop (composition assembles them once).
 
-    ``staging_dir`` is amuled's Incoming (DECISION D2: EC does not expose the staging path;
-    D-verify composition wires it from the amuled layout). The NAME of the completed file no
-    longer comes from the download queue: it comes from the SHARED EC files (the real on-disk
-    name reported by amuled), so ``staging_path = staging_dir / <real name>``. ``targets`` serves
-    the ``target_id → status`` lookup (pure policy). ``catalog``/``local`` are typed to the NARROW
-    Protocols above (``CatalogReader``/``VerificationQueue``) - the loop depends only on the
-    subset read/written (consistent with the local ``DownloadRepository`` Protocol), so the
-    minimal test fakes are accepted.
+    ``targets`` serves the ``target_id → status`` lookup (pure policy). ``catalog`` is typed to
+    the NARROW ``CatalogReader`` Protocol above: the loop depends only on the subset it reads
+    (consistent with the local ``DownloadRepository`` Protocol), so the minimal test fakes are
+    accepted.
     """
 
     client: MuleDownloadClient
-    quarantine: Quarantine
     downloads: DownloadRepository
     catalog: CatalogReader
-    local: VerificationQueue
     targets: Sequence[TargetSegment]
     disk_cap_bytes: int
-    staging_dir: Path
     clock: Clock
     telemetry: Telemetry
 
@@ -184,87 +148,60 @@ async def _monitor(
         current = states.get(entry.ed2k_hash)
         if current is None:
             continue  # download outside the crawler: ignored
-        if current in {
-            DownloadState.QUARANTINED,
-            DownloadState.FAILED,
-            DownloadState.COMPLETED,
-        }:
-            continue  # terminal / already completed: don't regress
+        if current in {DownloadState.FAILED, DownloadState.COMPLETED}:
+            continue  # terminal: don't regress
         if current is not DownloadState.DOWNLOADING:
             deps.downloads.set_state(entry.ed2k_hash, DownloadState.DOWNLOADING)
             states[entry.ed2k_hash] = DownloadState.DOWNLOADING
 
 
-async def _promote_completion(
-    deps: DownloadDeps,
-    ed2k_hash: str,
-    name: str,
-    current: DownloadState,
-    states: dict[str, DownloadState],
+async def _record_completion(
+    deps: DownloadDeps, ed2k_hash: str, states: dict[str, DownloadState]
 ) -> None:
-    """Marks ``completed`` (stamps completed_at) then promotes → quarantine (step 2, §5).
+    """Marks ``completed`` (stamps completed_at) and notifies (step 2, §5).
 
-    The ``staging_path`` is ``staging_dir / <real amuled name>`` (resolves DV10-Q2: the
-    ``name(0)`` dedup is handled since the name comes from amuled). ``promote`` fails → stays
-    ``completed``, retry next round (the hash is still in the shared files - persistent signal).
+    ``completed`` is terminal: the file stays in amuled's IncomingDir, nothing moves it and
+    nothing opens it. The caller skips hashes already ``completed``, so the notification fires
+    exactly once per download.
     """
-    safe = _safe_basename(name)
-    if safe is None:
-        _logger.warning(
-            "degenerate shared name for hash=%s (%r): promotion skipped", ed2k_hash, name
-        )
-        return
-    if current is not DownloadState.COMPLETED:
-        deps.downloads.set_state(ed2k_hash, DownloadState.COMPLETED)
-        states[ed2k_hash] = DownloadState.COMPLETED
-    try:
-        deps.quarantine.promote(deps.staging_dir / safe, ed2k_hash)
-    except Exception as error:  # noqa: BLE001 - any FS failure leaves completed (idempotent retry)
-        _logger.warning(
-            "quarantine failed for hash=%s (%s): stays completed, retry", ed2k_hash, error
-        )
-        await deps.telemetry.emit(PromotionFailed(ed2k_hash=ed2k_hash))
-        return
-    deps.local.enqueue_verification(ed2k_hash)
-    deps.downloads.set_state(ed2k_hash, DownloadState.QUARANTINED)
-    states[ed2k_hash] = DownloadState.QUARANTINED
+    deps.downloads.set_state(ed2k_hash, DownloadState.COMPLETED)
+    states[ed2k_hash] = DownloadState.COMPLETED
     target_id = deps.downloads.get_target_id(ed2k_hash) or "unknown"
     await deps.telemetry.emit(DownloadCompleted(target_id=target_id, ed2k_hash=ed2k_hash))
-    _logger.info("hash=%s quarantined + verification enqueued", ed2k_hash)
+    _logger.info("hash=%s completed", ed2k_hash)
 
 
 async def _handle_completions(
     deps: DownloadDeps, states: dict[str, DownloadState], queued: frozenset[str]
 ) -> None:
-    """Promotes each tracked hash that is SHARED **and** gone from the download queue (step 2, §5).
+    """Completes each tracked hash that is SHARED **and** gone from the download queue (step 2, §5).
 
     Presence in the shared files ALONE is not a completion: amuled shares PARTIAL downloads too
     (standard eMule: you upload what you have downloaded). The discriminator is the queue, which
     a finished file leaves (its entry goes away when it reaches ``PS_COMPLETE``), while a running
     one stays in it. Field 2026-09-02: without the queue check the crawler stamped 065B
-    ``completed`` at 20.1 % and retried an impossible promotion every 30 s. We promote with the
-    real name. Terminal hashes (quarantined/failed) are ignored.
+    ``completed`` at 20.1 %. Terminal hashes (completed/failed) are ignored.
 
     The queue was read in step 0, BEFORE this shared snapshot: a file completing in between is
-    therefore seen as "still queued" and promoted on the NEXT cycle (30 s later). The shared
+    therefore seen as "still queued" and completed on the NEXT cycle (30 s later). The shared
     signal persists, so the delay is harmless, and the inverse order would be the unsafe one.
 
-    PER-HASH isolation (error-boundary#2): a ``RepositoryError`` in the promotion of one hash
-    is logged and CONTINUES with the next ones. Without this net, a repo failure on hash N
-    would abandon N+1, N+2 of the same cycle (the completion signal is re-evaluated the next
-    cycle; no permanent loss, but intra-cycle starvation is undesirable).
+    PER-HASH isolation (error-boundary#2): a ``RepositoryError`` on one hash is logged and
+    CONTINUES with the next ones. Without this net, a repo failure on hash N would abandon
+    N+1, N+2 of the same cycle (the completion signal is re-evaluated the next cycle; no
+    permanent loss, but intra-cycle starvation is undesirable).
     """
     shared = await deps.client.shared_files()
     for entry in shared:
         current = states.get(entry.ed2k_hash)
         if current is None:
             continue  # shared file outside the crawler: ignored
-        if current in {DownloadState.QUARANTINED, DownloadState.FAILED}:
-            continue  # already promoted / failed
+        if current in {DownloadState.COMPLETED, DownloadState.FAILED}:
+            continue  # already completed / failed
         if entry.ed2k_hash in queued:
             continue  # still downloading (partial): NOT a completion
         try:
-            await _promote_completion(deps, entry.ed2k_hash, entry.name, current, states)
+            await _record_completion(deps, entry.ed2k_hash, states)
         except RepositoryError as error:
             _logger.error(
                 "completion hash=%s repo failure (%s): hash skipped, continues",
@@ -390,7 +327,7 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
         _logger.error("download monitor repo failure (%s): step skipped, continues", error)
     # Step 2 - COMPLETIONS: we RE-READ ``active_states`` FRESHLY (logic-download#2). Without it,
     # a failure in step 1 left ``states`` frozen/empty → every shared hash → ``states.get is
-    # None`` → ignored → NO completion promoted the entire cycle. The re-read is also better
+    # None`` → ignored → NO completion recorded the entire cycle. The re-read is also better
     # aligned than ``states={}`` with the nominal case (fresh states), at the cost of one extra
     # repo call (idempotent). A failure of the re-read itself is caught downstream.
     # Steps 2 & 3 - NO client I/O → only RepositoryError possible, ISOLATED per step (I2):
@@ -439,7 +376,7 @@ async def _sleep_or_nudge(deps: DownloadLoopDeps) -> None:
 async def download_loop(deps: DownloadLoopDeps) -> None:
     """Repeats ``run_download_cycle`` then waits (poll/nudge) until shutdown (DECISION D12).
 
-    Wired by ``CrawlerApp`` (D-verify) into the ``TaskGroup``; cancellation (shutdown) lands
+    Wired by ``CrawlerApp`` into the ``TaskGroup``; cancellation (shutdown) lands
     at the next ``await`` (EC poll or sleep/nudge wait), never mid DB write.
     """
     while not deps.shutdown.is_set():

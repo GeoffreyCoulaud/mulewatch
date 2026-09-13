@@ -1,5 +1,8 @@
 # Handoff: ClamAV 1.4.5 CVE batch (verifier image)
 
+> **Obsolete since 2026-09-13.** The subsystem described here left the project's scope.
+> See `docs/specs/2026-09-13-scope-reduction-catalog-notify-download.md`.
+
 ## Current state
 
 Branch `fix/clamav-1.4.5-cve-batch`, one commit (`28fcfdd`), full gate green

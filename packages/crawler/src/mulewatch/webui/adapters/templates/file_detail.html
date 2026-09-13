@@ -84,26 +84,4 @@
     </tbody>
   </table>
 </section>
-
-<section>
-  <h2>Verifications</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Verdict</th>
-        <th>Verified at</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for ver in file.verifications %}
-      <tr>
-        <td>{{ ver.verdict }}</td>
-        <td>{{ ver.verified_at }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="2">No verification.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
 {% endblock %}

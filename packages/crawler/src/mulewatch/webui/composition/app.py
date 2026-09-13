@@ -134,11 +134,9 @@ def _to_display_rows(
                 tier_display = row.decisions[0].tier
             else:
                 tier_display = " · ".join(f"{dec.target_id}: {dec.tier}" for dec in row.decisions)
-            verdict_display = row.last_verdict if row.last_verdict is not None else "pending"
         else:
             decisions_display = ()
             tier_display = "·"
-            verdict_display = "·"
         rows.append(
             FileRowDisplay(
                 ed2k_hash=row.ed2k_hash,
@@ -149,7 +147,6 @@ def _to_display_rows(
                 size_display=human_size(row.size_bytes),
                 last_seen_display=short_timestamp(row.last_seen),
                 tier_display=tier_display,
-                verdict_display=verdict_display,
                 ed2k_link=build_ed2k_link(row.filename, row.size_bytes, row.ed2k_hash),
             )
         )
@@ -469,7 +466,6 @@ def build_app(
         # sent ``?target=`` (empty string) that matched 0 results with no message.
         target_param = _normalize(request.query_params.get("target"))
         tier_param = _normalize(request.query_params.get("tier"))
-        verdict_param = _normalize(request.query_params.get("verdict"))
         query_param = _normalize(request.query_params.get("q"))
         # Presence of ``show_unmatched`` (any value) opts into the whole catalogue.
         show_unmatched = request.query_params.get("show_unmatched") is not None
@@ -487,7 +483,6 @@ def build_app(
         file_rows = catalog.list_files(
             target=target_param,
             tier=tier_param,
-            verdict=verdict_param,
             query=query_param,
             page=page,
             matched_only=not show_unmatched,
@@ -497,7 +492,6 @@ def build_app(
         matched, total = catalog.count_files(
             target=target_param,
             tier=tier_param,
-            verdict=verdict_param,
             query=query_param,
         )
 
@@ -510,8 +504,6 @@ def build_app(
             filters["target"] = target_param
         if tier_param is not None:
             filters["tier"] = tier_param
-        if verdict_param is not None:
-            filters["verdict"] = verdict_param
         if query_param is not None:
             filters["q"] = query_param
         if show_unmatched:
@@ -533,9 +525,7 @@ def build_app(
         # facet links carry every active param except ``tier`` and ``page`` (selecting a tier
         # replaces it, resets page); the search hidden inputs carry every active param except
         # ``q`` and ``page`` (submitting a search preserves the rest, resets page).
-        tier_count_map = catalog.tier_counts(
-            target=target_param, verdict=verdict_param, query=query_param
-        )
+        tier_count_map = catalog.tier_counts(target=target_param, query=query_param)
         facet_base = {k: v for k, v in filters.items() if k != "tier"}
         facet_base.update(sort_dir)
         facets = _tier_facets(counts=tier_count_map, active_tier=tier_param, base=facet_base)
@@ -603,7 +593,6 @@ def build_app(
             aich_hash_display=detail.aich_hash if detail.aich_hash is not None else "·",
             observations=detail.observations,
             decisions=detail.decisions,
-            verifications=detail.verifications,
             ed2k_link=link,
             explanation_target_id=explanation_target_id,
             explanation_rules_fired=explanation_rules_fired,
@@ -623,7 +612,6 @@ def build_app(
         file_rows = catalog.list_files(
             target=target_id,
             tier=None,
-            verdict=None,
             query=None,
             page=1,
         )

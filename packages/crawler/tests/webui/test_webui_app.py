@@ -556,17 +556,6 @@ async def test_files_returns_200_with_file_row(
 
 
 @pytest.mark.asyncio
-async def test_files_filtered_verdict_returns_200_empty(
-    populated_app: tuple[Starlette, str],
-) -> None:
-    """/files?verdict=malicious → 200 (no results, no error)."""
-    app, _ = populated_app
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.get("/files?verdict=malicious")
-    assert resp.status_code == 200
-
-
-@pytest.mark.asyncio
 async def test_files_default_hides_unmatched(
     app_no_decision: tuple[Starlette, str],
 ) -> None:
@@ -600,15 +589,14 @@ async def test_files_retracted_shows_as_unmatched_in_all_view(
     app_retracted_decision: tuple[Starlette, str],
 ) -> None:
     """The all-view (show_unmatched=1) renders a retracted file as an unmatched row: "·"
-    cells, never "<td>unidentified</td>", never a tier/verdict badge (e.g. never the literal
-    "retracted" or "pending" string in a cell)."""
+    cells, never "<td>unidentified</td>", never a tier badge (e.g. never the literal
+    "retracted" string in a cell)."""
     app, hash_ = app_retracted_decision
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files?show_unmatched=1")
     assert resp.status_code == 200
     assert hash_[:8] in resp.text
     assert "<td>unidentified</td>" not in resp.text
-    assert "<td>pending</td>" not in resp.text
     assert "<td>retracted</td>" not in resp.text
     assert "La Grenouille Cosmique" not in resp.text
 
@@ -941,7 +929,7 @@ async def test_empty_filter_param_does_not_silently_zero_results(
     # matches 0 results with no message.
     app, hash_ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.get("/files?target=&tier=&verdict=&q=")
+        resp = await client.get("/files?target=&tier=&q=")
     assert resp.status_code == 200
     assert hash_[:8] in resp.text  # the inserted file is rendered despite the empty filters
 
@@ -1074,7 +1062,7 @@ _SEGMENT_BY_ID = {_SEGMENT_062A.target_id: _SEGMENT_062A}
 _SEGMENTS_AB = {s.target_id: s for s in (_SEGMENT_062A, _SEGMENT_062B)}
 
 
-def _file_row(*, decisions: tuple[FileDecision, ...], last_verdict: str | None = None) -> FileRow:
+def _file_row(*, decisions: tuple[FileDecision, ...]) -> FileRow:
     return FileRow(
         ed2k_hash=TEST_HASH,
         size_bytes=1024,
@@ -1082,7 +1070,6 @@ def _file_row(*, decisions: tuple[FileDecision, ...], last_verdict: str | None =
         source_count=1,
         last_seen="2024-01-01T00:00:00",
         decisions=decisions,
-        last_verdict=last_verdict,
     )
 
 
@@ -1119,7 +1106,6 @@ def test_to_display_rows_empty_decisions_all_dashes() -> None:
     [display] = _to_display_rows([_file_row(decisions=())], _SEGMENTS_AB)
     assert display.decisions_display == ()
     assert display.tier_display == "·"
-    assert display.verdict_display == "·"
 
 
 def test_to_display_rows_two_segments_aggregate_cells_shared_tier() -> None:
@@ -1138,18 +1124,6 @@ def test_to_display_rows_two_segments_differing_tiers_lists_per_target() -> None
     assert display.tier_display == "062A: download · 062B: notify"
 
 
-def test_to_display_rows_verdict_pending_when_decision_without_verdict() -> None:
-    row = _file_row(decisions=(FileDecision("062A", "download"),))
-    [display] = _to_display_rows([row], _SEGMENTS_AB)
-    assert display.verdict_display == "pending"
-
-
-def test_to_display_rows_verdict_shows_actual_verdict() -> None:
-    row = _file_row(decisions=(FileDecision("062A", "download"),), last_verdict="clean")
-    [display] = _to_display_rows([row], _SEGMENTS_AB)
-    assert display.verdict_display == "clean"
-
-
 def test_to_display_rows_computes_size_and_last_seen_display() -> None:
     row = FileRow(
         ed2k_hash=TEST_HASH,
@@ -1158,7 +1132,6 @@ def test_to_display_rows_computes_size_and_last_seen_display() -> None:
         source_count=1,
         last_seen="2026-07-03T23:45:24.104990+00:00",
         decisions=(),
-        last_verdict=None,
     )
     [display] = _to_display_rows([row], _SEGMENTS_AB)
     assert display.size_display == "1 KB"
@@ -1171,12 +1144,11 @@ def test_to_display_rows_computes_size_and_last_seen_display() -> None:
 
 
 @pytest.mark.asyncio
-async def test_files_catalog_tier_shows_unidentified_and_pending(
+async def test_files_catalog_tier_shows_unidentified(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """populated_app's decision is tier=catalog with no verification row → the /files list
-    must show "unidentified" (not the resolved id/title) and "pending" (not a real verdict
-    or "·")."""
+    """populated_app's decision is tier=catalog → the /files list must show "unidentified",
+    not the resolved id/title."""
     app, hash_ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files")
@@ -1184,7 +1156,6 @@ async def test_files_catalog_tier_shows_unidentified_and_pending(
     assert hash_[:8] in resp.text
     # Scoped to the table cell (not the static tier legend, which also mentions the word).
     assert '<div class="cell-line">unidentified</div>' in resp.text
-    assert "<td>pending</td>" in resp.text
     assert "La Grenouille Cosmique" not in resp.text
 
 
@@ -1232,17 +1203,16 @@ async def test_files_unknown_target_shows_raw_id_and_dash_title(
 async def test_files_no_decision_shows_dashes(
     app_no_decision: tuple[Starlette, str],
 ) -> None:
-    """No decision at all → target/title/verdict all render as "·" cells, never a "pending"
-    or "unidentified" cell value. The row is only visible with show_unmatched (the
+    """No decision at all → target and title both render as "·" cells, never an
+    "unidentified" cell value. The row is only visible with show_unmatched (the
     matched-only default hides it, cf. test_files_default_hides_unmatched)."""
     app, hash_ = app_no_decision
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files?show_unmatched=1")
     assert resp.status_code == 200
     assert hash_[:8] in resp.text
-    # The Verdict/Target header tooltips also mention "pending"/"unidentified": scope to
-    # the cell so we assert on the row value, not the static legend text.
-    assert "<td>pending</td>" not in resp.text
+    # The Target header tooltip also mentions "unidentified": scope to the cell so we
+    # assert on the row value, not the static legend text.
     assert '<div class="cell-line">unidentified</div>' not in resp.text
     assert "La Grenouille Cosmique" not in resp.text
 
@@ -1272,17 +1242,15 @@ async def test_files_tier_header_has_tooltip_and_no_legacy_legend(
 async def test_files_nonobvious_columns_have_header_tooltips(
     populated_app: tuple[Starlette, str],
 ) -> None:
-    """The other non-obvious columns (Verdict, Target, Sources) also carry a "?" header
-    tooltip explaining their values."""
+    """The other non-obvious columns (Target, Sources) also carry a "?" header tooltip
+    explaining their values."""
     app, _ = populated_app
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.get("/files")
     assert resp.status_code == 200
-    assert 'id="tip-verdict"' in resp.text
     assert 'id="tip-target"' in resp.text
     assert 'id="tip-sources"' in resp.text
-    # A distinctive phrase from each of the three tooltips.
-    assert "not yet verified" in resp.text  # verdict
+    # A distinctive phrase from each of the two tooltips.
     assert "the episode this file is matched to" in resp.text  # target
     assert "peers" in resp.text  # sources
 

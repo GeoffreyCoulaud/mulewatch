@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       push:
-        description: If true, the build-and-verify job also pushes each image to ghcr by digest.
+        description: If true, the build-and-verify job also pushes the image to ghcr by digest.
         type: boolean
         default: false
 
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE_PREFIX: ghcr.io/geoffreycoulaud/mulewatch
+  IMAGE: ghcr.io/geoffreycoulaud/mulewatch-crawler
 
 jobs:
   lint:
@@ -33,10 +33,10 @@ jobs:
       - name: Unit tests
         run: uv run poe test
 
-  # One job per arch on its native runner: build the 3 images (loaded locally, and pushed
-  # by digest when inputs.push), run the compose smoke stack against the local images, then
-  # upload the digests for the release merge. The push exporter runs during the build, but
-  # only publish-manifest publishes a tag — and it is downstream of this job's integration
+  # One job per arch on its native runner: build the image (loaded locally, and pushed
+  # by digest when inputs.push), run the compose smoke stack against the local image, then
+  # upload the digest for the release merge. The push exporter runs during the build, but
+  # only publish-manifest publishes a tag, and it is downstream of this job's integration
   # step, so no tag ever references an image that failed integration.
   build-and-verify:
     needs: [lint, test]
@@ -61,7 +61,7 @@ jobs:
           # restores lint's x86 cache. Avoids concurrent same-key saves → no cache warning.
           save-cache: ${{ matrix.arch == 'arm64' }}
       # Compute the product version once, the same way a local build would (hatch-vcs over the
-      # tag). Injected into both images as the VERSION build-arg -> installed wheel metadata +
+      # tag). Injected into the image as the VERSION build-arg -> installed wheel metadata +
       # OCI label. hatch prints "Inspecting build dependencies" to stderr; the version is the
       # sole stdout line. On main/PR (no release tag at HEAD) this is a dev version like
       # 0.19.2.devN+g<sha>; on a vX.Y.Z tag push it is X.Y.Z.
@@ -77,65 +77,40 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build crawler — ${{ matrix.arch }}
+      - name: Build the crawler image (${{ matrix.arch }})
         id: crawler
         uses: ./.github/actions/docker-image
         with:
           package: crawler
           platform: linux/${{ matrix.arch }}
-          image: ${{ env.IMAGE_PREFIX }}-crawler
+          image: ${{ env.IMAGE }}
           local-tag: ci-${{ github.sha }}
           push: ${{ inputs.push }}
           cache-scope: crawler-${{ matrix.arch }}
           build-args: |
             VERSION=${{ steps.version.outputs.value }}
-      - name: Build verifier — ${{ matrix.arch }}
-        id: verifier
-        uses: ./.github/actions/docker-image
-        with:
-          package: verifier
-          platform: linux/${{ matrix.arch }}
-          image: ${{ env.IMAGE_PREFIX }}-verifier
-          local-tag: ci-${{ github.sha }}
-          push: ${{ inputs.push }}
-          cache-scope: verifier-${{ matrix.arch }}
-          # Unique per build so the verifier's apk-plan probe stage always re-runs and re-resolves
-          # the live Alpine index; the real apk layer then busts only when versions actually change.
-          build-args: |
-            VERSION=${{ steps.version.outputs.value }}
-            APK_PROBE_NONCE=${{ github.run_id }}-${{ github.run_attempt }}
-      - name: Integration — compose smoke stack (${{ matrix.arch }})
+      - name: Compose smoke stack integration (${{ matrix.arch }})
         run: ( cd packages/crawler && uv run pytest -m compose_integration --no-cov -q )
         env:
           IMAGE_TAG: ci-${{ github.sha }}
-      - name: Export digests
+      - name: Export the digest
         if: ${{ inputs.push }}
         run: |
-          mkdir -p /tmp/digests/crawler /tmp/digests/verifier
-          touch "/tmp/digests/crawler/${CRAWLER_DIGEST#sha256:}"
-          touch "/tmp/digests/verifier/${VERIFIER_DIGEST#sha256:}"
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${CRAWLER_DIGEST#sha256:}"
         env:
           CRAWLER_DIGEST: ${{ steps.crawler.outputs.digest }}
-          VERIFIER_DIGEST: ${{ steps.verifier.outputs.digest }}
-      - name: Upload crawler digest
+      - name: Upload the crawler digest
         if: ${{ inputs.push }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: digest-crawler-${{ matrix.arch }}
-          path: /tmp/digests/crawler/*
-          if-no-files-found: error
-          retention-days: 1
-      - name: Upload verifier digest
-        if: ${{ inputs.push }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: digest-verifier-${{ matrix.arch }}
-          path: /tmp/digests/verifier/*
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
   # Single aggregation gate for branch protection: require only `validate / gate` instead of the
-  # individual (matrix-suffixed) job checks — stable when jobs/matrix legs change. `if: always()`
+  # individual (matrix-suffixed) job checks, stable when jobs/matrix legs change. `if: always()`
   # is essential: GitHub treats a *skipped* required check as passing, so the gate must always run
   # and fail explicitly rather than be skipped when an upstream job fails.
   gate:

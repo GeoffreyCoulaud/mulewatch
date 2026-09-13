@@ -40,32 +40,6 @@
 </section>
 
 <section>
-  <h2>Verification tasks</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Hash</th>
-        <th>Status</th>
-        <th>Attempts</th>
-        <th>Queued at</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for vt in node_state.verification_tasks %}
-      <tr>
-        <td>{{ vt.ed2k_hash }}</td>
-        <td>{{ vt.status }}</td>
-        <td>{{ vt.attempts }}</td>
-        <td>{{ vt.enqueued_at }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4">No verification task.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section>
   <h2>Scheduling</h2>
   <dl>
     {% for entry in scheduler_entries %}

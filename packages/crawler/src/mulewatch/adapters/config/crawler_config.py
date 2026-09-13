@@ -56,38 +56,18 @@ class NotificationTarget:
 
 
 @dataclass(frozen=True)
-class VerifyConfig:
-    """Verification policy (verify spec §6). Nested inside ``download``.
-
-    ``poll_interval_seconds``: cadence at which the verify loop ``claim``s the queue when
-    it is empty (the durable queue is the coupling — no dedicated nudge, DECISION DV5).
-    ``client_timeout_seconds``: read timeout of the HTTP client to the verifier; MUST cover
-    the worst-case analysis (clamav ~120-150 s), else a healthy-but-slow file goes to dead-letter
-    on ReadTimeout (concurrency-async#1). Generous default; the connect stays short (adapter).
-    """
-
-    poll_interval_seconds: float
-    client_timeout_seconds: float
-
-
-@dataclass(frozen=True)
 class DownloadConfig:
     """Download policy + wiring (download spec §3/§7). Present ⟺ ``enabled``.
 
     ``poll_interval_seconds``: cadence for polling the download queue (the nudge wakes it
     earlier). ``disk_cap_bytes``: APPLICATION-level disk cap (graceful back-pressure). ``endpoint``:
-    2nd EC connection dedicated to download (DECISION D3). ``staging_dir`` = amuled's Incoming;
-    ``quarantine_dir`` = the buffer zone before promotion. ``verifier_url`` = verify service.
-    ``verify`` = the verification-loop policy.
+    2nd EC connection dedicated to download (DECISION D3). amuled writes the finished file into
+    its own IncomingDir and nothing here ever touches it, so no directory is configured.
     """
 
     poll_interval_seconds: float
     disk_cap_bytes: int
     endpoint: AmuleEndpoint
-    staging_dir: str
-    quarantine_dir: str
-    verifier_url: str
-    verify: VerifyConfig
 
 
 @dataclass(frozen=True)
@@ -319,22 +299,10 @@ def _parse_download(raw: dict[str, Any], env: Mapping[str, str]) -> DownloadConf
     if not _bool_default(section, "enabled", False, "download"):
         return None  # laziness: we read/interpolate NOTHING else (no variable required)
     endpoint_raw = _require_mapping(section.get("endpoint"), "download.endpoint")
-    verify_raw = _require_mapping(section.get("verify", {}), "download.verify")
     return DownloadConfig(
         poll_interval_seconds=_positive(section, "poll_interval_seconds", "download"),
         disk_cap_bytes=_positive_int(section, "disk_cap_bytes", "download"),
         endpoint=_parse_endpoint(endpoint_raw, "download.endpoint", env),
-        staging_dir=_require_str(section, "staging_dir", "download", env),
-        quarantine_dir=_require_str(section, "quarantine_dir", "download", env),
-        verifier_url=_require_str(section, "verifier_url", "download", env),
-        verify=VerifyConfig(
-            poll_interval_seconds=_positive(verify_raw, "poll_interval_seconds", "download.verify"),
-            client_timeout_seconds=(
-                _positive(verify_raw, "client_timeout_seconds", "download.verify")
-                if "client_timeout_seconds" in verify_raw
-                else 180.0
-            ),
-        ),
     )
 
 

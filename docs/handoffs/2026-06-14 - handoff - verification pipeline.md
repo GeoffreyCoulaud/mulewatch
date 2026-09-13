@@ -1,5 +1,8 @@
 # Handoff — emule-indexer (pipeline de vérification, D-verify — clôt le jalon « Plan D »)
 
+> **Obsolete since 2026-09-13.** The subsystem described here left the project's scope.
+> See `docs/specs/2026-09-13-scope-reduction-catalog-notify-download.md`.
+
 > Continuation guide. Le plus récent des handoffs = point d'entrée. Lis aussi le handoff
 > précédent (`2026-06-13 - handoff - download capability.md`) pour le contexte D-download
 > dont D-verify dépend, et la spec `docs/superpowers/specs/2026-06-13-verification-pipeline-design.md`.

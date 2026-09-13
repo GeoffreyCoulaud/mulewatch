@@ -1,5 +1,8 @@
 # Spec — emule-indexer : D-analysis (le vrai verifier — confinement + checks réels)
 
+> **Obsolete since 2026-09-13.** The subsystem described here left the project's scope.
+> See `docs/specs/2026-09-13-scope-reduction-catalog-notify-download.md`.
+
 > **Sous-projet** : troisième et dernier issu de la scission de « Plan D ». Ordre :
 > **D-download** (`2026-06-13-download-orchestration-design.md`) → **D-verify**
 > (`2026-06-13-verification-pipeline-design.md` : la plomberie full-mode bout-en-bout avec un

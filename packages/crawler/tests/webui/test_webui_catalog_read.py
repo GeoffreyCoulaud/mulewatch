@@ -70,30 +70,10 @@ def _seed(db: Path) -> None:
         conn.commit()
 
 
-def _seed_with_verdict(db: Path) -> None:
-    """Add a verification verdict to the seeded file."""
-    _seed(db)
-    with sqlite3.connect(db) as conn:
-        conn.execute(
-            "INSERT INTO file_verifications"
-            " (ed2k_hash, verdict, real_meta, checks, verified_at, node_id)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                "a" * 32,
-                "ok",
-                None,
-                None,
-                "2026-06-22T11:00:00.000000+00:00",
-                "n1",
-            ),
-        )
-        conn.commit()
-
-
 def _seed_whole_episode(db: Path) -> None:
     """A single whole-episode file (hash a*32) satisfying BOTH segments 072A + 072B (two
-    current decisions at tier ``download``) plus one per-file ``clean`` verdict — the core
-    multi-target fixture (spec §9). Standalone: never combine with ``_seed`` (same hash)."""
+    current decisions at tier ``download``): the core multi-target fixture (spec §9).
+    Standalone: never combine with ``_seed`` (same hash)."""
     h = "a" * 32
     with sqlite3.connect(db) as conn:
         conn.execute(
@@ -131,12 +111,6 @@ def _seed_whole_episode(db: Path) -> None:
                     "n1",
                 ),
             )
-        conn.execute(
-            "INSERT INTO file_verifications"
-            " (ed2k_hash, verdict, real_meta, checks, verified_at, node_id)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (h, "clean", None, None, "2026-07-01T12:00:00.000000+00:00", "n1"),
-        )
         conn.commit()
 
 
@@ -216,7 +190,7 @@ def test_target_coverage_ignores_legacy_empty_target_sentinel(catalog_db: Path) 
 def test_list_files_no_filter_returns_all(catalog_db: Path) -> None:
     _seed(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
-    rows = reader.list_files(target=None, tier=None, verdict=None, query=None, page=1)
+    rows = reader.list_files(target=None, tier=None, query=None, page=1)
     assert len(rows) == 1
     assert rows[0].ed2k_hash == "a" * 32
     assert rows[0].filename == "keroro_062.avi"
@@ -226,8 +200,8 @@ def test_list_files_no_filter_returns_all(catalog_db: Path) -> None:
 def test_list_files_filter_by_target(catalog_db: Path) -> None:
     _seed(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
-    hit = reader.list_files(target="062A", tier=None, verdict=None, query=None, page=1)
-    miss = reader.list_files(target="001A", tier=None, verdict=None, query=None, page=1)
+    hit = reader.list_files(target="062A", tier=None, query=None, page=1)
+    miss = reader.list_files(target="001A", tier=None, query=None, page=1)
     assert len(hit) == 1
     assert miss == []
 
@@ -235,34 +209,17 @@ def test_list_files_filter_by_target(catalog_db: Path) -> None:
 def test_list_files_filter_by_tier(catalog_db: Path) -> None:
     _seed(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
-    hit = reader.list_files(target=None, tier="download", verdict=None, query=None, page=1)
-    miss = reader.list_files(target=None, tier="notify", verdict=None, query=None, page=1)
+    hit = reader.list_files(target=None, tier="download", query=None, page=1)
+    miss = reader.list_files(target=None, tier="notify", query=None, page=1)
     assert len(hit) == 1
     assert miss == []
-
-
-def test_list_files_filter_by_verdict(catalog_db: Path) -> None:
-    _seed_with_verdict(catalog_db)
-    reader = CatalogReader(open_reader(catalog_db))
-    hit = reader.list_files(target=None, tier=None, verdict="ok", query=None, page=1)
-    miss = reader.list_files(target=None, tier=None, verdict="malicious", query=None, page=1)
-    assert len(hit) == 1
-    assert miss == []
-
-
-def test_list_files_no_verdict_still_returns_file(catalog_db: Path) -> None:
-    """A file without verification appears when verdict=None."""
-    _seed(catalog_db)
-    reader = CatalogReader(open_reader(catalog_db))
-    rows = reader.list_files(target=None, tier=None, verdict=None, query=None, page=1)
-    assert len(rows) == 1
 
 
 def test_list_files_filter_by_query(catalog_db: Path) -> None:
     _seed(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
-    hit = reader.list_files(target=None, tier=None, verdict=None, query="keroro", page=1)
-    miss = reader.list_files(target=None, tier=None, verdict=None, query="unknown", page=1)
+    hit = reader.list_files(target=None, tier=None, query="keroro", page=1)
+    miss = reader.list_files(target=None, tier=None, query="unknown", page=1)
     assert len(hit) == 1
     assert miss == []
 
@@ -271,7 +228,7 @@ def test_list_files_page_two_is_empty(catalog_db: Path) -> None:
     """Page 2 is empty when fewer than PAGE_SIZE results."""
     _seed(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
-    rows = reader.list_files(target=None, tier=None, verdict=None, query=None, page=2)
+    rows = reader.list_files(target=None, tier=None, query=None, page=2)
     assert rows == []
 
 
@@ -283,20 +240,19 @@ def test_list_files_page_two_is_empty(catalog_db: Path) -> None:
 def test_list_files_whole_episode_is_one_row_with_two_decisions(catalog_db: Path) -> None:
     _seed_whole_episode(catalog_db)
     rows = CatalogReader(open_reader(catalog_db)).list_files(
-        target=None, tier=None, verdict=None, query=None, page=1
+        target=None, tier=None, query=None, page=1
     )
     assert len(rows) == 1
     assert [(d.target_id, d.tier) for d in rows[0].decisions] == [
         ("072A", "download"),
         ("072B", "download"),
     ]
-    assert rows[0].last_verdict == "clean"
 
 
 def test_list_files_filter_by_one_target_returns_whole_episode(catalog_db: Path) -> None:
     _seed_whole_episode(catalog_db)
     rows = CatalogReader(open_reader(catalog_db)).list_files(
-        target="072B", tier=None, verdict=None, query=None, page=1
+        target="072B", tier=None, query=None, page=1
     )
     assert len(rows) == 1
     assert [d.target_id for d in rows[0].decisions] == ["072A", "072B"]
@@ -305,7 +261,7 @@ def test_list_files_filter_by_one_target_returns_whole_episode(catalog_db: Path)
 def test_list_files_unmatched_file_has_empty_decisions(catalog_db: Path) -> None:
     _seed_unmatched(catalog_db)
     [row] = CatalogReader(open_reader(catalog_db)).list_files(
-        target=None, tier=None, verdict=None, query=None, page=1
+        target=None, tier=None, query=None, page=1
     )
     assert row.decisions == ()
 
@@ -313,7 +269,7 @@ def test_list_files_unmatched_file_has_empty_decisions(catalog_db: Path) -> None
 def test_count_files_whole_episode_counts_as_one_file(catalog_db: Path) -> None:
     _seed_whole_episode(catalog_db)
     matched, total = CatalogReader(open_reader(catalog_db)).count_files(
-        target=None, tier=None, verdict=None, query=None
+        target=None, tier=None, query=None
     )
     assert (matched, total) == (1, 1)
 
@@ -336,14 +292,6 @@ def test_file_detail_carries_observations_and_decisions(catalog_db: Path) -> Non
 def test_file_detail_unknown_hash_is_none(catalog_db: Path) -> None:
     _seed(catalog_db)
     assert CatalogReader(open_reader(catalog_db)).file_detail("f" * 32) is None
-
-
-def test_file_detail_with_verifications(catalog_db: Path) -> None:
-    _seed_with_verdict(catalog_db)
-    detail = CatalogReader(open_reader(catalog_db)).file_detail("a" * 32)
-    assert detail is not None
-    assert len(detail.verifications) == 1
-    assert detail.verifications[0].verdict == "ok"
 
 
 def test_file_detail_retracted_target_is_no_decision(catalog_db: Path) -> None:
@@ -402,8 +350,8 @@ def test_file_detail_whole_episode_lists_both_decisions(catalog_db: Path) -> Non
 def test_list_files_combined_target_and_tier_filters(catalog_db: Path) -> None:
     _seed(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
-    hit = reader.list_files(target="062A", tier="download", verdict=None, query=None, page=1)
-    miss = reader.list_files(target="062A", tier="notify", verdict=None, query=None, page=1)
+    hit = reader.list_files(target="062A", tier="download", query=None, page=1)
+    miss = reader.list_files(target="062A", tier="notify", query=None, page=1)
     assert len(hit) == 1
     assert miss == []
 
@@ -413,7 +361,7 @@ def test_list_files_pagination(catalog_db: Path, page: int) -> None:
     """Verify pagination doesn't crash (page 1 = results, page 2 = empty)."""
     _seed(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
-    rows = reader.list_files(target=None, tier=None, verdict=None, query=None, page=page)
+    rows = reader.list_files(target=None, tier=None, query=None, page=page)
     if page == 1:
         assert len(rows) == 1
     else:
@@ -591,9 +539,7 @@ def test_list_files_matched_only_excludes_unmatched(catalog_db: Path) -> None:
     _seed(catalog_db)
     _seed_unmatched(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
-    rows = reader.list_files(
-        target=None, tier=None, verdict=None, query=None, page=1, matched_only=True
-    )
+    rows = reader.list_files(target=None, tier=None, query=None, page=1, matched_only=True)
     hashes = {r.ed2k_hash for r in rows}
     assert hashes == {"a" * 32}  # only the matched file
 
@@ -604,9 +550,7 @@ def test_list_files_matched_only_excludes_retracted(catalog_db: Path) -> None:
     _seed(catalog_db)
     _seed_retracted(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
-    rows = reader.list_files(
-        target=None, tier=None, verdict=None, query=None, page=1, matched_only=True
-    )
+    rows = reader.list_files(target=None, tier=None, query=None, page=1, matched_only=True)
     hashes = {r.ed2k_hash for r in rows}
     assert hashes == {"a" * 32}  # the retracted file ("c"*32) is excluded
 
@@ -615,7 +559,7 @@ def test_list_files_default_includes_unmatched(catalog_db: Path) -> None:
     _seed(catalog_db)
     _seed_unmatched(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
-    rows = reader.list_files(target=None, tier=None, verdict=None, query=None, page=1)
+    rows = reader.list_files(target=None, tier=None, query=None, page=1)
     hashes = {r.ed2k_hash for r in rows}
     assert hashes == {"a" * 32, "b" * 32}  # default matched_only=False → both
 
@@ -661,7 +605,7 @@ def test_list_files_shows_latest_observation(catalog_db: Path) -> None:
         )
         conn.commit()
     reader = CatalogReader(open_reader(catalog_db))
-    rows = reader.list_files(target=None, tier=None, verdict=None, query=None, page=1)
+    rows = reader.list_files(target=None, tier=None, query=None, page=1)
     assert len(rows) == 1
     assert rows[0].filename == "new_name.avi"
 
@@ -675,7 +619,7 @@ def test_count_files_no_filter_returns_matched_and_total(catalog_db: Path) -> No
     _seed(catalog_db)  # 1 matched file
     _seed_unmatched(catalog_db)  # 1 unmatched file
     reader = CatalogReader(open_reader(catalog_db))
-    matched, total = reader.count_files(target=None, tier=None, verdict=None, query=None)
+    matched, total = reader.count_files(target=None, tier=None, query=None)
     assert (matched, total) == (1, 2)
 
 
@@ -683,7 +627,7 @@ def test_count_files_respects_query_filter(catalog_db: Path) -> None:
     _seed(catalog_db)  # filename keroro_062.avi (matched)
     _seed_unmatched(catalog_db)  # filename gallego_ep021.ogm (unmatched)
     reader = CatalogReader(open_reader(catalog_db))
-    matched, total = reader.count_files(target=None, tier=None, verdict=None, query="gallego")
+    matched, total = reader.count_files(target=None, tier=None, query="gallego")
     assert (matched, total) == (0, 1)  # only the unmatched file matches the query
 
 
@@ -693,7 +637,7 @@ def test_count_files_counts_retracted_as_unmatched(catalog_db: Path) -> None:
     _seed(catalog_db)  # 1 matched file
     _seed_retracted(catalog_db)  # 1 retracted (== unmatched) file
     reader = CatalogReader(open_reader(catalog_db))
-    matched, total = reader.count_files(target=None, tier=None, verdict=None, query=None)
+    matched, total = reader.count_files(target=None, tier=None, query=None)
     assert (matched, total) == (1, 2)
 
 
@@ -701,42 +645,8 @@ def test_count_files_empty_catalogue_matched_is_zero_not_none(catalog_db: Path) 
     """Regression guard for the COUNT → SUM(CASE ...) rewrite: SUM over zero rows is NULL in
     SQL, unlike COUNT which is 0. An empty catalogue must still report ``matched == 0``."""
     reader = CatalogReader(open_reader(catalog_db))
-    matched, total = reader.count_files(target=None, tier=None, verdict=None, query=None)
+    matched, total = reader.count_files(target=None, tier=None, query=None)
     assert (matched, total) == (0, 0)
-
-
-# ---------------------------------------------------------------------------
-# Tests: latest verdict — "last verification wins" (tie-break on verified_at then id)
-# ---------------------------------------------------------------------------
-
-
-def test_list_files_shows_latest_verdict(catalog_db: Path) -> None:
-    """Same hash with two verdicts (T1 < T2) → list_files shows the most recent one."""
-    h = "a" * 32
-    with sqlite3.connect(catalog_db) as conn:
-        conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 100))
-        conn.execute(
-            "INSERT INTO file_observations"
-            " (ed2k_hash, filename, size_bytes, source_count,"
-            " complete_source_count, raw_meta, keyword, observed_at, node_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (h, "keroro.avi", 100, 1, 0, "[]", "keroro", "2026-06-22T10:00:00.000000+00:00", "n1"),
-        )
-        for verdict, ts in (
-            ("suspicious", "2026-06-22T11:00:00.000000+00:00"),
-            ("ok", "2026-06-22T12:00:00.000000+00:00"),
-        ):
-            conn.execute(
-                "INSERT INTO file_verifications"
-                " (ed2k_hash, verdict, real_meta, checks, verified_at, node_id)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (h, verdict, None, None, ts, "n1"),
-            )
-        conn.commit()
-    [row] = CatalogReader(open_reader(catalog_db)).list_files(
-        target=None, tier=None, verdict=None, query=None, page=1
-    )
-    assert row.last_verdict == "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -785,9 +695,9 @@ def test_target_scope_excludes_catalog_tier(catalog_db: Path) -> None:
     """A catalog-tier decision pinned to 001A must NOT surface under target='001A'."""
     _seed_catalog_tier_on_001a(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
-    rows = reader.list_files(target="001A", tier=None, verdict=None, query=None, page=1)
+    rows = reader.list_files(target="001A", tier=None, query=None, page=1)
     assert rows == []
-    matched, _total = reader.count_files(target="001A", tier=None, verdict=None, query=None)
+    matched, _total = reader.count_files(target="001A", tier=None, query=None)
     assert matched == 0
 
 
@@ -795,35 +705,8 @@ def test_target_scope_keeps_non_catalog_tier(catalog_db: Path) -> None:
     """A non-catalog (download) decision on 062A is still returned under target='062A'."""
     _seed(catalog_db)  # existing helper: a 'download' decision on 062A
     reader = CatalogReader(open_reader(catalog_db))
-    rows = reader.list_files(target="062A", tier=None, verdict=None, query=None, page=1)
+    rows = reader.list_files(target="062A", tier=None, query=None, page=1)
     assert len(rows) == 1
-
-
-def test_list_files_verdict_tie_break_on_id(catalog_db: Path) -> None:
-    """Two verdicts with the SAME verified_at → the larger id (later row) wins."""
-    h = "b" * 32
-    ts = "2026-06-22T10:00:00.000000+00:00"
-    with sqlite3.connect(catalog_db) as conn:
-        conn.execute("INSERT INTO files (ed2k_hash, size_bytes) VALUES (?, ?)", (h, 200))
-        conn.execute(
-            "INSERT INTO file_observations"
-            " (ed2k_hash, filename, size_bytes, source_count,"
-            " complete_source_count, raw_meta, keyword, observed_at, node_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (h, "x.avi", 200, 1, 0, "[]", "keroro", ts, "n1"),
-        )
-        for verdict in ("suspicious", "ok"):
-            conn.execute(
-                "INSERT INTO file_verifications"
-                " (ed2k_hash, verdict, real_meta, checks, verified_at, node_id)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (h, verdict, None, None, ts, "n1"),
-            )
-        conn.commit()
-    [row] = CatalogReader(open_reader(catalog_db)).list_files(
-        target=None, tier=None, verdict=None, query=None, page=1
-    )
-    assert row.last_verdict == "ok"  # same verified_at → larger id wins
 
 
 # ---------------------------------------------------------------------------
@@ -892,7 +775,7 @@ def test_list_files_sort_orders(
     _seed_sortable(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
     rows = reader.list_files(
-        target=None, tier=None, verdict=None, query=None, page=1, sort=sort, direction=direction
+        target=None, tier=None, query=None, page=1, sort=sort, direction=direction
     )
     assert _hashes(rows) == [c * 32 for c in expected]
 
@@ -901,7 +784,7 @@ def test_list_files_unknown_sort_falls_back_to_default(catalog_db: Path) -> None
     _seed_sortable(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
     rows = reader.list_files(
-        target=None, tier=None, verdict=None, query=None, page=1, sort="bogus", direction="desc"
+        target=None, tier=None, query=None, page=1, sort="bogus", direction="desc"
     )
     # default sort is last_seen desc
     assert _hashes(rows) == [c * 32 for c in ["c", "b", "a"]]
@@ -911,7 +794,7 @@ def test_list_files_unknown_direction_falls_back_to_default(catalog_db: Path) ->
     _seed_sortable(catalog_db)
     reader = CatalogReader(open_reader(catalog_db))
     rows = reader.list_files(
-        target=None, tier=None, verdict=None, query=None, page=1, sort="size", direction="bogus"
+        target=None, tier=None, query=None, page=1, sort="size", direction="bogus"
     )
     # default direction is desc -> size desc -> 300, 200, 100
     assert _hashes(rows) == [c * 32 for c in ["a", "c", "b"]]
@@ -923,7 +806,6 @@ def test_list_files_sort_injection_is_rejected_not_interpolated(catalog_db: Path
     rows = reader.list_files(
         target=None,
         tier=None,
-        verdict=None,
         query=None,
         page=1,
         sort="size; drop table files",
@@ -952,7 +834,7 @@ def test_list_files_sort_tiebreak_is_ed2k_hash(catalog_db: Path) -> None:
         conn.commit()
     reader = CatalogReader(open_reader(catalog_db))
     rows = reader.list_files(
-        target=None, tier=None, verdict=None, query=None, page=1, sort="size", direction="asc"
+        target=None, tier=None, query=None, page=1, sort="size", direction="asc"
     )
     assert _hashes(rows) == ["a" * 32, "b" * 32]  # ed2k_hash asc breaks the tie
 
@@ -1003,33 +885,25 @@ def _seed_mixed_tier_file(db: Path) -> None:
 
 def test_tier_counts_groups_by_tier(catalog_db: Path) -> None:
     _seed_sortable(catalog_db)  # one file per tier
-    counts = CatalogReader(open_reader(catalog_db)).tier_counts(
-        target=None, verdict=None, query=None
-    )
+    counts = CatalogReader(open_reader(catalog_db)).tier_counts(target=None, query=None)
     assert counts == {"download": 1, "notify": 1, "catalog": 1}
 
 
 def test_tier_counts_empty_catalogue_is_empty(catalog_db: Path) -> None:
-    counts = CatalogReader(open_reader(catalog_db)).tier_counts(
-        target=None, verdict=None, query=None
-    )
+    counts = CatalogReader(open_reader(catalog_db)).tier_counts(target=None, query=None)
     assert counts == {}
 
 
 def test_tier_counts_multi_tier_file_counts_in_both(catalog_db: Path) -> None:
     _seed_mixed_tier_file(catalog_db)
-    counts = CatalogReader(open_reader(catalog_db)).tier_counts(
-        target=None, verdict=None, query=None
-    )
+    counts = CatalogReader(open_reader(catalog_db)).tier_counts(target=None, query=None)
     assert counts == {"download": 1, "notify": 1}
 
 
 def test_tier_counts_respects_query_filter(catalog_db: Path) -> None:
     """The facet honours the OTHER filters (here ``query``): only alpha.avi (download) matches."""
     _seed_sortable(catalog_db)
-    counts = CatalogReader(open_reader(catalog_db)).tier_counts(
-        target=None, verdict=None, query="alpha"
-    )
+    counts = CatalogReader(open_reader(catalog_db)).tier_counts(target=None, query="alpha")
     assert counts == {"download": 1}
 
 
@@ -1058,7 +932,7 @@ def test_list_files_lists_file_with_no_observation(catalog_db: Path) -> None:
     """
     h = _seed_file_without_observation(catalog_db)
     rows = CatalogReader(open_reader(catalog_db)).list_files(
-        target=None, tier=None, verdict=None, query=None, page=1
+        target=None, tier=None, query=None, page=1
     )
     assert [row.ed2k_hash for row in rows] == [h]
     assert rows[0].filename == ""
@@ -1071,7 +945,7 @@ def test_list_files_file_with_no_observation_has_zero_sources(catalog_db: Path) 
     string "None". Same guard as ``filename`` / ``last_seen`` on the same row."""
     _seed_file_without_observation(catalog_db)
     rows = CatalogReader(open_reader(catalog_db)).list_files(
-        target=None, tier=None, verdict=None, query=None, page=1
+        target=None, tier=None, query=None, page=1
     )
     assert rows[0].source_count == 0
 
@@ -1080,7 +954,7 @@ def test_count_files_counts_file_with_no_observation(catalog_db: Path) -> None:
     """It counts in ``total`` (it is a catalogued file) but not in ``matched`` (no decision)."""
     _seed_file_without_observation(catalog_db)
     matched, total = CatalogReader(open_reader(catalog_db)).count_files(
-        target=None, tier=None, verdict=None, query=None
+        target=None, tier=None, query=None
     )
     assert (matched, total) == (0, 1)
 
@@ -1089,7 +963,7 @@ def test_list_files_query_filter_excludes_file_with_no_observation(catalog_db: P
     """No observation means no filename to match: ``NULL LIKE ?`` is NULL, so the row drops."""
     _seed_file_without_observation(catalog_db)
     rows = CatalogReader(open_reader(catalog_db)).list_files(
-        target=None, tier=None, verdict=None, query="keroro", page=1
+        target=None, tier=None, query="keroro", page=1
     )
     assert rows == []
 
@@ -1114,7 +988,7 @@ def test_list_files_observation_tie_break_on_id(catalog_db: Path) -> None:
             )
         conn.commit()
     rows = CatalogReader(open_reader(catalog_db)).list_files(
-        target=None, tier=None, verdict=None, query=None, page=1
+        target=None, tier=None, query=None, page=1
     )
     assert rows[0].filename == "second.avi"
 

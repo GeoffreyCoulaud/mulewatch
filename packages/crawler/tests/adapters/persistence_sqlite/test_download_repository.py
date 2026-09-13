@@ -104,9 +104,9 @@ def test_committed_bytes_is_zero_on_empty(repository: SqliteDownloadRepository) 
 def test_active_states_maps_hash_to_state(repository: SqliteDownloadRepository) -> None:
     repository.record_queued(_A, "062A", 100)
     repository.record_queued(_B, "063A", 200)
-    repository.set_state(_B, DownloadState.QUARANTINED)
+    repository.set_state(_B, DownloadState.FAILED)
     states = repository.active_states()
-    assert states == {_A: DownloadState.QUEUED, _B: DownloadState.QUARANTINED}
+    assert states == {_A: DownloadState.QUEUED, _B: DownloadState.FAILED}
 
 
 def test_record_queued_is_atomic_on_injected_failure(

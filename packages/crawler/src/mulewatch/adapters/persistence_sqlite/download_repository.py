@@ -36,10 +36,9 @@ _ACTIVE_STATES = "SELECT ed2k_hash, state FROM downloads"
 _GET_TARGET_ID = "SELECT target_id FROM downloads WHERE ed2k_hash = ?"
 
 # The cap only counts ACTIVE downloads (non-terminal states, DECISION D7).
-# The 3 terminal ones listed here MUST stay synchronized with _TERMINAL_STATES (states.py).
+# The terminal ones listed here MUST stay synchronized with _TERMINAL_STATES (states.py).
 _COMMITTED_BYTES = (
-    "SELECT COALESCE(SUM(size_bytes), 0) FROM downloads "
-    "WHERE state NOT IN ('completed', 'quarantined', 'failed')"
+    "SELECT COALESCE(SUM(size_bytes), 0) FROM downloads WHERE state NOT IN ('completed', 'failed')"
 )
 
 
@@ -70,8 +69,7 @@ class SqliteDownloadRepository:
         """UPDATE the state; stamps ``completed_at`` if the state is ``completed`` (injected clock).
 
         Requires an existing download (an unknown hash → ``PersistenceError``: caller-code bug).
-        Only ``completed`` (the first instant of completion) is timestamped;
-        ``quarantined``/``failed`` do not overwrite the ``completed_at``.
+        Only ``completed`` is timestamped; ``failed`` does not overwrite the ``completed_at``.
         """
         with wrap_sqlite_errors():
             if state == DownloadState.COMPLETED:
@@ -103,10 +101,8 @@ class SqliteDownloadRepository:
     def get_target_id(self, ed2k_hash: str) -> str | None:
         """``target_id`` of a downloaded hash, or ``None`` (never queued) — READ.
 
-        The verification loop (verify spec §6, DECISION DV11) uses it to build a minimal
-        ``expected``; the NO-OP ignores it, D-analysis will enrich it. ``None`` is a normal
-        case (a task may be claimed for a hash whose download row has been promoted/purged
-        — the loop then builds ``expected={}``).
+        The download loop uses it to label the completion notification; ``None`` is a normal
+        case (a shared hash the crawler never queued), reported as ``unknown``.
         """
         with wrap_sqlite_errors():
             row = self._connection.execute(_GET_TARGET_ID, (ed2k_hash,)).fetchone()

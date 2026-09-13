@@ -1,5 +1,8 @@
 # Handoff — emule-indexer (Plan E.3 : observabilité du verifier)
 
+> **Obsolete since 2026-09-13.** The subsystem described here left the project's scope.
+> See `docs/specs/2026-09-13-scope-reduction-catalog-notify-download.md`.
+
 > Continuation guide. Le plus récent des handoffs = point d'entrée. Lire aussi le précédent
 > (`2026-06-15 - handoff - observabilite E2 crawler.md`) pour la chaîne crawler, et la spec
 > `docs/superpowers/specs/2026-06-15-observability-design.md` (E-D1→E-D13) pour les détails.

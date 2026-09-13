@@ -18,11 +18,11 @@ the cycle) is PERSISTED only at the END of the cycle, exactly like ``cycle_index
 mid-way replays the cycle AND re-arms the backoff from the previous cycle's state (consistent -
 the index does not advance mid-cycle either, spec §7).
 
-NEVER RAISES (aligned with ``run_download_cycle``/``run_verification_cycle``): a
+NEVER RAISES (aligned with ``run_download_cycle``): a
 ``RepositoryError`` on the end-of-cycle writes (``write_cycle_state``/``save_channel_backoff``)
 is ABSORBED → log + return without advancing the index; the cycle will be replayed. Without this
 net, the exception propagates out of the supervising ``TaskGroup`` which cancels ALL sibling
-loops (download/verify/port-sync) → app crash on a transient persistence failure.
+loops (download/port-sync) → app crash on a transient persistence failure.
 """
 
 import asyncio
@@ -198,8 +198,7 @@ async def run_search_cycle(
     # here is ABSORBED (error-boundary#1) → the index does not advance, the cycle will be
     # replayed next round (append-only state, no corruption). Without this net, the exception
     # propagates out of the supervising TaskGroup which cancels ALL sibling loops → app
-    # crash on a transient persistence failure. Aligned with run_download/verify
-    # ("NEVER RAISES").
+    # crash on a transient persistence failure. Aligned with run_download ("NEVER RAISES").
     try:
         scheduler_state.write_cycle_state(cycle_index + 1, clock.now())
         scheduler_state.save_channel_backoff(backoff.snapshot())

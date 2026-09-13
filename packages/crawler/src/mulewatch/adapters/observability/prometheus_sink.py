@@ -21,9 +21,6 @@ _COUNTERS: tuple[tuple[MetricName, str, tuple[str, ...]], ...] = (
     (MetricName.DECISIONS, "Match decisions recorded", ("tier",)),
     (MetricName.DOWNLOADS_QUEUED, "Downloads queued", ()),
     (MetricName.DOWNLOADS_COMPLETED, "Downloads completed", ()),
-    (MetricName.PROMOTION_FAILURES, "Failed quarantine promotions", ()),
-    (MetricName.VERIFICATIONS, "Verifications completed", ("verdict",)),
-    (MetricName.VERIFIER_UNAVAILABLE, "Verifier unreachable (occurrences)", ()),
     (MetricName.PORT_SYNC_TRIGGERED, "Port syncs triggered", ()),
     (MetricName.HIGH_ID_RECOVERED, "High-IDs recovered", ()),
     (MetricName.PORT_MISMATCH, "High-ID not restored (occurrences)", ()),
@@ -31,7 +28,6 @@ _COUNTERS: tuple[tuple[MetricName, str, tuple[str, ...]], ...] = (
 _GAUGES: tuple[tuple[MetricName, str, tuple[str, ...]], ...] = (
     (MetricName.CONNECTED_INSTANCES, "Search-capable instances", ("network",)),
     (MetricName.SEARCH_CAPABLE, "Search-capable now (1)", ()),
-    (MetricName.VERIFICATION_QUEUE_DEPTH, "Pending verification tasks", ()),
     (MetricName.CRAWLER_UP, "Crawler running (1)", ()),
 )
 _HISTOGRAMS: tuple[tuple[MetricName, str], ...] = (

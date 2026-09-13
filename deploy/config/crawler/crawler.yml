@@ -1,5 +1,5 @@
-# Config du crawler — versionnée. Secrets via ${VAR} (.env), reste en clair.
-# Mode download : basculer download.enabled à true ET lancer --profile download.
+# Crawler config, version-controlled. Secrets via ${VAR} (.env), the rest in clear text.
+# Set download.enabled to false for a crawl-only node (no download, catalog only).
 
 cycle_interval_seconds: 300.0
 search_poll_budget_seconds: 30.0
@@ -42,7 +42,7 @@ observability:
   #     tag: operations
 
 download:
-  enabled: false
+  enabled: true
   poll_interval_seconds: 30.0
   disk_cap_bytes: 53687091200
   endpoint:
@@ -50,13 +50,9 @@ download:
     host: amuled
     port: 4712
     password: ${AMULE_EC_PASSWORD}
-  staging_dir: /data/quarantine
-  quarantine_dir: /data/quarantine
-  verifier_url: http://verifier:8000
-  verify:
-    poll_interval_seconds: 10.0
-    client_timeout_seconds: 180.0
 
+# Port-sync only works under the gluetun stack (it needs docker-proxy and the control URL).
+# Flip enabled to true there, alongside VPN_PORT_FORWARDING=on.
 port_sync:
   enabled: false
   poll_interval_seconds: 60.0

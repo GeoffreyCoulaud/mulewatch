@@ -13,10 +13,10 @@ permissions:
   contents: read
 
 env:
-  IMAGE_PREFIX: ghcr.io/geoffreycoulaud/mulewatch
+  IMAGE: ghcr.io/geoffreycoulaud/mulewatch-crawler
 
 jobs:
-  # Full gate + per-arch build/integration/push-by-digest (push: true). The images are
+  # Full gate + per-arch build/integration/push-by-digest (push: true). The image is
   # pushed by digest only; no consumable tag exists yet.
   validate:
     permissions:
@@ -26,7 +26,7 @@ jobs:
     with:
       push: true
 
-  # Fan-in: combine the per-arch digests into one multi-arch manifest per package and tag it.
+  # Fan-in: combine the per-arch digests into one multi-arch manifest and tag it.
   # A consumable tag, its signature, and its attestations are all published only AFTER the VEX
   # honesty gate below passes. `validate` (build + integration) has already succeeded, and the
   # per-arch layers exist in ghcr by digest only (no tag, no signature), so nothing a consumer
@@ -38,10 +38,6 @@ jobs:
       contents: read
       packages: write
       id-token: write  # keyless OIDC for cosign sign/attest
-    strategy:
-      fail-fast: false
-      matrix:
-        package: [crawler, verifier]
     steps:
       - name: Check out the repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -54,7 +50,7 @@ jobs:
       - name: Download the per-arch image digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: digest-${{ matrix.package }}-*
+          pattern: digest-*
           path: /tmp/digests
           merge-multiple: true
 
@@ -66,7 +62,7 @@ jobs:
       - name: Download the amd64 digest for the pre-publish SBOM
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: digest-${{ matrix.package }}-amd64
+          name: digest-amd64
           path: /tmp/amd64-digest
 
       - name: Set up Docker Buildx
@@ -83,7 +79,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.package }}
+          images: ${{ env.IMAGE }}
           tags: |
             type=ref,event=branch
             type=sha
@@ -105,7 +101,7 @@ jobs:
         working-directory: /tmp/amd64-digest
         run: |
           digest=$(ls | head -1)
-          echo "ref=${{ env.IMAGE_PREFIX }}-${{ matrix.package }}@sha256:${digest}" >> "$GITHUB_OUTPUT"
+          echo "ref=${{ env.IMAGE }}@sha256:${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Generate the Syft-JSON SBOM (native, for the checks and the VEX-aware daily scan)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
@@ -137,7 +133,7 @@ jobs:
         run: >
           uv run python -m vex_guards.check_image_claims
           --sbom /tmp/sbom.syft.json
-          --vex security/${{ matrix.package }}.vex.openvex.json
+          --vex security/crawler.vex.openvex.json
           --format fail
 
       # --- Publish (reached only when every gate above passed) -------------------------------
@@ -147,7 +143,7 @@ jobs:
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.IMAGE_PREFIX }}-${{ matrix.package }}@sha256:%s ' *)
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
 
       # The signature and attestations bind to the pushed index digest (not a tag): every tag
       # pointing at this digest inherits them. imagetools inspect resolves the tag to the
@@ -155,9 +151,9 @@ jobs:
       - name: Capture the pushed index digest
         id: digest
         run: |
-          ref="${{ env.IMAGE_PREFIX }}-${{ matrix.package }}:${{ steps.meta.outputs.version }}"
+          ref="${{ env.IMAGE }}:${{ steps.meta.outputs.version }}"
           digest=$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')
-          echo "ref=${{ env.IMAGE_PREFIX }}-${{ matrix.package }}@${digest}" >> "$GITHUB_OUTPUT"
+          echo "ref=${{ env.IMAGE }}@${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -177,7 +173,7 @@ jobs:
           cosign attest --yes --type https://syft.dev/bom \
             --predicate /tmp/sbom.syft.json "$ref"
           cosign attest --yes --type openvex \
-            --predicate security/${{ matrix.package }}.vex.openvex.json "$ref"
+            --predicate security/crawler.vex.openvex.json "$ref"
 
       - name: Inspect the published manifest
-        run: docker buildx imagetools inspect ${{ env.IMAGE_PREFIX }}-${{ matrix.package }}:${{ steps.meta.outputs.version }}
+        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
