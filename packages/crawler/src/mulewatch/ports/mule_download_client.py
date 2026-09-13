@@ -25,7 +25,7 @@ class DownloadEntry:
 
     ``ed2k_hash`` = content key (lowercase hex 32). ``size_done``/``size_full`` = bytes
     transferred / total size. ``is_complete`` is true ONLY if the total size is known (> 0)
-    AND reached — a ``size_full == 0`` (nascent entry) is never complete.
+    AND reached - a ``size_full == 0`` (nascent entry) is never complete.
     """
 
     ed2k_hash: str
@@ -36,6 +36,16 @@ class DownloadEntry:
     def is_complete(self) -> bool:
         """``True`` if the file is fully transferred on amuled's side (spec §5)."""
         return self.size_full > 0 and self.size_done >= self.size_full
+
+    @property
+    def remaining_bytes(self) -> int:
+        """Bytes still to come for this entry (the disk-cap spec's ``outstanding``).
+
+        Clamped at 0, which is what a nascent entry (``size_full == 0``, amuled does not know
+        the total yet) and an over-complete one both contribute: a negative term would hand
+        the admission rule free space that does not exist.
+        """
+        return max(self.size_full - self.size_done, 0)
 
 
 @dataclass(frozen=True)

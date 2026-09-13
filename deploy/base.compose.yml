@@ -37,12 +37,14 @@ services:
       ec:
         aliases: [crawler]
       egress: {}
-    # No mount of the downloaded media: the crawler never reads it, and the disk cap is
-    # accounted in local.db rather than measured on the filesystem.
+    # ./downloads is mounted READ-ONLY and no file in it is ever opened: the crawler calls
+    # statvfs on it (shutil.disk_usage) to measure free space before admitting a download.
+    # incoming/ and temp/ share one filesystem, so the parent covers both in one call.
     volumes:
       - ./config/crawler/crawler.yml:/app/config/crawler.yml:ro
       - ./config/crawler/targets.yml:/app/config/targets.yml:ro
       - ./config/crawler/matcher.yml:/app/config/matcher.yml:ro
+      - ./downloads:/data/downloads:ro
       - catalog-db:/data/catalog
       - local-db:/data/local
     # The crawler ALSO serves the read-only webui in-process (same image), on its own thread. The

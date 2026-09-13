@@ -56,7 +56,7 @@ Si le nœud tourne mais ne semble plus catalogue / télécharge plus rien :
 | Le crawler tourne mais aucune nouvelle observation depuis > 1 h | `docker compose logs crawler --tail 100` | Cherchez « EC unavailable », « no servers » ou « cycle » récent. Si pas de cycle, amuled est probablement déconnecté du réseau (voir [runbook-troubleshooting](troubleshooting.md)). |
 | Téléchargements bloqués en QUEUED | `docker compose logs crawler \| grep -i download` | Vérifier que amuled est en High-ID **ou** qu'il a des sources (sources directes nécessaires en Low-ID). |
 | Un téléchargement fini n'apparaît pas dans `downloads/incoming` | `docker compose logs amuled --tail 100` | Voir la fiche [« A finished file never shows up »](troubleshooting.md#a-finished-file-never-shows-up-in-downloadsincoming). |
-| Le disque se remplit | `docker system df -v` puis `du -sh downloads/` | Catalogue trop gros (voir Compaction) ou fichiers téléchargés accumulés : le plafond disque ne borne que les octets *en vol*, pas le total. |
+| Le disque se remplit | `docker system df -v` puis `du -sh downloads/` | Catalogue trop gros (voir Compaction) ou fichiers téléchargés accumulés : le crawler refuse de nouveaux téléchargements sous `download.min_free_bytes`, mais ne supprime jamais rien. |
 
 Pour les symptômes inconnus, voir le [runbook de dépannage](troubleshooting.md).
 
@@ -70,8 +70,12 @@ vos cibles) :
   catalogue) ramène l'historique au-delà de 90 jours à un rollup journalier : taux de compression
   élevé.
 - **`downloads/`** : les fichiers téléchargés, qui **s'accumulent sans borne** (rien ne les purge).
-  Le plafond `download.disk_cap_bytes` est un compte des téléchargements *en cours*, pas une mesure
-  du disque : c'est à vous de faire le ménage dans `downloads/incoming`.
+  Depuis le 2026-09-13, le crawler **mesure** vraiment le disque : il monte `./downloads` en
+  lecture seule (uniquement pour `statvfs`, aucun fichier n'est jamais ouvert) et n'accepte un
+  nouveau candidat que si `libre - reste à télécharger - taille du candidat` demeure au-dessus de
+  `download.min_free_bytes` (10 Gio par défaut). C'est un **plancher**, pas un plafond : il bloque
+  les nouveaux téléchargements quand le disque se tend, il n'efface rien. Le ménage dans
+  `downloads/incoming` reste à votre charge.
 - **`amule-state`** : qq Mo (server.met, nodes.dat, prefs).
 
 Si votre VPS / NAS approche de saturation, lancez `docker system df -v` et `du -sh downloads/`

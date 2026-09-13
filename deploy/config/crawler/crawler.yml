@@ -44,7 +44,14 @@ observability:
 download:
   enabled: true
   poll_interval_seconds: 30.0
-  disk_cap_bytes: 53687091200
+  # Free-space floor on output_dir: a candidate is deferred when free space minus what amuled
+  # still has to transfer minus its own size would fall below it. 10 GiB.
+  min_free_bytes: 10737418240
+  # A queued/downloading entry amuled has not shown for this long becomes failed. An entry
+  # stays in amuled's queue even with zero sources, so absence really does mean gone.
+  lost_after_seconds: 86400
+  # Measured with statvfs, never read: mounted read-only in the compose file.
+  output_dir: /data/downloads
   endpoint:
     name: amule-dl
     host: amuled

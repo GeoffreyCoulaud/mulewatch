@@ -78,6 +78,5 @@ def test_local_rewrites_a_legacy_quarantined_download_as_completed(tmp_path: Pat
     try:
         repository = SqliteDownloadRepository(connection)
         assert repository.active_states() == {"a1": DownloadState.COMPLETED}
-        assert repository.committed_bytes() == 0  # still terminal: out of the cap
     finally:
         connection.close()

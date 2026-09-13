@@ -48,7 +48,9 @@ def _full_download_section() -> dict[str, Any]:
     return {
         "enabled": True,
         "poll_interval_seconds": 30.0,
-        "disk_cap_bytes": 1_000_000_000,
+        "min_free_bytes": 1_000_000_000,
+        "lost_after_seconds": 3600.0,
+        "output_dir": "/data/out",
         "endpoint": {"name": "amule-dl", "host": "amuled", "port": 4713, "password": "dl-secret"},
     }
 
@@ -316,7 +318,7 @@ def test_download_section_must_be_a_mapping() -> None:
 
 def test_download_enabled_true_requires_the_endpoint() -> None:
     raw = _minimal_raw() | {
-        "download": {"enabled": True, "poll_interval_seconds": 30, "disk_cap_bytes": 1024}
+        "download": {"enabled": True, "poll_interval_seconds": 30, "min_free_bytes": 1024}
     }  # wiring missing
     with pytest.raises(ConfigError):
         parse_crawler_config(raw, _env())
@@ -327,7 +329,9 @@ def test_download_enabled_true_full_is_download_mode() -> None:
     cfg = parse_crawler_config(raw, _env())
     assert cfg.download == DownloadConfig(
         poll_interval_seconds=30.0,
-        disk_cap_bytes=1_000_000_000,
+        min_free_bytes=1_000_000_000,
+        lost_after_seconds=3600.0,
+        output_dir="/data/out",
         endpoint=AmuleEndpoint(name="amule-dl", host="amuled", port=4713, password="dl-secret"),
     )
 
@@ -339,19 +343,38 @@ def test_download_poll_interval_must_be_positive() -> None:
         parse_crawler_config(raw, _env())
 
 
-def test_download_disk_cap_must_be_positive_integer() -> None:
-    section = _full_download_section() | {"disk_cap_bytes": 0}
+def test_download_min_free_must_be_positive_integer() -> None:
+    section = _full_download_section() | {"min_free_bytes": 0}
     raw = _minimal_raw() | {"download": section}
     with pytest.raises(ConfigError, match="strictly positive"):
         parse_crawler_config(raw, _env())
 
 
-def test_download_disk_cap_key_is_required() -> None:
-    # download enabled but no disk_cap_bytes → missing-key branch of _positive_int.
-    section = _full_download_section()
-    del section["disk_cap_bytes"]
+def test_download_lost_after_must_be_positive() -> None:
+    section = _full_download_section() | {"lost_after_seconds": 0.0}
     raw = _minimal_raw() | {"download": section}
-    with pytest.raises(ConfigError, match="disk_cap_bytes"):
+    with pytest.raises(ConfigError, match="strictly positive"):
+        parse_crawler_config(raw, _env())
+
+
+def test_download_space_and_ttl_knobs_have_defaults() -> None:
+    # All three are new in 2026-09-13: an operator config predating them must still boot, so
+    # they default instead of failing fast like the older required keys.
+    section = _full_download_section()
+    for key in ("min_free_bytes", "lost_after_seconds", "output_dir"):
+        del section[key]
+    raw = _minimal_raw() | {"download": section}
+    cfg = parse_crawler_config(raw, _env())
+    assert cfg.download is not None
+    assert cfg.download.min_free_bytes == 10_737_418_240  # 10 GiB
+    assert cfg.download.lost_after_seconds == 86_400.0  # 24 h
+    assert cfg.download.output_dir == "/data/downloads"  # what base.compose.yml mounts
+
+
+def test_download_output_dir_must_be_a_string() -> None:
+    section = _full_download_section() | {"output_dir": 42}
+    raw = _minimal_raw() | {"download": section}
+    with pytest.raises(ConfigError, match="output_dir"):
         parse_crawler_config(raw, _env())
 
 
@@ -489,6 +512,14 @@ def test_observability_bad_log_level_rejected() -> None:
 def test_observability_metrics_enabled_key_missing_rejected() -> None:
     raw = _minimal_raw() | {"observability": {"log_level": "INFO", "metrics": {"port": 9100}}}
     with pytest.raises(ConfigError, match="'enabled' missing"):
+        parse_crawler_config(raw, _env())
+
+
+def test_observability_metrics_port_key_missing_rejected() -> None:
+    # missing-key branch of _positive_int (the only required caller left since the download
+    # knobs gained defaults).
+    raw = _minimal_raw() | {"observability": {"log_level": "INFO", "metrics": {"enabled": True}}}
+    with pytest.raises(ConfigError, match="port"):
         parse_crawler_config(raw, _env())
 
 

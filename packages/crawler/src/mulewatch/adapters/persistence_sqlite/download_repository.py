@@ -7,21 +7,23 @@ disciplines as the other repos (data-model spec §7): timestamp stamped BEFORE `
 connection ``in_transaction``), ``wrap_sqlite_errors``.
 
 ``record_queued`` is dedup-safe (PK = hash, ``ON CONFLICT DO NOTHING``); ``set_state``
-stamps ``completed_at`` on completion (injected clock); ``committed_bytes`` sums the
-``size_bytes`` of NON-terminal states (application-level disk cap, DECISION D6/D7);
-``active_states`` returns the hash→state map (the loop's monitor reconciles against it).
+stamps ``completed_at`` on completion (injected clock); ``mark_seen``/``expire_lost`` carry
+the lost-download TTL (2026-09-13 spec §2); ``active_states`` returns the hash→state map (the
+loop's monitor reconciles against it).
 """
 
 import sqlite3
+from collections.abc import Iterable
 from contextlib import suppress
+from datetime import timedelta
 
 from mulewatch.adapters.persistence_sqlite.connection import Clock, utc_iso, utc_now
 from mulewatch.adapters.persistence_sqlite.errors import PersistenceError, wrap_sqlite_errors
 from mulewatch.domain.download.states import DownloadState
 
 _INSERT = """
-INSERT INTO downloads (ed2k_hash, target_id, state, queued_at, size_bytes)
-VALUES (?, ?, 'queued', ?, ?)
+INSERT INTO downloads (ed2k_hash, target_id, state, queued_at, size_bytes, last_seen_at)
+VALUES (?, ?, 'queued', ?, ?, ?)
 ON CONFLICT (ed2k_hash) DO NOTHING
 """
 
@@ -35,11 +37,14 @@ _ACTIVE_STATES = "SELECT ed2k_hash, state FROM downloads"
 
 _GET_TARGET_ID = "SELECT target_id FROM downloads WHERE ed2k_hash = ?"
 
-# The cap only counts ACTIVE downloads (non-terminal states, DECISION D7).
-# The terminal ones listed here MUST stay synchronized with _TERMINAL_STATES (states.py).
-_COMMITTED_BYTES = (
-    "SELECT COALESCE(SUM(size_bytes), 0) FROM downloads WHERE state NOT IN ('completed', 'failed')"
-)
+_MARK_SEEN = "UPDATE downloads SET last_seen_at = ? WHERE ed2k_hash = ?"
+
+# The non-terminal states listed here MUST stay synchronized with _TERMINAL_STATES (states.py).
+_EXPIRE_LOST = """
+UPDATE downloads SET state = 'failed'
+WHERE state IN ('queued', 'downloading') AND last_seen_at < ?
+RETURNING ed2k_hash
+"""
 
 
 class SqliteDownloadRepository:
@@ -56,7 +61,7 @@ class SqliteDownloadRepository:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
                 cursor = self._connection.execute(
-                    _INSERT, (ed2k_hash, target_id, queued_at, size_bytes)
+                    _INSERT, (ed2k_hash, target_id, queued_at, size_bytes, queued_at)
                 )
                 self._connection.execute("COMMIT")
             except BaseException:
@@ -87,10 +92,28 @@ class SqliteDownloadRepository:
             row = self._connection.execute(_IS_DOWNLOADED, (ed2k_hash,)).fetchone()
         return row is not None
 
-    def committed_bytes(self) -> int:
-        """Sum of the ``size_bytes`` of ACTIVE downloads (disk cap, spec §7)."""
+    def mark_seen(self, ed2k_hashes: Iterable[str]) -> None:
+        """Stamps ``last_seen_at`` for the hashes amuled still knows (queue or shared files).
+
+        An unknown hash updates nothing (a shared file the crawler never queued): no error.
+        """
+        seen_at = utc_iso(self._clock())
         with wrap_sqlite_errors():
-            return int(self._connection.execute(_COMMITTED_BYTES).fetchone()[0])
+            self._connection.executemany(
+                _MARK_SEEN, [(seen_at, ed2k_hash) for ed2k_hash in ed2k_hashes]
+            )
+
+    def expire_lost(self, max_age_seconds: float) -> tuple[str, ...]:
+        """Fails the non-terminal downloads amuled has not shown for ``max_age_seconds``.
+
+        Returns the hashes it failed, for the caller to log. An entry stays in amuled's queue
+        even with zero sources, so absence is a strong signal: the entry was removed, or the
+        file completed and was moved out of IncomingDir before the next poll.
+        """
+        cutoff = utc_iso(self._clock() - timedelta(seconds=max_age_seconds))
+        with wrap_sqlite_errors():
+            rows = self._connection.execute(_EXPIRE_LOST, (cutoff,)).fetchall()
+        return tuple(str(row[0]) for row in rows)
 
     def active_states(self) -> dict[str, DownloadState]:
         """Hash→state map of ALL known downloads (the monitor reconciles against it)."""

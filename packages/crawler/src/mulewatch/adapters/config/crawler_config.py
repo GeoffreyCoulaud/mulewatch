@@ -60,13 +60,18 @@ class DownloadConfig:
     """Download policy + wiring (download spec §3/§7). Present ⟺ ``enabled``.
 
     ``poll_interval_seconds``: cadence for polling the download queue (the nudge wakes it
-    earlier). ``disk_cap_bytes``: APPLICATION-level disk cap (graceful back-pressure). ``endpoint``:
-    2nd EC connection dedicated to download (DECISION D3). amuled writes the finished file into
-    its own IncomingDir and nothing here ever touches it, so no directory is configured.
+    earlier). ``min_free_bytes``: free-space floor on the output filesystem, below which a
+    candidate is deferred. ``lost_after_seconds``: a queued/downloading row amuled has not shown
+    for that long becomes ``failed``. ``output_dir``: the directory measured by ``statvfs``
+    (mounted READ-ONLY; no file is ever opened there). ``endpoint``: 2nd EC connection dedicated
+    to download (DECISION D3). amuled writes the finished file into its own IncomingDir and
+    nothing here ever touches it.
     """
 
     poll_interval_seconds: float
-    disk_cap_bytes: int
+    min_free_bytes: int
+    lost_after_seconds: float
+    output_dir: str
     endpoint: AmuleEndpoint
 
 
@@ -209,6 +214,20 @@ def _bool(mapping: dict[str, Any], key: str, what: str) -> bool:
     return value
 
 
+def _positive_default(mapping: dict[str, Any], key: str, default: float, what: str) -> float:
+    """OPTIONAL strictly positive float (default ``default``)."""
+    if key not in mapping:
+        return default
+    return _positive(mapping, key, what)
+
+
+def _positive_int_default(mapping: dict[str, Any], key: str, default: int, what: str) -> int:
+    """OPTIONAL strictly positive integer (default ``default``)."""
+    if key not in mapping:
+        return default
+    return _positive_int(mapping, key, what)
+
+
 def _bool_default(mapping: dict[str, Any], key: str, default: bool, what: str) -> bool:
     """OPTIONAL boolean (default ``default``); refuses a non-bool — fail-fast (§5/§14)."""
     if key not in mapping:
@@ -292,6 +311,13 @@ def _parse_observability(raw: dict[str, Any], env: Mapping[str, str]) -> Observa
     )
 
 
+# The three download knobs of 2026-09-13 default rather than fail fast: an operator config
+# written before them must still boot. 24 h absorbs an amuled restart or a night of EC downtime.
+_DEFAULT_MIN_FREE_BYTES = 10_737_418_240  # 10 GiB
+_DEFAULT_LOST_AFTER_SECONDS = 86_400.0
+_DEFAULT_OUTPUT_DIR = "/data/downloads"  # the read-only mount in deploy/base.compose.yml
+
+
 def _parse_download(raw: dict[str, Any], env: Mapping[str, str]) -> DownloadConfig | None:
     if "download" not in raw:
         return None
@@ -299,9 +325,18 @@ def _parse_download(raw: dict[str, Any], env: Mapping[str, str]) -> DownloadConf
     if not _bool_default(section, "enabled", False, "download"):
         return None  # laziness: we read/interpolate NOTHING else (no variable required)
     endpoint_raw = _require_mapping(section.get("endpoint"), "download.endpoint")
+    output_dir = section.get("output_dir", _DEFAULT_OUTPUT_DIR)
+    if not isinstance(output_dir, str) or not output_dir:
+        raise ConfigError(f"download.output_dir: non-empty string expected, got {output_dir!r}")
     return DownloadConfig(
         poll_interval_seconds=_positive(section, "poll_interval_seconds", "download"),
-        disk_cap_bytes=_positive_int(section, "disk_cap_bytes", "download"),
+        min_free_bytes=_positive_int_default(
+            section, "min_free_bytes", _DEFAULT_MIN_FREE_BYTES, "download"
+        ),
+        lost_after_seconds=_positive_default(
+            section, "lost_after_seconds", _DEFAULT_LOST_AFTER_SECONDS, "download"
+        ),
+        output_dir=output_dir,
         endpoint=_parse_endpoint(endpoint_raw, "download.endpoint", env),
     )
 

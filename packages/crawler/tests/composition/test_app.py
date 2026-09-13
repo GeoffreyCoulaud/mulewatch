@@ -106,17 +106,19 @@ def _crawler_config(
     )
 
 
-def _download_config() -> DownloadConfig:
+def _download_config(tmp_path: Path) -> DownloadConfig:
     return DownloadConfig(
         poll_interval_seconds=30.0,
-        disk_cap_bytes=1_000_000_000,
+        min_free_bytes=1_000_000_000,
+        lost_after_seconds=86_400.0,
+        output_dir=str(tmp_path),
         endpoint=AmuleEndpoint(name="dl", host="h", port=4799, password="p"),
     )
 
 
 def _full_crawler_config(tmp_path: Path) -> CrawlerConfig:
     """FULL-mode config: ``download`` section present (enabled + endpoint)."""
-    return _crawler_config(tmp_path, download=_download_config())
+    return _crawler_config(tmp_path, download=_download_config(tmp_path))
 
 
 def _port_sync_config() -> PortSyncConfig:
