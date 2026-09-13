@@ -20,10 +20,10 @@ services:
     ports:
       - "${LISTEN_PORT:-4662}:4662"
       - "${LISTEN_PORT:-4662}:4662/udp"
-    # INCOMING_DIR and TEMP_DIR are rewritten into amule.conf by the image entrypoint on every
-    # start. Without them the image defaults to /downloads/incoming, which is NOT bind-mounted:
-    # finished files would land in the container layer and vanish when it is recreated.
-    # /data/quarantine is a legacy name kept so existing nodes need no amule.conf edit.
+    # The image writes amule.conf ONLY if it does not exist yet, so these two matter on the very
+    # first start and never again. Without them it picks /downloads/incoming, which is NOT
+    # bind-mounted: finished files land in the container layer and vanish when it is recreated.
+    # Changing them later has no effect; edit amule.conf in the amule-state volume instead.
     volumes:
       - amule-state:/home/amule/.aMule
       - ./downloads/incoming:/data/quarantine
