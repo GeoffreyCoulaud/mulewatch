@@ -103,10 +103,32 @@ at startup.
 2b. **Add the crawler's read-only mount** to your compose file, or it cannot measure free space:
    `- ./downloads:/data/downloads:ro`. One `statvfs` on the parent covers `incoming/` and `temp/`,
    which share a filesystem.
-3. Leave `amule.conf` alone. Its `IncomingDir` points at `/data/quarantine`, which is the container
-   path the compose file bind-mounts to `./downloads/incoming`. The name is a legacy kept on
-   purpose: renaming it would mean editing `amule.conf` inside the `amule-state` volume for a
-   cosmetic gain.
+3. **Align amuled on the image's own paths.** The shipped stack no longer overrides `IncomingDir`
+   or `TempDir`: it binds `./downloads` to `/downloads`, where the image already puts them, and
+   sets no amuled variable. A node created before 2026-09-13 carries a hand-edited `amule.conf`
+   pointing at `/data/quarantine`, and the image never rewrites that file once it exists, so the
+   old value survives every restart. Align it once, with amuled stopped:
+
+   ```bash
+   docker compose stop amuled
+   # Back up, then point both settings at the image defaults.
+   docker compose run --rm --entrypoint sh amuled -c \
+     'cp /home/amule/.aMule/amule.conf /home/amule/.aMule/amule.conf.before-align &&
+      sed -i "s#^IncomingDir=.*#IncomingDir=/downloads/incoming#;
+              s#^TempDir=.*#TempDir=/downloads/temp#" /home/amule/.aMule/amule.conf'
+   ```
+
+   Then replace the two old bind mounts in your compose file with the single
+   `- ./downloads:/downloads`. Your host layout already matches (`downloads/incoming` and
+   `downloads/temp` exist), so nothing needs moving. Verify after restart:
+
+   ```bash
+   docker compose exec amuled sh -c 'grep -E "^(Incoming|Temp)Dir" /home/amule/.aMule/amule.conf'
+   ```
+
+   Do not skip this: with the old `amule.conf` and the new single bind, amuled would write to
+   `/data/quarantine`, which is no longer mounted, and finished files would land in the container
+   layer.
 4. Pull the new image and start **without** `--profile download`. The profile no longer exists.
 5. Both migrations run at startup. Legacy `quarantined` rows are rewritten to `completed`.
 
