@@ -348,9 +348,11 @@ plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'un état 
   Two causes, in order:
   1. **An amuled category is redirecting the destination.** In `amule.conf` (or through the GUI), no
      category may carry a non-empty `Path=` that sends the finished file outside `IncomingDir`.
-  2. **`IncomingDir` does not point at the bind-mounted path.** In `amule.conf`, `IncomingDir=` must
-     be the container path the compose file mounts (`/data/quarantine`, a legacy name kept on purpose
-     so existing deployments do not have to edit that file). Check it from inside the container:
+  2. **`IncomingDir` does not point at the bind-mounted path.** The stack binds `./downloads` to
+     `/downloads`, the image's own default location, so a fresh node needs no amuled setting at all.
+     A node created before 2026-09-13 may carry a hand-edited `amule.conf` pointing elsewhere: the
+     image writes that file only when it is absent, so an old value survives every restart. Check it
+     from inside the container:
      ```bash
      docker compose exec amuled sh -c 'grep -E "^(Incoming|Temp)Dir" /home/amule/.aMule/amule.conf'
      ```

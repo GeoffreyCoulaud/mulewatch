@@ -11,8 +11,6 @@ services:
       - ec
     environment:
       GUI_PWD: smoke-ec-password
-      INCOMING_DIR: /downloads/incoming
-      TEMP_DIR: /downloads/temp
     volumes:
       - amule-state:/home/amule/.aMule
       - downloads:/downloads
