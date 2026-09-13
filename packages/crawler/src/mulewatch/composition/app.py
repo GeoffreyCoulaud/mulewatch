@@ -42,6 +42,7 @@ from mulewatch.adapters.config.crawler_config import (
     DownloadConfig,
 )
 from mulewatch.adapters.crawler_control_loop import LoopCrawlerControl
+from mulewatch.adapters.disk_space_shutil import ShutilDiskSpace
 from mulewatch.adapters.docker_restart_http import HttpMuleRestarter
 from mulewatch.adapters.gluetun_port import GluetunPortReader
 from mulewatch.adapters.mule_ec.client import AmuleEcClient
@@ -388,7 +389,9 @@ class CrawlerApp:
             downloads=SqliteDownloadRepository(local_conn),
             catalog=catalog_repo,
             targets=self._targets,
-            disk_cap_bytes=download_config.disk_cap_bytes,
+            disk=ShutilDiskSpace(download_config.output_dir),
+            min_free_bytes=download_config.min_free_bytes,
+            lost_after_seconds=download_config.lost_after_seconds,
             clock=self._clock,
             telemetry=telemetry,
             signal=self._signal,

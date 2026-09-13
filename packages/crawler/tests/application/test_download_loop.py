@@ -17,6 +17,7 @@ from tests.application.test_run_download_cycle import (
     _TARGETS,
     FakeCatalogReads,
     FakeClock,
+    FakeDiskSpace,
     FakeDownloadClient,
     FakeDownloadRepo,
 )
@@ -47,7 +48,9 @@ def _loop_deps(
         downloads=FakeDownloadRepo(),
         catalog=FakeCatalogReads(),
         targets=_TARGETS,
-        disk_cap_bytes=1_000_000,
+        disk=FakeDiskSpace(1_000_000),
+        min_free_bytes=0,
+        lost_after_seconds=86400.0,
         clock=FakeClock(),
         telemetry=RecordingTelemetry(),
         signal=signal,

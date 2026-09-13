@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -108,7 +108,8 @@ class FakeDownloadRepo:
     ``fail_set_state_for``: hashes for which ``set_state`` raises ``RepositoryError`` —
     lets us simulate a mid-cycle repo failure (cf. logic-download#2/error-boundary#2).
     ``fail_active_states``: ``active_states()`` raises — lets us simulate persistence being down
-    also at re-read time (every step of the cycle absorbs)."""
+    also at re-read time (every step of the cycle absorbs). ``lost``: hashes ``expire_lost``
+    should condemn (scripted, so the fake needs no clock)."""
 
     def __init__(
         self,
@@ -116,12 +117,18 @@ class FakeDownloadRepo:
         fail_record: bool = False,
         fail_set_state_for: set[str] | None = None,
         fail_active_states: bool = False,
+        fail_mark_seen: bool = False,
+        lost: set[str] | None = None,
     ) -> None:
         self.states: dict[str, DownloadState] = {}
         self.sizes: dict[str, int] = {}
+        self.seen: list[set[str]] = []
+        self.expired_after: list[float] = []
         self._fail_record = fail_record
         self._fail_set_state_for = fail_set_state_for or set()
         self._fail_active_states = fail_active_states
+        self._fail_mark_seen = fail_mark_seen
+        self._lost = lost or set()
         self._target_ids: dict[str, str] = {}
 
     def get_target_id(self, ed2k_hash: str) -> str | None:
@@ -144,12 +151,21 @@ class FakeDownloadRepo:
     def is_downloaded(self, ed2k_hash: str) -> bool:
         return ed2k_hash in self.states
 
-    def committed_bytes(self) -> int:
-        return sum(
-            self.sizes.get(h, 0)
-            for h, s in self.states.items()
-            if s in {DownloadState.QUEUED, DownloadState.DOWNLOADING}
+    def mark_seen(self, ed2k_hashes: Iterable[str]) -> None:
+        if self._fail_mark_seen:
+            raise RepositoryError("mark_seen failed")
+        self.seen.append(set(ed2k_hashes))
+
+    def expire_lost(self, max_age_seconds: float) -> tuple[str, ...]:
+        self.expired_after.append(max_age_seconds)
+        condemned = tuple(
+            h
+            for h in self._lost
+            if self.states.get(h) in {DownloadState.QUEUED, DownloadState.DOWNLOADING}
         )
+        for ed2k_hash in condemned:
+            self.states[ed2k_hash] = DownloadState.FAILED
+        return condemned
 
     def active_states(self) -> dict[str, DownloadState]:
         if self._fail_active_states:
@@ -176,6 +192,16 @@ class FakeCatalogReads:
         return self._observations.get(ed2k_hash)
 
 
+class FakeDiskSpace:
+    """Scripted free space (the real adapter calls shutil.disk_usage)."""
+
+    def __init__(self, free: int) -> None:
+        self.free = free
+
+    def free_bytes(self) -> int:
+        return self.free
+
+
 class FakeClock:
     def __init__(self) -> None:
         self._now = datetime(2026, 6, 13, tzinfo=UTC)
@@ -199,7 +225,9 @@ def _deps(
     client: FakeDownloadClient,
     downloads: FakeDownloadRepo,
     catalog: FakeCatalogReads,
-    disk_cap: int = 1_000_000,
+    free: int = 1_000_000,
+    min_free: int = 0,
+    lost_after: float = 86400.0,
     telemetry: RecordingTelemetry | None = None,
     targets: Sequence[TargetSegment] | None = None,
 ) -> DownloadDeps:
@@ -208,7 +236,9 @@ def _deps(
         downloads=downloads,
         catalog=catalog,
         targets=targets if targets is not None else _TARGETS,
-        disk_cap_bytes=disk_cap,
+        disk=FakeDiskSpace(free),
+        min_free_bytes=min_free,
+        lost_after_seconds=lost_after,
         clock=FakeClock(),
         telemetry=telemetry or RecordingTelemetry(),
     )
@@ -315,7 +345,7 @@ async def test_complete_target_candidate_is_skipped() -> None:
 
 
 @pytest.mark.asyncio
-async def test_disk_cap_defers_candidate() -> None:
+async def test_a_candidate_that_would_break_the_disk_floor_defers() -> None:
     client = FakeDownloadClient()
     downloads = FakeDownloadRepo()
     catalog = FakeCatalogReads(
@@ -326,11 +356,47 @@ async def test_disk_cap_defers_candidate() -> None:
         client=client,
         downloads=downloads,
         catalog=catalog,
-        disk_cap=100,  # 500 > 100 → defers
+        free=1_000,
+        min_free=600,  # 1000 - 500 < 600 → defers
     )
     await run_download_cycle(deps)
     assert client.added_links == []
     assert _A not in downloads.states
+
+
+@pytest.mark.asyncio
+async def test_outstanding_queue_bytes_are_charged_against_the_floor() -> None:
+    # Free space alone would admit this candidate; the 900 bytes amuled still has to fetch
+    # for a download already running is what refuses it.
+    client = FakeDownloadClient(
+        queue=[(DownloadEntry(ed2k_hash=_B, size_done=100, size_full=1000),)]
+    )
+    downloads = FakeDownloadRepo()
+    downloads.states[_B] = DownloadState.DOWNLOADING
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_A, "062A"),),
+        observations={_A: ObservedFile(filename="x", size_bytes=200)},
+    )
+    deps = _deps(client=client, downloads=downloads, catalog=catalog, free=1_000, min_free=0)
+    await run_download_cycle(deps)
+    assert client.added_links == []
+    assert _A not in downloads.states
+
+
+@pytest.mark.asyncio
+async def test_a_nascent_queue_entry_commits_nothing() -> None:
+    # size_full == 0: amuled does not know the total yet. Charging size_full - size_done would
+    # be NEGATIVE and invent free space, so the entry contributes zero and the candidate fits.
+    client = FakeDownloadClient(queue=[(DownloadEntry(ed2k_hash=_B, size_done=50, size_full=0),)])
+    downloads = FakeDownloadRepo()
+    downloads.states[_B] = DownloadState.DOWNLOADING
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_A, "062A"),),
+        observations={_A: ObservedFile(filename="x", size_bytes=200)},
+    )
+    deps = _deps(client=client, downloads=downloads, catalog=catalog, free=1_000, min_free=800)
+    await run_download_cycle(deps)
+    assert downloads.states[_A] is DownloadState.QUEUED
 
 
 @pytest.mark.asyncio
@@ -364,26 +430,31 @@ async def test_monitor_marks_in_progress_when_not_complete() -> None:
 
 
 @pytest.mark.asyncio
-async def test_monitor_does_not_regress_terminal_or_completed_queue_entry() -> None:
-    # _monitor: a tracked hash in a TERMINAL state (completed/failed) present in the amuled
-    # queue MUST NOT regress to DOWNLOADING (monitor's skip branch).
+async def test_monitor_does_not_regress_a_completed_queue_entry() -> None:
+    # _monitor: a COMPLETED hash present in the amuled queue MUST NOT regress to DOWNLOADING
+    # (the completion notification already fired; re-firing it would be noise).
     class _NoSetStateRepo(FakeDownloadRepo):
         def set_state(self, ed2k_hash: str, state: DownloadState) -> None:
-            raise AssertionError("set_state must not be called (terminal/completed state)")
+            raise AssertionError("set_state must not be called (completed state)")
 
-    for terminal in (DownloadState.FAILED, DownloadState.COMPLETED):
-        client = FakeDownloadClient(
-            queue=[(DownloadEntry(ed2k_hash=_A, size_done=3, size_full=10),)]
-        )
-        repo = _NoSetStateRepo()
-        repo.states[_A] = terminal
-        deps = _deps(
-            client=client,
-            downloads=repo,
-            catalog=FakeCatalogReads(),
-        )
-        await run_download_cycle(deps)
-        assert repo.states[_A] is terminal  # unchanged
+    client = FakeDownloadClient(queue=[(DownloadEntry(ed2k_hash=_A, size_done=3, size_full=10),)])
+    repo = _NoSetStateRepo()
+    repo.states[_A] = DownloadState.COMPLETED
+    deps = _deps(client=client, downloads=repo, catalog=FakeCatalogReads())
+    await run_download_cycle(deps)
+    assert repo.states[_A] is DownloadState.COMPLETED  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_monitor_resurrects_a_failed_download_back_in_the_queue() -> None:
+    # amuled is the authority on what it holds: a hash the TTL condemned (or an add_link
+    # amuled rejected) that shows up in the queue is downloading again.
+    client = FakeDownloadClient(queue=[(DownloadEntry(ed2k_hash=_A, size_done=3, size_full=10),)])
+    downloads = FakeDownloadRepo()
+    downloads.states[_A] = DownloadState.FAILED
+    deps = _deps(client=client, downloads=downloads, catalog=FakeCatalogReads())
+    await run_download_cycle(deps)
+    assert downloads.states[_A] is DownloadState.DOWNLOADING
 
 
 @pytest.mark.asyncio
@@ -584,9 +655,10 @@ async def test_one_hash_repo_failure_does_not_starve_other_completions() -> None
 
 
 @pytest.mark.asyncio
-async def test_intra_cycle_disk_cap_accounts_for_links_added_this_cycle() -> None:
-    # two candidates of 600 bytes, cap 1000: the 1st passes (600 ≤ 1000), the 2nd defers
-    # (600 + 600 > 1000) — the committed is recalculated IN MEMORY over the course of the cycle.
+async def test_intra_cycle_floor_accounts_for_links_added_this_cycle() -> None:
+    # two candidates of 600 bytes, 1000 free: the 1st passes, the 2nd defers (600 + 600 > 1000).
+    # A candidate admitted this cycle is not in amuled's queue yet, so the outstanding term is
+    # carried IN MEMORY over the course of the cycle.
     client = FakeDownloadClient()
     downloads = FakeDownloadRepo()
     catalog = FakeCatalogReads(
@@ -600,10 +672,11 @@ async def test_intra_cycle_disk_cap_accounts_for_links_added_this_cycle() -> Non
         client=client,
         downloads=downloads,
         catalog=catalog,
-        disk_cap=1000,
+        free=1000,
+        min_free=0,
     )
     await run_download_cycle(deps)
-    assert len(client.added_links) == 1  # only one fit within the cap
+    assert len(client.added_links) == 1  # only one fit above the floor
 
 
 @pytest.mark.asyncio
@@ -979,17 +1052,22 @@ async def test_already_completed_shared_hash_is_not_recompleted() -> None:
 
 
 @pytest.mark.asyncio
-async def test_failed_shared_hash_is_not_completed() -> None:
+async def test_failed_shared_hash_is_resurrected_and_notified() -> None:
+    # The TTL can condemn a download that had in fact completed and been moved out of
+    # IncomingDir. Finding it shared afterwards is amuled saying it exists: complete + notify.
     downloads = FakeDownloadRepo()
     downloads.states[_A] = DownloadState.FAILED
+    telemetry = RecordingTelemetry()
     client = FakeDownloadClient(shared=[(SharedFileEntry(ed2k_hash=_A),)])
     deps = _deps(
         client=client,
         downloads=downloads,
         catalog=FakeCatalogReads(),
+        telemetry=telemetry,
     )
     await run_download_cycle(deps)
-    assert downloads.states[_A] is DownloadState.FAILED
+    assert downloads.states[_A] is DownloadState.COMPLETED
+    assert any(isinstance(event, DownloadCompleted) for event in telemetry.events)
 
 
 @pytest.mark.asyncio
@@ -1021,3 +1099,64 @@ async def test_shared_files_unreachable_aborts_iteration_gracefully() -> None:
     )
     await run_download_cycle(deps)  # does not raise
     assert downloads.states[_A] is DownloadState.DOWNLOADING
+
+
+@pytest.mark.asyncio
+async def test_marks_seen_the_hashes_of_both_the_queue_and_the_shared_files() -> None:
+    # Stamping must happen BEFORE the TTL is evaluated, and from BOTH sources: a file that
+    # completed and left the queue is only visible in the shared list.
+    client = FakeDownloadClient(
+        queue=[(DownloadEntry(ed2k_hash=_A, size_done=3, size_full=10),)],
+        shared=[(SharedFileEntry(ed2k_hash=_B),)],
+    )
+    downloads = FakeDownloadRepo()
+    downloads.states[_A] = DownloadState.DOWNLOADING
+    downloads.states[_B] = DownloadState.COMPLETED
+    deps = _deps(client=client, downloads=downloads, catalog=FakeCatalogReads())
+    await run_download_cycle(deps)
+    assert downloads.seen == [{_A, _B}]
+
+
+@pytest.mark.asyncio
+async def test_a_download_amuled_no_longer_knows_becomes_failed() -> None:
+    client = FakeDownloadClient()
+    downloads = FakeDownloadRepo(lost={_A})
+    downloads.states[_A] = DownloadState.DOWNLOADING
+    deps = _deps(client=client, downloads=downloads, catalog=FakeCatalogReads(), lost_after=3600.0)
+    await run_download_cycle(deps)
+    assert downloads.states[_A] is DownloadState.FAILED
+    assert downloads.expired_after == [3600.0]
+
+
+@pytest.mark.asyncio
+async def test_presence_repo_failure_is_absorbed_and_candidates_still_run() -> None:
+    client = FakeDownloadClient()
+    downloads = FakeDownloadRepo(fail_mark_seen=True)
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_A, "062A"),),
+        observations={_A: ObservedFile(filename="x", size_bytes=100)},
+    )
+    deps = _deps(client=client, downloads=downloads, catalog=catalog)
+    await run_download_cycle(deps)  # does not raise
+    assert downloads.states[_A] is DownloadState.QUEUED
+
+
+@pytest.mark.asyncio
+async def test_an_unmeasurable_output_directory_admits_nothing_and_does_not_raise() -> None:
+    # A missing output mount must not take the crawler down: it also catalogues, which is the
+    # primary mission. Refusing every candidate is the conservative degradation.
+    class _BrokenDisk:
+        def free_bytes(self) -> int:
+            raise FileNotFoundError("/data/downloads")
+
+    client = FakeDownloadClient()
+    downloads = FakeDownloadRepo()
+    catalog = FakeCatalogReads(
+        candidates=(_candidate(_A, "062A"),),
+        observations={_A: ObservedFile(filename="x", size_bytes=100)},
+    )
+    deps = _deps(client=client, downloads=downloads, catalog=catalog)
+    deps.disk = _BrokenDisk()
+    await run_download_cycle(deps)
+    assert client.added_links == []
+    assert _A not in downloads.states

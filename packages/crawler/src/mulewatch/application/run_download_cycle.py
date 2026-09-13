@@ -15,15 +15,21 @@ Flow of one iteration (spec §5, DECISION D8):
   2. COMPLETIONS: ``shared_files()`` → each tracked hash present in amuled's SHARED files AND
      absent from the queue (amuled shares PARTIAL downloads too, so the queue is what separates a
      completion from a partial, see ``_handle_completions``) → ``set_state(completed)``. The file
-     stays where amuled put it: nothing moves it, nothing reads it. Already
-     ``completed``/``failed`` → skipped, so the completion notification fires once.
+     stays where amuled put it: nothing moves it, nothing reads it. Already ``completed`` →
+     skipped, so the completion notification fires once.
+  2b. PRESENCE + TTL: every hash amuled still knows (queue OR shared files) gets its
+     ``last_seen_at`` stamped, THEN a ``queued``/``downloading`` row unseen for
+     ``lost_after_seconds`` becomes ``failed`` (see ``_expire_lost``). Stamping first is what
+     keeps a row present right now from being condemned.
   3. CANDIDATES: ``catalog.download_decisions()`` (latest=download) ∖ ``downloads`` → for
-     each, ``download_policy`` (target status, dedup, cap) → if ``download``:
+     each, ``download_policy`` (target status, dedup, free space) → if ``download``:
      ``build_ed2k_link`` (from ``last_observation``) → ``add_link`` → ``record_queued``.
-     The cap is recomputed IN MEMORY as the cycle proceeds (``committed += size``).
+     ``outstanding`` is carried IN MEMORY as the cycle proceeds (a candidate admitted now is
+     not in amuled's queue yet).
 
 Errors (Plan C contracts, spec §9): ``MuleUnreachableError`` (EC stream dead) → tolerate, skip
-the iteration. Step 0 re-arms the connection on EVERY iteration (``connect()`` is idempotent):
+the iteration. ``OSError`` on the disk measurement (output mount gone) → tolerate, admit
+nothing. Step 0 re-arms the connection on EVERY iteration (``connect()`` is idempotent):
 that is what makes "the client reconnects next round" true. Without it the loop stayed wedged on
 "EC client not connected (call connect() first)" forever after any amuled restart (field,
 2026-09-04 to 09-11: 7 days of a dead download loop, one warning per 30 s).
@@ -33,7 +39,7 @@ NEVER abandon a stalled download. Determinism: ``Clock``/``sleep`` injected.
 
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol
@@ -47,8 +53,13 @@ from mulewatch.domain.observability.events import DownloadCompleted, DownloadQue
 from mulewatch.ports.catalog_repository import ObservedFile
 from mulewatch.ports.clock import Clock
 from mulewatch.ports.decision_signal import DecisionSignal
+from mulewatch.ports.disk_space import DiskSpace
 from mulewatch.ports.mule_client import MuleSearchFailedError, MuleUnreachableError
-from mulewatch.ports.mule_download_client import DownloadEntry, MuleDownloadClient
+from mulewatch.ports.mule_download_client import (
+    DownloadEntry,
+    MuleDownloadClient,
+    SharedFileEntry,
+)
 from mulewatch.ports.repository_errors import RepositoryError
 from mulewatch.ports.telemetry import Telemetry
 
@@ -63,8 +74,8 @@ class DownloadRepository(Protocol):
     """STRUCTURAL Protocol of the downloads repo (local typing; the adapter satisfies it).
 
     Minimal Protocol so the application depends ONLY on what it needs
-    (record_queued/set_state/is_downloaded/committed_bytes/active_states), without importing
-    the adapter. The real ``SqliteDownloadRepository`` (and the test fake) satisfies it
+    (record_queued/set_state/is_downloaded/mark_seen/expire_lost/active_states), without
+    importing the adapter. The real ``SqliteDownloadRepository`` (and the test fake) satisfies it
     structurally. Stubs on ONE line (the ``def`` is covered when the class is created).
     """
 
@@ -74,7 +85,9 @@ class DownloadRepository(Protocol):
 
     def is_downloaded(self, ed2k_hash: str) -> bool: ...
 
-    def committed_bytes(self) -> int: ...
+    def mark_seen(self, ed2k_hashes: Iterable[str]) -> None: ...
+
+    def expire_lost(self, max_age_seconds: float) -> tuple[str, ...]: ...
 
     def active_states(self) -> dict[str, DownloadState]: ...
 
@@ -99,7 +112,9 @@ class CatalogReader(Protocol):
 class DownloadDeps:
     """Dependencies of the download loop (composition assembles them once).
 
-    ``targets`` serves the ``target_id → status`` lookup (pure policy). ``catalog`` is typed to
+    ``targets`` serves the ``target_id → status`` lookup (pure policy). ``disk`` measures the
+    free space of the filesystem amuled writes to (metadata only, no file is opened).
+    ``catalog`` is typed to
     the NARROW ``CatalogReader`` Protocol above: the loop depends only on the subset it reads
     (consistent with the local ``DownloadRepository`` Protocol), so the minimal test fakes are
     accepted.
@@ -109,7 +124,9 @@ class DownloadDeps:
     downloads: DownloadRepository
     catalog: CatalogReader
     targets: Sequence[TargetSegment]
-    disk_cap_bytes: int
+    disk: DiskSpace
+    min_free_bytes: int
+    lost_after_seconds: float
     clock: Clock
     telemetry: Telemetry
 
@@ -143,13 +160,17 @@ async def _monitor(
     Completion is NO LONGER inferred from bytes (PS_COMPLETE is unobservable via the queue - cf.
     docs/reference/2026-06-17-amuled-completion-behavior.md): it comes from the shared files
     (_handle_completions). Here we only record that amuled is pulling a queued download.
+
+    ``FAILED`` is NOT a wall here: amuled is the authority on what it holds, so a row the TTL
+    condemned (or one whose add_link amuled rejected) that reappears in the queue resumes.
+    ``COMPLETED`` stays a wall, so its notification never fires twice.
     """
     for entry in queue:
         current = states.get(entry.ed2k_hash)
         if current is None:
             continue  # download outside the crawler: ignored
-        if current in {DownloadState.FAILED, DownloadState.COMPLETED}:
-            continue  # terminal: don't regress
+        if current is DownloadState.COMPLETED:
+            continue  # already notified: don't regress and don't re-fire
         if current is not DownloadState.DOWNLOADING:
             deps.downloads.set_state(entry.ed2k_hash, DownloadState.DOWNLOADING)
             states[entry.ed2k_hash] = DownloadState.DOWNLOADING
@@ -172,7 +193,10 @@ async def _record_completion(
 
 
 async def _handle_completions(
-    deps: DownloadDeps, states: dict[str, DownloadState], queued: frozenset[str]
+    deps: DownloadDeps,
+    states: dict[str, DownloadState],
+    queued: frozenset[str],
+    shared: tuple[SharedFileEntry, ...],
 ) -> None:
     """Completes each tracked hash that is SHARED **and** gone from the download queue (step 2, §5).
 
@@ -180,7 +204,8 @@ async def _handle_completions(
     (standard eMule: you upload what you have downloaded). The discriminator is the queue, which
     a finished file leaves (its entry goes away when it reaches ``PS_COMPLETE``), while a running
     one stays in it. Field 2026-09-02: without the queue check the crawler stamped 065B
-    ``completed`` at 20.1 %. Terminal hashes (completed/failed) are ignored.
+    ``completed`` at 20.1 %. ``completed`` hashes are ignored; a ``failed`` one is NOT, so a
+    download the TTL condemned that turns out to be shared completes and notifies.
 
     The queue was read in step 0, BEFORE this shared snapshot: a file completing in between is
     therefore seen as "still queued" and completed on the NEXT cycle (30 s later). The shared
@@ -191,13 +216,12 @@ async def _handle_completions(
     N+1, N+2 of the same cycle (the completion signal is re-evaluated the next cycle; no
     permanent loss, but intra-cycle starvation is undesirable).
     """
-    shared = await deps.client.shared_files()
     for entry in shared:
         current = states.get(entry.ed2k_hash)
         if current is None:
             continue  # shared file outside the crawler: ignored
-        if current in {DownloadState.COMPLETED, DownloadState.FAILED}:
-            continue  # already completed / failed
+        if current is DownloadState.COMPLETED:
+            continue  # already completed: the notification fired once
         if entry.ed2k_hash in queued:
             continue  # still downloading (partial): NOT a completion
         try:
@@ -210,9 +234,29 @@ async def _handle_completions(
             )
 
 
-async def _queue_new_candidates(deps: DownloadDeps) -> None:
-    """Replays tier=download decisions missing from ``downloads`` (step 3, spec §5)."""
-    committed = deps.downloads.committed_bytes()
+def _expire_lost(deps: DownloadDeps) -> None:
+    """Fails the downloads amuled has not shown for ``lost_after_seconds`` (spec §2).
+
+    An entry stays in amuled's queue even with zero sources, so absence is a rare and strong
+    signal: the entry was removed, or the file completed and was moved out of IncomingDir
+    before the next poll. ``is_downloaded`` stays state-blind, so a ``failed`` row still blocks
+    automatic re-queuing; the manual retry is deleting the row.
+    """
+    for ed2k_hash in deps.downloads.expire_lost(deps.lost_after_seconds):
+        _logger.warning(
+            "hash=%s unseen by amuled for %ss: marked failed",
+            ed2k_hash,
+            deps.lost_after_seconds,
+        )
+
+
+async def _queue_new_candidates(deps: DownloadDeps, outstanding: int) -> None:
+    """Replays tier=download decisions missing from ``downloads`` (step 3, spec §5).
+
+    ``outstanding`` is what amuled's queue still has to transfer, measured from the cycle's
+    snapshot; ``free`` is read once here. Both are MEASURED, never declared.
+    """
+    free = deps.disk.free_bytes()
     for candidate in deps.catalog.download_decisions():
         if deps.downloads.is_downloaded(candidate.ed2k_hash):
             continue
@@ -227,9 +271,10 @@ async def _queue_new_candidates(deps: DownloadDeps) -> None:
             tier="download",
             target_status=_target_status(deps.targets, candidate.target_id),
             already_downloaded=False,
-            committed_bytes=committed,
+            free_bytes=free,
+            outstanding_bytes=outstanding,
             file_size=observation.size_bytes,
-            disk_cap=deps.disk_cap_bytes,
+            min_free_bytes=deps.min_free_bytes,
         )
         if verdict is not DownloadVerdict.DOWNLOAD:
             _logger.info(
@@ -242,7 +287,7 @@ async def _queue_new_candidates(deps: DownloadDeps) -> None:
         deps.downloads.record_queued(
             candidate.ed2k_hash, candidate.target_id, observation.size_bytes
         )
-        committed += observation.size_bytes  # cap recomputed in memory as the cycle proceeds
+        outstanding += observation.size_bytes  # not in amuled's queue yet: carried in memory
         _logger.info("candidate hash=%s queued for download", candidate.ed2k_hash)
         await deps.telemetry.emit(DownloadQueued(target_id=candidate.target_id))
 
@@ -318,6 +363,7 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
         _logger.warning("download daemon unreachable (%s): iteration skipped, retry", error)
         return
     queued = frozenset(entry.ed2k_hash for entry in queue)
+    outstanding = sum(entry.remaining_bytes for entry in queue)
     # Step 1 - MONITOR: NO client I/O left (the queue came from step 0) → only RepositoryError.
     # Steps 1 and 2 share that ONE snapshot: a second read could only contradict the first.
     try:
@@ -333,17 +379,30 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
     # Steps 2 & 3 - NO client I/O → only RepositoryError possible, ISOLATED per step (I2):
     # a repo failure in one must NOT prevent the other from running.
     try:
-        fresh_states = deps.downloads.active_states()
-        await _handle_completions(deps, fresh_states, queued)
+        shared = await deps.client.shared_files()
     except MuleUnreachableError as error:
         _logger.warning("download daemon unreachable (%s): iteration skipped, retry", error)
         return
+    try:
+        fresh_states = deps.downloads.active_states()
+        await _handle_completions(deps, fresh_states, queued, shared)
     except RepositoryError as error:
         _logger.error("download completions repo failure (%s): step skipped, continues", error)
+    # Step 2b - PRESENCE + TTL: stamp FIRST, condemn after. The reverse order would fail a row
+    # amuled is showing us right now.
     try:
-        await _queue_new_candidates(deps)
+        deps.downloads.mark_seen(queued | {entry.ed2k_hash for entry in shared})
+        _expire_lost(deps)
+    except RepositoryError as error:
+        _logger.error("download presence repo failure (%s): step skipped, continues", error)
+    try:
+        await _queue_new_candidates(deps, outstanding)
     except RepositoryError as error:
         _logger.error("download candidates repo failure (%s): step skipped, continues", error)
+    except OSError as error:
+        # A missing or unreadable output mount: refuse to admit anything rather than take down
+        # the crawler, which also catalogues. Conservative, loud, and retried next cycle.
+        _logger.error("output directory unmeasurable (%s): no candidate admitted, retry", error)
     # Step 4 - ADD_LINKS: client I/O → MuleUnreachableError = dead daemon = ABORT. Re-reads
     # ``active_states`` FRESHLY, so it runs even if step 3 partially failed.
     try:

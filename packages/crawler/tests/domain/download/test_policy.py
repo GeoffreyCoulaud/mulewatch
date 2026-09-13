@@ -6,17 +6,19 @@ def _verdict(
     tier: str = "download",
     target_status: str = "lost",
     already_downloaded: bool = False,
-    committed_bytes: int = 0,
+    free_bytes: int = 10_000,
+    outstanding_bytes: int = 0,
     file_size: int = 100,
-    disk_cap: int = 1000,
+    min_free_bytes: int = 1_000,
 ) -> DownloadVerdict:
     return download_policy(
         tier=tier,
         target_status=target_status,
         already_downloaded=already_downloaded,
-        committed_bytes=committed_bytes,
+        free_bytes=free_bytes,
+        outstanding_bytes=outstanding_bytes,
         file_size=file_size,
-        disk_cap=disk_cap,
+        min_free_bytes=min_free_bytes,
     )
 
 
@@ -54,28 +56,47 @@ def test_already_downloaded_is_deduped() -> None:
     assert _verdict(already_downloaded=True) is DownloadVerdict.SKIP_DEDUP
 
 
-def test_dedup_takes_precedence_over_disk_cap() -> None:
-    # already downloaded AND above the cap → we return SKIP_DEDUP (nothing to re-download).
+def test_dedup_takes_precedence_over_the_disk_floor() -> None:
+    # already downloaded AND under the floor → SKIP_DEDUP (nothing to re-download).
     assert (
-        _verdict(already_downloaded=True, committed_bytes=950, file_size=100, disk_cap=1000)
+        _verdict(already_downloaded=True, free_bytes=1_000, file_size=100)
         is DownloadVerdict.SKIP_DEDUP
     )
 
 
-def test_over_disk_cap_defers() -> None:
+def test_a_candidate_that_would_break_the_floor_defers() -> None:
     assert (
-        _verdict(committed_bytes=950, file_size=100, disk_cap=1000) is DownloadVerdict.SKIP_DISK_CAP
+        _verdict(free_bytes=1_050, outstanding_bytes=0, file_size=100, min_free_bytes=1_000)
+        is DownloadVerdict.SKIP_DISK_CAP
     )
 
 
-def test_exactly_at_disk_cap_is_allowed() -> None:
-    # committed + size == cap: allowed (the cap is a MAX, not a strictly-below threshold).
-    assert _verdict(committed_bytes=900, file_size=100, disk_cap=1000) is DownloadVerdict.DOWNLOAD
-
-
-def test_one_byte_over_disk_cap_defers() -> None:
+def test_landing_exactly_on_the_floor_is_allowed() -> None:
+    # free - outstanding - size == min_free: allowed (the floor is an inclusive MIN).
     assert (
-        _verdict(committed_bytes=901, file_size=100, disk_cap=1000) is DownloadVerdict.SKIP_DISK_CAP
+        _verdict(free_bytes=1_100, outstanding_bytes=0, file_size=100, min_free_bytes=1_000)
+        is DownloadVerdict.DOWNLOAD
+    )
+
+
+def test_one_byte_under_the_floor_defers() -> None:
+    assert (
+        _verdict(free_bytes=1_099, outstanding_bytes=0, file_size=100, min_free_bytes=1_000)
+        is DownloadVerdict.SKIP_DISK_CAP
+    )
+
+
+def test_outstanding_bytes_count_against_the_floor() -> None:
+    # Free space alone would admit this candidate: 10 GB free, a 1 GB file, a 5 GB floor.
+    # The 8 GB still coming for downloads already running is what refuses it.
+    assert (
+        _verdict(
+            free_bytes=10_000,
+            outstanding_bytes=8_000,
+            file_size=1_000,
+            min_free_bytes=5_000,
+        )
+        is DownloadVerdict.SKIP_DISK_CAP
     )
 
 
@@ -94,8 +115,9 @@ def test_found_target_still_downloads_a_new_file() -> None:
         tier="download",
         target_status="found",
         already_downloaded=False,
-        committed_bytes=0,
+        free_bytes=100_000_000_000,
+        outstanding_bytes=0,
         file_size=100_000_000,
-        disk_cap=10_000_000_000,
+        min_free_bytes=10_737_418_240,
     )
     assert verdict is DownloadVerdict.DOWNLOAD

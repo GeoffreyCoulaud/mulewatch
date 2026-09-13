@@ -361,6 +361,38 @@ plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'un état 
   (its constraints 1 and 2, about a shared quarantine volume, no longer apply: the quarantine step
   was removed on 2026-09-13).
 
+### A download is stuck, then turns `failed`
+
+- **What the crawler does.** Every download cycle stamps `last_seen_at` for each tracked hash that
+  amuled reports, either in its download queue or in its shared files. A download still `queued` or
+  `downloading` that amuled has not reported for `download.lost_after_seconds` (24 h by default) is
+  marked `failed`, with a log line: `hash=... unseen by amuled for 86400.0s: marked failed`.
+- **Why this is safe.** An entry stays in amuled's queue even with **zero sources**: it goes
+  dormant, but it does not disappear. So a lost-media download sitting at 0 % for months is never
+  at risk. Absence from amuled means the entry was actually removed, or the file finished and was
+  moved out of `IncomingDir` before the next poll.
+- **`failed` is not final.** amuled remains the authority: if the hash reappears in its queue, the
+  crawler puts the download back to `downloading`; if it appears in the shared files, the download
+  completes and the notification fires. Check `downloads/incoming` before assuming the file is lost.
+- **To retry one by hand**, delete its row: `is_downloaded()` is state-blind, so a `failed` row
+  keeps blocking the automatic re-queue on purpose. There is no webui control for this and the SQL
+  console is read-only, so it is a manual write on `local.db`. Stop the crawler first (single
+  writer by doctrine), then use the `--entrypoint python` recipe from *Outils de diagnostic* below
+  against the `local-db` volume:
+  ```bash
+  docker compose stop crawler
+  docker compose run --rm --entrypoint python crawler -c \
+    "import sqlite3; db = sqlite3.connect('/data/local/local.db', autocommit=True); \
+     db.execute('DELETE FROM downloads WHERE ed2k_hash = ?', ('<hash>',))"
+  docker compose start crawler
+  ```
+  The next cycle re-queues it from the catalogue decision, provided the file still matches a target
+  that is not `complete`.
+- **If nothing at all is being downloaded**, check the disk floor before suspecting the TTL: a log
+  line `candidate hash=... -> skip_disk_cap (skipped/deferred)` means free space minus what amuled
+  still has to fetch would fall below `download.min_free_bytes`. `output directory unmeasurable`
+  instead means the read-only `./downloads` mount is missing from your compose file.
+
 ---
 
 ## High-ID / port-sync

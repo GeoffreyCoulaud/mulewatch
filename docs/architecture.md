@@ -35,6 +35,7 @@ flowchart LR
   amuled -->|"all traffic"| gluetun
   gluetun --> ed2k
   amuled -->|"finished files"| out
+  crawler -.->|"free space · statvfs, read-only"| out
   crawler -->|"/metrics · scraped"| prom
   crawler -->|"notifications · apprise URL"| notif
 ```
@@ -267,15 +268,27 @@ Load-bearing invariants (do not violate):
   the scope reduction of 2026-09-13, judging whether a completed download really is the episode is a
   manual step performed by the operator on the output directory.
 - `download_policy` is conservative: skip if `tier != download`, if the target is `complete`, if the
-  hash was already downloaded (dedup), or if the disk cap would be exceeded. An episode already
-  `found` **is downloaded again** when a *new* hash matches it (deliberate archival redundancy).
-- The disk cap (`download.disk_cap_bytes`) is **accounting, not measurement**: it is the sum of the
-  sizes of non-terminal downloads held in `local.db`, and there is no `statvfs` call anywhere. It
-  therefore bounds bytes *in flight*, never total disk usage: completed files accumulate without
-  bound.
+  hash was already downloaded (dedup), or if admitting the file would break the disk floor. An
+  episode already `found` **is downloaded again** when a *new* hash matches it (deliberate archival
+  redundancy).
+- The disk floor (`download.min_free_bytes`) is **measured, not accounted** (2026-09-13): a candidate
+  is admitted only when `free - outstanding - size >= min_free`, where `free` is one
+  `shutil.disk_usage` call on `download.output_dir` and `outstanding` is what amuled's queue still
+  has to transfer, taken from the cycle's existing queue snapshot. The output directory is mounted
+  **read-only** and no file in it is ever opened: `statvfs` reads filesystem metadata, never bytes.
+  Free space alone would be wrong, since the filesystem knows nothing of the bytes still coming.
+- **A download amuled no longer knows becomes `failed`** after `download.lost_after_seconds`
+  (default 24 h). Every cycle stamps `last_seen_at` for each hash present in amuled's queue **or**
+  its shared files, and a `queued`/`downloading` row older than the TTL is condemned. This is safe
+  because an entry stays in amuled's queue even with zero sources: absence really means gone.
+  amuled stays the authority, so a `failed` row that reappears in the queue resumes `downloading`,
+  and one that appears in the shared files completes and notifies.
+- The floor never deletes anything, and `is_downloaded()` stays state-blind: a `failed` row keeps
+  blocking automatic re-queuing, so completed files still accumulate without bound and a manual
+  retry means deleting the row.
 
-`DownloadState` is a closed enum: `queued -> downloading -> completed`, or `failed`. `completed` and
-`failed` are both terminal for the cap.
+`DownloadState` is a closed enum: `queued -> downloading -> completed`, or `failed`. `completed` is
+terminal; `failed` is terminal only until amuled says otherwise.
 
 ## 8. Persistence: two databases, two roles
 
@@ -298,12 +311,13 @@ flowchart LR
   UPDATE/DELETE -> ABORT` triggers), so N nodes merge into one catalog (`python -m
   mulewatch.merge`). Inserts are **idempotent** (`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`), so
   they are safe across a restart mid-write.
-- **`local.db`** (schema version 4): the node's runtime state (identity, download tracking, the
+- **`local.db`** (schema version 5): the node's runtime state (identity, download tracking, the
   scheduler's progress and backoff). **Never merged**: it belongs to one node.
 
 Migration `catalog/0005` dropped `file_verifications` and `local/0004` dropped `verification_tasks`,
 rewriting any surviving `quarantined` download row to `completed` (that value left `DownloadState`,
-and reading it back would raise).
+and reading it back would raise). `local/0005` added `downloads.last_seen_at`, backfilled with
+`queued_at` so no pre-upgrade row is condemned on first boot.
 
 ## 9. High-ID port-sync (optional)
 

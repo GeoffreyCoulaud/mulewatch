@@ -81,3 +81,17 @@ async def test_protocol_is_satisfied_structurally() -> None:
     assert client.links == ["ed2k://|file|x|1|" + "a" * 32 + "|/"]
     assert queue[0].ed2k_hash == "a" * 32
     assert status.kad_status is KadStatus.CONNECTED
+
+
+def test_remaining_bytes_is_what_is_left_to_transfer() -> None:
+    assert DownloadEntry(ed2k_hash="a" * 32, size_done=3, size_full=10).remaining_bytes == 7
+
+
+def test_remaining_bytes_of_a_nascent_entry_is_zero() -> None:
+    # size_full == 0 means amuled does not know the total yet. Committing a NEGATIVE amount
+    # would hand the admission rule free space that does not exist.
+    assert DownloadEntry(ed2k_hash="a" * 32, size_done=5, size_full=0).remaining_bytes == 0
+
+
+def test_remaining_bytes_never_goes_negative_past_completion() -> None:
+    assert DownloadEntry(ed2k_hash="a" * 32, size_done=11, size_full=10).remaining_bytes == 0
