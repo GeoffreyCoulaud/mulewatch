@@ -46,7 +46,7 @@ _TARGETS = (
         title="Les demoiselles cambrioleuses",
     ),
 )
-_MATCHER = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler" / "matcher.yml"
+_MATCHER = Path(__file__).resolve().parents[4] / "deploy" / "matcher.yml"
 _DL_NAME = "Keroro N°062A Les demoiselles cambrioleuses.avi"
 # Arbitrary policy fingerprint for tests that do not exercise the backfill gate itself
 # (Task 6 tests below construct their OWN fingerprint to drive the "ran"/"skipped" branches).
@@ -76,7 +76,6 @@ def _crawler_config(
     tmp_path: Path,
     shutdown_deadline: float = 30.0,
     *,
-    count: int = 1,
     node_id: str | None = None,
     observability: ObservabilityConfig | None = None,
     download: DownloadConfig | None = None,
@@ -92,10 +91,7 @@ def _crawler_config(
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=60.0, factor=2.0, jitter_ratio=0.0),
         decision_poll_interval_seconds=5.0,
         shutdown_deadline_seconds=shutdown_deadline,
-        amules=tuple(
-            AmuleEndpoint(name=f"amule-{i}", host="h", port=4712 + i, password="p")
-            for i in range(count)
-        ),
+        amule_ec_password="p",
         catalog_db_path=str(tmp_path / "catalog.db"),
         local_db_path=str(tmp_path / "local.db"),
         node_id=node_id,
@@ -112,12 +108,11 @@ def _download_config(tmp_path: Path) -> DownloadConfig:
         min_free_bytes=1_000_000_000,
         lost_after_seconds=86_400.0,
         output_dir=str(tmp_path),
-        endpoint=AmuleEndpoint(name="dl", host="h", port=4799, password="p"),
     )
 
 
 def _full_crawler_config(tmp_path: Path) -> CrawlerConfig:
-    """FULL-mode config: ``download`` section present (enabled + endpoint)."""
+    """FULL-mode config: ``download`` section present (enabled)."""
     return _crawler_config(tmp_path, download=_download_config(tmp_path))
 
 
@@ -125,8 +120,7 @@ def _port_sync_config() -> PortSyncConfig:
     return PortSyncConfig(
         poll_interval_seconds=60.0,
         restart_min_interval_seconds=300.0,
-        gluetun_control_url="http://gluetun:8000",
-        restarter_url="http://docker-proxy:2375",
+        gluetun_control_url="http://localhost:8000",
     )
 
 
@@ -262,16 +256,15 @@ class _OrderRecordingClient(FakeMuleClient):
 
 
 @pytest.mark.asyncio
-async def test_pool_setup_connects_each_client_before_coverage(
+async def test_search_setup_connects_the_client_before_coverage(
     tmp_path: Path, matcher_config: MatcherConfig
 ) -> None:
-    # The composition root CONNECTS each client at pool setup, BEFORE
+    # The composition root CONNECTS the search client at setup, BEFORE
     # _aggregate_coverage polls the status: otherwise the 1st network_status hits an
-    # unconnected client and raises (ordering bug caught by the e2e). We check, on EACH client
-    # of a multi-instance pool, that the 1st observed event is a connect (not a status).
+    # unconnected client and raises (ordering bug caught by the e2e).
     created: list[_OrderRecordingClient] = []
     events: dict[str, list[str]] = {}
-    fired: list[bool] = []  # shared: a single shutdown for the whole pool
+    fired: list[bool] = []
     app_holder: dict[str, CrawlerApp] = {}
 
     def factory(endpoint: AmuleEndpoint) -> _OrderRecordingClient:
@@ -282,7 +275,7 @@ async def test_pool_setup_connects_each_client_before_coverage(
         return client
 
     app = CrawlerApp(
-        crawler_config=_crawler_config(tmp_path, count=2),
+        crawler_config=_crawler_config(tmp_path),
         targets=_TARGETS,
         matcher_config=matcher_config,
         clock=FakeClock(),
@@ -293,7 +286,7 @@ async def test_pool_setup_connects_each_client_before_coverage(
     )
     app_holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
-    assert len(created) == 2
+    assert len(created) == 1  # one container, one amuled, one search client
     for log in events.values():
         assert log[0] == "connect"  # connected at setup BEFORE any status poll
         assert "status" in log  # coverage did poll the status afterwards
@@ -322,9 +315,11 @@ class _UnreachableAtStartupClient(_ShutdownOnStatusClient):
 async def test_unreachable_client_at_startup_does_not_crash_the_run(
     tmp_path: Path, matcher_config: MatcherConfig, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # A client unreachable at pool setup (connect raises MuleUnreachableError) must NOT
-    # bring down run(): the composition root catches, logs a warning NAMING the instance, and
-    # CONTINUES. The cycle phase runs anyway (network_status reached → the shutdown fires).
+    # A client unreachable at setup (connect raises MuleUnreachableError) must NOT bring down
+    # run(): the composition root catches, warns, and CONTINUES. This matters MORE in one
+    # container, not less: the crawler, amuled and amuleweb start simultaneously under s6, so
+    # reaching EC before amuled listens is the normal cold start (design §4). The cycle phase
+    # runs anyway (network_status reached → the shutdown fires).
     created: list[_UnreachableAtStartupClient] = []
     app_holder: dict[str, CrawlerApp] = {}
 
@@ -337,15 +332,15 @@ async def test_unreachable_client_at_startup_does_not_crash_the_run(
     app_holder["app"] = app
     with caplog.at_level(logging.WARNING, logger="mulewatch.composition.app"):
         await asyncio.wait_for(app.run(), timeout=5.0)  # does NOT raise (down instance tolerated)
-    # The tolerance warning comes from the COMPOSITION ROOT (not the worker) and names
-    # the instance: it is the `except MuleUnreachableError` branch of pool setup.
+    # The tolerance warning comes from the COMPOSITION ROOT (not the worker): it is the
+    # `except MuleUnreachableError` branch of the client setup.
     startup_warnings = [
         record
         for record in caplog.records
         if record.name == "mulewatch.composition.app" and record.levelno == logging.WARNING
     ]
     assert startup_warnings, "the composition root must log the startup tolerance"
-    assert "amule-0" in startup_warnings[0].getMessage()  # the warning names the down instance
+    assert "amuled unreachable at startup" in startup_warnings[0].getMessage()
     assert created and created[0].connect_calls >= 1  # connect attempted at setup (then retried)
     assert created[0]._fired  # network_status reached → the cycle phase did start
 
@@ -1097,7 +1092,7 @@ async def test_port_sync_loop_runs_when_section_present(
         policy_fingerprint=_FP,
         client_factory=lambda endpoint: ec_client,
         port_forwarding_reader_factory=lambda url: reader,
-        mule_restarter_factory=lambda url: _RecordingRestarter(),
+        mule_restarter_factory=lambda: _RecordingRestarter(),
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)
@@ -1115,7 +1110,7 @@ async def test_port_sync_loop_off_when_no_config(
     def boom_reader(url: str) -> object:
         raise AssertionError("the reader factory must not be called (port-sync OFF)")
 
-    def boom_restarter(url: str) -> object:
+    def boom_restarter() -> object:
         raise AssertionError("the restarter factory must not be called (port-sync OFF)")
 
     def factory(endpoint: AmuleEndpoint) -> _ShutdownOnStatusClient:
@@ -1160,7 +1155,7 @@ async def test_port_sync_tolerates_ec_daemon_unreachable_at_startup(
         policy_fingerprint=_FP,
         client_factory=lambda endpoint: _UnreachableEcClient(),
         port_forwarding_reader_factory=lambda url: reader,
-        mule_restarter_factory=lambda url: _RecordingRestarter(),
+        mule_restarter_factory=lambda: _RecordingRestarter(),
     )
     holder["app"] = app
     await asyncio.wait_for(app.run(), timeout=5.0)  # does not raise: connect tolerated
@@ -1175,12 +1170,12 @@ def test_default_port_forwarding_reader_factory_builds_a_gluetun_reader() -> Non
     assert isinstance(reader, GluetunPortReader)
 
 
-def test_default_mule_restarter_factory_builds_an_http_restarter() -> None:
-    from mulewatch.adapters.docker_restart_http import HttpMuleRestarter
+def test_default_mule_restarter_factory_builds_an_s6_restarter() -> None:
+    # amuled is a local s6 service now: the restart takes no URL and no Docker API.
+    from mulewatch.adapters.s6_restart import S6MuleRestarter
     from mulewatch.composition.app import default_mule_restarter_factory
 
-    restarter = default_mule_restarter_factory("http://docker-proxy:2375")
-    assert isinstance(restarter, HttpMuleRestarter)
+    assert isinstance(default_mule_restarter_factory(), S6MuleRestarter)
 
 
 # ---------------------------------------------------------------------------

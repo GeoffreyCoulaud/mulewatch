@@ -8,7 +8,7 @@ real adapters (clock/RNG/nudge), then ``asyncio.run(app.run())``. The clean & bo
 carried by ``CrawlerApp`` (spec §6).
 
 The config paths are passed as arguments (``--config``/``--targets``/``--matcher``) with
-defaults ``deploy/config/crawler/*.yml``. The sensitive config values (secrets, URLs) are
+defaults ``deploy/*.yml``. The sensitive config values (secrets, URLs) are
 interpolated from the environment via ``${NAME}`` (``os.environ``, config adapter).
 """
 
@@ -36,9 +36,9 @@ from mulewatch.domain.policy_fingerprint import policy_fingerprint
 
 def _add_config_options(parser: argparse.ArgumentParser) -> None:
     """The config paths (same options, same defaults) for both run AND validate-config."""
-    parser.add_argument("--config", type=Path, default=Path("deploy/config/crawler/crawler.yml"))
-    parser.add_argument("--targets", type=Path, default=Path("deploy/config/crawler/targets.yml"))
-    parser.add_argument("--matcher", type=Path, default=Path("deploy/config/crawler/matcher.yml"))
+    parser.add_argument("--config", type=Path, default=Path("deploy/crawler.yml"))
+    parser.add_argument("--targets", type=Path, default=Path("deploy/targets.yml"))
+    parser.add_argument("--matcher", type=Path, default=Path("deploy/matcher.yml"))
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

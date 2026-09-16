@@ -19,7 +19,7 @@ from mulewatch.domain.observability.policy import Audience
 
 
 def _minimal_raw() -> dict[str, Any]:
-    """Valid policy + minimal wiring (amules without ${}, base paths) — observer mode."""
+    """Valid policy + minimal wiring (EC password without ${}, base paths) — observer mode."""
     return {
         "cycle_interval_seconds": 300.0,
         "search_poll_budget_seconds": 30.0,
@@ -34,7 +34,7 @@ def _minimal_raw() -> dict[str, Any]:
         },
         "decision_poll_interval_seconds": 5.0,
         "shutdown_deadline_seconds": 10.0,
-        "amules": [{"name": "amule-1", "host": "amuled", "port": 4712, "password": "secret"}],
+        "amule_ec_password": "secret",
         "catalog_db_path": "/data/catalog.db",
         "local_db_path": "/data/local.db",
     }
@@ -51,7 +51,6 @@ def _full_download_section() -> dict[str, Any]:
         "min_free_bytes": 1_000_000_000,
         "lost_after_seconds": 3600.0,
         "output_dir": "/data/out",
-        "endpoint": {"name": "amule-dl", "host": "amuled", "port": 4713, "password": "dl-secret"},
     }
 
 
@@ -60,8 +59,7 @@ def _full_port_sync_section() -> dict[str, Any]:
         "enabled": True,
         "poll_interval_seconds": 60.0,
         "restart_min_interval_seconds": 300.0,
-        "gluetun_control_url": "http://gluetun:8000",
-        "restarter_url": "http://docker-proxy:2375",
+        "gluetun_control_url": "http://localhost:8000",
     }
 
 
@@ -79,7 +77,7 @@ def test_parses_a_valid_config() -> None:
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=300.0, factor=2.0, jitter_ratio=0.3),
         decision_poll_interval_seconds=5.0,
         shutdown_deadline_seconds=10.0,
-        amules=(AmuleEndpoint(name="amule-1", host="amuled", port=4712, password="secret"),),
+        amule_ec_password="secret",
         catalog_db_path="/data/catalog.db",
         local_db_path="/data/local.db",
         node_id=None,
@@ -160,7 +158,7 @@ def test_keyword_pause_max_below_min_is_fatal() -> None:
         parse_crawler_config(raw, _env())
 
 
-# ------------------------------------------------------------- amules (formerly local)
+# ------------------------------------------------------- the single amuled (single container)
 
 
 def test_node_id_override_is_kept() -> None:
@@ -169,81 +167,42 @@ def test_node_id_override_is_kept() -> None:
     assert parse_crawler_config(raw, _env()).node_id == "fixed-node"
 
 
-def test_multiple_instances_are_parsed_in_order() -> None:
+def test_endpoint_is_derived_from_code_constants_and_the_password() -> None:
+    # One container, one amuled: host/port/name are code constants (like the webui's fixed
+    # 0.0.0.0:8080 bind), and the ONLY deployment-sensitive value stays in YAML.
+    config = parse_crawler_config(_minimal_raw(), _env())
+    assert config.amule_endpoint == AmuleEndpoint(
+        name="amuled", host="127.0.0.1", port=4712, password="secret"
+    )
+
+
+def test_missing_amule_ec_password_is_fatal() -> None:
     raw = _minimal_raw()
-    raw["amules"].append({"name": "amule-2", "host": "h2", "port": 4713, "password": "p2"})
+    del raw["amule_ec_password"]
+    with pytest.raises(ConfigError, match="amule_ec_password"):
+        parse_crawler_config(raw, _env())
+
+
+def test_empty_amule_ec_password_is_fatal() -> None:
+    raw = _minimal_raw() | {"amule_ec_password": ""}
+    with pytest.raises(ConfigError, match="non-empty string"):
+        parse_crawler_config(raw, _env())
+
+
+def test_non_string_amule_ec_password_is_fatal() -> None:
+    raw = _minimal_raw() | {"amule_ec_password": 1234}
+    with pytest.raises(ConfigError, match="non-empty string"):
+        parse_crawler_config(raw, _env())
+
+
+def test_leftover_pool_keys_are_ignored() -> None:
+    # The live-node migration edits crawler.yml by hand (design §11). An operator who forgets to
+    # delete the old pool keys must still get a bootable crawler, not a fail-fast on a dead key.
+    raw = _minimal_raw() | {
+        "amules": [{"name": "amule-1", "host": "amuled", "port": 4712, "password": "x"}],
+    }
     config = parse_crawler_config(raw, _env())
-    assert [a.name for a in config.amules] == ["amule-1", "amule-2"]
-
-
-def test_empty_amules_is_fatal() -> None:
-    raw = _minimal_raw()
-    raw["amules"] = []
-    with pytest.raises(ConfigError, match="≥ 1 instance"):
-        parse_crawler_config(raw, _env())
-
-
-def test_amules_not_a_list_is_fatal() -> None:
-    raw = _minimal_raw()
-    raw["amules"] = {"name": "x"}
-    with pytest.raises(ConfigError, match="NON-EMPTY list"):
-        parse_crawler_config(raw, _env())
-
-
-def test_instance_must_be_a_mapping() -> None:
-    raw = _minimal_raw()
-    raw["amules"] = ["pas-un-mapping"]
-    with pytest.raises(ConfigError, match="mapping expected"):
-        parse_crawler_config(raw, _env())
-
-
-def test_duplicate_instance_name_is_fatal() -> None:
-    raw = _minimal_raw()
-    raw["amules"].append({"name": "amule-1", "host": "h2", "port": 4713, "password": "p2"})
-    with pytest.raises(ConfigError, match="duplicate instance name"):
-        parse_crawler_config(raw, _env())
-
-
-def test_missing_string_field_is_fatal() -> None:
-    raw = _minimal_raw()
-    del raw["amules"][0]["host"]
-    with pytest.raises(ConfigError, match="'host' missing"):
-        parse_crawler_config(raw, _env())
-
-
-def test_non_string_field_is_fatal() -> None:
-    raw = _minimal_raw()
-    raw["amules"][0]["host"] = 1234  # non-string → isinstance branch of _require_str
-    with pytest.raises(ConfigError, match="non-empty string"):
-        parse_crawler_config(raw, _env())
-
-
-def test_empty_string_field_is_fatal() -> None:
-    raw = _minimal_raw()
-    raw["amules"][0]["password"] = ""
-    with pytest.raises(ConfigError, match="non-empty string"):
-        parse_crawler_config(raw, _env())
-
-
-def test_missing_port_is_fatal() -> None:
-    raw = _minimal_raw()
-    del raw["amules"][0]["port"]
-    with pytest.raises(ConfigError, match="'port' missing"):
-        parse_crawler_config(raw, _env())
-
-
-def test_out_of_range_port_is_fatal() -> None:
-    raw = _minimal_raw()
-    raw["amules"][0]["port"] = 70000
-    with pytest.raises(ConfigError, match="1..65535"):
-        parse_crawler_config(raw, _env())
-
-
-def test_bool_port_is_rejected() -> None:
-    raw = _minimal_raw()
-    raw["amules"][0]["port"] = True
-    with pytest.raises(ConfigError, match="1..65535"):
-        parse_crawler_config(raw, _env())
+    assert config.amule_endpoint.host == "127.0.0.1"
 
 
 def test_missing_db_path_is_fatal() -> None:
@@ -264,21 +223,16 @@ def test_empty_node_id_string_is_fatal() -> None:
 
 
 def test_password_interpolated_from_env() -> None:
-    raw = _minimal_raw() | {
-        "amules": [
-            {"name": "a1", "host": "amuled", "port": 4712, "password": "${AMULE_EC_PASSWORD}"}
-        ],
-    }
+    # The domain never reads the environment: the adapter resolves ${NAME} before anything else
+    # sees the value (design §6).
+    raw = _minimal_raw() | {"amule_ec_password": "${AMULE_EC_PASSWORD}"}
     cfg = parse_crawler_config(raw, {"AMULE_EC_PASSWORD": "s3cr3t"})
-    assert cfg.amules[0].password == "s3cr3t"
+    assert cfg.amule_ec_password == "s3cr3t"
+    assert cfg.amule_endpoint.password == "s3cr3t"
 
 
 def test_missing_env_var_raises() -> None:
-    raw = _minimal_raw() | {
-        "amules": [
-            {"name": "a1", "host": "amuled", "port": 4712, "password": "${AMULE_EC_PASSWORD}"}
-        ],
-    }
+    raw = _minimal_raw() | {"amule_ec_password": "${AMULE_EC_PASSWORD}"}
     with pytest.raises(ConfigError):
         parse_crawler_config(raw, {})  # AMULE_EC_PASSWORD not set
 
@@ -292,7 +246,7 @@ def test_download_absent_is_observer() -> None:
 
 
 def test_download_enabled_false_is_observer_without_requiring_wiring() -> None:
-    # enabled:false ⇒ we do NOT read the rest: a missing endpoint is NOT an error.
+    # enabled:false ⇒ we do NOT read the rest: a missing poll_interval is NOT an error.
     raw = _minimal_raw() | {"download": {"enabled": False}}
     cfg = parse_crawler_config(raw, _env())
     assert cfg.download is None
@@ -316,11 +270,9 @@ def test_download_section_must_be_a_mapping() -> None:
         parse_crawler_config(raw, _env())
 
 
-def test_download_enabled_true_requires_the_endpoint() -> None:
-    raw = _minimal_raw() | {
-        "download": {"enabled": True, "poll_interval_seconds": 30, "min_free_bytes": 1024}
-    }  # wiring missing
-    with pytest.raises(ConfigError):
+def test_download_enabled_true_requires_the_poll_interval() -> None:
+    raw = _minimal_raw() | {"download": {"enabled": True, "min_free_bytes": 1024}}
+    with pytest.raises(ConfigError, match="poll_interval_seconds"):
         parse_crawler_config(raw, _env())
 
 
@@ -332,7 +284,6 @@ def test_download_enabled_true_full_is_download_mode() -> None:
         min_free_bytes=1_000_000_000,
         lost_after_seconds=3600.0,
         output_dir="/data/out",
-        endpoint=AmuleEndpoint(name="amule-dl", host="amuled", port=4713, password="dl-secret"),
     )
 
 
@@ -368,7 +319,7 @@ def test_download_space_and_ttl_knobs_have_defaults() -> None:
     assert cfg.download is not None
     assert cfg.download.min_free_bytes == 10_737_418_240  # 10 GiB
     assert cfg.download.lost_after_seconds == 86_400.0  # 24 h
-    assert cfg.download.output_dir == "/data/downloads"  # what base.compose.yml mounts
+    assert cfg.download.output_dir == "/downloads"  # what base.compose.yml mounts
 
 
 def test_download_output_dir_must_be_a_string() -> None:
@@ -376,20 +327,6 @@ def test_download_output_dir_must_be_a_string() -> None:
     raw = _minimal_raw() | {"download": section}
     with pytest.raises(ConfigError, match="output_dir"):
         parse_crawler_config(raw, _env())
-
-
-def test_download_endpoint_secret_interpolated_from_env() -> None:
-    section = _full_download_section()
-    section["endpoint"] = {
-        "name": "amule-dl",
-        "host": "amuled",
-        "port": 4713,
-        "password": "${AMULE_EC_PASSWORD}",
-    }
-    raw = _minimal_raw() | {"download": section}
-    cfg = parse_crawler_config(raw, {"AMULE_EC_PASSWORD": "s3cr3t"})
-    assert cfg.download is not None
-    assert cfg.download.endpoint.password == "s3cr3t"
 
 
 # ----------------------------------------------------------------- port_sync
@@ -410,8 +347,7 @@ def test_port_sync_enabled_true_full() -> None:
     assert cfg.port_sync == PortSyncConfig(
         poll_interval_seconds=60.0,
         restart_min_interval_seconds=300.0,
-        gluetun_control_url="http://gluetun:8000",
-        restarter_url="http://docker-proxy:2375",
+        gluetun_control_url="http://localhost:8000",
     )
 
 
@@ -617,4 +553,28 @@ def test_webui_section_must_be_a_mapping() -> None:
 def test_webui_enabled_non_bool_is_fatal() -> None:
     raw = _minimal_raw() | {"webui": {"enabled": "yes"}}
     with pytest.raises(ConfigError, match="boolean expected"):
+        parse_crawler_config(raw, _env())
+
+
+def test_webui_amule_url_defaults_to_the_published_port() -> None:
+    # Both web surfaces are published by default (design §9): mulewatch on 8080, amuleweb on
+    # 4711. The default is the no-proxy case; anything else is the operator's to set.
+    assert parse_crawler_config(_minimal_raw(), _env()).webui.amule_url == "http://localhost:4711"
+
+
+def test_webui_amule_url_is_configurable_for_a_reverse_proxy() -> None:
+    # The link must survive a reverse proxy in front of 8080, which is the whole point of the key.
+    raw = _minimal_raw() | {"webui": {"amule_url": "https://mule.example.org/amule"}}
+    assert parse_crawler_config(raw, _env()).webui.amule_url == "https://mule.example.org/amule"
+
+
+def test_webui_amule_url_is_interpolated_from_env() -> None:
+    raw = _minimal_raw() | {"webui": {"amule_url": "${AMULE_UI_URL}"}}
+    cfg = parse_crawler_config(raw, _env() | {"AMULE_UI_URL": "http://nas.lan:4711"})
+    assert cfg.webui.amule_url == "http://nas.lan:4711"
+
+
+def test_webui_amule_url_empty_is_fatal() -> None:
+    raw = _minimal_raw() | {"webui": {"amule_url": ""}}
+    with pytest.raises(ConfigError, match="non-empty string"):
         parse_crawler_config(raw, _env())

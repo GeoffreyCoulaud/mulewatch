@@ -220,7 +220,7 @@ class SearchWorker:
                 error,
                 delay,
             )
-            await self._deps.telemetry.emit(InstanceUnreachable(instance=self._instance))
+            await self._deps.telemetry.emit(InstanceUnreachable())
             return False
         self._connected = True
         self._deps.backoff.reset(self._instance)
@@ -292,9 +292,7 @@ class SearchWorker:
                 error,
                 delay,
             )
-            await self._deps.telemetry.emit(
-                SearchFailed(instance=self._instance, network=network_label(task.channel))
-            )
+            await self._deps.telemetry.emit(SearchFailed(network=network_label(task.channel)))
             return
         except MuleUnreachableError as error:
             self._connected = False
@@ -305,7 +303,7 @@ class SearchWorker:
                 error,
                 delay,
             )
-            await self._deps.telemetry.emit(InstanceUnreachable(instance=self._instance))
+            await self._deps.telemetry.emit(InstanceUnreachable())
             return
         self._deps.backoff.reset(channel_key)
         _logger.info(

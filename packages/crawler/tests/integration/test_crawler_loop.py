@@ -32,7 +32,7 @@ from tests.integration.conftest import EcEndpoint
 
 pytestmark = pytest.mark.orchestration_integration
 
-_MATCHER = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler" / "matcher.yml"
+_MATCHER = Path(__file__).resolve().parents[4] / "deploy" / "matcher.yml"
 _TARGETS = (
     TargetSegment(
         season=2,
@@ -107,14 +107,7 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: EcEndpoint, tmp_path: 
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=60.0, factor=2.0, jitter_ratio=0.3),
         decision_poll_interval_seconds=5.0,
         shutdown_deadline_seconds=30.0,
-        amules=(
-            AmuleEndpoint(
-                name="amule-1",
-                host=amuled.host,
-                port=amuled.port,
-                password=amuled.password,
-            ),
-        ),
+        amule_ec_password=amuled.password,
         catalog_db_path=str(tmp_path / "catalog.db"),
         local_db_path=str(tmp_path / "local.db"),
         node_id=None,
@@ -125,7 +118,10 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: EcEndpoint, tmp_path: 
     app_holder: dict[str, CrawlerApp] = {}
 
     def factory(endpoint: AmuleEndpoint) -> _ShutdownAfterFirstCycleClient:
-        inner = AmuleEcClient(endpoint.host, endpoint.port, endpoint.password, timeout=30.0)
+        # The config now derives the endpoint from CODE CONSTANTS (127.0.0.1:4712 in the
+        # container), so the injected factory IGNORES its host/port and uses the daemon the
+        # caller provided through the environment (tests/integration/conftest.py).
+        inner = AmuleEcClient(amuled.host, amuled.port, endpoint.password, timeout=30.0)
         return _ShutdownAfterFirstCycleClient(inner, app_holder)
 
     app = CrawlerApp(

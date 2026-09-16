@@ -75,7 +75,7 @@ async def test_notifies_both_audiences() -> None:
 async def test_log_level_matches_severity(caplog: pytest.LogCaptureFixture) -> None:
     sink, notifier = _RecordingSink(), _RecordingNotifier()
     with caplog.at_level(logging.DEBUG, logger="mulewatch.observability"):
-        await _dispatcher(sink, notifier).emit(ev.InstanceUnreachable(instance="amule-1"))
+        await _dispatcher(sink, notifier).emit(ev.InstanceUnreachable())
     assert caplog.records[-1].levelno == logging.WARNING
 
 

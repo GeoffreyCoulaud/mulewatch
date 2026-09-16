@@ -15,7 +15,7 @@ from mulewatch.adapters.persistence_sqlite.connection import open_catalog
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 # Matcher: single source of truth = deployment config. Targets: the §7 subset of the golden
 # corpus (matching fixture, distinct from the full prod catalog).
-_MATCHER = _REPO_ROOT / "deploy" / "config" / "crawler" / "matcher.yml"
+_MATCHER = _REPO_ROOT / "deploy" / "matcher.yml"
 _FIXTURES = _REPO_ROOT / "packages" / "matching" / "tests" / "fixtures"
 _NODE = "11111111-2222-3333-4444-555555555555"
 
