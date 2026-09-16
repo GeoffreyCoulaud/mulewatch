@@ -25,17 +25,12 @@ _RESTART_COMMAND: tuple[str, ...] = ("s6-svc", "-r", "/etc/services.d/amuled")
 
 
 class S6MuleRestarter:
-    """``MuleRestarter`` implementation over ``s6-svc`` (STRUCTURAL satisfaction).
-
-    ``command`` is injectable so a test can substitute a real program with a known exit code;
-    production always takes the default.
-    """
+    """``MuleRestarter`` implementation over ``s6-svc`` (STRUCTURAL satisfaction)."""
 
     def __init__(self, *, command: Sequence[str] = _RESTART_COMMAND) -> None:
         self._command = tuple(command)
 
     async def restart(self) -> None:
-        """Run ``s6-svc -r``; exit 0 → success, anything else → ``RestarterError`` (absorbed)."""
         try:
             process = await asyncio.create_subprocess_exec(
                 *self._command,

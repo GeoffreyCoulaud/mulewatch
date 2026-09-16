@@ -123,14 +123,8 @@ jobs:
           registry-username: ${{ github.actor }}
           registry-password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Syft's nix cataloger carries ImageTag, so it runs in the DEFAULT image cataloger set
-      # and the aMule closure lands in both SBOMs with no extra configuration (verified against
-      # syft v1.42.3, the version anchore/sbom-action v0.24.0 pins; `nix-store-cataloger` is the
-      # deprecated cataloger, not this one). That default is load-bearing, and so is the `pname`
-      # override keeping the package named `amule` rather than `amule-web-daemon`: Syft derives
-      # the CPE from the name, and a name the NVD does not know matches nothing at all -- no
-      # error, just zero findings (SECURITY.md, "A renamed package stops matching, silently").
-      # Both failures are silent, so assert the outcome rather than trusting either.
+      # Both the nix cataloger running and the `pname` override (docker/amule.nix) fail SILENTLY
+      # when they regress: Grype scores a vulnerable aMule zero. Assert the outcome instead.
       - name: Gate that the aMule closure is in the SBOM under its CPE-matching name
         run: |
           for sbom in /tmp/sbom.syft.json /tmp/sbom.cyclonedx.json; do

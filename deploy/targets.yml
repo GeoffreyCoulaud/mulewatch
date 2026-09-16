@@ -1,8 +1,8 @@
-# Catalogue Keroro VF — saisons 1 et 2 (titres FR verbatim de Wikipédia FR).
-# Source : Liste_des_épisodes_de_Keroro,_mission_Titar (wikitext brut, double
-# extraction vérifiée). absolute_number : S1 = seasonal_number ; S2 = 51 + seasonal_number.
-# 26 épisodes sont mono-segment (un seul titre listé) -> une seule cible (letter A).
-# status par segment : "found" = déjà récupéré ; absent = défaut "lost".
+# Keroro VF catalogue — seasons 1 and 2 (FR titles verbatim from the French Wikipedia).
+# Source: Liste_des_épisodes_de_Keroro,_mission_Titar (raw wikitext, double extraction checked).
+# absolute_number: S1 = seasonal_number; S2 = 51 + seasonal_number.
+# 26 episodes are mono-segment (a single title listed) -> a single target (letter A).
+# Per-segment status: "found" = already recovered; absent = defaults to "lost".
 episodes:
   - season: 1
     seasonal_number: 1

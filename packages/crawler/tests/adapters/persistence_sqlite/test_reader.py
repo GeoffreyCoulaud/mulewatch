@@ -59,8 +59,8 @@ def test_open_reader_refuses_writes(tmp_path: Path) -> None:
 
 
 def test_open_reader_keeps_temp_store_in_memory(tmp_path: Path) -> None:
-    """``temp_store=MEMORY`` (2) carries the hardened-container hotfix forward: temp b-trees
-    must live in the process heap, not on the tiny ``/tmp`` tmpfs the reader has no room on."""
+    """``temp_store=MEMORY`` (2) for the same reason the writer sets it (connection.py): temp
+    b-trees live in the process heap, so nothing depends on how the temp directory was sized."""
     path = tmp_path / "catalog.db"
     _seed(path)
     reader = open_reader(path)

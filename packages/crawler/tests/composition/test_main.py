@@ -10,9 +10,8 @@ from mulewatch.domain.policy_fingerprint import policy_fingerprint
 
 _CONFIG = Path(__file__).resolve().parents[4] / "deploy"
 
-# Minimal UNIFIED crawler config (policy + observer wiring), secret via ${...}. The versioned
-# unified file (deploy/crawler.yml) is created by a later task; the
-# tests that actually load the config therefore write their own fixture into tmp_path.
+# Minimal UNIFIED crawler config (policy + observer wiring), secret via ${...}. The tests that
+# actually load a config write their own fixture into tmp_path.
 _UNIFIED_CONFIG = """\
 cycle_interval_seconds: 300.0
 search_poll_budget_seconds: 30.0
@@ -135,11 +134,8 @@ def test_main_renders_runtime_config_error_from_run_as_clean_message(
 def test_main_returns_zero_when_the_shutdown_deadline_fires(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # ``run`` arms ``shutdown_deadline_seconds`` as soon as shutdown is requested, so a slow
-    # unwind raises ``TimeoutError`` instead of hanging. That is the bound WORKING, not a crash:
-    # the exit code must stay 0. Under s6 a non-zero code means ``s6-svscanctl -t``, so treating
-    # an overrunning ``/controls/restart`` as a crash would tear the whole container down —
-    # amuled with it — instead of bouncing the crawler alone.
+    # The bound FIRING is the app keeping its promise, not a crash: under s6 a non-zero exit
+    # tears the whole container down (contract documented in __main__.main).
     def fake_run(coro: object) -> None:
         coro.close()  # type: ignore[attr-defined]  # close the coroutine without running it
         raise TimeoutError

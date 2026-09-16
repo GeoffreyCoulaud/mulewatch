@@ -86,9 +86,8 @@ def _make_nav_context(amule_url: str) -> Callable[[Request], dict[str, Any]]:
     The match is exact, so a sub-page (``/files/{hash}``, ``/targets/{id}``) marks no entry
     active: it is not itself a nav destination, and it names itself with its own heading.
 
-    The last entry is the container's OTHER web surface, amuleweb (design §9). Its href is an
-    absolute, operator-configured base (mulewatch cannot know how it is reachable from the
-    browser), so it never equals a request path and never goes active.
+    The last entry is the container's OTHER web surface, amuleweb (design §9). Its base is
+    operator-configured: mulewatch cannot know how amuleweb is reachable from the browser.
     """
 
     def nav_context(request: Request) -> dict[str, Any]:

@@ -137,14 +137,12 @@ def test_apply_migrations_with_no_scripts_is_a_noop(tmp_path: Path) -> None:
 
 
 def test_migrations_sort_through_an_in_memory_temp_store(tmp_path: Path) -> None:
-    """Migrations run with ``temp_store=MEMORY``, because the shipped container cannot spill.
+    """Migrations run with ``temp_store=MEMORY``, which keeps the remedy inside the image.
 
-    A ``CREATE INDEX`` over a large table sorts through SQLite's external sorter, which spills
-    to the temp directory. In the container /tmp is a 64m tmpfs (base.compose.yml), /var/tmp is
-    not writable (``read_only: true``) and this write connection otherwise leaves ``temp_store``
-    at its file default. Migration 0004 builds an index over ``file_observations``, which needs
-    ~85MiB of temp files on the real catalogue: reproduced in the live container, it dies with
-    "database or disk is full", rolls back and crash-loops the crawler at startup.
+    A ``CREATE INDEX`` over a large table spills to the temp directory through SQLite's external
+    sorter (0004's index over ``file_observations``: ~85MiB on the real catalogue). Sorting in
+    memory depends on nothing the operator sized; the alternative remedy would live in a compose
+    file that drifts from ``deploy/``.
 
     The probe script records the ``temp_store`` in force WHILE it runs, so this asserts what a
     migration actually gets, not merely that a pragma was issued.

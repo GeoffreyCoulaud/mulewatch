@@ -45,13 +45,11 @@ run() { sh "$root/under-test.sh"; }
 ec_password() { awk '/^\[/ { s = $0 } s == "[ExternalConnect]" && /^ECPassword=/' "$conf"; }
 reset() { rm -rf "$root/home"; mkdir -p "$root/home/.aMule"; }
 
-# 1. No file at all: the full minimal config is written.
 reset && rm -f "$conf" && run
 check "fresh install writes the digest" "ECPassword=$digest" "$(ec_password)"
 check "fresh install sets the incoming dir" "IncomingDir=$root/downloads/incoming" \
 	"$(grep '^IncomingDir=' "$conf")"
 
-# 2. A stale digest is replaced, and the operator's other edits survive.
 reset
 cat >"$conf" <<CONF
 [eMule]
@@ -68,20 +66,17 @@ check "a stale digest is replaced" "ECPassword=$digest" "$(ec_password)"
 check "an operator edit survives" "MaxUpload=42" "$(grep '^MaxUpload=' "$conf")"
 check "a sibling key survives" "ECPort=4712" "$(grep '^ECPort=' "$conf")"
 
-# 3. The section exists but the key does not: it is inserted before the next section.
 reset
 printf '[ExternalConnect]\nECPort=4712\n\n[eMule]\nMaxUpload=42\n' >"$conf"
 run
 check "a missing key is inserted into its section" "ECPassword=$digest" "$(ec_password)"
 check "the following section is not swallowed" "MaxUpload=42" "$(grep '^MaxUpload=' "$conf")"
 
-# 4. No [ExternalConnect] at all: the section is appended.
 reset
 printf '[eMule]\nMaxUpload=42\n' >"$conf"
 run
 check "a missing section is appended" "ECPassword=$digest" "$(ec_password)"
 
-# 5. A same-named key in another section must not be mistaken for ours.
 reset
 printf '[Obfuscation]\nECPassword=notthisone\n\n[ExternalConnect]\nECPort=4712\n' >"$conf"
 run
@@ -89,11 +84,10 @@ check "a same-named key elsewhere is left alone" "ECPassword=notthisone" \
 	"$(awk '/^\[/ { s = $0 } s == "[Obfuscation]" && /^ECPassword=/' "$conf")"
 check "ours is still written" "ECPassword=$digest" "$(ec_password)"
 
-# 6. Running twice must not drift.
 reset && rm -f "$conf" && run && first=$(cat "$conf") && run
 check "a second boot changes nothing" "$first" "$(cat "$conf")"
 
-# 7. A missing required variable must kill the boot rather than start half-configured.
+# A missing required variable must kill the boot rather than start half-configured.
 reset && rm -f "$conf"
 status=0
 ( unset AMULE_EC_PASSWORD; sh "$root/under-test.sh" ) >/dev/null 2>&1 || status=$?

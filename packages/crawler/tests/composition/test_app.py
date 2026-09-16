@@ -293,12 +293,11 @@ async def test_search_setup_connects_the_client_before_coverage(
 
 
 class _UnreachableAtStartupClient(_ShutdownOnStatusClient):
-    """Client whose 1st ``connect`` (at pool setup) raises ``MuleUnreachableError``.
+    """Client whose 1st ``connect`` (at setup) raises ``MuleUnreachableError``.
 
     Models a daemon down at startup: the composition root must CATCH, log, and
-    CONTINUE (a multi-instance crawler does not fall over because one instance is down;
-    the worker's backoff will govern reconnections). Also triggers the shutdown on the 1st
-    status poll to bound the run to one cycle."""
+    CONTINUE (the worker's backoff will govern reconnections). Also triggers the shutdown on the
+    1st status poll to bound the run to one cycle."""
 
     def __init__(self, app_holder: dict[str, CrawlerApp]) -> None:
         super().__init__(app_holder, results=None)

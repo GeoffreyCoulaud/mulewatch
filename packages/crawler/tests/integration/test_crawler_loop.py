@@ -118,9 +118,7 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: EcEndpoint, tmp_path: 
     app_holder: dict[str, CrawlerApp] = {}
 
     def factory(endpoint: AmuleEndpoint) -> _ShutdownAfterFirstCycleClient:
-        # The config now derives the endpoint from CODE CONSTANTS (127.0.0.1:4712 in the
-        # container), so the injected factory IGNORES its host/port and uses the daemon the
-        # caller provided through the environment (tests/integration/conftest.py).
+        # The endpoint is derived from code constants now: use the caller's daemon instead.
         inner = AmuleEcClient(amuled.host, amuled.port, endpoint.password, timeout=30.0)
         return _ShutdownAfterFirstCycleClient(inner, app_holder)
 

@@ -23,8 +23,7 @@ class SearchExecuted:
 
 @dataclass(frozen=True)
 class InstanceUnreachable:
-    # One container, one amuled: the daemon identity is a constant, so the event carries
-    # no field (single-container design §6).
+    # One container, one amuled: no daemon identity to carry (single-container design §6).
     pass
 
 
