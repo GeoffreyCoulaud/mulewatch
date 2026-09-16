@@ -17,8 +17,7 @@ def test_main_flags_a_seeded_import_and_prints_the_cve(
     src = tmp_path / "src"
     src.mkdir()
     (src / "leak.py").write_text("import tarfile\n")
-    # Only the source tree is redirected; the real (alpine) Dockerfiles keep the
-    # BaseImageIsAlpine guard satisfied, so the seeded import is the sole failure.
+    # The source tree is the scanner's only input, so the seeded import is the sole failure.
     monkeypatch.setattr(check_source_claims, "source_dirs", lambda: [src])
 
     assert check_source_claims.main() == 1

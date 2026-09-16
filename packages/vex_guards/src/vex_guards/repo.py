@@ -1,4 +1,4 @@
-"""Repo-relative paths the guard checks read: source trees, Dockerfiles, VEX files.
+"""Repo-relative paths the guard checks read: source trees and VEX files.
 
 Everything is derived from the repo root (four parents up from this module), so
 the checks stay correct no matter the working directory the gate runs from.
@@ -22,10 +22,6 @@ def display_path(path: Path) -> str:
 
 def source_dirs() -> list[Path]:
     return sorted(d for d in (_ROOT / "packages").glob("*/src") if d.parent.name != "vex_guards")
-
-
-def dockerfiles() -> list[Path]:
-    return [_ROOT / "packages" / name / "Dockerfile" for name in ("crawler",)]
 
 
 def vex_files() -> dict[str, Path]:

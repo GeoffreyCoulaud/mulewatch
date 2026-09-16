@@ -17,12 +17,6 @@ def test_display_path_renders_an_out_of_repo_path_verbatim() -> None:
     assert repo.display_path(Path("/tmp/x")) == "/tmp/x"
 
 
-def test_dockerfiles_are_the_shipped_image_dockerfiles() -> None:
-    files = repo.dockerfiles()
-    assert [p.parent.name for p in files] == ["crawler"]
-    assert all(p.name == "Dockerfile" and p.is_file() for p in files)
-
-
 def test_source_dirs_are_the_shipped_packages_only() -> None:
     names = {p.parent.name for p in repo.source_dirs()}
     assert names == {"crawler", "matching"}

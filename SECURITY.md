@@ -1,6 +1,10 @@
 # Security Policy
 
-mulewatch publishes one image to GHCR: `mulewatch-crawler`. This policy applies to it.
+mulewatch publishes one image to GHCR: `mulewatch`. This policy applies to it.
+
+The older `mulewatch-crawler` package is frozen at 1.x and kept only as the rollback path for
+nodes migrating to 2.0. It receives no new tags, signatures, attestations or scans: everything
+below describes `mulewatch`.
 
 ## Signing & attestations
 
@@ -26,6 +30,29 @@ Syft-JSON SBOM (`.github/workflows/grype-scan.yml`), applying the image's VEX. R
 appear in the repository's **Security > Code scanning** tab as SARIF findings, under the
 `grype-crawler` category. The scan never fails the workflow: findings are triaged through VEX.
 
+### A renamed package stops matching, silently
+
+Grype matches an OS or nix package by the **CPE Syft derives from its name**. Rename the package
+and the lookup asks the NVD for a name it has never heard of: no error, no warning, just zero
+findings. A scan that got quieter is indistinguishable from one that got safer.
+
+Measured on the same deliberately vulnerable version (Syft 1.51.1, Grype 0.118.0):
+
+```
+amule            2.3.1  ->  cpe:2.3:a:amule:amule:2.3.1            ->  2 findings
+amule-web-daemon 2.3.1  ->  cpe:2.3:a:amule-web-daemon:...:2.3.1   ->  0 findings
+```
+
+This is why the nixpkgs expression building aMule forces `pname` back to `amule`: the
+`httpServer = true` override otherwise renames the derivation to `amule-web-daemon`, which would
+have dropped aMule out of our vulnerability surface without dropping it out of the image.
+
+**Standing rule: any component whose name we alter must be re-checked the same way** — build it
+at a version with known CVEs, scan it, and confirm the findings actually appear. This covers a
+nix `pname` override, a renamed Debian package, and any binary catalogued under a name of our
+choosing. The release enforces the aMule case mechanically (`release.yml` fails before signing
+if no `pkg:nix/amule@...` is in the SBOM); every other rename is on whoever makes it.
+
 ## Triage process (VEX)
 
 [OpenVEX](https://openvex.dev/) statements tell Grype which CVEs are **not exploitable** in
@@ -39,7 +66,7 @@ For a local run, point Grype at the file explicitly with
 
 Grype resolves a VEX statement by the **image** identity (`pkg:oci/...`) then by the
 vulnerable **package** PURL. We use the **image-scoped** form (product
-`pkg:oci/mulewatch-crawler` with the vulnerable package as a `subcomponent`) because it is
+`pkg:oci/mulewatch` with the vulnerable package as a `subcomponent`) because it is
 the only form safe to attach and redistribute: it is scoped to *this* image, so a downstream
 consumer's unrelated packages are never suppressed by our statements. Use the subcomponent
 PURL **without a version** so a statement survives package bumps.
@@ -62,8 +89,8 @@ go install github.com/openvex/vexctl@latest
 vexctl add \
   --in-place \
   --file security/crawler.vex.openvex.json \
-  --product "pkg:oci/mulewatch-crawler" \
-  --subcomponents "pkg:apk/alpine/<package>" \
+  --product "pkg:oci/mulewatch" \
+  --subcomponents "pkg:deb/debian/<package>" \
   --vulnerability CVE-YYYY-NNNNN \
   --status not_affected \
   --justification vulnerable_code_not_in_execute_path \
@@ -95,16 +122,15 @@ is signed or attested:
 
 - **`check_source_claims`** (PR job, release hard-fail): fails if our own source starts
   reaching code a `vulnerable_code_not_in_execute_path` claim says we never execute, for
-  example importing `tarfile`, `configparser`, `imaplib`, or `poplib`, invoking `wget`, or a
-  runtime base image that is not Alpine.
+  example importing `tarfile`, `configparser`, `imaplib`, or `poplib`.
 - **`check_claim_coverage`** (PR job, release hard-fail): fails if a VEX `not_affected` claim
   has no guard in the registry, a guard has no claim, or a justification does not match its
   guard family. It keeps the VEX and the guard registry in bijection.
 - **`check_image_claims`** (daily Grype scan as SARIF, release hard-fail): fails if the built
-  image's SBOM contradicts an image-scoped claim, for example a package that should be absent
-  is present, or is below the minimum version a claim relies on. The crawler's current claims
-  are all source-family, so this check has nothing to assert today; it stays wired so the first
-  image-family claim is gated from the moment it is added.
+  image's SBOM contradicts an image-scoped claim, for example a dpkg package that should be
+  absent is present, or is below the minimum version a claim relies on. The image's current
+  claims are all source-family, so this check has nothing to assert today; it stays wired so the
+  first image-family claim is gated from the moment it is added.
 - **`check_stale_claims`** (daily Grype scan as SARIF, non-blocking): flags VEX entries Grype no
   longer reports for the image, so obsolete suppressions get pruned. Staleness never blocks a
   release: a suppressed CVE that Grype stops reporting has been fixed upstream, which does not
