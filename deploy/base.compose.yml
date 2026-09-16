@@ -1,79 +1,54 @@
-# Base fragment, included by deploy/compose.yaml and deploy/gluetun.compose.yml.
-# Defines everything except amuled and the VPN layer.
+# Base fragment, included by deploy/compose.yml and deploy/gluetun.compose.yml.
+# Holds the one shared service: crawler, amuled and amuleweb under s6, in a single container.
+#
+# It declares NO `ports:` and NO networking on purpose — compose merges `ports` additively and
+# cannot remove an entry an included fragment added, so each stack publishes its own.
+#
 # Validate alone (from repo root):
-#   AMULE_EC_PASSWORD=x docker compose -f deploy/base.compose.yml config
-x-crawler-common: &crawler-common
-  image: ghcr.io/geoffreycoulaud/mulewatch-crawler:${IMAGE_TAG:-latest}
-  user: "999:999"
-  read_only: true
-  tmpfs:
-    # size= caps tmpfs so a compromised container cannot fill host RAM.
-    - /tmp:size=64m
-  cap_drop:
-    - ALL
-  security_opt:
-    - "no-new-privileges:true"
-  pids_limit: 256
-  mem_limit: 512m
-  restart: unless-stopped
+#   AMULE_EC_PASSWORD=x WEBUI_PWD=y docker compose -f deploy/base.compose.yml config
 
 services:
-  crawler:
-    <<: *crawler-common
-    # Secrets referenced as ${VAR} in crawler.yml are interpolated by the crawler from ITS OWN
-    # os.environ (config adapter), so they must be injected here. Explicit mapping (not
-    # env_file: .env) for least privilege: the crawler has no business seeing the VPN key.
-    # :? makes `compose up` fail early and clearly when a secret is missing.
+  mulewatch:
+    image: ghcr.io/geoffreycoulaud/mulewatch:${IMAGE_TAG:-latest}
+    # PID 1 runs as root: it creates the amule user from PUID/PGID and takes ownership of the bind
+    # mounts, then every service drops privileges with setpriv. `user:`, `read_only:` and
+    # `cap_drop: ALL` therefore cannot survive on this service. Deliberate, with operator sign-off
+    # (spec 2026-09-16 §9): it reverses the crawler half of the 2026-06-17 posture decision, the
+    # crawler descending to amuled's confinement level rather than amuled rising to the crawler's.
+    # What is left is kept, and raised for three processes instead of one:
+    security_opt:
+      - "no-new-privileges:true"
+    pids_limit: 512
+    mem_limit: 2g
+    restart: unless-stopped
+    # All four are HARD-REQUIRED: the startup one-shot exits 1 and the container dies without them.
+    # `:?` turns that into a clear `compose up` failure instead. Explicit mapping rather than
+    # `env_file: .env` for least privilege — the container has no business seeing the VPN key.
+    # AMULE_EC_PASSWORD reaches the crawler through ${VAR} in crawler.yml (resolved by the config
+    # adapter from its own os.environ); WEBUI_PWD is read by amuleweb's run script, which passes
+    # --password/--admin-pass on the command line, so it must be in the environment, not a file.
     environment:
+      PUID: ${PUID:?}
+      PGID: ${PGID:?}
       AMULE_EC_PASSWORD: ${AMULE_EC_PASSWORD:?}
-    command:
-      - "--config"
-      - "/app/config/crawler.yml"
-      - "--targets"
-      - "/app/config/targets.yml"
-      - "--matcher"
-      - "/app/config/matcher.yml"
-    networks:
-      ec:
-        aliases: [crawler]
-      egress: {}
-    # ./downloads is mounted READ-ONLY and no file in it is ever opened: the crawler calls
-    # statvfs on it (shutil.disk_usage) to measure free space before admitting a download.
-    # incoming/ and temp/ share one filesystem, so the parent covers both in one call.
+      WEBUI_PWD: ${WEBUI_PWD:?}
+    # Relative bind mounts only, no named volume: the operator must be able to run
+    # `sqlite3 deploy/data/catalog.db` from the host. PUID/PGID are what keep these readable
+    # without sudo. ./downloads is bound whole rather than as its two subdirectories, so that the
+    # free-space floor (statvfs on /downloads, never a read) measures the host filesystem.
     volumes:
-      - ./config/crawler/crawler.yml:/app/config/crawler.yml:ro
-      - ./config/crawler/targets.yml:/app/config/targets.yml:ro
-      - ./config/crawler/matcher.yml:/app/config/matcher.yml:ro
-      - ./downloads:/data/downloads:ro
-      - catalog-db:/data/catalog
-      - local-db:/data/local
-    # The crawler ALSO serves the read-only webui in-process (same image), on its own thread. The
-    # bind is fixed at 0.0.0.0:8080 in-process; `webui.enabled` toggles the whole HTTP surface; the
-    # published port + networks control exposure (no built-in auth). This is the crawler
-    # container's ONLY inbound port: front it with the operator's reverse proxy / VPN. A webui
-    # crash degrades (the crawler keeps crawling), so the healthcheck is a liveness signal for the
-    # HTTP surface, not a crawl-health gate.
-    ports:
-      - "${WEBUI_PORT:-8080}:8080"
+      - ./crawler.yml:/app/config/crawler.yml:ro
+      - ./targets.yml:/app/config/targets.yml:ro
+      - ./matcher.yml:/app/config/matcher.yml:ro
+      - ./amule:/home/amule/.aMule
+      - ./data:/data
+      - ./downloads:/downloads
+    # amuled is the process nothing else covers, and probing it works with `webui.enabled: false`.
+    # PITFALL: s6-svstat exits 0 even for a stopped service — it prints `false`, and exit 1 means
+    # s6-supervise itself is not running. Test the printed output, not the exit code.
     healthcheck:
-      test:
-        - "CMD"
-        - "python"
-        - "-c"
-        - |
-          import urllib.request, sys
-          r = urllib.request.urlopen("http://localhost:8080/health")
-          sys.exit(0 if r.status == 200 else 1)
+      test: ["CMD-SHELL", 'test "$$(s6-svstat -u /etc/services.d/amuled)" = true']
       interval: 30s
       timeout: 3s
       retries: 3
-      start_period: 10s
-
-networks:
-  ec: {}
-  egress: {}
-
-volumes:
-  catalog-db: {}
-  local-db: {}
-  amule-state: {}
+      start_period: 30s
