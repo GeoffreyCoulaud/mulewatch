@@ -5,9 +5,6 @@
 #   docker compose -f gluetun.compose.yml up -d
 name: mulewatch
 
-include:
-  - path: base.compose.yml
-
 services:
   gluetun:
     image: qmcgaw/gluetun:latest
@@ -33,5 +30,11 @@ services:
     restart: unless-stopped
 
   mulewatch:
+    extends:
+      file: base.compose.yml
+      service: mulewatch
+    # Declared HERE and not in the fragment: `extends:` never shares depends_on,
+    # links or volumes_from, and `network_mode: service:` belongs to the stack that
+    # owns the network anyway.
     network_mode: "service:gluetun"
     depends_on: [gluetun]
