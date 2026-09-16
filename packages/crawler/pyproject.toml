@@ -2,7 +2,7 @@
 name = "mulewatch"
 dynamic = ["version"]
 description = "Crawler eMule — surveillance, catalogue, auto-download (Keroro VF lost media)"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
     "apprise>=1.9",
     "catalog-matching",
