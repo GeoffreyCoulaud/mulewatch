@@ -411,7 +411,7 @@ contient déjà son fichier de base : les copier tous les deux dans `data/` les 
 qui est exactement là où la 2.0 les cherche. Vérifiez-le avant de continuer :
 
 ```
-ls data/     # must show catalog.db and local.db, side by side
+ls data/     # doit montrer catalog.db et local.db, côte à côte
 ```
 
 **Étape 3 — déplacer vos trois fichiers de config à la racine du dossier de travail.** Ils vivaient
