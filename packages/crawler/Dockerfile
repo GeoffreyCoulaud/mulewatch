@@ -58,8 +58,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # --- Runtime: one image, three supervised processes ---
 FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
-# Re-declare the build-arg in this stage and stamp it as the OCI version label (the SBOM's
-# top-level component inherits it). ARG after FROM only lives in the stage that declares it.
+# ARG after FROM only lives in the stage that declares it, hence the re-declaration.
 ARG VERSION=0.0.0
 LABEL org.opencontainers.image.version=${VERSION}
 
@@ -70,8 +69,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 s6 \
     && rm -rf /var/lib/apt/lists/*
 
-# The aMule closure carries its own glibc, so it runs on Debian untouched. /closure/bin holds
-# symlinks into the store for the three binaries we actually call.
+# The aMule closure carries its own glibc, so it runs on Debian untouched.
 COPY --from=amule /closure/nix/store/ /nix/store/
 COPY --from=amule /closure/bin/ /usr/local/bin/
 

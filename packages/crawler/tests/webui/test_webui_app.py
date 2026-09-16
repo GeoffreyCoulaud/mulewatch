@@ -34,7 +34,6 @@ from mulewatch.webui.domain.views import (
 # ---------------------------------------------------------------------------
 
 TEST_HASH = "aabbccdd00112233aabbccdd00112233"
-# Where the nav's aMule entry points in these fixtures: the no-reverse-proxy default.
 _AMULE_URL = "http://localhost:4711"
 
 

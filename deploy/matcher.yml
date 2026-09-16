@@ -1,6 +1,6 @@
-# Config matcher (déploiement) — SOURCE DE VÉRITÉ UNIQUE de la policy. Éditable par l'opérateur.
-# Tout le reste en dérive : golden corpus + tests moteur (packages/matching), câblage crawler,
-# stack smoke. Il n'existe AUCUNE autre copie à synchroniser.
+# Matcher config (deployment) — THE SINGLE SOURCE OF TRUTH for the policy. Operator-editable.
+# Everything else derives from it: golden corpus + engine tests (packages/matching), crawler
+# wiring, smoke stack. There is NO other copy to keep in sync.
 tokens:
   keroro:        { keyword: keroro }
   titar:         { keyword: titar }

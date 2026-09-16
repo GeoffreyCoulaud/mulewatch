@@ -37,13 +37,10 @@ async def test_stderr_is_reported_in_the_error() -> None:
 
 @pytest.mark.asyncio
 async def test_missing_binary_raises_restarter_error() -> None:
-    # s6-svc absent from PATH (a mulewatch run outside the container) → absorbed like any other
-    # restart failure, never an escaping OSError.
+    # s6-svc absent (a run outside the container) → absorbed, never an escaping OSError.
     with pytest.raises(RestarterError, match="cannot run"):
         await S6MuleRestarter(command=("/nonexistent/s6-svc",)).restart()
 
 
 def test_default_command_restarts_the_amuled_service() -> None:
-    # The documented s6-svc invocation, NOT a write to the control FIFO: the byte protocol is an
-    # s6 internal detail (design §9).
     assert _RESTART_COMMAND == ("s6-svc", "-r", "/etc/services.d/amuled")

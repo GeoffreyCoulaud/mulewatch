@@ -44,8 +44,7 @@ class AmuleEndpoint:
     CODE-LEVEL ONLY: it has no YAML surface any more. The container holds exactly one amuled, at a
     fixed address, so host/port/name are the constants below and the only deployment-sensitive
     value (``amule_ec_password``) stays in ``crawler.yml`` (single-container design §6). The
-    dataclass survives because the EC integration suites build one in Python from environment
-    variables, and because the client factories take an endpoint, not four arguments.
+    dataclass survives because the client factories take an endpoint, not four arguments.
     """
 
     name: str
@@ -386,9 +385,8 @@ def _parse_port_sync(raw: dict[str, Any], env: Mapping[str, str]) -> PortSyncCon
 def _parse_webui(raw: dict[str, Any], env: Mapping[str, str]) -> WebuiConfig:
     """`webui` section (optional). Absent ⇒ enabled, default aMule link.
 
-    The bind is FIXED at 0.0.0.0:8080 in the composition layer, so this reads no host/port. Any
-    other key in the section (including a legacy ``host``/``port``) is simply not read ⇒ ignored
-    silently (a legacy config keeps starting, no fail-fast)."""
+    The bind is FIXED at 0.0.0.0:8080 in the composition layer, so this reads no host/port: an
+    unknown key (a legacy ``host``/``port``) is ignored silently, no fail-fast."""
     if "webui" not in raw:
         return _DEFAULT_WEBUI
     section = _require_mapping(raw["webui"], "section 'webui'")

@@ -31,9 +31,6 @@ services:
     # All four are HARD-REQUIRED: the startup one-shot exits 1 and the container dies without them.
     # `:?` turns that into a clear `compose up` failure instead. Explicit mapping rather than
     # `env_file: .env` for least privilege — the container has no business seeing the VPN key.
-    # AMULE_EC_PASSWORD reaches the crawler through ${VAR} in crawler.yml (resolved by the config
-    # adapter from its own os.environ); WEBUI_PWD is read by amuleweb's run script, which passes
-    # --password/--admin-pass on the command line, so it must be in the environment, not a file.
     environment:
       PUID: ${PUID:?}
       PGID: ${PGID:?}

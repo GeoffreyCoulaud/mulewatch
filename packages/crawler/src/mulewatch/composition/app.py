@@ -184,7 +184,7 @@ def _build_policy(config: CrawlerConfig) -> WorkerPolicy:
 
 
 def default_client_factory(endpoint: AmuleEndpoint) -> MuleClient:
-    """A real ``AmuleEcClient`` per instance (default factory, substituted in test)."""
+    """A real ``AmuleEcClient`` on the given endpoint (default factory, substituted in test)."""
     return AmuleEcClient(endpoint.host, endpoint.port, endpoint.password)
 
 
@@ -564,8 +564,8 @@ class CrawlerApp:
             catalog_repo = SqliteCatalogRepository(catalog_conn, node_id)
             scheduler_state = SqliteSchedulerStateRepository(local_conn)
             engine = MatchingEngine(self._matcher_config, self._targets)
-            # In-process webui (spec §5): own thread + loop, started EARLY (before the client
-            # pool + startup backfill) so it is up promptly and stays isolated from the crawler's
+            # In-process webui (spec §5): own thread + loop, started EARLY (before the EC client
+            # + startup backfill) so it is up promptly and stays isolated from the crawler's
             # synchronous work. Gated by ``webui.enabled``; a crash degrades (spec §17.1). Its
             # graceful stop is on ``stack`` → runs at the normal shutdown unwind (after DB conns
             # are pushed, so it stops the thread before those close during LIFO teardown).

@@ -22,9 +22,8 @@ services:
     # as a backoff loop that makes the state check flap. The real stacks restart; the smoke does
     # not, because here a crash IS the result.
     #
-    # All four are hard-required by the startup one-shot: without them it exits 1 and the
-    # container dies. PUID/PGID are the invoking user's, so the state directory below stays
-    # readable from the host — the very thing named volumes used to hide.
+    # PUID/PGID are the invoking user's, so the state directory below stays readable from the
+    # host — the very thing named volumes used to hide.
     environment:
       PUID: ${PUID:?}
       PGID: ${PGID:?}

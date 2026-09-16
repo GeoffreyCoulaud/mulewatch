@@ -30,8 +30,8 @@ local_db_path: /data/local.db
 # enabled: false => headless crawler, no HTTP surface.
 webui:
   enabled: true
-  # Target of the "aMule" link in the navigation. Only needs changing when a reverse proxy sits
-  # in front of port 8080, since the browser resolves it, not the container.
+  # Resolved by the BROWSER, not the container: localhost only works when the browser runs on
+  # the Docker host. Set it to the reachable address otherwise (NAS hostname, reverse proxy).
   amule_url: http://localhost:4711
 
 observability:

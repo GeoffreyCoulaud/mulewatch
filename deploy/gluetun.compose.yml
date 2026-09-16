@@ -20,9 +20,10 @@ services:
       HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE: '{"auth":"none"}'
     # mulewatch has no network of its own here, so its two web surfaces are published on gluetun.
     # 8080 (mulewatch catalog UI) has NO authentication; 4711 (amuleweb) is guarded by WEBUI_PWD.
-    # NOT VALIDATED (spec §13): sources disagree on whether gluetun's firewall also needs
-    # FIREWALL_INPUT_PORTS=8080,4711 for connections arriving from the LAN. If the ports answer
-    # from the host but not from another machine, that variable is the first thing to try.
+    # NOT VALIDATED (docs/specs/2026-09-16-single-container-embedded-amule.md §13): sources
+    # disagree on whether gluetun's firewall also needs FIREWALL_INPUT_PORTS=8080,4711 for
+    # connections arriving from the LAN. If the ports answer from the host but not from another
+    # machine, that variable is the first thing to try.
     # The eD2k port is NOT published: it comes in through the VPN's forwarded port, not the host.
     ports:
       - "${WEBUI_PORT:-8080}:8080"
