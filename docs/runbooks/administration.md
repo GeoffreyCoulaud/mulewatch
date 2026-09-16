@@ -10,16 +10,17 @@ catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jama
 
 ## Cycle de vie & données
 
-A node is now **one container** (compose service `mulewatch`) running **three processes** under the
-s6 supervisor: `amuled`, `amuleweb`, and `mulewatch` — the crawler, which also serves the webui
-in-process on its own thread. PID 1 is the entrypoint: it creates the `amule` user from
-`PUID`/`PGID`, takes ownership of the mount points, writes an `amule.conf` **only if there is
-none**, then hands over to `s6-svscan`. Each service then drops privileges with `setpriv`.
+Un nœud est désormais **un seul conteneur** (service compose `mulewatch`) qui fait tourner **trois
+processus** sous le superviseur s6 : `amuled`, `amuleweb` et `mulewatch` — le crawler, qui sert
+aussi la webui en intra-processus, sur un thread dédié. PID 1 est l'entrypoint : il crée
+l'utilisateur `amule` à partir de `PUID`/`PGID`, prend possession des points de montage, écrit un
+`amule.conf` **seulement s'il n'y en a pas**, puis passe la main à `s6-svscan`. Chaque service
+abandonne ensuite ses privilèges avec `setpriv`.
 
-Four environment variables are **hard-required**: `PUID`, `PGID`, `AMULE_EC_PASSWORD` and
-`WEBUI_PWD`. The startup one-shot exits 1 and the container dies if any is missing; the compose
-files carry `:?` guards so you get a clear `compose up` failure instead of a container that starts
-and immediately stops.
+Quatre variables d'environnement sont **strictement obligatoires** : `PUID`, `PGID`,
+`AMULE_EC_PASSWORD` et `WEBUI_PWD`. Le one-shot de démarrage sort en 1 et le conteneur meurt si
+l'une d'elles manque ; les fichiers compose portent des gardes `:?`, de sorte que vous obtenez un
+échec clair de `compose up` au lieu d'un conteneur qui démarre et s'arrête aussitôt.
 
 - **Persistance.** Tout est en **montages bind relatifs** dans votre dossier de travail : il n'y a
   **plus aucun volume Docker nommé**. Le catalogue et l'état local sont dans `data/`
@@ -42,16 +43,16 @@ and immediately stops.
   voir « Diagnostic après panne » ci-dessous.
 - **Migration depuis un nœud 1.x** (deux images, quatre services, volumes nommés) : la procédure,
   manuelle et à faire une seule fois, est dans le
-  [runbook de déploiement, annexe E](deployment.md#annex-e-migrating-a-1x-node-to-20). Ne lancez pas
+  [runbook de déploiement, annexe E](deployment.md#annexe-e-migrer-un-nœud-1x-vers-la-20). Ne lancez pas
   la 2.0 par-dessus un nœud 1.x sans
   l'avoir suivie : les volumes nommés ne sont pas lus par la nouvelle stack, et le nœud semblera
   avoir perdu son catalogue (les données, elles, sont toujours dans les volumes).
 
-### Restarting one process instead of the container
+### Redémarrer un processus plutôt que le conteneur
 
-Lifecycle now has **two levels**. `docker compose up -d`, `restart` and `down` act on the **whole
-container** — all three processes at once. To act on **one** process, talk to s6 inside the
-container:
+Le cycle de vie a désormais **deux niveaux**. `docker compose up -d`, `restart` et `down` agissent
+sur **tout le conteneur** — les trois processus d'un coup. Pour agir sur **un seul** processus,
+adressez-vous à s6 dans le conteneur :
 
 ```bash
 docker compose exec mulewatch s6-svstat /etc/services.d/amuled   # status
@@ -60,23 +61,24 @@ docker compose exec mulewatch s6-svc -d /etc/services.d/amuled   # stop
 docker compose exec mulewatch s6-svc -u /etc/services.d/amuled   # start
 ```
 
-Substitute `amuleweb` or `mulewatch` for `amuled` as needed. There is no
-`docker compose restart amuled` any more — there is no `amuled` compose service.
+Remplacez `amuled` par `amuleweb` ou `mulewatch` selon le besoin. Il n'y a plus de
+`docker compose restart amuled` — il n'existe pas de service compose `amuled`.
 
-The crawler is the one service whose exit code is interpreted. Its s6 `finish` script reads it:
+Le crawler est le seul service dont le code de sortie est interprété. Son script `finish` s6 le
+lit :
 
-| Exit code | What s6 does | Why |
+| Code de sortie | Ce que fait s6 | Pourquoi |
 |---|---|---|
-| `0` | restarts the crawler **alone** | this is the webui's `/controls` restart button; amuled keeps its eD2k and Kad sessions |
-| anything else | `s6-svscanctl -t`, which takes the **whole container** down | a crash — an invalid config above all — must produce a visible `restart: unless-stopped` backoff loop, not a silent crash loop inside a container that still looks healthy |
+| `0` | redémarre le crawler **seul** | c'est le bouton de redémarrage de `/controls` dans la webui ; amuled garde ses sessions eD2k et Kad |
+| tout autre | `s6-svscanctl -t`, qui couche **tout le conteneur** | un plantage — une config invalide avant tout — doit produire une boucle de backoff `restart: unless-stopped` visible, et non un crash-loop silencieux dans un conteneur qui a toujours l'air sain |
 
-amuled and amuleweb are supervised normally: they crash, s6 restarts them, the crawler's EC backoff
-absorbs the gap.
+amuled et amuleweb sont supervisés normalement : ils plantent, s6 les relance, le backoff EC du
+crawler absorbe le trou.
 
-The container's healthcheck probes amuled only, with
-`test "$(s6-svstat -u /etc/services.d/amuled)" = true`. **Pitfall if you script around it:**
-`s6-svstat` exits 0 even for a stopped service — it prints `false`; exit 1 means `s6-supervise`
-itself is not running. Test the printed output, never the exit code.
+Le healthcheck du conteneur ne sonde qu'amuled, avec
+`test "$(s6-svstat -u /etc/services.d/amuled)" = true`. **Piège si vous scriptez autour :**
+`s6-svstat` sort en 0 même pour un service arrêté — il imprime `false` ; un code 1 signifie que
+`s6-supervise` lui-même ne tourne pas. Testez la valeur imprimée, jamais le code de retour.
 
 ### Diagnostic après panne
 
@@ -88,7 +90,7 @@ service qui l'a émise.
 |---|---|---|
 | Le crawler tourne mais aucune nouvelle observation depuis > 1 h | `docker compose logs mulewatch --tail 100` | Cherchez « EC unavailable », « no servers » ou « cycle » récent. Si pas de cycle, amuled est probablement déconnecté du réseau (voir [runbook-troubleshooting](troubleshooting.md)). |
 | Téléchargements bloqués en QUEUED | `docker compose logs mulewatch \| grep -i download` | Vérifier que amuled est en High-ID **ou** qu'il a des sources (sources directes nécessaires en Low-ID). |
-| Un téléchargement fini n'apparaît pas dans `downloads/incoming` | `docker compose logs mulewatch --tail 100` | Voir la fiche [« A finished file never shows up »](troubleshooting.md#a-finished-file-never-shows-up-in-downloadsincoming). |
+| Un téléchargement fini n'apparaît pas dans `downloads/incoming` | `docker compose logs mulewatch --tail 100` | Voir la fiche [« Un fichier terminé n'apparaît jamais »](troubleshooting.md#un-fichier-terminé-napparaît-jamais-dans-downloadsincoming). |
 | Un processus est mort sans emporter le conteneur | `docker compose exec mulewatch s6-svstat /etc/services.d/amuled` | `false` = arrêté : relancez-le avec `s6-svc -u` (cf. ci-dessus) et cherchez la cause dans les logs. |
 | Le disque se remplit | `docker system df -v` puis `du -sh downloads/ data/` | Catalogue trop gros (voir Compaction) ou fichiers téléchargés accumulés : le crawler refuse de nouveaux téléchargements sous `download.min_free_bytes`, mais ne supprime jamais rien. |
 
@@ -184,24 +186,25 @@ au risque**.
 
 ---
 
-## Prometheus metrics
+## Métriques Prometheus
 
-The crawler exposes a Prometheus endpoint on the port set by `observability.metrics.port` in
-`crawler.yml` (default `9090`, `enabled: true` by default). **No Prometheus and no
-Grafana container ships with the stack**: if you want dashboards, point your own Prometheus at the
-crawler.
+Le crawler expose un point d'accès Prometheus sur le port réglé par `observability.metrics.port`
+dans `crawler.yml` (`9090` par défaut, `enabled: true` par défaut). **Aucun conteneur Prometheus ni
+Grafana n'est livré avec la pile** : si vous voulez des tableaux de bord, faites pointer votre
+propre Prometheus sur le crawler.
 
-That port is not published on the host by default, and there is no longer a shared internal network
-to join — the `ec` and `egress` networks went away with the multi-service stack. So there is one
-route: **publish it yourself**, by adding `"9090:9090"` to the `ports:` list of the stack file you
-actually use — `compose.yml` under the `mulewatch` service, `gluetun.compose.yml` under the
-`gluetun` service (mulewatch has no network of its own there). Never add it to `base.compose.yml`:
-compose merges `ports` additively and cannot remove an entry a fragment contributed, which is why
-the fragment declares none.
+Ce port n'est pas publié sur l'hôte par défaut, et il n'y a plus de réseau interne partagé à
+rejoindre — les réseaux `ec` et `egress` ont disparu avec la pile multi-services. Il reste donc une
+seule route : **le publier vous-même**, en ajoutant `"9090:9090"` à la liste `ports:` du fichier de
+pile que vous utilisez réellement — `compose.yml` sous le service `mulewatch`,
+`gluetun.compose.yml` sous le service `gluetun` (mulewatch n'y a pas de réseau propre). Ne l'ajoutez
+jamais à `base.compose.yml` : compose fusionne les `ports` de façon additive et ne sait pas retirer
+une entrée apportée par un fragment, ce pourquoi le fragment n'en déclare aucune.
 
-Treat it like port 8080: **no auth**, so keep it off the open Internet.
+Traitez-le comme le port 8080 : **aucune authentification**, donc gardez-le hors de l'Internet
+ouvert.
 
-Example `scrape_config` for your own `prometheus.yml`:
+Exemple de `scrape_config` pour votre propre `prometheus.yml` :
 
 ```yaml
 scrape_configs:
@@ -210,8 +213,8 @@ scrape_configs:
       - targets: ['node.example.lan:9090']   # the host you published 9090 on
 ```
 
-Setting `observability.metrics.enabled: false` turns the endpoint off entirely; the crawl and the
-webui are unaffected.
+Mettre `observability.metrics.enabled: false` coupe entièrement le point d'accès ; le crawl et la
+webui ne sont pas affectés.
 
 ---
 
@@ -290,17 +293,18 @@ n'écrit une ligne que sur un vrai changement) et tourne que le téléchargement
 
 ## WebUI (consultation du catalogue)
 
-A node publishes **two** web surfaces, and they do not have the same posture:
+Un nœud publie **deux** surfaces web, et elles n'ont pas la même posture :
 
-| Port | What it is | Authentication |
+| Port | Ce que c'est | Authentification |
 |---|---|---|
-| **8080** | the mulewatch catalog UI (this section) | **NONE AT ALL** |
-| **4711** | amuleweb, aMule's own UI | the `WEBUI_PWD` admin password |
+| **8080** | l'interface de catalogue mulewatch (cette section) | **AUCUNE, D'AUCUNE SORTE** |
+| **4711** | amuleweb, l'interface propre à aMule | le mot de passe admin `WEBUI_PWD` |
 
-Port **8080 has no authentication of any kind**. Anyone who can reach it gets the catalog, the
-state-changing `/controls` POSTs and a read-only SQL console. `WEBUI_PWD` protects **4711 only** —
-it does nothing for 8080. Put 8080 behind a reverse proxy or a VPN, or keep it on a network you
-trust, and do not put it on the open Internet.
+Le port **8080 n'a aucune authentification, d'aucune sorte**. Quiconque l'atteint obtient le
+catalogue, les POST de `/controls` qui modifient l'état et une console SQL en lecture seule.
+`WEBUI_PWD` ne protège **que le 4711** — il ne fait rien pour le 8080. Mettez le 8080 derrière un
+reverse proxy ou un VPN, ou gardez-le sur un réseau de confiance, et ne le posez pas sur l'Internet
+ouvert.
 
 La WebUI est une interface de **lecture seule** servie **en intra-processus** par le crawler (même
 image, même conteneur, sur un thread dédié du processus `mulewatch`) et exposant le catalogue SQLite
@@ -314,7 +318,7 @@ son `ReaderProvider`, jamais une connexion en écriture.
 
 Rien de spécial à lancer : la WebUI est servie **en intra-processus** par le processus `mulewatch`,
 donc elle démarre et s'arrête **avec lui**, sans service ni profil dédié. N'importe laquelle des
-commandes de lancement du [Runbook de déploiement](deployment.md#5-start-it) la met en ligne, que le
+commandes de lancement du [Runbook de déploiement](deployment.md#5-lancer) la met en ligne, que le
 téléchargement soit activé ou non.
 
 ```bash
@@ -474,30 +478,32 @@ par digest d'architecture. Le détail de la chaîne et du triage VEX est dans `S
   pas « corriger » sans rouvrir la décision. À surveiller : `file_observations` croît sans borne, et
   c'est une **future** migration triant cette table qui pose le risque, pas 0004 (ponctuelle, déjà
   passée).
-- **Container hardening, decisions on record (2026-06-17, updated 2026-06-29, narrowed 2026-09-13,
-  REVERSED for the crawler 2026-09-16)**: the optional gVisor (`runsc`) sandbox was dropped as
-  YAGNI, and the per-child seccomp blocklist and rlimits left the project on 2026-09-13 along with
-  the analysis child they confined. The single-container image then reduced what the portable floor
-  can hold. PID 1 must be root — it creates the `amule` user from `PUID`/`PGID`, chowns the bind
-  mounts and writes `amule.conf` — so **`user:`, `read_only:` and `cap_drop: ALL` no longer apply
-  to any shipped service**; each service drops privileges with `setpriv` instead. This was
-  deliberate, with operator sign-off (spec
+- **Durcissement conteneur, décisions au dossier (2026-06-17, mise à jour 2026-06-29, réduite
+  2026-09-13, INVERSÉE pour le crawler 2026-09-16)** : le bac à sable gVisor (`runsc`) optionnel a
+  été abandonné pour cause de YAGNI, et la blocklist seccomp par enfant ainsi que les rlimits ont
+  quitté le projet le 2026-09-13, avec l'enfant d'analyse qu'elles confinaient. L'image à conteneur
+  unique a ensuite réduit ce que le plancher portable peut tenir. PID 1 doit être root — il crée
+  l'utilisateur `amule` à partir de `PUID`/`PGID`, fait le `chown` des bind mounts et écrit
+  `amule.conf` — donc **`user:`, `read_only:` et `cap_drop: ALL` ne s'appliquent plus à aucun
+  service livré** ; chaque service abandonne ses privilèges avec `setpriv` à la place. C'était
+  délibéré, avec l'accord signé de l'opérateur (spec
   [`2026-09-16-single-container-embedded-amule.md`](../specs/2026-09-16-single-container-embedded-amule.md)
-  §9): **the crawler descended to amuled's confinement level rather than amuled rising to the
-  crawler's.** What remains, and is what the compose files must keep, is
-  `security_opt: no-new-privileges:true`, `pids_limit: 512` and `mem_limit: 2g` — the last two
-  raised for three processes instead of one, and both still to be tuned on a live node. **Not yet
-  validated on real hardware: `no-new-privileges` alongside `setpriv`.** Nothing in the crawler
-  spawns a subprocess over untrusted input any more, and nothing ever opens a downloaded file.
-  Kernel-level isolation beyond that stays **explicitly out of scope**: `net=none`, bwrap and real
-  read-only mount namespaces each require either `CAP_SYS_ADMIN` or unprivileged user namespaces
-  (not portable: they depend on a host sysctl and conflict with Docker's default seccomp profile).
-- **amuled is no longer a third-party container (2026-09-16)**: it is a process of our own image, so
-  the 2026-06-17 carve-out that exempted it from our hardening has nothing left to exempt — the
-  whole service shares the posture above. The **residual risk is accepted, and it is now wider**: a
-  compromise of any of the three processes reaches the bind-mounted `downloads/incoming` and
-  `downloads/temp`, `data/` (the catalog) **and** `amule/`. Do not "fix" this without reopening the
-  decision record.
+  §9) : **le crawler est descendu au niveau de confinement d'amuled, plutôt qu'amuled ne monte à
+  celui du crawler.** Ce qui reste, et que les fichiers compose doivent conserver, c'est
+  `security_opt: no-new-privileges:true`, `pids_limit: 512` et `mem_limit: 2g` — les deux derniers
+  relevés pour trois processus au lieu d'un, et tous deux encore à régler sur un nœud réel. **Pas
+  encore validé sur matériel réel : `no-new-privileges` conjugué à `setpriv`.** Plus rien dans le
+  crawler ne lance de sous-processus sur une entrée non fiable, et rien n'ouvre jamais un fichier
+  téléchargé. L'isolation au niveau noyau au-delà de cela reste **explicitement hors périmètre** :
+  `net=none`, bwrap et de vrais namespaces de montage en lecture seule exigent chacun soit
+  `CAP_SYS_ADMIN`, soit des user namespaces non privilégiés (non portables : ils dépendent d'un
+  sysctl de l'hôte et entrent en conflit avec le profil seccomp par défaut de Docker).
+- **amuled n'est plus un conteneur tiers (2026-09-16)** : c'est un processus de notre propre image,
+  donc la dérogation du 2026-06-17 qui l'exemptait de notre durcissement n'a plus rien à exempter —
+  tout le service partage la posture ci-dessus. Le **risque résiduel est accepté, et il est
+  désormais plus large** : la compromission de l'un quelconque des trois processus atteint les bind
+  mounts `downloads/incoming` et `downloads/temp`, `data/` (le catalogue) **et** `amule/`. Ne
+  « corrigez » pas cela sans rouvrir la décision au dossier.
 - **port-sync, validation réelle** : la boucle est construite ; sa validation **bout-en-bout**
   (port-check High-ID réel derrière le VPN) se fait via un déploiement réel. Elle passe désormais
   par un `s6-svc -r` sur amuled dans le même conteneur, sans Docker ni socket : plus simple, mais
@@ -507,26 +513,30 @@ par digest d'architecture. Le détail de la chaîne et du triage VEX est dans `S
   constante de code (`amuled`) ; il en va de même des clés de l'état d'ordonnancement. Les anciennes
   lignes restent dans `local.db` sans être relues. Sans conséquence pour une 2.0.0 cassante, mais
   autant ne pas être surpris.
-- **Download completion, real-world validation**: the chain is **confirmed by reading amuled's
-  upstream sources** (see
+- **Complétion de téléchargement, validation en conditions réelles** : la chaîne est **confirmée
+  par la lecture des sources amont d'amuled** (voir
   [`docs/reference/2026-06-17-amuled-completion-behavior.md`](../reference/2026-06-17-amuled-completion-behavior.md))
-  and one **real transfer on a production node on 2026-09-11**, but there is **no end-to-end test on
-  a real transfer** (that e2e suite was abandoned, see the testing guide). The `shared_files()`
-  decoding against a real amuled *is* covered by `download_integration`.
+  et par un **transfert réel sur un nœud de production le 2026-09-11**, mais il n'existe **aucun
+  test bout-en-bout sur un transfert réel** (cette suite e2e a été abandonnée, voir le guide des
+  tests). Le décodage de `shared_files()` face à un amuled réel, lui, **est** couvert par
+  `download_integration`.
 
-  Mechanics: on completion amuled moves the file into its **IncomingDir** and only then flips the
-  status to complete (no race). The crawler detects completion as **"shared AND absent from the
-  download queue"** (amuled auto-shares a completed file, but it shares partials too, so the queue is
-  what separates them, see CORRECTION 2026-09-11 in the reference). It then records the state and
-  notifies: since 2026-09-13 nothing moves the file, so the old quarantine promotion and its
-  name-collision handling are gone, and with them the constraints about a shared quarantine volume
-  and a Linux filesystem. What still holds: **no amuled category** redirecting the destination, and
-  an amuled **dedicated** to the crawler with a **small shared set**.
+  Mécanique : à la complétion, amuled déplace le fichier dans son **IncomingDir** et ne bascule le
+  statut en « terminé » qu'ensuite (pas de course). Le crawler détecte la complétion comme
+  **« partagé ET absent de la file de téléchargement »** (amuled partage automatiquement un fichier
+  terminé, mais il partage aussi les fichiers partiels, donc c'est la file qui les sépare, voir
+  CORRECTION 2026-09-11 dans la référence). Il enregistre alors l'état et notifie : depuis le
+  2026-09-13, rien ne déplace le fichier, donc l'ancienne promotion depuis la quarantaine et sa
+  gestion des collisions de noms ont disparu, et avec elles les contraintes sur un volume de
+  quarantaine partagé et sur un système de fichiers Linux. Ce qui tient toujours : **aucune
+  catégorie amuled** ne doit rediriger la destination, et amuled doit être **dédié** au crawler avec
+  un **petit ensemble partagé**.
 
-  **Consequence of dropping the promotion step, not yet measured**: completed files now stay in
-  `IncomingDir` forever, so amuled's shared-files list grows without bound, and it is read on every
-  download cycle. On a long-lived node with many completed downloads, expect completion detection to
-  get slower. Pruning `downloads/incoming` is the operator's job.
+  **Conséquence de l'abandon de l'étape de promotion, pas encore mesurée** : les fichiers terminés
+  restent désormais indéfiniment dans `IncomingDir`, donc la liste des fichiers partagés d'amuled
+  croît sans borne, et elle est lue à chaque cycle de téléchargement. Sur un nœud de longue durée
+  comptant beaucoup de téléchargements terminés, attendez-vous à une détection de complétion plus
+  lente. Le ménage dans `downloads/incoming` est à la charge de l'opérateur.
 
 - **WebUI (lecture seule)** : **point clos**. La WebUI est désormais servie **en intra-processus**
   par le crawler (plus de conteneur séparé, donc plus de montage inter-conteneurs). La garantie

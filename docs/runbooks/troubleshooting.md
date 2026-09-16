@@ -28,7 +28,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
 
 > **Où lancer ces commandes.** Toutes les commandes ci-dessous se lancent depuis votre **dossier de
 > travail** (le dossier qui contient `compose.yml`, créé à
-> [l'étape 3 du guide](deployment.md#3-create-your-working-folder)). Les chemins sont donc
+> [l'étape 3 du guide](deployment.md#3-créer-votre-dossier-de-travail)). Les chemins sont donc
 > relatifs : `.env`, `crawler.yml`, `data/`, `amule/`, `downloads/`. Sous la pile VPN, ajoutez
 > `-f gluetun.compose.yml` à chaque `docker compose ...`.
 
@@ -54,7 +54,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
      Vous devez lire `Docker Compose version v2.x.x` (un numéro plus récent convient aussi). Si vous
      ne voyez toujours qu'un `docker-compose` v1, installez Docker Engine (v2) comme ci-dessus : la
      commande en deux mots est indispensable.
-- **Retour au guide.** [Étape 2 : Installer Docker](deployment.md#2-install-docker).
+- **Retour au guide.** [Étape 2 : Installer Docker](deployment.md#2-installer-docker).
 
 ### Docker est installé mais ne répond pas
 
@@ -82,41 +82,43 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
      ```
      docker ps
      ```
-- **Retour au guide.** [Étape 2 : Installer Docker](deployment.md#2-install-docker) et
-  [étape 5 : Lancer](deployment.md#5-start-it).
+- **Retour au guide.** [Étape 2 : Installer Docker](deployment.md#2-installer-docker) et
+  [étape 5 : Lancer](deployment.md#5-lancer).
 
-### A required variable is missing
+### Une variable obligatoire manque
 
-- **Symptom, form 1 (the usual one).** `docker compose up -d` refuses to start anything and prints
-  compose's own error, before a single container is created:
+- **Symptôme, forme 1 (la plus courante).** `docker compose up -d` refuse de démarrer quoi que ce
+  soit et affiche l'erreur propre à compose, avant même qu'un seul conteneur soit créé :
   ```
   error while interpolating services.mulewatch.environment.PUID: required variable "PUID" is not set
   ```
-  The same happens for `PGID`, `AMULE_EC_PASSWORD` and `WEBUI_PWD`.
-- **Symptom, form 2.** The variable *is* declared but **empty**, or the image is run outside
-  compose (a bare `docker run`). The container then exits within a second, and its whole log is one
-  line:
+  Il en va de même pour `PGID`, `AMULE_EC_PASSWORD` et `WEBUI_PWD`.
+- **Symptôme, forme 2.** La variable *est* déclarée mais **vide**, ou l'image est lancée hors
+  compose (un `docker run` nu). Le conteneur sort alors en moins d'une seconde, et tout son journal
+  tient en une ligne :
   ```
   /usr/local/bin/amule-config.sh: 6: PUID is required
   ```
-- **The distinguishing sign: no Python traceback at all.** Nothing Python ever started. If you see
-  a traceback, or a `Invalid config, refusing to start:` line, this is not your problem — read
-  [« Un conteneur redémarre en boucle »](#un-conteneur-redémarre-en-boucle) instead.
-- **Cause.** The four variables are **hard requirements**. The startup one-shot `amule-config.sh`
-  runs as PID 1's first action, before any of the three services: it creates the container's
-  `amule` user from `PUID`/`PGID`, takes ownership of the bind mounts, and writes the aMule
-  password. It exits 1 if any of the four is missing or empty. The compose files add a `:?` guard
-  on each one so the failure surfaces as the clear message of form 1 rather than a dead container.
-- **Fix.** Fill all four in `.env` (copy `.env.example` if you have not yet):
+- **Le signe distinctif : aucune traceback Python.** Rien de Python n'a jamais démarré. Si vous
+  voyez une traceback, ou une ligne `Invalid config, refusing to start:`, ce n'est pas votre cas :
+  lisez plutôt [« Un conteneur redémarre en boucle »](#un-conteneur-redémarre-en-boucle).
+- **Cause.** Les quatre variables sont **strictement obligatoires**. Le one-shot de démarrage
+  `amule-config.sh` s'exécute comme première action de PID 1, avant les trois services : il crée
+  l'utilisateur `amule` du conteneur à partir de `PUID`/`PGID`, prend possession des bind mounts et
+  écrit le mot de passe aMule. Il sort en 1 si l'une des quatre manque ou est vide. Les fichiers
+  compose ajoutent une garde `:?` sur chacune, pour que l'échec se manifeste par le message clair
+  de la forme 1 plutôt que par un conteneur mort.
+- **Solution.** Renseignez les quatre dans `.env` (copiez `.env.example` si ce n'est pas déjà
+  fait) :
 
-  | Variable | What it is |
+  | Variable | Ce que c'est |
   |---|---|
-  | `PUID` / `PGID` | your own uid/gid (`id -u`, `id -g`) — what keeps `data/`, `amule/` and `downloads/` readable from the host without `sudo` |
-  | `AMULE_EC_PASSWORD` | the crawler ⇄ amuled password, at least 12 characters, of your choosing |
-  | `WEBUI_PWD` | the amuleweb admin password (port 4711) |
+  | `PUID` / `PGID` | vos propres uid/gid (`id -u`, `id -g`) — ce qui garde `data/`, `amule/` et `downloads/` lisibles depuis l'hôte sans `sudo` |
+  | `AMULE_EC_PASSWORD` | le mot de passe crawler ⇄ amuled, au moins 12 caractères, de votre choix |
+  | `WEBUI_PWD` | le mot de passe admin d'amuleweb (port 4711) |
 
-  Then relaunch: `docker compose up -d`.
-- **Retour au guide.** [Étape 4 : votre mot de passe](deployment.md#4-your-password).
+  Puis relancez : `docker compose up -d`.
+- **Retour au guide.** [Étape 4 : votre mot de passe](deployment.md#4-votre-mot-de-passe).
 
 ### Une valeur change-me est restée dans .env
 
@@ -160,7 +162,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
 - **Attention si vous changez `AMULE_EC_PASSWORD` sur un nœud déjà lancé** : amuled garde le mot de
   passe de son premier démarrage, voir
   [« J'ai perdu `AMULE_EC_PASSWORD` »](#jai-perdu--je-ne-me-souviens-plus-de-amule_ec_password).
-- **Retour au guide.** [Étape 4 : votre mot de passe](deployment.md#4-your-password).
+- **Retour au guide.** [Étape 4 : votre mot de passe](deployment.md#4-votre-mot-de-passe).
 
 ### Un conteneur redémarre en boucle
 
@@ -179,7 +181,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   qui parle en dernier. Seul un arrêt **non nul** du crawler couche le conteneur (son script
   `finish` demande alors l'arrêt de toute la supervision) ; si amuled ou amuleweb tombe, s6 le
   relance sur place et le conteneur reste `Up` — voir
-  [« s6 restarted one process »](#s6-restarted-one-process-and-the-container-stayed-up).
+  [« s6 a redémarré un processus »](#s6-a-redémarré-un-processus-et-le-conteneur-est-resté-debout).
   Causes fréquentes :
 - **Configuration invalide (crawler).** Le journal se termine par
   `Invalid config, refusing to start: ...`. Corrigez `crawler.yml`, `targets.yml` ou `matcher.yml`,
@@ -192,7 +194,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   [« J'ai perdu `AMULE_EC_PASSWORD` »](#jai-perdu--je-ne-me-souviens-plus-de-amule_ec_password)).
 - **Variable absente au tout premier instant.** Si le journal tient en une ligne du type
   `PUID is required` et qu'aucun processus Python n'a démarré, voir
-  [« A required variable is missing »](#a-required-variable-is-missing).
+  [« Une variable obligatoire manque »](#une-variable-obligatoire-manque).
 - **Journal vide juste après une montée d'image.** Si le conteneur boucle en laissant un journal
   **vide** (pas d'erreur, pas de traceback), ce n'est pas une panne applicative : le noyau a tué le
   conteneur, donc rien n'a pu être écrit. À vérifier :
@@ -210,8 +212,8 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   fois l'index construit il est maintenu au fil de l'eau, sans tri), puis remettez la valeur
   d'origine. À titre de repère, la migration 0004 construit son index sur 1,19 million
   d'observations en environ 5 s pour un pic d'environ 150 Mo.
-- **Retour au guide.** [Étape 5 : Lancer](deployment.md#5-start-it) et
-  [étape 6 : Voir votre nœud](deployment.md#6-see-your-node).
+- **Retour au guide.** [Étape 5 : Lancer](deployment.md#5-lancer) et
+  [étape 6 : Voir votre nœud](deployment.md#6-voir-votre-nœud).
 
 ### Le port est déjà pris
 
@@ -240,7 +242,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   ```
   Pensez ensuite à ouvrir la nouvelle adresse dans le navigateur (par exemple
   <http://localhost:8090> au lieu de 8080).
-- **Retour au guide.** [Étape 5 : Lancer](deployment.md#5-start-it).
+- **Retour au guide.** [Étape 5 : Lancer](deployment.md#5-lancer).
 
 ### amuled ne se connecte à rien
 
@@ -275,7 +277,7 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
     ```
   - **(c) Plus de détails** dans la
     [fiche opérateur](#amuled-ne-se-connecte-à-aucun-serveur-ni-réseau-tunnel) du même symptôme.
-- **Retour au guide.** [Étape 6 : Voir votre nœud](deployment.md#6-see-your-node).
+- **Retour au guide.** [Étape 6 : Voir votre nœud](deployment.md#6-voir-votre-nœud).
 
 ### La webui reste vide
 
@@ -310,7 +312,7 @@ Deux situations très différentes se cachent derrière « la webui est vide » 
   [« Le port est déjà pris »](#le-port-est-déjà-pris)) : confirmez l'adresse, par défaut
   <http://localhost:8080> (sur un serveur distant, remplacez `localhost` par son IP). Vérifiez
   enfin que `webui.enabled` vaut bien `true` dans `crawler.yml`.
-- **Retour au guide.** [Étape 6 : Voir votre nœud](deployment.md#6-see-your-node).
+- **Retour au guide.** [Étape 6 : Voir votre nœud](deployment.md#6-voir-votre-nœud).
 
 ---
 
@@ -360,45 +362,45 @@ panne » plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'
   dans notre propre image depuis un nixpkgs épinglé. Il n'y a plus d'image tierce à vérifier ni à
   épingler ; la version d'aMule suit celle de l'image mulewatch.
 
-### s6 restarted one process and the container stayed up
+### s6 a redémarré un processus et le conteneur est resté debout
 
-- **Symptom.** amuled (or amuleweb) reappears in the log — amuled re-announcing itself, reloading
-  `server.met` — while `docker compose ps` never left `Up`. Or: you pressed the restart button on
-  `/controls` and nothing seems to have happened to the container.
-- **Cause. This is normal.** s6 supervises each of the three processes independently and restarts
-  one in place when it dies; the container only goes down when the **crawler exits non-zero** (its
-  `finish` script then asks s6 to tear the whole supervision tree down, so `restart: unless-stopped`
-  gives a visible backoff loop instead of a silent crash loop). A clean crawler exit — which is
-  exactly what `/controls`' restart button asks for — brings the crawler back alone, and amuled
-  keeps its eD2k and Kad sessions, which is the point.
-- **How to confirm.** `s6-svstat` prints the service's uptime in seconds: a small number means it
-  was just restarted.
+- **Symptôme.** amuled (ou amuleweb) réapparaît dans le journal — amuled se ré-annonce, recharge
+  `server.met` — alors que `docker compose ps` n'a jamais quitté `Up`. Ou bien : vous avez appuyé
+  sur le bouton de redémarrage de `/controls` et rien ne semble être arrivé au conteneur.
+- **Cause. C'est normal.** s6 supervise chacun des trois processus indépendamment et en relance un
+  sur place quand il meurt ; le conteneur ne tombe que lorsque le **crawler sort en code non nul**
+  (son script `finish` demande alors à s6 de coucher tout l'arbre de supervision, de sorte que
+  `restart: unless-stopped` donne une boucle de backoff visible au lieu d'un crash-loop silencieux).
+  Une sortie propre du crawler — exactement ce que demande le bouton de redémarrage de `/controls` —
+  ramène le crawler seul, et amuled garde ses sessions eD2k et Kad, ce qui est tout l'intérêt.
+- **Comment le confirmer.** `s6-svstat` affiche l'uptime du service en secondes : un petit nombre
+  signifie qu'il vient d'être redémarré.
   ```bash
   docker compose exec mulewatch s6-svstat /etc/services.d/mulewatch
   docker compose exec mulewatch s6-svstat /etc/services.d/amuled
   docker compose exec mulewatch s6-svstat /etc/services.d/amuleweb
   ```
-- **Consequence to keep in mind.** A container sitting at `Up (healthy)` does **not** prove the
-  crawler is running: the healthcheck probes amuled only (see the next entry). When in doubt, ask
-  `s6-svstat` about `/etc/services.d/mulewatch`, or look for `cycle ...` lines in the log.
+- **Conséquence à garder en tête.** Un conteneur en `Up (healthy)` ne prouve **pas** que le crawler
+  tourne : le healthcheck n'interroge qu'amuled (voir la fiche suivante). Dans le doute, interrogez
+  `s6-svstat` sur `/etc/services.d/mulewatch`, ou cherchez des lignes `cycle ...` dans le journal.
 
-### The healthcheck reads s6-svstat output, not its exit code
+### Le healthcheck lit la sortie de s6-svstat, pas son code de retour
 
-- **Symptom.** You write your own probe (a monitoring check, a custom `healthcheck:`) around
-  `s6-svstat` and it reports a **stopped amuled as healthy**.
-- **Cause.** `s6-svstat` exits **0 even for a down service** — it prints `false` on stdout with
-  `-u`. A non-zero exit means something else entirely: s6-supervise itself is not running for that
-  service directory.
-- **Fix.** Test the printed value, which is what the shipped healthcheck does:
+- **Symptôme.** Vous écrivez votre propre sonde (un contrôle de supervision, un `healthcheck:`
+  maison) autour de `s6-svstat`, et elle déclare **sain un amuled arrêté**.
+- **Cause.** `s6-svstat` sort en **0 même pour un service arrêté** — avec `-u`, il imprime `false`
+  sur la sortie standard. Un code de retour non nul signifie tout autre chose : c'est s6-supervise
+  lui-même qui ne tourne pas pour ce répertoire de service.
+- **Solution.** Testez la valeur imprimée, ce que fait le healthcheck livré :
   ```yaml
   test: ["CMD-SHELL", 'test "$$(s6-svstat -u /etc/services.d/amuled)" = true']
   ```
-  (the `$$` is compose escaping a literal `$`; inside the container the command is
+  (le `$$` est l'échappement compose d'un `$` littéral ; dans le conteneur, la commande est
   `test "$(s6-svstat -u /etc/services.d/amuled)" = true`).
-- **What `unhealthy` does and does not mean.** The container turns `unhealthy` only when **amuled**
-  is down. A crawler that is down is invisible to the healthcheck **by design**: a crawler crash
-  already kills the container, so probing it would be near-tautological, and probing amuled keeps
-  working on a node running with `webui.enabled: false`.
+- **Ce que `unhealthy` signifie, et ne signifie pas.** Le conteneur ne passe `unhealthy` que quand
+  **amuled** est arrêté. Un crawler arrêté est invisible au healthcheck **par conception** : un
+  plantage du crawler couche déjà le conteneur, donc le sonder serait quasi tautologique, et sonder
+  amuled continue de fonctionner sur un nœud qui tourne avec `webui.enabled: false`.
 
 ### Le crawler refuse de démarrer : « environment variable '…' referenced but not set »
 
@@ -436,61 +438,66 @@ panne » plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'
 
 ---
 
-## Downloads
+## Téléchargements
 
-### A finished file never shows up in `downloads/incoming`
+### Un fichier terminé n'apparaît jamais dans `downloads/incoming`
 
-- **What happens normally.** amuled writes a finished file straight into its `IncomingDir`, which
-  the compose stacks reach through the single `./downloads:/downloads` bind mount in your working
-  folder. The crawler detects the completion from amuled's shared-files list (the hash is shared
-  **and** has left the download queue), flips the download to `completed` and notifies. It never
-  moves, opens or inspects the file; on `/downloads` it only ever calls `statvfs` for the free-space
-  floor.
-- **Check the state the crawler sees first.** If the webui still shows the download as `downloading`,
-  it simply has not finished: nothing is broken.
-- **If the crawler says `completed` but the folder is empty**, amuled put the file somewhere else.
-  Two causes, in order:
-  1. **An amuled category is redirecting the destination.** In `amule.conf` (or through amuleweb on
-     port 4711), no category may carry a non-empty `Path=` that sends the finished file outside
-     `IncomingDir`.
-  2. **`IncomingDir` does not point at the bind-mounted path.** The startup one-shot writes
-     `IncomingDir=/downloads/incoming` and `TempDir=/downloads/temp` into `amule.conf` — but
-     **only when that file is absent**. A node migrated from an older layout carries its own
-     `amule.conf`, so an old value survives every restart. `amule.conf` is a plain file in your
-     working folder, read it from the host:
+- **Ce qui se passe normalement.** amuled écrit un fichier terminé directement dans son
+  `IncomingDir`, que les piles compose atteignent par l'unique bind mount `./downloads:/downloads`
+  de votre dossier de travail. Le crawler détecte la complétion depuis la liste des fichiers
+  partagés d'amuled (le hash est partagé **et** a quitté la file de téléchargement), passe le
+  téléchargement en `completed` et notifie. Il ne déplace, n'ouvre ni n'inspecte jamais le fichier ;
+  sur `/downloads`, il ne fait jamais qu'un `statvfs`, pour le plancher d'espace libre.
+- **Regardez d'abord l'état que voit le crawler.** Si la webui montre encore le téléchargement en
+  `downloading`, c'est qu'il n'est tout simplement pas fini : rien n'est cassé.
+- **Si le crawler dit `completed` mais que le dossier est vide**, amuled a posé le fichier ailleurs.
+  Deux causes, dans l'ordre :
+  1. **Une catégorie amuled redirige la destination.** Dans `amule.conf` (ou via amuleweb sur le
+     port 4711), aucune catégorie ne doit porter un `Path=` non vide qui envoie le fichier terminé
+     hors d'`IncomingDir`.
+  2. **`IncomingDir` ne pointe pas sur le chemin monté en bind.** Le one-shot de démarrage écrit
+     `IncomingDir=/downloads/incoming` et `TempDir=/downloads/temp` dans `amule.conf` — mais
+     **seulement quand ce fichier est absent**. Un nœud migré depuis une organisation plus ancienne
+     porte son propre `amule.conf`, donc une vieille valeur survit à tous les redémarrages.
+     `amule.conf` est un simple fichier de votre dossier de travail, lisez-le depuis l'hôte :
      ```bash
      grep -E '^(Incoming|Temp)Dir' amule/amule.conf
      ```
-     Fix the two lines, then restart amuled alone:
+     Corrigez les deux lignes, puis redémarrez amuled seul :
      ```bash
      docker compose exec mulewatch s6-svc -r /etc/services.d/amuled
      ```
-- **Keep amuled dedicated to the crawler.** `shared_files()` is queried on every download cycle, so
-  do not point this amuled at a large pre-existing shared library: completion detection gets slower
-  and noisier. Background and sources:
+- **Gardez amuled dédié au crawler.** `shared_files()` est interrogé à chaque cycle de
+  téléchargement : ne pointez donc pas cet amuled sur une grande bibliothèque partagée
+  préexistante, la détection de complétion en deviendrait plus lente et plus bruyante. Contexte et
+  sources :
   [`reference/2026-06-17-amuled-completion-behavior.md`](../reference/2026-06-17-amuled-completion-behavior.md)
-  (its constraints 1 and 2, about a shared quarantine volume, no longer apply: the quarantine step
-  was removed on 2026-09-13).
+  (ses contraintes 1 et 2, sur un volume de quarantaine partagé, ne s'appliquent plus : l'étape de
+  quarantaine a été retirée le 2026-09-13).
 
-### A download is stuck, then turns `failed`
+### Un téléchargement est bloqué, puis passe en `failed`
 
-- **What the crawler does.** Every download cycle stamps `last_seen_at` for each tracked hash that
-  amuled reports, either in its download queue or in its shared files. A download still `queued` or
-  `downloading` that amuled has not reported for `download.lost_after_seconds` (24 h by default) is
-  marked `failed`, with a log line: `hash=... unseen by amuled for 86400.0s: marked failed`.
-- **Why this is safe.** An entry stays in amuled's queue even with **zero sources**: it goes
-  dormant, but it does not disappear. So a lost-media download sitting at 0 % for months is never
-  at risk. Absence from amuled means the entry was actually removed, or the file finished and was
-  moved out of `IncomingDir` before the next poll.
-- **`failed` is not final.** amuled remains the authority: if the hash reappears in its queue, the
-  crawler puts the download back to `downloading`; if it appears in the shared files, the download
-  completes and the notification fires. Check `downloads/incoming` before assuming the file is lost.
-- **To retry one by hand**, delete its row: `is_downloaded()` is state-blind, so a `failed` row
-  keeps blocking the automatic re-queue on purpose. There is no webui control for this and the SQL
-  console is read-only, so it is a manual write on `local.db`. Stop the **crawler alone** first
-  (single writer by doctrine — amuled and amuleweb keep running, so the eD2k/Kad sessions survive),
-  write as the container's `amule` user so the SQLite WAL files it creates stay owned by
-  `PUID:PGID`, then bring the crawler back:
+- **Ce que fait le crawler.** Chaque cycle de téléchargement horodate `last_seen_at` pour chaque
+  hash suivi qu'amuled rapporte, que ce soit dans sa file de téléchargement ou dans ses fichiers
+  partagés. Un téléchargement encore `queued` ou `downloading` qu'amuled n'a plus rapporté depuis
+  `download.lost_after_seconds` (24 h par défaut) est marqué `failed`, avec une ligne de journal :
+  `hash=... unseen by amuled for 86400.0s: marked failed`.
+- **Pourquoi c'est sans danger.** Une entrée reste dans la file d'amuled même avec **zéro source** :
+  elle devient dormante, mais elle ne disparaît pas. Un téléchargement de lost media qui stagne à
+  0 % pendant des mois n'est donc jamais menacé. Une absence côté amuled signifie que l'entrée a
+  réellement été retirée, ou que le fichier a fini et a été déplacé hors d'`IncomingDir` avant
+  l'interrogation suivante.
+- **`failed` n'est pas définitif.** amuled reste l'autorité : si le hash réapparaît dans sa file, le
+  crawler remet le téléchargement en `downloading` ; s'il apparaît dans les fichiers partagés, le
+  téléchargement se termine et la notification part. Regardez `downloads/incoming` avant de conclure
+  que le fichier est perdu.
+- **Pour en réessayer un à la main**, supprimez sa ligne : `is_downloaded()` ignore l'état, donc une
+  ligne `failed` continue de bloquer la remise en file automatique, à dessein. Il n'existe pas de
+  contrôle webui pour cela et la console SQL est en lecture seule : c'est donc une écriture manuelle
+  sur `local.db`. Arrêtez d'abord **le crawler seul** (écrivain unique par doctrine — amuled et
+  amuleweb continuent de tourner, donc les sessions eD2k/Kad survivent), écrivez en tant
+  qu'utilisateur `amule` du conteneur pour que les fichiers WAL créés par SQLite restent la
+  propriété de `PUID:PGID`, puis relancez le crawler :
   ```bash
   docker compose exec mulewatch s6-svc -d /etc/services.d/mulewatch
   docker compose exec --user amule mulewatch python -c \
@@ -498,12 +505,13 @@ panne » plus bas) : vous perdez le catalogue accumulé mais vous redémarrez d'
      db.execute('DELETE FROM downloads WHERE ed2k_hash = ?', ('<hash>',))"
   docker compose exec mulewatch s6-svc -u /etc/services.d/mulewatch
   ```
-  The next cycle re-queues it from the catalogue decision, provided the file still matches a target
-  that is not `complete`.
-- **If nothing at all is being downloaded**, check the disk floor before suspecting the TTL: a log
-  line `candidate hash=... -> skip_disk_cap (skipped/deferred)` means free space minus what amuled
-  still has to fetch would fall below `download.min_free_bytes`. `output directory unmeasurable`
-  instead means the `./downloads:/downloads` mount is missing from your compose file.
+  Le cycle suivant le remet en file depuis la décision du catalogue, à condition que le fichier
+  corresponde toujours à une cible qui n'est pas `complete`.
+- **Si rien du tout ne se télécharge**, vérifiez le plancher disque avant de soupçonner le TTL : une
+  ligne de journal `candidate hash=... -> skip_disk_cap (skipped/deferred)` signifie que l'espace
+  libre, moins ce qu'amuled doit encore récupérer, passerait sous `download.min_free_bytes`. Un
+  `output directory unmeasurable` signifie au contraire que le montage `./downloads:/downloads`
+  manque dans votre fichier compose.
 
 ---
 
@@ -646,15 +654,15 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
   un par un en vérifiant la syntaxe (pas d'espaces autour du `=`, pas de guillemets autour des
   valeurs sauf nécessaire), puis `mv .env.new .env`. Évite d'avoir à débugger un fichier corrompu.
   Si l'erreur nomme une variable (`required variable "..." is not set`), voir
-  [« A required variable is missing »](#a-required-variable-is-missing).
+  [« Une variable obligatoire manque »](#une-variable-obligatoire-manque).
 
-### Where do I find a downloaded file?
+### Où trouver un fichier téléchargé ?
 
-- **Answer.** In `downloads/incoming`, inside your working folder: it is a plain folder on your
-  disk, so stopping or removing the container does not touch it. Files that are still downloading
-  sit in `downloads/temp`.
-- **Nothing has inspected that file.** mulewatch never opens a downloaded file: no type check, no
-  media probe, no antivirus scan. Check it yourself before opening it.
+- **Réponse.** Dans `downloads/incoming`, à l'intérieur de votre dossier de travail : c'est un
+  simple dossier de votre disque, donc arrêter ou supprimer le conteneur n'y touche pas. Les
+  fichiers encore en cours de téléchargement sont dans `downloads/temp`.
+- **Rien n'a inspecté ce fichier.** mulewatch n'ouvre jamais un fichier téléchargé : pas de contrôle
+  de type, pas de sonde média, pas d'analyse antivirus. Vérifiez-le vous-même avant de l'ouvrir.
 
 ### Je veux repartir de zéro (catalogue effacé)
 
@@ -674,11 +682,11 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 ## Outils de diagnostic
 
-### Controlling one process inside the container
+### Piloter un processus dans le conteneur
 
-The three processes are supervised by s6 inside the single `mulewatch` container, so they are
-controlled per process rather than per compose service. From your working folder (`<svc>` is
-`amuled`, `amuleweb` or `mulewatch`):
+Les trois processus sont supervisés par s6 dans l'unique conteneur `mulewatch` : ils se pilotent
+donc par processus, et non par service compose. Depuis votre dossier de travail (`<svc>` vaut
+`amuled`, `amuleweb` ou `mulewatch`) :
 
 ```bash
 docker compose exec mulewatch s6-svstat /etc/services.d/<svc>   # up/down + uptime in seconds
@@ -687,13 +695,13 @@ docker compose exec mulewatch s6-svc -d /etc/services.d/<svc>   # stop it
 docker compose exec mulewatch s6-svc -u /etc/services.d/<svc>   # start it again
 ```
 
-Two things to know before using them:
+Deux choses à savoir avant de les utiliser :
 
-- Stopping `mulewatch` (the crawler) leaves amuled and amuleweb running, which is what you want for
-  a maintenance write on the databases. Stopping `amuled` blinds the crawler: it will log EC
-  failures and back off until amuled returns.
-- A **non-zero** exit of the crawler takes the whole container down on purpose. `s6-svc -d` is a
-  clean stop, so it does not.
+- Arrêter `mulewatch` (le crawler) laisse amuled et amuleweb en marche, ce qui est bien ce que vous
+  voulez pour une écriture de maintenance sur les bases. Arrêter `amuled` rend le crawler aveugle :
+  il journalisera des échecs EC et fera du backoff jusqu'au retour d'amuled.
+- Une sortie **non nulle** du crawler couche tout le conteneur, à dessein. `s6-svc -d` est un arrêt
+  propre, donc il ne le fait pas.
 
 ### Lancer une commande ponctuelle dans une image
 
@@ -714,7 +722,7 @@ docker compose run --rm --entrypoint python mulewatch -c "print('ok')"
 
 ⚠️ Un `run` de ce type démarre en **root** et court-circuite la préparation faite par l'entrypoint.
 S'il doit **écrire** dans `/data`, préférez un `exec --user amule` sur le conteneur en cours (la
-recette de [« A download is stuck »](#a-download-is-stuck-then-turns-failed)) : sinon SQLite laisse
+recette de [« Un téléchargement est bloqué »](#un-téléchargement-est-bloqué-puis-passe-en-failed)) : sinon SQLite laisse
 derrière lui des fichiers `-wal`/`-shm` appartenant à root, que le crawler ne pourra plus écrire.
 
 ### Valider la configuration sans rien démarrer

@@ -1,211 +1,221 @@
-# Deploying a mulewatch node
+# Déployer un nœud mulewatch
 
-The catalog's subject is **the file, never the person**.
+Le sujet du catalogue est **le fichier, jamais la personne**.
 
-This guide takes you from nothing to a running node. Out of the box the node searches, catalogues,
-notifies, and downloads the files it confidently identifies into a `downloads/` folder next to your
-compose file. When you are done you will have a web catalog on `http://localhost:8080`.
+Ce guide vous mène de rien à un nœud qui tourne. Tel quel, le nœud cherche, catalogue, notifie et
+télécharge les fichiers qu'il identifie avec certitude dans un dossier `downloads/` posé à côté de
+votre fichier compose. À la fin, vous aurez un catalogue web sur `http://localhost:8080`.
 
-Your IP address is visible to the other peers of the eMule network: that is how this network
-publicly and normally works. What mulewatch does and does not do is detailed in
-[legality and privacy](../legal-and-privacy.md); to hide your IP behind a VPN, see annex A.
+Votre adresse IP est visible des autres pairs du réseau eMule : c'est ainsi que ce réseau fonctionne
+publiquement et normalement. Ce que mulewatch fait et ne fait pas est détaillé dans
+[légalité et vie privée](../legal-and-privacy.md) ; pour masquer votre IP derrière un VPN, voir
+l'annexe A.
 
-Follow the seven steps in order: they are enough to get a running node. Each one ends with a
-**Checkpoint** telling you what you should see, and which troubleshooting entry to open otherwise.
-The variants (VPN, catalog-only, High-ID, ports) are in the annexes: do the seven steps first, then
-read only the annex that concerns you, each of which describes what it adds to this path. If you are
-**upgrading an existing node from 1.x**, read annex E first: 2.0 is a breaking change and the
-migration is done by hand, once.
+Suivez les sept étapes dans l'ordre : elles suffisent à obtenir un nœud qui tourne. Chacune se
+termine par un **Point de contrôle** qui dit ce que vous devez voir, et quelle fiche de dépannage
+ouvrir sinon. Les variantes (VPN, catalogue seul, High-ID, ports) sont en annexes : faites d'abord
+les sept étapes, puis lisez seulement l'annexe qui vous concerne, chacune décrivant ce qu'elle
+ajoute à ce parcours. Si vous **mettez à niveau un nœud 1.x existant**, lisez d'abord l'annexe E :
+la 2.0 est une version cassante et la migration se fait à la main, une fois.
 
-> **One container, three processes.** Since 2.0 a node is a **single** container. Inside it, the
-> [s6](https://skarnet.org/software/s6/) supervisor runs three processes: `amuled` (the eMule
-> client), `amuleweb` (aMule's own web UI) and `mulewatch` (the crawler, which also serves the web
-> catalog). You normally never need to know that; it matters when you read logs or restart one
-> piece, so the runbooks mention it where it shows.
-
----
-
-## 1. What you need
-
-- **A machine that stays on.** An old PC or a mini-PC is enough: a node is only useful if it watches
-  continuously. You will not need to touch it once started.
-- **A permanent Internet connection.**
-- **About 2 GB of free RAM** (the container is capped at 2 GB) and **about 5 GB of free disk** to
-  start with. The catalog then grows slowly, and downloaded files accumulate on top of that: see
-  [administration runbook, § Planification disque](administration.md#planification-disque).
-- **A way to open a terminal**: the Terminal app on macOS and Linux, PowerShell on Windows.
+> **Un conteneur, trois processus.** Depuis la 2.0, un nœud est un **seul** conteneur. À
+> l'intérieur, le superviseur [s6](https://skarnet.org/software/s6/) fait tourner trois processus :
+> `amuled` (le client eMule), `amuleweb` (l'interface web propre à aMule) et `mulewatch` (le
+> crawler, qui sert aussi le catalogue web). Vous n'avez normalement pas à le savoir ; cela compte
+> quand vous lisez les journaux ou redémarrez une pièce, et les runbooks le rappellent là où ça se
+> voit.
 
 ---
 
-## 2. Install Docker
+## 1. Ce qu'il vous faut
 
-mulewatch runs in Docker. Install it from the official page, which is kept up to date and valid for
-every system: <https://docs.docker.com/get-started/get-docker/>.
+- **Une machine qui reste allumée.** Un vieux PC ou un mini-PC suffit : un nœud n'est utile que
+  s'il surveille en continu. Vous n'aurez plus à y toucher une fois lancé.
+- **Une connexion Internet permanente.**
+- **Environ 2 Go de RAM libre** (le conteneur est plafonné à 2 Go) et **environ 5 Go de disque
+  libre** pour commencer. Le catalogue grossit ensuite lentement, et les fichiers téléchargés
+  s'accumulent par-dessus : voir
+  [runbook d'administration, § Planification disque](administration.md#planification-disque).
+- **De quoi ouvrir un terminal** : l'application Terminal sur macOS et Linux, PowerShell sur
+  Windows.
 
-- **Windows / macOS**: install Docker Desktop, then **start it** and wait until it reports that it
-  is running.
-- **Linux**: install Docker Engine (the "Server" choice on that page), then follow its
-  post-installation steps so you can use `docker` without `sudo`.
+---
 
-**Checkpoint.** Type:
+## 2. Installer Docker
+
+mulewatch tourne dans Docker. Installez-le depuis la page officielle, tenue à jour et valable pour
+tous les systèmes : <https://docs.docker.com/get-started/get-docker/>.
+
+- **Windows / macOS** : installez Docker Desktop, puis **lancez-le** et attendez qu'il indique
+  qu'il tourne.
+- **Linux** : installez Docker Engine (le choix « Server » sur cette page), puis suivez ses étapes
+  de post-installation pour pouvoir utiliser `docker` sans `sudo`.
+
+**Point de contrôle.** Tapez :
 
 ```
 docker compose version
 ```
 
-You should see a line like `Docker Compose version v2.x.x` (a newer number is fine too). If you get
-`command not found` or a `1.x` version, open the entry
-["Docker introuvable ou compose v1"](troubleshooting.md#docker-introuvable-ou-compose-v1). If later
-on a command answers `Cannot connect to the Docker daemon` (on Windows
-`error during connect ...`), the Docker engine is not started: open the entry
-["Docker est installé mais ne répond pas"](troubleshooting.md#docker-est-installé-mais-ne-répond-pas).
+Vous devez voir une ligne du type `Docker Compose version v2.x.x` (un numéro plus récent convient
+aussi). Si vous obtenez `command not found` ou une version `1.x`, ouvrez la fiche
+[« Docker introuvable ou compose v1 »](troubleshooting.md#docker-introuvable-ou-compose-v1). Si plus
+tard une commande répond `Cannot connect to the Docker daemon` (sous Windows
+`error during connect ...`), c'est que le moteur Docker n'est pas démarré : ouvrez la fiche
+[« Docker est installé mais ne répond pas »](troubleshooting.md#docker-est-installé-mais-ne-répond-pas).
 
 ---
 
-## 3. Create your working folder
+## 3. Créer votre dossier de travail
 
-1. Open <https://github.com/GeoffreyCoulaud/mulewatch>, click the green **`Code`** button, then
-   **`Download ZIP`**.
-2. Unzip the downloaded file. Inside there is a **`deploy`** folder: it is the only one you need.
-3. **Copy that `deploy` folder** wherever you want to work and rename it as you like, for example
-   **`mulewatch`**. That is your **working folder**. The rest of the ZIP is not needed, you can
-   delete it.
-4. Open a terminal **in that working folder**: right click "Open in Terminal" on Windows; on
-   macOS/Linux, `cd` into it.
+1. Ouvrez <https://github.com/GeoffreyCoulaud/mulewatch>, cliquez sur le bouton vert **`Code`**,
+   puis **`Download ZIP`**.
+2. Décompressez le fichier téléchargé. Il contient un dossier **`deploy`** : c'est le seul dont
+   vous avez besoin.
+3. **Copiez ce dossier `deploy`** où vous voulez travailler et renommez-le à votre goût, par exemple
+   **`mulewatch`**. C'est votre **dossier de travail**. Le reste du ZIP est inutile, vous pouvez le
+   supprimer.
+4. Ouvrez un terminal **dans ce dossier de travail** : clic droit « Ouvrir dans le terminal » sous
+   Windows ; sous macOS/Linux, faites un `cd` dedans.
 
-If you know git, the equivalent alternative is
-`git clone https://github.com/GeoffreyCoulaud/mulewatch.git`, then take its `deploy` subfolder as
-your working folder.
+Si vous connaissez git, l'équivalent est
+`git clone https://github.com/GeoffreyCoulaud/mulewatch.git`, puis prenez son sous-dossier `deploy`
+comme dossier de travail.
 
-What that folder holds, and what each piece is for:
+Ce que contient ce dossier, et à quoi sert chaque pièce :
 
-| Entry | What it is |
+| Entrée | Ce que c'est |
 |---|---|
-| `compose.yml` | the stack you start (the one used by these seven steps) |
-| `gluetun.compose.yml` | the VPN variant (annex A) |
-| `base.compose.yml` | the part both stacks share; you do not start this one on its own |
-| `.env.example` | the template for your own `.env` (step 4) |
-| `crawler.yml` | the node's settings (download on/off, intervals, notifications) |
-| `targets.yml`, `matcher.yml` | the episodes being hunted, and the rules that recognise them |
-| `amule/` | the eMule client's own state (its `amule.conf`, server list, Kad nodes) |
-| `data/` | your catalog: `catalog.db` and `local.db` |
-| `downloads/` | `incoming/` for finished files, `temp/` for partial ones |
+| `compose.yml` | la pile que vous lancez (celle de ces sept étapes) |
+| `gluetun.compose.yml` | la variante VPN (annexe A) |
+| `base.compose.yml` | la part commune aux deux piles ; celui-là ne se lance pas seul |
+| `.env.example` | le modèle de votre propre `.env` (étape 4) |
+| `crawler.yml` | les réglages du nœud (téléchargement oui/non, intervalles, notifications) |
+| `targets.yml`, `matcher.yml` | les épisodes recherchés, et les règles qui les reconnaissent |
+| `amule/` | l'état propre au client eMule (son `amule.conf`, sa liste de serveurs, ses nœuds Kad) |
+| `data/` | votre catalogue : `catalog.db` et `local.db` |
+| `downloads/` | `incoming/` pour les fichiers terminés, `temp/` pour les fichiers partiels |
 
-The last three start out empty (they contain only a `.gitkeep` placeholder) and fill up as the node
-runs. **They are plain folders on your disk**, not Docker volumes: you can open `data/catalog.db`
-with any SQLite tool, and back the whole working folder up by copying it.
+Les trois derniers sont vides au départ (ils ne contiennent qu'un `.gitkeep`) et se remplissent
+quand le nœud tourne. **Ce sont de simples dossiers sur votre disque**, pas des volumes Docker :
+vous pouvez ouvrir `data/catalog.db` avec n'importe quel outil SQLite, et sauvegarder tout le
+dossier de travail par une copie.
 
-**Checkpoint.** From that folder, type:
+**Point de contrôle.** Depuis ce dossier, tapez :
 
 ```
 ls
 ```
 
-The listing must contain **`compose.yml`** (on Windows/PowerShell, `ls` prints a table: look for
-`compose.yml` in the `Name` column). Otherwise you are not in the right folder: move into the
-working folder (the one containing `compose.yml`) and try again.
+La liste doit contenir **`compose.yml`** (sous Windows/PowerShell, `ls` affiche un tableau :
+cherchez `compose.yml` dans la colonne `Name`). Sinon, vous n'êtes pas dans le bon dossier :
+placez-vous dans le dossier de travail (celui qui contient `compose.yml`) et recommencez.
 
 ---
 
-## 4. Your password
+## 4. Votre mot de passe
 
-Your working folder contains a file called `.env.example`. **Make a copy of it named `.env`**, open
-that copy in a text editor, and fill in the four required values:
+Votre dossier de travail contient un fichier `.env.example`. **Faites-en une copie nommée `.env`**,
+ouvrez cette copie dans un éditeur de texte, et renseignez les quatre valeurs obligatoires :
 
-| Variable | What to put |
+| Variable | Ce qu'il faut y mettre |
 |---|---|
-| `AMULE_EC_PASSWORD` | A password of at least **12 characters**, of your own choosing. It links the crawler to the eMule client inside the container; write it down somewhere. |
-| `WEBUI_PWD` | Another password of your own choosing. It guards **aMule's web UI on port 4711** (step 6). |
-| `PUID` | Your own user id. On macOS/Linux run `id -u`; on Windows Docker Desktop leave `1000`. |
-| `PGID` | Your own group id. On macOS/Linux run `id -g`; on Windows leave `1000`. |
+| `AMULE_EC_PASSWORD` | Un mot de passe d'au moins **12 caractères**, de votre choix. Il relie le crawler au client eMule dans le conteneur ; notez-le quelque part. |
+| `WEBUI_PWD` | Un autre mot de passe de votre choix. Il protège **l'interface web d'aMule sur le port 4711** (étape 6). |
+| `PUID` | Votre propre identifiant d'utilisateur. Sous macOS/Linux, lancez `id -u` ; sous Windows avec Docker Desktop, laissez `1000`. |
+| `PGID` | Votre propre identifiant de groupe. Sous macOS/Linux, lancez `id -g` ; sous Windows, laissez `1000`. |
 
-Leave everything else as it is (the other values only matter for the annex variants). Do not leave
-`change-me` in place: those are plaintext passwords, so open doors.
+Laissez le reste tel quel (les autres valeurs ne servent qu'aux variantes des annexes). Ne laissez
+pas `change-me` en place : ce sont des mots de passe en clair, donc des portes ouvertes.
 
-`PUID`/`PGID` are what keep `data/`, `amule/` and `downloads/` readable and writable **by you**, from
-the host, without `sudo`. The container takes ownership of those folders on every start using
-exactly those numbers.
+`PUID`/`PGID` sont ce qui garde `data/`, `amule/` et `downloads/` lisibles et modifiables **par
+vous**, depuis l'hôte, sans `sudo`. Le conteneur prend possession de ces dossiers à chaque
+démarrage, avec exactement ces numéros.
 
-> **All four are mandatory.** The container refuses to start if any one of them is missing: it
-> exits immediately, with a single line naming the variable. See
-> ["A required variable is missing"](troubleshooting.md#a-required-variable-is-missing)
-> if that happens.
+> **Les quatre sont obligatoires.** Le conteneur refuse de démarrer si l'une d'elles manque : il
+> sort immédiatement, avec une seule ligne nommant la variable. Voir
+> [« Une variable obligatoire manque »](troubleshooting.md#une-variable-obligatoire-manque)
+> si cela vous arrive.
 
-> The `.env` file starts with a dot, so the macOS Finder and some Linux file managers **hide** it.
-> The most reliable way everywhere is to create and edit it from the terminal:
-> `cp .env.example .env`, then `nano .env` (macOS/Linux) or `notepad .env` (Windows).
+> Le fichier `.env` commence par un point, donc le Finder de macOS et certains gestionnaires de
+> fichiers Linux le **cachent**. Le plus fiable partout est de le créer et de l'éditer au terminal :
+> `cp .env.example .env`, puis `nano .env` (macOS/Linux) ou `notepad .env` (Windows).
 
-> **⚠ Port 8080 has no authentication at all.** `WEBUI_PWD` protects port **4711 only**. The
-> mulewatch catalog on port **8080** is served with **no password, no login, no CSRF token** — and
-> it exposes the catalog, the crawl controls (pause, force a pass, restart) **and a read-only SQL
-> console** to anyone who can reach that port. That is by design: authentication is delegated to
-> whatever you put in front of it. On a machine reachable from the Internet, put it behind a reverse
-> proxy with authentication, or a VPN, or do not publish 8080 at all. See
-> [administration runbook, § Exposition derrière un reverse proxy](administration.md#exposition-derrière-un-reverse-proxy).
+> **⚠ Le port 8080 n'a aucune authentification.** `WEBUI_PWD` protège le port **4711 seulement**. Le
+> catalogue mulewatch sur le port **8080** est servi **sans mot de passe, sans connexion, sans jeton
+> CSRF** — et il expose le catalogue, les contrôles de crawl (pause, passe forcée, redémarrage)
+> **et une console SQL en lecture seule** à quiconque atteint ce port. C'est voulu : l'authentification
+> est déléguée à ce que vous mettez devant. Sur une machine joignable depuis Internet, mettez-le
+> derrière un reverse proxy authentifié, ou un VPN, ou ne publiez pas le 8080 du tout. Voir
+> [runbook d'administration, § Exposition derrière un reverse proxy](administration.md#exposition-derrière-un-reverse-proxy).
 
 ---
 
-## 5. Start it
+## 5. Lancer
 
-From your working folder:
+Depuis votre dossier de travail :
 
 ```
 docker compose up -d
 ```
 
-On the very first run, Docker downloads the image: this can take a few minutes depending on your
-connection.
+Au tout premier lancement, Docker télécharge l'image : cela peut prendre quelques minutes selon
+votre connexion.
 
-**Checkpoint.** Once the command returns, type:
+**Point de contrôle.** Une fois la commande rendue, tapez :
 
 ```
 docker compose ps
 ```
 
-You should see **one service**, `mulewatch`, with a status starting with `Up`. After roughly half a
-minute it should read `Up (healthy)`: that means the eMule client inside it really is running. If it
-is `Restarting` or `Exited`, open the entry
-["Un conteneur redémarre en boucle"](troubleshooting.md#un-conteneur-redémarre-en-boucle). If the
-start fails on a message about a port already in use, open the entry
-["Le port est déjà pris"](troubleshooting.md#le-port-est-déjà-pris).
+Vous devez voir **un seul service**, `mulewatch`, dont l'état commence par `Up`. Au bout d'une
+demi-minute environ, il doit afficher `Up (healthy)` : cela signifie que le client eMule tourne
+vraiment à l'intérieur. S'il est en `Restarting` ou `Exited`, ouvrez la fiche
+[« Un conteneur redémarre en boucle »](troubleshooting.md#un-conteneur-redémarre-en-boucle). Si le
+démarrage échoue sur un message de port déjà occupé, ouvrez la fiche
+[« Le port est déjà pris »](troubleshooting.md#le-port-est-déjà-pris).
 
 ---
 
-## 6. See your node
+## 6. Voir votre nœud
 
-Your node serves **two** web pages:
+Votre nœud sert **deux** pages web :
 
-| Address | What it is | Password |
+| Adresse | Ce que c'est | Mot de passe |
 |---|---|---|
-| <http://localhost:8080> | **The mulewatch catalog** — the read-only catalog, the crawl controls and the SQL console. | **None.** See the warning in step 4. |
-| <http://localhost:4711> | **aMule's own web UI** — transfers, servers, Kad state. Useful to see the eMule side directly. | `WEBUI_PWD` from your `.env`. |
+| <http://localhost:8080> | **Le catalogue mulewatch** — le catalogue en lecture seule, les contrôles de crawl et la console SQL. | **Aucun.** Voir l'avertissement de l'étape 4. |
+| <http://localhost:4711> | **L'interface web propre à aMule** — transferts, serveurs, état Kad. Utile pour voir directement le côté eMule. | `WEBUI_PWD` de votre `.env`. |
 
-Open **<http://localhost:8080>**: you should see the mulewatch dashboard, with your node identifier
-and the list of target episodes (the **Status** column reads `none` at first). **If that page loads,
-your node is running.** Its navigation carries an **aMule** link over to the other page.
+Ouvrez **<http://localhost:8080>** : vous devez voir le tableau de bord mulewatch, avec
+l'identifiant de votre nœud et la liste des épisodes cibles (la colonne **Status** affiche `none` au
+début). **Si cette page se charge, votre nœud tourne.** Sa navigation porte un lien **aMule** vers
+l'autre page.
 
-The catalog is **empty at first** and fills up over the hours, as files are crossed on the network
-(some rare targets can take days to reappear: that is the nature of lost media). To follow search
-activity, open the **Nodes** page: after the first cycle (a few minutes), it shows the number and
-timestamp of the last cycle, which advance on every reload.
+Le catalogue est **vide au début** et se remplit au fil des heures, à mesure que des fichiers sont
+croisés sur le réseau (certaines cibles rares peuvent mettre des jours à réapparaître : c'est la
+nature du lost media). Pour suivre l'activité de recherche, ouvrez la page **Nodes** : après le
+premier cycle (quelques minutes), elle affiche le numéro et l'horodatage du dernier cycle, qui
+avancent à chaque rechargement.
 
-Downloaded files land in the **`downloads/incoming`** folder of your working folder (partial files
-sit in `downloads/temp` meanwhile). Nothing inspects them: mulewatch never opens a downloaded file,
-so checking that a file really is the episode you wanted is up to you.
+Les fichiers téléchargés atterrissent dans le dossier **`downloads/incoming`** de votre dossier de
+travail (les fichiers partiels attendent dans `downloads/temp`). Rien ne les inspecte : mulewatch
+n'ouvre jamais un fichier téléchargé, donc vérifier qu'un fichier est bien l'épisode voulu est à
+votre charge.
 
-If your node runs on a remote server, replace `localhost` with that server's IP address or name.
+Si votre nœud tourne sur un serveur distant, remplacez `localhost` par l'adresse IP ou le nom de ce
+serveur.
 
-**Checkpoint.** The page <http://localhost:8080> opens and shows the dashboard (node identifier,
-target list). If it does not load at all (connection refused), open the entry
-["La webui reste vide"](troubleshooting.md#la-webui-reste-vide).
+**Point de contrôle.** La page <http://localhost:8080> s'ouvre et affiche le tableau de bord
+(identifiant du nœud, liste des cibles). Si elle ne se charge pas du tout (connexion refusée),
+ouvrez la fiche [« La webui reste vide »](troubleshooting.md#la-webui-reste-vide).
 
 ---
 
-## 7. Living with the node
+## 7. Vivre avec le nœud
 
-Your node is autonomous. A few useful gestures, all from your working folder:
+Votre nœud est autonome. Quelques gestes utiles, tous depuis votre dossier de travail :
 
-- **Updating.** The image does **not** update by itself: you decide when.
+- **Mettre à jour.** L'image ne se met **pas** à jour toute seule : c'est vous qui décidez.
 
   ```
   docker compose pull
@@ -215,171 +225,176 @@ Your node is autonomous. A few useful gestures, all from your working folder:
   docker compose up -d
   ```
 
-  `up -d` only recreates the container if the image changed. Your data does not move.
+  `up -d` ne recrée le conteneur que si l'image a changé. Vos données ne bougent pas.
 
-- **Stopping the node.**
+- **Arrêter le nœud.**
 
   ```
   docker compose down
   ```
 
-  The catalog, the eMule state and your downloads live in **plain folders** of your working folder
-  (`data/`, `amule/`, `downloads/`): they **persist**. A `down` followed by an `up -d` later finds
-  everything again. There is nothing that `down -v` could erase — to really start over, you delete
-  `data/` yourself, and only if you mean it.
+  Le catalogue, l'état d'eMule et vos téléchargements vivent dans de **simples dossiers** de votre
+  dossier de travail (`data/`, `amule/`, `downloads/`) : ils **persistent**. Un `down` suivi plus
+  tard d'un `up -d` retrouve tout. Il n'y a rien qu'un `down -v` pourrait effacer — pour vraiment
+  repartir de zéro, vous supprimez `data/` vous-même, et seulement si c'est bien votre intention.
 
-- **Backing up.** Copy the working folder (stop the node first, so the SQLite databases are not
-  being written to). That is the whole backup.
+- **Sauvegarder.** Copiez le dossier de travail (arrêtez le nœud d'abord, pour que les bases SQLite
+  ne soient pas en cours d'écriture). C'est toute la sauvegarde.
 
-- **Host reboot.** The container comes back on its own when the host boots (Docker must start as a
-  system service). No command to retype.
+- **Redémarrage de l'hôte.** Le conteneur revient seul au boot de l'hôte (Docker doit démarrer en
+  service système). Aucune commande à retaper.
 
-- **Restarting one process only.** `docker compose restart mulewatch` restarts the container, and
-  therefore all three processes — the eMule client loses its eD2k and Kad sessions and has to
-  reconnect. To restart just one, address s6 inside the container:
+- **Redémarrer un seul processus.** `docker compose restart mulewatch` redémarre le conteneur, donc
+  les trois processus — le client eMule perd ses sessions eD2k et Kad et doit se reconnecter. Pour
+  n'en redémarrer qu'un, adressez-vous à s6 dans le conteneur :
 
   ```
   docker compose exec mulewatch s6-svc -r /etc/services.d/amuled
   ```
 
-  The three service names are `amuled`, `amuleweb` and `mulewatch`. The webui's restart button (on
-  `/controls`) does exactly this for the crawler, which is why the eMule client keeps its sessions
-  across it.
+  Les trois services s'appellent `amuled`, `amuleweb` et `mulewatch`. Le bouton de redémarrage de
+  la webui (sur `/controls`) fait exactement cela pour le crawler, et c'est pourquoi le client eMule
+  garde ses sessions au travers.
 
-**Checkpoint.** You can verify this: a `docker compose down` followed by a `docker compose up -d`
-finds, on <http://localhost:8080>, everything the catalog had already seen. Your data survives a
-shutdown.
+**Point de contrôle.** Vous pouvez le vérifier : un `docker compose down` suivi d'un
+`docker compose up -d` retrouve, sur <http://localhost:8080>, tout ce que le catalogue avait déjà
+vu. Vos données survivent à un arrêt.
 
-> Lifecycle in more detail (diagnosis after a failure, disk planning, reboot):
-> [administration runbook, § Cycle de vie & données](administration.md#cycle-de-vie--données).
+> Le cycle de vie en détail (diagnostic après panne, planification disque, reboot) :
+> [runbook d'administration, § Cycle de vie & données](administration.md#cycle-de-vie--données).
 
 ---
 
-## Annex A. Going behind a VPN
+## Annexe A. Passer derrière un VPN
 
-To hide your IP from the other eD2k/Kad peers, route the node through a VPN with the `gluetun`
-container.
+Pour masquer votre IP aux autres pairs eD2k/Kad, faites passer le nœud par un VPN avec le conteneur
+`gluetun`.
 
-**Delta from the main path:**
+**Ce qui change par rapport au parcours principal :**
 
-1. **A VPN provider that supports WireGuard.** This is required: gluetun establishes the tunnel over
+1. **Un fournisseur VPN qui gère WireGuard.** C'est obligatoire : gluetun établit le tunnel en
    WireGuard.
-2. **Three extra variables** in your `.env`:
+2. **Trois variables de plus** dans votre `.env` :
 
-   | Variable | What |
+   | Variable | Quoi |
    |---|---|
-   | `WIREGUARD_PRIVATE_KEY` | The WireGuard private key, provided in your VPN's customer area. |
-   | `VPN_SERVICE_PROVIDER` | The provider name, for example `protonvpn`, `pia`, `privatevpn`. |
-   | `SERVER_COUNTRIES` | The exit country or countries, in English, for example `Switzerland`. |
+   | `WIREGUARD_PRIVATE_KEY` | La clé privée WireGuard, fournie dans l'espace client de votre VPN. |
+   | `VPN_SERVICE_PROVIDER` | Le nom du fournisseur, par exemple `protonvpn`, `pia`, `privatevpn`. |
+   | `SERVER_COUNTRIES` | Le ou les pays de sortie, en anglais, par exemple `Switzerland`. |
 
-3. **A different stack file.** Instead of `docker compose up -d`, you use the `gluetun.compose.yml`
-   stack, and you add `-f gluetun.compose.yml` to **every** compose command afterwards (`ps`,
-   `logs`, `pull`, `down`, and so on):
+3. **Un fichier de pile différent.** À la place de `docker compose up -d`, vous utilisez la pile
+   `gluetun.compose.yml`, et vous ajoutez `-f gluetun.compose.yml` à **toutes** les commandes
+   compose ensuite (`ps`, `logs`, `pull`, `down`, etc.) :
 
    ```
    docker compose -f gluetun.compose.yml up -d
    ```
 
-This stack adds exactly one service, `gluetun`, so `docker compose -f gluetun.compose.yml ps` shows
-**two** services instead of one. mulewatch has no network of its own there: it shares gluetun's
-(`network_mode: service:gluetun`), so all of its traffic — the eMule client's included — goes
-through the tunnel, and its two web pages are published **on the gluetun service** instead.
+Cette pile ajoute exactement un service, `gluetun`, donc `docker compose -f gluetun.compose.yml ps`
+montre **deux** services au lieu d'un. mulewatch n'y a pas de réseau propre : il partage celui de
+gluetun (`network_mode: service:gluetun`), donc tout son trafic — celui du client eMule compris —
+passe par le tunnel, et ses deux pages web sont publiées **sur le service gluetun** à la place.
 
-The eD2k port is deliberately **not** published in this stack: inbound connections arrive through
-the VPN's forwarded port, not through your host (annex C, route A).
+Le port eD2k n'est délibérément **pas** publié dans cette pile : les connexions entrantes arrivent
+par le port forwardé du VPN, pas par votre hôte (annexe C, route A).
 
-> **Not validated on real hardware.** Sources disagree on whether gluetun's own firewall also needs
-> `FIREWALL_INPUT_PORTS=8080,4711` for connections coming from your LAN. If the two pages answer on
-> the host itself but not from another machine on your network, that variable is the first thing to
-> try.
+> **Non validé sur matériel réel.** Les sources divergent sur la nécessité de donner aussi
+> `FIREWALL_INPUT_PORTS=8080,4711` au pare-feu de gluetun pour les connexions venues de votre LAN.
+> Si les deux pages répondent sur l'hôte lui-même mais pas depuis une autre machine de votre réseau,
+> cette variable est la première chose à essayer.
 
 ---
 
-## Annex B. Catalog-only mode (no downloading)
+## Annexe B. Mode catalogue seul (sans téléchargement)
 
-By default a node downloads the candidates it confidently identifies. If you only want to catalog
-and be notified, without any file landing on your disk:
+Par défaut, un nœud télécharge les candidats qu'il identifie avec certitude. Si vous voulez
+seulement cataloguer et être notifié, sans qu'aucun fichier n'atterrisse sur votre disque :
 
-1. In `crawler.yml`, set `download.enabled: true` to **`false`**.
-2. Restart from your working folder:
+1. Dans `crawler.yml`, passez `download.enabled: true` à **`false`**.
+2. Relancez depuis votre dossier de travail :
 
    ```
    docker compose up -d
    ```
 
-Nothing else changes: the same container starts, the same three processes run, the same web catalog
-is served, notifications still go out. Only the download loop is not wired, so `downloads/incoming`
-stays empty.
+Rien d'autre ne change : le même conteneur démarre, les mêmes trois processus tournent, le même
+catalogue web est servi, les notifications partent toujours. Seule la boucle de téléchargement n'est
+pas câblée, donc `downloads/incoming` reste vide.
 
-> This is a **config flag**, not a different stack: there is no compose profile to add or remove,
-> in either direction.
+> C'est un **drapeau de configuration**, pas une autre pile : il n'y a aucun profil compose à
+> ajouter ou à retirer, dans un sens comme dans l'autre.
 
 ---
 
-## Annex C. High-ID (optional)
+## Annexe C. High-ID (optionnel)
 
-By default your node is **Low-ID**: it catalogues and downloads, but with fewer direct sources.
-Becoming **High-ID** (reachable from the outside) brings more sources and a more efficient search.
-It is **not required** to catalog. Two routes, depending on your stack:
+Par défaut, votre nœud est en **Low-ID** : il catalogue et télécharge, mais avec moins de sources
+directes. Passer en **High-ID** (joignable depuis l'extérieur) apporte plus de sources et une
+recherche plus efficace. Ce n'est **pas obligatoire** pour cataloguer. Deux routes, selon votre
+pile :
 
-| Route | How to enable it |
+| Route | Comment l'activer |
 |---|---|
-| **Default stack, open port** | Forward `LISTEN_PORT` (default `4662`, both TCP **and** UDP) from your router to this machine. If you change the port, adjust `LISTEN_PORT` in your `.env`. |
-| **VPN stack (gluetun), port forwarding** | Set `VPN_PORT_FORWARDING=on` in your `.env` **and** `port_sync.enabled: true` in `crawler.yml`. Your VPN provider must support port forwarding ([gluetun list](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)). |
+| **Pile par défaut, port ouvert** | Redirigez `LISTEN_PORT` (`4662` par défaut, en TCP **et** en UDP) depuis votre routeur vers cette machine. Si vous changez de port, ajustez `LISTEN_PORT` dans votre `.env`. |
+| **Pile VPN (gluetun), port forwarding** | Mettez `VPN_PORT_FORWARDING=on` dans votre `.env` **et** `port_sync.enabled: true` dans `crawler.yml`. Votre fournisseur VPN doit gérer le port forwarding ([liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)). |
 
-Under the VPN route, the node now aligns the eMule client on the forwarded port entirely **inside
-its own container**: it restarts that one process with `s6-svc`. There is no Docker socket, no
-socket proxy and no extra service involved any more.
+Sur la route VPN, le nœud aligne désormais le client eMule sur le port forwardé entièrement **dans
+son propre conteneur** : il redémarre ce seul processus avec `s6-svc`. Il n'y a plus ni socket
+Docker, ni proxy de socket, ni service supplémentaire dans la boucle.
 
-Trade-offs, step-by-step enabling and verification:
-[administration runbook, § High-ID](administration.md#high-id-optionnel--devenir-joignable).
+Compromis, activation pas à pas et vérification :
+[runbook d'administration, § High-ID](administration.md#high-id-optionnel--devenir-joignable).
 
 ---
 
-## Annex D. Ports and metrics
+## Annexe D. Ports et métriques
 
-- **Changing a web port.** In your `.env`: `WEBUI_PORT` (default `8080`, the catalog) and
-  `AMULEWEB_PORT` (default `4711`, aMule's UI). Useful if one of them is already taken on your
-  machine. These change the **host** side only; inside the container the ports are fixed.
-- **Behind a reverse proxy.** If you front port 8080 with a proxy, set `webui.amule_url` in
-  `crawler.yml` to the address at which **the browser** can reach aMule's UI — that key is only the
-  target of the navigation link, and the browser, not the container, resolves it. Its default is
-  `http://localhost:4711`.
-- **Metrics.** The crawler exposes a Prometheus `/metrics` endpoint on the port configured by
-  `observability.metrics.port` in `crawler.yml` (default `9090`). **No Prometheus and no Grafana
-  ship with the stack**: if you want dashboards, point your own Prometheus at the node. That port is
-  not published on the host by default, so add a mapping for it to the `mulewatch` service in your
-  stack file — and treat it like the catalog, with no authentication of its own.
-- **Turning metrics off.** Set `observability.metrics.enabled: false` in `crawler.yml`. The crawler
-  and the catalog keep working normally.
+- **Changer un port web.** Dans votre `.env` : `WEBUI_PORT` (`8080` par défaut, le catalogue) et
+  `AMULEWEB_PORT` (`4711` par défaut, l'interface d'aMule). Utile si l'un d'eux est déjà pris sur
+  votre machine. Ils ne changent que le côté **hôte** ; dans le conteneur, les ports sont figés.
+- **Derrière un reverse proxy.** Si vous mettez un proxy devant le port 8080, réglez
+  `webui.amule_url` dans `crawler.yml` sur l'adresse à laquelle **le navigateur** peut joindre
+  l'interface d'aMule — cette clé n'est que la cible du lien de navigation, et c'est le navigateur,
+  pas le conteneur, qui la résout. Sa valeur par défaut est `http://localhost:4711`.
+- **Métriques.** Le crawler expose un point d'accès Prometheus `/metrics` sur le port configuré par
+  `observability.metrics.port` dans `crawler.yml` (`9090` par défaut). **Ni Prometheus ni Grafana ne
+  sont livrés avec la pile** : si vous voulez des tableaux de bord, faites pointer votre propre
+  Prometheus sur le nœud. Ce port n'est pas publié sur l'hôte par défaut : ajoutez-lui un mapping
+  sur le service `mulewatch` de votre fichier de pile — et traitez-le comme le catalogue, il n'a pas
+  d'authentification propre.
+- **Couper les métriques.** Mettez `observability.metrics.enabled: false` dans `crawler.yml`. Le
+  crawler et le catalogue continuent de fonctionner normalement.
 
-Metric details and exposure behind a reverse proxy:
-[administration runbook, § Prometheus metrics](administration.md#prometheus-metrics) and
+Détail des métriques et exposition derrière un reverse proxy :
+[runbook d'administration, § Métriques Prometheus](administration.md#métriques-prometheus) et
 [§ Exposition derrière un reverse proxy](administration.md#exposition-derrière-un-reverse-proxy).
 
 ---
 
-## Annex E. Migrating a 1.x node to 2.0
+## Annexe E. Migrer un nœud 1.x vers la 2.0
 
-**Read this before `docker compose pull` on an existing node.** 2.0 replaces two images and up to
-four services with one image and one service, and moves your data out of Docker's named volumes into
-plain folders. There is **no compatibility code and no automatic migration**: you do this by hand,
-once, and the old node must be stopped while you do it.
+**Lisez ceci avant tout `docker compose pull` sur un nœud existant.** La 2.0 remplace deux images et
+jusqu'à quatre services par une image et un service, et sort vos données des volumes nommés de
+Docker pour les poser dans de simples dossiers. Il n'y a **ni code de compatibilité, ni migration
+automatique** : vous faites cela à la main, une fois, et le vieux nœud doit être arrêté pendant
+l'opération.
 
-Your working folder is the one holding the old `compose.yaml`. Every command below runs from there.
+Votre dossier de travail est celui qui contient l'ancien `compose.yaml`. Toutes les commandes
+ci-dessous se lancent depuis là.
 
-**Step 1 — stop the old node.** Without `-v`: the named volumes must survive, they are your data and
-your rollback.
+**Étape 1 — arrêter le vieux nœud.** Sans `-v` : les volumes nommés doivent survivre, ce sont vos
+données et votre retour arrière.
 
 ```
 docker compose down
 ```
 
-(or `docker compose -f gluetun.compose.yml down` if you were on the VPN stack.)
+(ou `docker compose -f gluetun.compose.yml down` si vous étiez sur la pile VPN.)
 
-**Step 2 — copy each named volume into its new folder.** The old node kept `catalog.db`,
-`local.db` and aMule's state in named volumes; 2.0 reads them from `data/` and `amule/`. Copy, do
-not move: leaving the volumes intact is what makes the rollback below possible.
+**Étape 2 — copier chaque volume nommé dans son nouveau dossier.** Le vieux nœud gardait
+`catalog.db`, `local.db` et l'état d'aMule dans des volumes nommés ; la 2.0 les lit depuis `data/`
+et `amule/`. Copiez, ne déplacez pas : laisser les volumes intacts est ce qui rend possible le
+retour arrière décrit plus bas.
 
 ```
 mkdir -p data amule downloads/incoming downloads/temp
@@ -388,106 +403,113 @@ docker run --rm -v mulewatch_local-db:/src   -v "$PWD/data":/dst alpine sh -c "c
 docker run --rm -v mulewatch_amule-state:/src -v "$PWD/amule":/dst alpine sh -c "cp -a /src/. /dst/"
 ```
 
-Run `docker volume ls` first if you are unsure of the names: a node created before the project was
-renamed carries a `deploy_` prefix instead of `mulewatch_`.
+Lancez d'abord `docker volume ls` si vous avez un doute sur les noms : un nœud créé avant le
+renommage du projet porte un préfixe `deploy_` au lieu de `mulewatch_`.
 
-The two volumes were mounted at `/data/catalog` and `/data/local`, so each one's root already holds
-its database file: copying both into `data/` lands them side by side, which is exactly where 2.0
-looks for them. Check that before going on:
+Les deux volumes étaient montés sur `/data/catalog` et `/data/local`, donc la racine de chacun
+contient déjà son fichier de base : les copier tous les deux dans `data/` les pose côte à côte, ce
+qui est exactement là où la 2.0 les cherche. Vérifiez-le avant de continuer :
 
 ```
 ls data/     # must show catalog.db and local.db, side by side
 ```
 
-**Step 3 — move your three config files to the working folder's root.** They used to live in
-`config/crawler/`; 2.0 mounts them from next to the compose file.
+**Étape 3 — déplacer vos trois fichiers de config à la racine du dossier de travail.** Ils vivaient
+dans `config/crawler/` ; la 2.0 les monte depuis le voisinage du fichier compose.
 
 ```
 mv config/crawler/crawler.yml config/crawler/targets.yml config/crawler/matcher.yml .
 rmdir config/crawler config
 ```
 
-**Step 4 — edit `crawler.yml`.** Four things to remove, three to change, one to add:
+**Étape 4 — éditer `crawler.yml`.** Quatre choses à retirer, trois à changer, une à ajouter :
 
-- **remove** the whole `amules:` list — the container holds exactly one eMule client, at an address
-  fixed in code (`127.0.0.1:4712`);
-- **remove** `download.endpoint:` (same reason);
-- **remove** `port_sync.restarter_url:` — there is no Docker proxy to talk to any more;
-- **add**, at the top level, `amule_ec_password: ${AMULE_EC_PASSWORD}`;
-- **change** `catalog_db_path` to `/data/catalog.db` and `local_db_path` to `/data/local.db`;
-- **change** `download.output_dir` to `/downloads`;
-- **change** `port_sync.gluetun_control_url` to `http://localhost:8000` (mulewatch now shares
-  gluetun's network namespace, so its control server is on localhost).
+- **retirez** toute la liste `amules:` — le conteneur contient exactement un client eMule, à une
+  adresse figée dans le code (`127.0.0.1:4712`) ;
+- **retirez** `download.endpoint:` (même raison) ;
+- **retirez** `port_sync.restarter_url:` — il n'y a plus de proxy Docker à qui parler ;
+- **ajoutez**, au niveau racine, `amule_ec_password: ${AMULE_EC_PASSWORD}` ;
+- **changez** `catalog_db_path` en `/data/catalog.db` et `local_db_path` en `/data/local.db` ;
+- **changez** `download.output_dir` en `/downloads` ;
+- **changez** `port_sync.gluetun_control_url` en `http://localhost:8000` (mulewatch partage
+  désormais le namespace réseau de gluetun, donc son serveur de contrôle est sur localhost).
 
-The shipped `deploy/crawler.yml` of 2.0 is the reference: diff yours against it if in doubt.
+Le `deploy/crawler.yml` livré avec la 2.0 fait référence : comparez le vôtre au sien en cas de
+doute.
 
-**Step 5 — add the new variables to `.env`, then take ownership of the folders.** 2.0 requires four
-variables where 1.x required one. Add `PUID`, `PGID` and `WEBUI_PWD` (see step 4 of the main path),
-then give the copied data to that uid, since it came out of the volumes owned by someone else:
+**Étape 5 — ajouter les nouvelles variables à `.env`, puis prendre possession des dossiers.** La
+2.0 exige quatre variables là où la 1.x en exigeait une. Ajoutez `PUID`, `PGID` et `WEBUI_PWD` (voir
+l'étape 4 du parcours principal), puis donnez les données copiées à cet uid, puisqu'elles sortent
+de volumes appartenant à quelqu'un d'autre :
 
 ```
 sudo chown -R "$PUID:$PGID" data amule downloads
 ```
 
-**Step 6 — start the new stack.** The direct stack's file is now `compose.yml`, not `compose.yaml`:
+**Étape 6 — démarrer la nouvelle pile.** Le fichier de la pile directe est désormais `compose.yml`,
+et non `compose.yaml` :
 
 ```
 docker compose up -d
 docker compose ps        # one service, `mulewatch`, Up (healthy) after ~30 s
 ```
 
-### What carries over, and what does not
+### Ce qui est repris, et ce qui ne l'est pas
 
-- **Your existing `amule.conf` is kept**, except for one key. The container writes the file when it
-  is absent, and on every boot it reconciles `ECPassword` in `[ExternalConnect]` with
-  `AMULE_EC_PASSWORD`: that variable is the source of truth, so rotating it is just editing `.env`
-  and restarting. Every other setting stays yours. Check that `IncomingDir` and `TempDir` point at
-  `/downloads/incoming` and `/downloads/temp`, and fix them by hand if they do not:
+- **Votre `amule.conf` existant est conservé**, à une clé près. Le conteneur écrit le fichier quand
+  il est absent, et à chaque boot il réconcilie `ECPassword` dans `[ExternalConnect]` avec
+  `AMULE_EC_PASSWORD` : cette variable fait autorité, donc la faire tourner revient à éditer `.env`
+  et à redémarrer. Tout autre réglage reste le vôtre. Vérifiez qu'`IncomingDir` et `TempDir`
+  pointent sur `/downloads/incoming` et `/downloads/temp`, et corrigez-les à la main sinon :
   ```
   grep -E "^(Incoming|Temp)Dir" amule/amule.conf
   ```
-- **Your catalog carries over untouched.** `catalog.db` is append-only and its schema is unchanged
-  by this release.
-- **The crawler's persisted search backoff resets, once.** The eMule client's internal name is now
-  a constant, `amuled`, where 1.x read it from `crawler.yml` (typically `amule-1`). Backoff state
-  and scheduler progress are keyed on that name, so the rows written under the old name are ignored
-  and the node starts its first 2.0 cycle with a clean slate. This is harmless — the effect is one
-  cycle that retries a channel it would otherwise have paused — but it is worth knowing before you
-  wonder why the logs look busier than usual on first boot.
-- **The `instance` label is gone** from the Prometheus metrics that carried it. If you built a
-  dashboard that groups by it, drop that dimension: with one client it was a constant.
+- **Votre catalogue est repris intact.** `catalog.db` est append-only et son schéma n'est pas touché
+  par cette version.
+- **Le backoff de recherche persisté du crawler repart de zéro, une fois.** Le nom interne du client
+  eMule est désormais une constante, `amuled`, là où la 1.x le lisait dans `crawler.yml`
+  (typiquement `amule-1`). L'état de backoff et l'avancement de l'ordonnanceur sont indexés sur ce
+  nom, donc les lignes écrites sous l'ancien nom sont ignorées et le nœud démarre son premier cycle
+  2.0 avec une ardoise vierge. C'est sans gravité — l'effet est un cycle qui réessaie un canal
+  qu'il aurait sinon mis en pause — mais autant le savoir avant de vous demander pourquoi les
+  journaux semblent plus bavards que d'habitude au premier boot.
+- **Le label `instance` a disparu** des métriques Prometheus qui le portaient. Si vous aviez
+  construit un tableau de bord qui groupe dessus, retirez cette dimension : avec un seul client,
+  c'était une constante.
 
-### Rolling back
+### Retour arrière
 
-The 1.x image is still published, at its **old name**: `ghcr.io/geoffreycoulaud/mulewatch-crawler`.
-That package is frozen at 1.x and **is deliberately never deleted** — it is exactly this rollback
-path. To go back: restore your old `compose.yaml` and `config/crawler/` (git, or your backup), point
-`IMAGE_TAG` at the 1.x tag you were running, and `docker compose up -d`. The named volumes were only
-copied from, never moved or deleted, so the old node finds its data where it left it.
+L'image 1.x est toujours publiée, sous son **ancien nom** :
+`ghcr.io/geoffreycoulaud/mulewatch-crawler`. Ce paquet est figé en 1.x et **n'est délibérément
+jamais supprimé** — il est exactement ce chemin de retour arrière. Pour revenir : restaurez votre
+ancien `compose.yaml` et votre `config/crawler/` (git, ou votre sauvegarde), faites pointer
+`IMAGE_TAG` sur le tag 1.x que vous utilisiez, et `docker compose up -d`. Les volumes nommés ont
+seulement été copiés, jamais déplacés ni supprimés, donc le vieux nœud retrouve ses données là où il
+les avait laissées.
 
-Once you are confident in the new node — give it a few days — you can delete the old volumes with
-`docker volume rm mulewatch_catalog-db mulewatch_local-db mulewatch_amule-state`. That is the point
-of no return, so do it last, and only after checking that `data/catalog.db` really holds your
-history.
+Une fois le nouveau nœud éprouvé — laissez-lui quelques jours — vous pouvez supprimer les anciens
+volumes avec `docker volume rm mulewatch_catalog-db mulewatch_local-db mulewatch_amule-state`. C'est
+le point de non-retour : faites-le en dernier, et seulement après avoir vérifié que
+`data/catalog.db` contient bien votre historique.
 
 ---
 
-## Minimal glossary
+## Glossaire minimal
 
-| Term | Meaning |
+| Terme | Sens |
 |---|---|
-| **service** | One brick of the stack: a container managed by `docker compose`. A node is one service, `mulewatch` (two with the VPN, which adds `gluetun`). |
-| **s6** | The small supervisor that runs the three processes inside the container (`amuled`, `amuleweb`, `mulewatch`) and restarts one if it dies. |
-| **eD2k / Kad** | The two eMule networks being watched: eDonkey2000 (central servers) and Kademlia (decentralised, serverless). |
-| **Low-ID / High-ID** | How reachable your node is on eD2k. High-ID = the machine is reachable from the outside (more direct sources). Low-ID works too, just less optimally. |
-| **IncomingDir** | The folder where the eMule client writes a finished file. Here it is bind-mounted to `downloads/incoming` in your working folder. |
+| **service** | Une brique de la pile : un conteneur géré par `docker compose`. Un nœud est un service, `mulewatch` (deux avec le VPN, qui ajoute `gluetun`). |
+| **s6** | Le petit superviseur qui fait tourner les trois processus du conteneur (`amuled`, `amuleweb`, `mulewatch`) et en relance un s'il meurt. |
+| **eD2k / Kad** | Les deux réseaux eMule surveillés : eDonkey2000 (serveurs centraux) et Kademlia (décentralisé, sans serveur). |
+| **Low-ID / High-ID** | Le degré de joignabilité de votre nœud sur eD2k. High-ID = la machine est joignable depuis l'extérieur (plus de sources directes). Low-ID fonctionne aussi, simplement moins bien. |
+| **IncomingDir** | Le dossier où le client eMule écrit un fichier terminé. Ici, il est monté en bind sur `downloads/incoming` dans votre dossier de travail. |
 
 ---
 
-## Going further
+## Pour aller plus loin
 
-- [Administration runbook](administration.md): lifecycle, High-ID, metrics, hardening, catalog
-  tools, known limits.
-- [Troubleshooting runbook](troubleshooting.md): from symptom to cause to fix.
-- [Legality and privacy](../legal-and-privacy.md): what mulewatch does, and above all what it does
-  not do.
+- [Runbook d'administration](administration.md) : cycle de vie, High-ID, métriques, durcissement,
+  outils de catalogue, limites connues.
+- [Runbook de dépannage](troubleshooting.md) : du symptôme à la cause à la solution.
+- [Légalité et vie privée](../legal-and-privacy.md) : ce que mulewatch fait, et surtout ce qu'il ne
+  fait pas.
