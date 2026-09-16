@@ -19,5 +19,10 @@ fi
 mkdir -p /data
 chown -R "$PUID:$PGID" /data
 
+# Explicit paths: the CLI defaults are relative to a repo checkout, and compose mounts the
+# operator's three files read-only under /app/config.
 exec setpriv --reuid amule --regid amule --init-groups \
-	env HOME=/home/amule python -m mulewatch
+	env HOME=/home/amule python -m mulewatch \
+		--config /app/config/crawler.yml \
+		--targets /app/config/targets.yml \
+		--matcher /app/config/matcher.yml
