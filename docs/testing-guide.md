@@ -156,7 +156,7 @@ runs **one full cycle** against the provided `amuled` then **shuts down cleanly*
 really completed.
 
 **Exact prerequisites.** Same as `ec_integration` (§3.0). The test loads the matcher config from
-the single source of truth, `deploy/config/crawler/matcher.yml`, and runs with the webui disabled
+the single source of truth, `deploy/matcher.yml`, and runs with the webui disabled
 (its bind is a fixed `0.0.0.0:8080`, which would collide with whatever already listens there).
 
 **Command.**
@@ -171,26 +171,34 @@ empty: what is validated is the **loop** (startup, search, cataloguing, bounded 
 
 ### 3.4 `compose_integration`: the smoke stack (crawler, **Docker + compose v2 required**)
 
-**What it proves.** The **assembled** `docker compose` stack (amuled + crawler, **no gluetun**)
-starts and wires itself correctly. **No content byte is ever downloaded.** Three things:
+**What it proves.** The **assembled** `docker compose` stack — **one** service since 2026-09-16,
+holding the crawler, amuled and amuleweb under s6 — starts and wires itself correctly. **No content
+byte is ever downloaded** (amuled has neither an eD2k server nor a VPN; only its EC server is
+exercised). Four things:
 1. `docker compose build` succeeds (the image builds);
-2. the crawler stays `Up` and its in-process webui answers `/health` (polled through `docker compose
-   exec`, so no host port is needed);
-3. both deployment entry points render with `docker compose config`, and the rendered service set is
-   asserted: no profile gates anything, so both stacks render `crawler` + `amuled`, and the VPN
-   stack adds `gluetun` + `docker-proxy`.
+2. the container stays `Up`, turns **`healthy`**, `s6-svstat` reports all three services up, and the
+   in-process webui answers `/health` (polled through `docker compose exec`, so no host port is
+   needed);
+3. a file amuled shares and that has left its queue is recorded `completed` by the crawler — the
+   real EC path over loopback, against the real amuled of the shipped image;
+4. both deployment entry points render with `docker compose config`, and the rendered topology is
+   asserted: one `mulewatch` service, the VPN stack adding only `gluetun`, **nothing** left of
+   `crawler` / `amuled` / `docker-proxy`, and **no named volume** anywhere.
 
-The smoke **deliberately** exercises the real persistence path (real named volumes `catalog-db` and
-`local-db`, non-root crawler uid 999, `read_only` rootfs) to catch any permissions regression (a
-root-owned named volume would make SQLite fail with `unable to open database file`).
+The smoke **deliberately** exercises the real ownership path: state lives in **bind mounts** under a
+throwaway `SMOKE_STATE` directory created as the invoking user, whose own uid/gid are passed as
+`PUID`/`PGID`. The container's root PID 1 chowns those mount points and every service then drops to
+the `amule` user. A regression there shows up as `unable to open database file`.
 
 **Exact prerequisites.**
 - **Docker** + **docker compose v2** (the test drives `docker compose …` through `subprocess`).
 - Builds run **from the repo root** (the test pins `cwd = repo root` and `--project-directory`).
-- The gluetun variables are **stubbed by the test itself** (`WIREGUARD_PRIVATE_KEY`,
-  `AMULE_EC_PASSWORD`, `SERVER_COUNTRIES`) because compose interpolates them at parse time even
-  when gluetun is not part of the stack: **nothing for the operator to set**.
-- Compose files used: `tests/smoke/compose.yaml` (standalone) plus `deploy/compose.yaml` and
+- Every interpolated variable is **stubbed by the test itself**: the four the image hard-requires
+  (`PUID`, `PGID`, `AMULE_EC_PASSWORD`, `WEBUI_PWD` — without them the startup one-shot exits 1 and
+  the container dies), plus gluetun's (`WIREGUARD_PRIVATE_KEY`, `SERVER_COUNTRIES`, `LISTEN_PORT`),
+  which compose interpolates at parse time even when gluetun is not part of the stack. **Nothing for
+  the operator to set.**
+- Compose files used: `tests/smoke/compose.yaml` (standalone) plus `deploy/compose.yml` and
   `deploy/gluetun.compose.yml` for `test_entrypoint_config_renders`; the smoke configs live under
   `tests/smoke/`.
 - The test imports **no** `mulewatch` module (this preserves the package's 100 % branch coverage).
@@ -200,12 +208,18 @@ root-owned named volume would make SQLite fail with `unable to open database fil
 ( cd packages/crawler && uv run pytest -m compose_integration --no-cov )
 ```
 
-**Expected.** **4 tests passed** locally: `test_build_succeeds`,
-`test_crawler_stays_up_and_serves_its_webui`, and the 2 parametrized `test_entrypoint_config_renders`
-cases (`compose` and `gluetun`). In CI the image is prebuilt and `IMAGE_TAG` is set, so
-`test_build_succeeds` **skips** (3 passed, 1 skipped) and the `up` reuses the prebuilt image. Each
-lifecycle scenario runs its own `docker compose down -v` in a `finally` (ephemeral volumes are
-cleaned up). Budget several minutes (the build and the up sit under 900 s timeouts).
+**Expected.** **5 tests passed** locally: `test_build_succeeds`,
+`test_one_container_supervises_the_three_services`,
+`test_a_file_amuled_shares_is_recorded_completed`, and the 2 parametrized
+`test_entrypoint_config_renders` cases (`compose` and `gluetun`). In CI the image is prebuilt and
+`IMAGE_TAG` is set, so `test_build_succeeds` **skips** (4 passed, 1 skipped) and the `up` reuses the
+prebuilt image. Tear-down is a `docker compose down -v` plus the throwaway state directory, in a
+`finally`. Budget several minutes (the build and the up sit under 900 s timeouts).
+
+> **Never executed.** As of 2026-09-16 there is no container runtime on the development machine, so
+> this suite — and the image it builds — has not been run once. See the
+> [single-container handoff](handoffs/2026-09-16%20-%20handoff%20-%20single%20container%20with%20embedded%20aMule.md),
+> section 5.
 
 ---
 
