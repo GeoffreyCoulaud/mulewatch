@@ -17,7 +17,7 @@ votre juridiction.
 
 ## 1. Ce que votre nœud catalogue, stocke, transfère
 
-### Ce qui finit dans le catalogue (volumes `catalog-db` et `local-db`)
+### Ce qui finit dans le catalogue (`data/catalog.db` et `data/local.db`)
 
 - **Empreintes eD2k (hashes)** des fichiers vus sur le réseau eMule.
 - **Noms de fichiers** tels qu'observés sur le réseau (les pairs publient ces noms pour leurs
@@ -49,7 +49,7 @@ votre juridiction.
 
 - **Stack VPN (`gluetun.compose.yml`)** : tout le trafic P2P passe par le tunnel VPN. Votre
   fournisseur d'accès Internet (FAI) ne voit que du trafic chiffré vers votre fournisseur VPN.
-- **Stack par défaut (`compose.yaml`, sans VPN)** : le trafic P2P sort en clair depuis votre IP
+- **Stack par défaut (`compose.yml`, sans VPN)** : le trafic P2P sort en clair depuis votre IP
   domestique. Votre FAI voit les connexions vers les pairs eMule (pas le contenu, mais les flux).
 - **Trafic eMule** : protocole non chiffré (eD2k est ancien). Un pair sur le réseau peut voir
   quels fichiers vous demandez et quels hashes vous proposez.

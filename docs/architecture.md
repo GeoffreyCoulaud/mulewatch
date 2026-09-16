@@ -18,27 +18,47 @@ person.**
 
 A **uv workspace** of three packages, plus external dependencies.
 
-**Context: the node and the outside world** (under the VPN stack, all of `amuled`'s network traffic
-goes through the tunnel):
+**Context: the node and the outside world.** Since 2026-09-16 a node is **one container**: the
+crawler, `amuled` and `amuleweb` are three processes of one image, supervised by **s6** (`s6-svscan`
+is PID 1). Under the VPN stack that whole container shares gluetun's network namespace, so all of
+its traffic goes through the tunnel.
 
 ```mermaid
 flowchart LR
-  crawler["Crawler"]
-  amuled["amuled"]
+  subgraph node["one container · s6"]
+    crawler["mulewatch · crawler + webui"]
+    amuled["amuled"]
+    amuleweb["amuleweb"]
+  end
   gluetun["gluetun · VPN"]
   ed2k(("eD2k / Kad"))
   prom["Prometheus · operator's own"]
   notif["Mail / Slack / Discord"]
   out[("./downloads/incoming")]
 
-  crawler -->|EC| amuled
-  amuled -->|"all traffic"| gluetun
+  crawler -->|"EC · 127.0.0.1:4712"| amuled
+  amuleweb -->|EC| amuled
+  node -->|"all traffic"| gluetun
   gluetun --> ed2k
   amuled -->|"finished files"| out
-  crawler -.->|"free space · statvfs, read-only"| out
+  crawler -.->|"free space · statvfs, no read"| out
   crawler -->|"/metrics · scraped"| prom
   crawler -->|"notifications · apprise URL"| notif
 ```
+
+Consequences of that shape, each load-bearing elsewhere in this document:
+
+- **The EC endpoint is a code constant** (`127.0.0.1:4712`, instance name `amuled`), like the webui's
+  `0.0.0.0:8080` bind. `crawler.yml` configures only the password, from `${AMULE_EC_PASSWORD}`.
+- **Restarting `amuled` is `s6-svc -r`**, a local process restart, not a container restart (§9).
+- **The three processes start at once**, so the crawler routinely reaches EC before `amuled`
+  listens; "daemon unreachable at startup" is tolerated and absorbed by the backoff.
+- **PID 1 is root** (it creates the `amule` user from `PUID`/`PGID` and takes the bind mounts), then
+  every service drops privileges with `setpriv`. `user:`, `read_only:` and `cap_drop: ALL` therefore
+  no longer apply to the shipped service; `no-new-privileges`, `pids_limit` and `mem_limit` remain.
+- **A non-zero crawler exit kills the container** (its s6 `finish` runs `s6-svscanctl -t`), so an
+  invalid config shows up as a visible restart loop. A clean exit — the webui's restart control —
+  brings the crawler back alone, and `amuled` keeps its eD2k and Kad sessions.
 
 No Prometheus or Grafana container ships with the stack: the crawler exposes `/metrics` and an
 operator who wants dashboards points their own Prometheus at it.
@@ -124,8 +144,7 @@ flowchart TB
 ## 5. The search cycle
 
 This is the heart of the system and its reason to exist: **being there 24/7** to catch a rare file
-the instant a source shares it. One cycle sweeps every keyword over every channel and every `amuled`
-instance.
+the instant a source shares it. One cycle sweeps every keyword over every channel.
 
 ```mermaid
 flowchart TD
@@ -151,13 +170,15 @@ Key points along the way:
   generation was removed.
 - **Per-node seeded order** (`node_id : cycle_index`): two nodes diverge (no shared temporal blind
   spots), while a single node replays the same order for the same cycle.
-- **LIFO queue + worker pool**: each worker drives one `amuled` instance. A worker whose instance is
-  in **backoff** re-queues the task *on top* so a **peer** picks it up immediately (nothing is lost,
-  no infinite loop). If every instance is in backoff, the task is *dropped* with a telemetry trace.
+- **LIFO queue + one worker**: the container holds exactly one `amuled`, so the pool that used to
+  spread tasks over several daemons collapsed onto a single worker (2026-09-16). The machinery is
+  unchanged — a worker whose daemon is in **backoff** re-queues the task *on top* for a peer — but
+  with no peer left, a task hitting backoff is *dropped* with a telemetry trace and replayed next
+  cycle. Multi-node redundancy is now entirely a matter of running several nodes and merging their
+  catalogs.
 - **Coverage is not liveness**: "the process is alive" does not imply "we can find something right
-  now". An instance is *search-capable* if it has an eD2k HighID **or** is connected to Kad; the
-  aggregate yields `HEALTHY / DEGRADED / BLIND`. `BLIND` is logged loudly (edge-triggered,
-  anti-spam).
+  now". The daemon is *search-capable* if it has an eD2k HighID **or** is connected to Kad; that
+  yields `HEALTHY / DEGRADED / BLIND`. `BLIND` is logged loudly (edge-triggered, anti-spam).
 - **Resilience**: a `RepositoryError` at the end of a cycle is absorbed, the index does not advance,
   and the cycle is replayed next round (append-only state, no corruption).
 
@@ -197,7 +218,7 @@ sequenceDiagram
 - The observation is written (`files` + `file_observations`) **then** matched. The decision
   (`target_id`, `rule_name`, `tier`) goes into `match_decisions`. In download mode, a `download`
   tier *nudges* the download loop so it reacts without waiting for its interval.
-- An EC application failure (`EC_OP_FAILED`) puts that instance's **channel** into **backoff** (base
+- An EC application failure (`EC_OP_FAILED`) puts that **channel** into **backoff** (base
   × factor^failures + jitter), persisted at the end of the cycle.
 
 ## 6. From file to decision: the matching engine
@@ -274,8 +295,11 @@ Load-bearing invariants (do not violate):
 - The disk floor (`download.min_free_bytes`) is **measured, not accounted** (2026-09-13): a candidate
   is admitted only when `free - outstanding - size >= min_free`, where `free` is one
   `shutil.disk_usage` call on `download.output_dir` and `outstanding` is what amuled's queue still
-  has to transfer, taken from the cycle's existing queue snapshot. The output directory is mounted
-  **read-only** and no file in it is ever opened: `statvfs` reads filesystem metadata, never bytes.
+  has to transfer, taken from the cycle's existing queue snapshot. The output directory is now
+  mounted **read-write** — `amuled` shares the container and writes into it — but the crawler still
+  never opens a file there: `statvfs` reads filesystem metadata, never bytes. The host's
+  `./downloads` is bound **whole**, not as its two subdirectories, precisely so that this `statvfs`
+  measures the filesystem that fills up rather than the container's writable layer.
   Free space alone would be wrong, since the filesystem knows nothing of the bytes still coming.
 - **A download amuled no longer knows becomes `failed`** after `download.lost_after_seconds`
   (default 24 h). Every cycle stamps `last_seen_at` for each hash present in amuled's queue **or**
@@ -323,10 +347,16 @@ and reading it back would raise). `local/0005` added `downloads.last_seen_at`, b
 
 Behind a VPN the inbound port changes; without a High-ID, connectability (and therefore coverage)
 degrades. The port-sync loop reads gluetun's **live forwarded port**, and if it differs from
-`amuled`'s port calls `set_listen_port` over EC, then **restarts** the `amuled` container so it
+`amuled`'s port calls `set_listen_port` over EC, then **restarts the `amuled` process** so it
 rebinds, then re-checks the High-ID. It is rate-limited (at most one restart per window); if the
 port stays wrong, an edge-triggered alert fires (OPERATIONS audience). *Accepted risk: a High-ID
 increases exposure, see the administration runbook.*
+
+Since 2026-09-16 that restart is a local `s6-svc -r /etc/services.d/amuled` (`S6MuleRestarter`), run
+in the container the crawler already lives in. The Docker socket, its confined proxy service and the
+`HttpMuleRestarter` are gone. This is also the more correct shape: the listen port was never
+re-bindable at runtime, so port-sync always needed a *process* restart — it restarted a *container*
+only because the process was out of reach.
 
 ## 10. Observability
 
@@ -375,7 +405,7 @@ Prometheus at it if you want dashboards.
 | Loops and wiring | `composition/app.py` (`CrawlerApp`), `python -m mulewatch` |
 | Use-cases | `application/run_search_cycle.py`, `run_download_cycle.py`, `port_sync_loop.py` |
 | Search (pure) | `domain/search/` (`keywords`, `cycle`, `backoff`, `coverage`) |
-| Matching | `packages/matching/src/catalog_matching/` (engine + policy `deploy/config/crawler/matcher.yml`) |
+| Matching | `packages/matching/src/catalog_matching/` (engine + policy `deploy/matcher.yml`) |
 | EC boundary | `adapters/mule_ec/` (codec / transport / client); ports `ports/mule_client.py`, `ports/mule_download_client.py` |
 | Persistence | `adapters/persistence_sqlite/` (`.sql` migrations, repos) |
 | Observability | `domain/observability/`, `adapters/observability/` |

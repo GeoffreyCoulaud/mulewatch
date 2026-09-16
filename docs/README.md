@@ -14,7 +14,8 @@ comfortable with a **terminal** and **Docker** (Linux/server oriented); the defa
 is enough to contribute.*
 
 - **[Deployment runbook](runbooks/deployment.md)**: *bring up* the `docker compose` stack and see it
-  run. Seven steps, then the annexes (VPN, High-ID, catalog-only mode), secrets, first boot, Low-ID.
+  run. Seven steps, then the annexes (VPN, High-ID, catalog-only mode, and the hand-run **migration
+  of a 1.x node to 2.0**), secrets, first boot, Low-ID.
 - **[Administration runbook](runbooks/administration.md)**: *operate and tune* a running node.
   Lifecycle, optional High-ID, Prometheus metrics, container hardening, catalog tools
   (merge/compact/validate), known limits.
@@ -31,8 +32,9 @@ hub** and that is deliberate (a non-goal for v0.x). Collaboration happens **offl
 SQLite databases (`catalog.db`) between searchers who each run their own node.
 
 **Architecture:**
-- Each searcher hosts **one complete instance** (a crawler, which also serves the read-only webui
-  in-process, plus an amuled). Each instance owns its own `catalog.db`.
+- Each searcher hosts **one complete node**, which is **one container**: the crawler (serving the
+  read-only webui in-process), `amuled` and `amuleweb`, supervised by s6. Each node owns its own
+  `catalog.db`.
 - Instances **do not know about each other** and never synchronise.
 - To share your findings: send your `catalog.db` (shared drive, git LFS, Nextcloud, any channel) to
   another searcher, who **merges** it into their catalog with the `merge` tool.
@@ -46,8 +48,8 @@ merge never creates duplicates.
 **Typical sharing cycle:**
 
 1. You catalog locally for N weeks.
-2. You export your `catalog.db` (copy it out of the Docker volume, see
-   runbooks/administration.md § Planification disque).
+2. You export your `catalog.db` (it is a plain file, `data/catalog.db` in your working folder —
+   copy it with the node stopped; see runbooks/administration.md § Planification disque).
 3. You exchange it with other searchers over an offline channel.
 4. You merge the received catalogs into yours: `python -m mulewatch.merge --output
    catalog-merged.db your-catalog.db catalog-from-X.db catalog-from-Y.db`.

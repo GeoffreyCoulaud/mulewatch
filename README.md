@@ -19,13 +19,15 @@ Budget about fifteen minutes once Docker is installed. Installing Docker and pul
 come on top, depending on your connection. Installing Docker is by far the hardest step: the rest
 is one command and one password to choose.
 
-A node searches, catalogues, notifies, and downloads what it confidently identifies. Downloading
-can be turned off (`download.enabled: false` in `config/crawler/crawler.yml`) for a catalog-only
-node. Once started, the web catalog is available on http://localhost:8080.
+A node is **one container**: the eMule client, its web UI and the crawler run side by side in it,
+supervised by s6. It searches, catalogues, notifies, and downloads what it confidently identifies.
+Downloading can be turned off (`download.enabled: false` in `crawler.yml`) for a catalog-only node.
+Once started, the web catalog is available on http://localhost:8080 (**no authentication** — put it
+behind your own reverse proxy or VPN), and aMule's own UI on http://localhost:4711.
 
-The full walkthrough (secrets to fill in, the VPN variant, High-ID) lives in the
-[deployment guide](docs/runbooks/deployment.md). When something goes wrong, the
-[troubleshooting guide](docs/runbooks/troubleshooting.md) goes from symptom to cause to fix.
+The full walkthrough (secrets to fill in, the VPN variant, High-ID, and the hand-run migration from
+a 1.x node) lives in the [deployment guide](docs/runbooks/deployment.md). When something goes wrong,
+the [troubleshooting guide](docs/runbooks/troubleshooting.md) goes from symptom to cause to fix.
 
 ## How it works
 
