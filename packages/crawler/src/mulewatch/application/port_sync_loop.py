@@ -3,7 +3,8 @@
 APPLICATION layer (High-ID port-sync, design §4). ONE algorithm covers both "the port is wrong
 at startup" AND "the port became wrong along the way" (VPN renegotiation): we read the live
 forwarded port (gluetun), compare it to amuled's listen port (EC), and if they differ we
-``SetPort`` + restart the container (the port is NOT re-bindable at runtime). Guards: restart
+``SetPort`` + restart amuled (the port is NOT re-bindable at runtime, so the DAEMON has to
+come back; s6 does it in place, the container stays up). Guards: restart
 rate-limit (≤ 1 / window); High-ID re-check after restart WITHOUT looping; edge-triggered
 fallback alert (OPERATIONS) when the port stays wrong. The degraded mode (Low-ID) is tolerated:
 any defensive parse (port 0 / control-server unreachable / EC dead) → "not ready", backoff.

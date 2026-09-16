@@ -131,11 +131,13 @@ def _apply_migrations(connection: sqlite3.Connection, scripts: tuple[tuple[int, 
 
     Migrations sort in memory (``temp_store=MEMORY``), restored afterwards. A ``CREATE INDEX``
     over a large table sorts through SQLite's external sorter, which spills to the temp
-    directory; in the container that is a 64m tmpfs (/var/tmp is not writable under
-    ``read_only: true``), while 0004's index over ``file_observations`` needs ~85MiB of temp
-    files on the real catalogue. Left on the file default it raises SQLITE_FULL ("database or
-    disk is full"), which rolls back below and crash-loops the crawler at startup. A bigger
-    tmpfs would fix it too, and would bound the memory better, but the remedy would live in the
+    directory, while 0004's index over ``file_observations`` needs ~85MiB of temp files on the
+    real catalogue. This was written when the rootfs was ``read_only: true`` with a 64m tmpfs
+    for temp files, where the file default raised SQLITE_FULL ("database or disk is full"),
+    rolled back below and crash-looped the crawler at startup. That confinement is gone
+    (2026-09-16), so the failure mode is no longer reachable that way, but sorting in memory
+    stays the right default: it does not depend on how the operator sized anything. The
+    alternative remedy, sizing the temp space, would live in the
     operator's compose file (which drifts from ``deploy/``) and has to land at the same instant
     as the image: forget it and the node crash-loops. The image carries its own remedy instead.
 
