@@ -1,6 +1,22 @@
 # syntax=docker/dockerfile:1
-# --- Builder : installe mulewatch (membre du workspace VIRTUEL) via uv ---
-FROM ghcr.io/astral-sh/uv:python3.14-alpine@sha256:e852e37cfaffb287f2d78de0d4f27e28bf0722ccbf0d6948dbdf19a0b4de7bc7 AS builder
+
+# --- aMule stage: build aMule 3.0.1 from a pinned nixpkgs, export its runtime closure ---
+FROM nixos/nix:2.35.2@sha256:7a007c766426c1877758ddc5cb87a965ac131fc78c582ce0083d922d51ae945c AS amule
+
+COPY packages/crawler/docker/amule.nix /build/amule.nix
+
+# Only the store paths are exported: nix itself never reaches the final image. Syft reads the
+# store path names, so the SBOM still lists every component of the closure with its version.
+# The compile happens once per nixpkgs bump; everything else comes from the binary cache.
+RUN nix-build /build/amule.nix -o /amule \
+    && mkdir -p /closure/nix/store /closure/bin \
+    && nix-store -qR "$(readlink -f /amule)" | xargs -r cp -a -t /closure/nix/store \
+    && for binary in amuled amuleweb ed2k; do \
+         ln -s "$(readlink -f /amule)/bin/$binary" "/closure/bin/$binary"; \
+       done
+
+# --- Python stage: build /app/.venv against Debian's python3, the same one the runtime holds ---
+FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS python
 
 # Product version, computed from the git tag on the CI runner and injected here. The build
 # context has no .git (.dockerignore excludes it), so hatch-vcs/setuptools-scm reads
@@ -11,7 +27,14 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION=${VERSION} \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_NO_DEV=1 \
+    UV_PYTHON=/usr/bin/python3 \
     UV_PYTHON_DOWNLOADS=0
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.9.9@sha256:f6e3549ed287fee0ddde2460a2a74a2d74366f84b04aaa34c1f19fec40da8652 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
@@ -28,29 +51,31 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-editable --package mulewatch
 
-# --- Runtime : python alpine, non-root, venv copie ---
-FROM python:3.14-alpine@sha256:26730869004e2b9c4b9ad09cab8625e81d256d1ce97e72df5520e806b1709f92
+# --- Runtime: one image, three supervised processes ---
+FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 # Re-declare the build-arg in this stage and stamp it as the OCI version label (the SBOM's
 # top-level component inherits it). ARG after FROM only lives in the stage that declares it.
 ARG VERSION=0.0.0
 LABEL org.opencontainers.image.version=${VERSION}
 
-# User non-root (999:999) — composera avec le durcissement compose (user:, read_only).
-# Busybox (Alpine) : addgroup/adduser au lieu de groupadd/useradd (-h reproduit --create-home).
-# Alpine occupe deja GID 999 (groupe `ping`, inutile ici) → on le retire pour liberer 999:999.
-RUN delgroup ping 2>/dev/null; addgroup -S -g 999 nonroot \
-    && adduser -S -u 999 -G nonroot -h /home/nonroot nonroot
+# s6 comes from Debian, not from the s6-overlay tarball, so that dpkg knows about it and the
+# security feed covers it. Its dependencies pull skalibs and execline in; python3's pull
+# libsqlite3-0, libssl3 and the rest. Do not hand-list them.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 s6 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Points de montage des volumes nommes (catalog-db/local-db/quarantine) : les creer possedes
-# par nonroot pour qu'un volume nomme VIDE herite de la propriete 999:999 au premier mount
-# (le crawler tourne en read_only + non-root et doit pouvoir creer ses bases SQLite).
-RUN mkdir -p /data/catalog /data/local /data/quarantine \
-    && chown -R nonroot:nonroot /data
+# The aMule closure carries its own glibc, so it runs on Debian untouched. /closure/bin holds
+# symlinks into the store for the three binaries we actually call.
+COPY --from=amule /closure/nix/store/ /nix/store/
+COPY --from=amule /closure/bin/ /usr/local/bin/
 
-COPY --from=builder --chown=nonroot:nonroot /app/.venv /app/.venv
+COPY --from=python /app/.venv /app/.venv
+COPY packages/crawler/docker/entrypoint.sh packages/crawler/docker/amule-config.sh /usr/local/bin/
+COPY packages/crawler/docker/services.d/ /etc/services.d/
 
+# The venv comes first so that `docker compose run --rm --entrypoint python ...` keeps working.
 ENV PATH="/app/.venv/bin:$PATH"
-USER nonroot
 WORKDIR /app
-ENTRYPOINT ["python", "-m", "mulewatch"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
