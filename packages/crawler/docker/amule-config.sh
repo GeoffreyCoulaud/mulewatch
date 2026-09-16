@@ -45,16 +45,16 @@ else
 	# lock both of them out of a daemon that looks perfectly healthy. Every other key stays the
 	# operator's to edit. Section-aware: wxConfig keys are only unique within their section.
 	awk -v digest="$digest" '
+		function flush() { print "ECPassword=" digest; done = 1 }
 		/^\[/ {
-			# Leaving [ExternalConnect] without having seen the key: add it before moving on.
-			if (in_section && !done) { print "ECPassword=" digest; done = 1 }
+			if (in_section && !done) flush()
 			in_section = ($0 == "[ExternalConnect]")
 		}
-		in_section && /^ECPassword=/ { print "ECPassword=" digest; done = 1; next }
+		in_section && /^ECPassword=/ { flush(); next }
 		{ print }
 		END {
-			if (in_section && !done) { print "ECPassword=" digest; done = 1 }
-			if (!done) { print ""; print "[ExternalConnect]"; print "ECPassword=" digest }
+			if (in_section && !done) flush()
+			if (!done) { print ""; print "[ExternalConnect]"; flush() }
 		}
 	' "$conf" >"$conf.new"
 	mv "$conf.new" "$conf"
