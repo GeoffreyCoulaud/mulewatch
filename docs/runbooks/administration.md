@@ -210,7 +210,7 @@ Exemple de `scrape_config` pour votre propre `prometheus.yml` :
 scrape_configs:
   - job_name: 'mulewatch'
     static_configs:
-      - targets: ['node.example.lan:9090']   # the host you published 9090 on
+      - targets: ['node.example.lan:9090']   # l'hôte sur lequel vous avez publié 9090
 ```
 
 Mettre `observability.metrics.enabled: false` coupe entièrement le point d'accès ; le crawl et la
