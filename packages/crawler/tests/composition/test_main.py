@@ -132,6 +132,24 @@ def test_main_renders_runtime_config_error_from_run_as_clean_message(
     assert "Invalid config" in capsys.readouterr().err
 
 
+def test_main_returns_zero_when_the_shutdown_deadline_fires(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # ``run`` arms ``shutdown_deadline_seconds`` as soon as shutdown is requested, so a slow
+    # unwind raises ``TimeoutError`` instead of hanging. That is the bound WORKING, not a crash:
+    # the exit code must stay 0. Under s6 a non-zero code means ``s6-svscanctl -t``, so treating
+    # an overrunning ``/controls/restart`` as a crash would tear the whole container down —
+    # amuled with it — instead of bouncing the crawler alone.
+    def fake_run(coro: object) -> None:
+        coro.close()  # type: ignore[attr-defined]  # close the coroutine without running it
+        raise TimeoutError
+
+    monkeypatch.setattr("mulewatch.composition.__main__.asyncio.run", fake_run)
+    monkeypatch.setattr(entry, "build_app", lambda args: _SpyApp())
+    assert entry.main([]) == 0
+    assert "Shutdown deadline" in capsys.readouterr().err
+
+
 def test_main_refuses_to_start_on_invalid_config(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

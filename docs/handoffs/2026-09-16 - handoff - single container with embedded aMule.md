@@ -125,13 +125,16 @@ the reconciliation.**
   kills the container. But an operator reading `healthy` is reading about amuled.
 - **`base.compose.yml` must declare no `ports:` and no networking.** Compose merges `ports`
   additively and cannot remove an entry an included fragment added, so each stack publishes its own.
-- **There is no supported way to rotate `AMULE_EC_PASSWORD`.** `amule-config.sh` writes the MD5
-  digest into `amule.conf` **only when the file is absent**, while the crawler and amuleweb both
-  read the live environment variable. Changing `.env` on a running node therefore desynchronises the
-  three processes *silently*: amuled keeps the old digest and refuses both clients. The
-  troubleshooting runbook documents the two manual workarounds (hand-edit the digest with
-  `printf %s '…' | md5sum | cut -d' ' -f1`, or delete `amule.conf` and lose aMule's other settings).
-  This is a genuine gap, listed as a follow-up in §7.
+- **`AMULE_EC_PASSWORD` is the source of truth, and `amule.conf` follows it.** The first draft wrote
+  the MD5 digest only when the file was absent, while the crawler and amuleweb both read the live
+  environment variable — so editing `.env` on a running node desynchronised the three processes
+  *silently*: amuled kept the old digest and refused both clients, while the container still looked
+  healthy. `amule-config.sh` now reconciles `ECPassword` in `[ExternalConnect]` on **every** boot,
+  section-aware so a same-named key elsewhere in the file is left alone. Every other key stays the
+  operator's. Rotating the password is editing `.env` and restarting, nothing more.
+  `amule-config.sh` is the one shell script here whose logic can lock the node out of itself, so it
+  carries a runnable check with no framework — `sh packages/crawler/docker/amule-config.test.sh`,
+  12 assertions over a temp root with the system commands stubbed. Run it after touching the awk.
 
 ## 5. NOT VALIDATED AGAINST REAL HARDWARE
 

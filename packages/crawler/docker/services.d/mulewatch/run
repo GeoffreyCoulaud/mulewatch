@@ -1,5 +1,9 @@
 #!/bin/sh
 exec 2>&1
+# -u, but deliberately NOT -e: an unset PUID would otherwise make the chown below a silent no-op
+# and hand the crawler a root-owned /data, while -e would turn the s6-svperms failure this script
+# explicitly tolerates into a non-zero exit, which `finish` escalates into killing the container.
+set -u
 
 # s6-svperms needs amuled's supervise directory, which s6-supervise only creates once it has
 # started amuled — and all three services start at the same time. Bounded wait: without the group

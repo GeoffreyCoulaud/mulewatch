@@ -438,9 +438,11 @@ docker compose ps        # one service, `mulewatch`, Up (healthy) after ~30 s
 
 ### What carries over, and what does not
 
-- **Your existing `amule.conf` is kept, not rewritten.** The container writes that file only when it
-  is absent. Check that its `IncomingDir` and `TempDir` point at `/downloads/incoming` and
-  `/downloads/temp`, and fix them by hand if they do not:
+- **Your existing `amule.conf` is kept**, except for one key. The container writes the file when it
+  is absent, and on every boot it reconciles `ECPassword` in `[ExternalConnect]` with
+  `AMULE_EC_PASSWORD`: that variable is the source of truth, so rotating it is just editing `.env`
+  and restarting. Every other setting stays yours. Check that `IncomingDir` and `TempDir` point at
+  `/downloads/incoming` and `/downloads/temp`, and fix them by hand if they do not:
   ```
   grep -E "^(Incoming|Temp)Dir" amule/amule.conf
   ```
