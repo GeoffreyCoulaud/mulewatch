@@ -1,0 +1,4 @@
+#!/bin/sh
+exec 2>&1
+exec setpriv --reuid amule --regid amule --init-groups \
+	env HOME=/home/amule amuled --config-dir=/home/amule/.aMule

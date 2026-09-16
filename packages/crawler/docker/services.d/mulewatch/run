@@ -1,0 +1,23 @@
+#!/bin/sh
+exec 2>&1
+
+# s6-svperms needs amuled's supervise directory, which s6-supervise only creates once it has
+# started amuled — and all three services start at the same time. Bounded wait: without the group
+# permission we lose the ability to restart amuled for a port change, not the crawl itself.
+control=/etc/services.d/amuled/supervise/control
+attempt=0
+while [ ! -e "$control" ] && [ "$attempt" -lt 100 ]; do
+	attempt=$((attempt + 1))
+	sleep 0.1
+done
+if [ -e "$control" ]; then
+	s6-svperms -G amule /etc/services.d/amuled
+else
+	echo "mulewatch: $control never appeared; amuled restarts will be refused" >&2
+fi
+
+mkdir -p /data
+chown -R "$PUID:$PGID" /data
+
+exec setpriv --reuid amule --regid amule --init-groups \
+	env HOME=/home/amule python -m mulewatch
