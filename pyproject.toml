@@ -36,7 +36,7 @@ src = [
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.13"
 strict = true
 # Module-name resolution across the workspace: `packages/crawler/tests/` has an `__init__.py`
 # (so does `tests/webui/`), making it the `tests` package. The other packages' test dirs have

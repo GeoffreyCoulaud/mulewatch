@@ -48,7 +48,7 @@ content fingerprint, two searchers who see the same file write the same row.
 
 ## For developers
 
-Python >= 3.14, `uv` workspace, Clean/Hexagonal architecture, `mypy --strict`, strict TDD (the
+Python >= 3.13, `uv` workspace, Clean/Hexagonal architecture, `mypy --strict`, strict TDD (the
 tests are the spec), 100 % branch coverage per package.
 
 ```bash
