@@ -136,9 +136,7 @@ def test_first_matching_rule_returns_none_when_no_rule_true() -> None:
 # --- Canonical config §8.3 (reused by several tests) ---
 # Single source of truth: the deployment matcher config (operator-editable), not an inline
 # copy. So these tests validate the policy actually shipped. Cf. test_golden_corpus.
-_CANONICAL_MATCHER = (
-    Path(__file__).resolve().parents[3] / "deploy" / "config" / "crawler" / "matcher.yml"
-)
+_CANONICAL_MATCHER = Path(__file__).resolve().parents[3] / "deploy" / "matcher.yml"
 _CANONICAL_RAW: dict[str, object] = yaml.safe_load(_CANONICAL_MATCHER.read_text(encoding="utf-8"))
 
 _TARGET_62B = TargetSegment(

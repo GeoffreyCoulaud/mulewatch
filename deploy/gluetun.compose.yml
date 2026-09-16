@@ -1,9 +1,8 @@
-# VPN stack (gluetun). amuled shares gluetun's netns; docker-proxy serves the port-sync.
-# The webui is served in-process by the crawler (port 8080). Every service starts
-# unconditionally: there is no compose profile.
-# Automatic High-ID: VPN_PORT_FORWARDING=on (.env) + port_sync.enabled: true (crawler.yml).
-# Run:
-#   docker compose -f deploy/gluetun.compose.yml up -d
+# VPN stack: mulewatch shares gluetun's network namespace. Two services, no socket proxy.
+# Automatic High-ID: VPN_PORT_FORWARDING=on (.env) + port_sync.enabled: true (crawler.yml);
+# port-sync now restarts amuled with `s6-svc` inside the container, so no Docker API is involved.
+# Run (from deploy/):
+#   docker compose -f gluetun.compose.yml up -d
 name: mulewatch
 
 include:
@@ -22,44 +21,17 @@ services:
       SERVER_COUNTRIES: ${SERVER_COUNTRIES:-}
       VPN_PORT_FORWARDING: ${VPN_PORT_FORWARDING:-off}
       HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE: '{"auth":"none"}'
-    networks:
-      ec:
-        aliases: [amuled]
+    # mulewatch has no network of its own here, so its two web surfaces are published on gluetun.
+    # 8080 (mulewatch catalog UI) has NO authentication; 4711 (amuleweb) is guarded by WEBUI_PWD.
+    # NOT VALIDATED (spec §13): sources disagree on whether gluetun's firewall also needs
+    # FIREWALL_INPUT_PORTS=8080,4711 for connections arriving from the LAN. If the ports answer
+    # from the host but not from another machine, that variable is the first thing to try.
+    # The eD2k port is NOT published: it comes in through the VPN's forwarded port, not the host.
+    ports:
+      - "${WEBUI_PORT:-8080}:8080"
+      - "${AMULEWEB_PORT:-4711}:4711"
     restart: unless-stopped
 
-  amuled:
-    image: ngosang/amule:3.0.0-1
-    container_name: amuled
+  mulewatch:
     network_mode: "service:gluetun"
     depends_on: [gluetun]
-    environment:
-      GUI_PWD: ${AMULE_EC_PASSWORD:?}
-    # /downloads is where the image puts IncomingDir and TempDir by default, so we bind there and
-    # touch no amuled setting. The image writes amule.conf only when absent: overriding the paths
-    # would take effect on the first boot alone, and drift from the image on any later change.
-    volumes:
-      - amule-state:/home/amule/.aMule
-      - ./downloads:/downloads
-    restart: unless-stopped
-
-  docker-proxy:
-    image: wollomatic/socket-proxy:1.12.2
-    command:
-      - "-loglevel=info"
-      - "-allowfrom=0.0.0.0/0"
-      - "-listenip=0.0.0.0"
-      - "-proxyport=2375"
-      - "-socketpath=/var/run/docker.sock"
-      - "-allowPOST=/v1\\..{1,2}/containers/amuled/restart"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks: [ec]
-    # Root REQUIRED explicitly: the wollomatic image is built USER 65534, but the bind-mounted Docker
-    # socket appears root:root (Docker Desktop) or root:docker (native Docker), and only root can
-    # reach it. Still confined: cap_drop ALL + read_only + no-new-privileges + allowlist restricted
-    # to a single endpoint POST /containers/amuled/restart.
-    user: "0:0"
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    read_only: true
-    restart: unless-stopped

@@ -1,0 +1,19 @@
+# Default stack: no VPN, one container on the default network.
+# Low-ID by default; High-ID means forwarding LISTEN_PORT on the router.
+# Run (from deploy/):
+#   docker compose up -d
+name: mulewatch
+
+include:
+  - path: base.compose.yml
+
+services:
+  mulewatch:
+    # 8080 is the mulewatch catalog UI and has NO authentication: catalog, crawl controls and a
+    # read-only SQL console, to anyone who can reach it. 4711 is amuleweb, guarded by WEBUI_PWD.
+    # Front both with the operator's reverse proxy or VPN.
+    ports:
+      - "${WEBUI_PORT:-8080}:8080"
+      - "${AMULEWEB_PORT:-4711}:4711"
+      - "${LISTEN_PORT:-4662}:4662"
+      - "${LISTEN_PORT:-4662}:4662/udp"

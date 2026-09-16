@@ -13,7 +13,7 @@ from catalog_matching.validation import parse_matcher_config, parse_targets
 _FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # The matcher policy has a single source of truth: the deployment config (operator-
 # editable). So the golden corpus validates the policy ACTUALLY shipped, not a copy.
-_MATCHER = Path(__file__).resolve().parents[3] / "deploy" / "config" / "crawler" / "matcher.yml"
+_MATCHER = Path(__file__).resolve().parents[3] / "deploy" / "matcher.yml"
 
 
 def _engine() -> MatchingEngine:

@@ -9,23 +9,21 @@ keyword_pause_max_seconds: 4.0
 decision_poll_interval_seconds: 5.0
 shutdown_deadline_seconds: 10.0
 
+# The container holds exactly one amuled, at a host and port fixed in code (127.0.0.1:4712).
+# Only the password is configurable, and it comes from the environment (.env).
+amule_ec_password: ${AMULE_EC_PASSWORD}
+
 backoff:
   base_seconds: 2.0
   cap_seconds: 300.0
   factor: 2.0
   jitter_ratio: 0.3
 
-amules:
-  - name: amule-1
-    host: amuled
-    port: 4712
-    password: ${AMULE_EC_PASSWORD}
-
 search:
   keywords: [keroro, titar]
 
-catalog_db_path: /data/catalog/catalog.db
-local_db_path: /data/local/local.db
+catalog_db_path: /data/catalog.db
+local_db_path: /data/local.db
 
 # Read-only webui served in-process by the crawler (own thread). The bind is fixed at
 # 0.0.0.0:8080 in code; no built-in auth -> front it with the reverse proxy / VPN.
@@ -50,19 +48,14 @@ download:
   # A queued/downloading entry amuled has not shown for this long becomes failed. An entry
   # stays in amuled's queue even with zero sources, so absence really does mean gone.
   lost_after_seconds: 86400
-  # Measured with statvfs, never read: mounted read-only in the compose file.
-  output_dir: /data/downloads
-  endpoint:
-    name: amule-dl
-    host: amuled
-    port: 4712
-    password: ${AMULE_EC_PASSWORD}
+  # Measured with statvfs, never read. amuled writes incoming/ and temp/ under it.
+  output_dir: /downloads
 
-# Port-sync only works under the gluetun stack (it needs docker-proxy and the control URL).
-# Flip enabled to true there, alongside VPN_PORT_FORWARDING=on.
+# Port-sync only works under the gluetun stack: mulewatch shares gluetun's network namespace,
+# so its control server is on localhost. Flip enabled to true there, with VPN_PORT_FORWARDING=on.
+# The restart is now `s6-svc -r` on amuled inside the container, so there is no URL for it.
 port_sync:
   enabled: false
   poll_interval_seconds: 60.0
   restart_min_interval_seconds: 300.0
-  gluetun_control_url: http://gluetun:8000
-  restarter_url: http://docker-proxy:2375
+  gluetun_control_url: http://localhost:8000
