@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: ghcr.io/geoffreycoulaud/mulewatch-crawler
+  IMAGE: ghcr.io/geoffreycoulaud/mulewatch
 
 jobs:
   lint:

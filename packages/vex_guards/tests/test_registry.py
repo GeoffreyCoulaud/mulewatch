@@ -2,7 +2,7 @@ from vex_guards.descriptors import ModuleNotImported, family
 from vex_guards.registry import GUARDS
 
 
-def test_registry_has_the_eight_advisories() -> None:
+def test_registry_has_the_six_advisories() -> None:
     assert set(GUARDS) == {
         "CVE-2026-11940",
         "CVE-2026-11972",
@@ -10,8 +10,6 @@ def test_registry_has_the_eight_advisories() -> None:
         "CVE-2026-0864",
         "CVE-2025-15366",
         "CVE-2025-15367",
-        "CVE-2026-12003",
-        "CVE-2025-60876",
     }
 
 

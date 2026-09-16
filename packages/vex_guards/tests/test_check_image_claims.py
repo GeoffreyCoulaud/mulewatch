@@ -15,7 +15,7 @@ from vex_guards.repo import repo_root
 _CRAWLER_VEX = repo_root() / "security" / "crawler.vex.openvex.json"
 _CRAWLER_VEX_RELPATH = "security/crawler.vex.openvex.json"
 
-_CLAIMED_IMAGE_CVE = "CVE-2025-60876"
+_CLAIMED_IMAGE_CVE = "CVE-2025-15367"
 _CLAIMED_SOURCE_CVE = "CVE-2026-11940"
 
 # Three guards, one per branch of main's filter: an image guard whose CVE is claimed (kept),
@@ -23,7 +23,7 @@ _CLAIMED_SOURCE_CVE = "CVE-2026-11940"
 _GUARDS: dict[str, Guard] = {
     _CLAIMED_IMAGE_CVE: PackageAbsent("nghttp2"),
     _CLAIMED_SOURCE_CVE: ModuleNotImported("tarfile"),
-    "CVE-UNCLAIMED": PackageMinVersion("busybox", "99.0"),
+    "CVE-UNCLAIMED": PackageMinVersion("curl", "99.0"),
 }
 
 
@@ -40,16 +40,16 @@ def _write_sbom(tmp_path: Path, artifacts: list[dict[str, str]]) -> Path:
 
 def _violating_sbom(tmp_path: Path) -> Path:
     # nghttp2 present contradicts the PackageAbsent("nghttp2") guard.
-    return _write_sbom(tmp_path, [{"type": "apk", "name": "nghttp2", "version": "1.64.0-r0"}])
+    return _write_sbom(tmp_path, [{"type": "deb", "name": "nghttp2", "version": "1.64.0-1"}])
 
 
 def _clean_sbom(tmp_path: Path) -> Path:
-    # busybox below the unclaimed guard's minimum: skipped, since nothing claims that CVE.
+    # curl below the unclaimed guard's minimum: skipped, since nothing claims that CVE.
     return _write_sbom(
         tmp_path,
         [
-            {"type": "apk", "name": "nghttp2-libs", "version": "1.64.0-r0"},
-            {"type": "apk", "name": "busybox", "version": "1.37.0-r0"},
+            {"type": "deb", "name": "libnghttp2-14", "version": "1.64.0-1"},
+            {"type": "deb", "name": "curl", "version": "8.14.1-2"},
         ],
     )
 

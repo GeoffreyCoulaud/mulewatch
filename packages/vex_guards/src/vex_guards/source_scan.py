@@ -2,9 +2,8 @@
 ``vulnerable_code_not_in_execute_path`` VEX claim declares exempt.
 
 Each source guard is a falsifiable premise about our shipped Python (a module is
-never imported, a binary is never invoked) or about the runtime image base. The
-scanner reads only our own tree: it parses every ``.py`` under the shipped source
-dirs once and inspects the last ``FROM`` of each Dockerfile, emitting a
+never imported, an external program is never invoked). The scanner reads only our
+own tree: it parses every ``.py`` under the shipped source dirs once, emitting a
 ``Violation`` the moment a premise is contradicted.
 """
 
@@ -14,13 +13,7 @@ from pathlib import Path
 from typing import assert_never
 
 from vex_guards import repo
-from vex_guards.descriptors import (
-    BaseImageIsAlpine,
-    BinaryNotInvoked,
-    ModuleNotImported,
-    SourceGuard,
-    SubprocessDenies,
-)
+from vex_guards.descriptors import ModuleNotImported, SourceGuard, SubprocessDenies
 from vex_guards.violations import Violation
 
 
@@ -78,15 +71,6 @@ def _string_words(tree: ast.AST) -> set[str]:
     return words
 
 
-def _runtime_from(dockerfile: Path) -> str:
-    """The text of the last ``FROM`` line (case-insensitive), or ``""`` if none."""
-    last = ""
-    for line in dockerfile.read_text().splitlines():
-        if line.strip().lower().startswith("from "):
-            last = line
-    return last
-
-
 def _rel(path: Path) -> str:
     return str(path.relative_to(repo.repo_root(), walk_up=True))
 
@@ -115,42 +99,15 @@ def _word_violation(cve: str, word: str, parsed: list[tuple[Path, ast.AST]]) -> 
     return None
 
 
-def _alpine_violations(cve: str, dockerfiles: list[Path]) -> list[Violation]:
-    """One violation per Dockerfile whose last ``FROM`` is not an Alpine base.
-
-    The claim is that EVERY runtime image is built on Alpine, so each Dockerfile
-    is judged on its own last ``FROM``; a drifted image is flagged individually.
-    An empty list is vacuously satisfied.
-    """
-    violations: list[Violation] = []
-    for dockerfile in dockerfiles:
-        runtime_from = _runtime_from(dockerfile)
-        if "alpine" not in runtime_from.lower():
-            rel = _rel(dockerfile)
-            violations.append(
-                Violation(cve, f"runtime base image of {rel} is not Alpine ({runtime_from!r})", rel)
-            )
-    return violations
-
-
-def evaluate(
-    guards: dict[str, SourceGuard],
-    src_dirs: list[Path],
-    dockerfiles: list[Path],
-) -> list[Violation]:
+def evaluate(guards: dict[str, SourceGuard], src_dirs: list[Path]) -> list[Violation]:
     parsed = _parse_sources(src_dirs)
     violations: list[Violation] = []
     for cve, guard in guards.items():
         match guard:
             case ModuleNotImported(module=module):
                 found = _module_violation(cve, module, parsed)
-            case BinaryNotInvoked(name=name):
-                found = _word_violation(cve, name, parsed)
             case SubprocessDenies(program=program):
                 found = _word_violation(cve, program, parsed)
-            case BaseImageIsAlpine():
-                violations.extend(_alpine_violations(cve, dockerfiles))
-                continue
             case _:  # pragma: no cover
                 assert_never(guard)
         if found is not None:

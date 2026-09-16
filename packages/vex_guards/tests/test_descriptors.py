@@ -2,8 +2,6 @@ from typing import get_args
 
 from vex_guards.descriptors import (
     JUSTIFICATION_BY_FAMILY,
-    BaseImageIsAlpine,
-    BinaryNotInvoked,
     Guard,
     ImageGuard,
     ModuleNotImported,
@@ -18,12 +16,7 @@ from vex_guards.descriptors import (
 
 
 def test_source_descriptors_report_source_family() -> None:
-    for guard in (
-        ModuleNotImported("tarfile"),
-        BinaryNotInvoked("wget"),
-        SubprocessDenies("ffmpeg"),
-        BaseImageIsAlpine(),
-    ):
+    for guard in (ModuleNotImported("tarfile"), SubprocessDenies("ffmpeg")):
         assert family(guard) == "source"
 
 

@@ -2,17 +2,21 @@
   "@context": "https://openvex.dev/ns/v0.2.0",
   "@id": "https://github.com/GeoffreyCoulaud/mulewatch/blob/main/security/crawler.vex.openvex.json",
   "author": "GeoffreyCoulaud",
-  "timestamp": "2026-09-13T00:00:00Z",
-  "version": 2,
+  "timestamp": "2026-09-16T00:00:00Z",
+  "version": 3,
   "statements": [
     {
-      "vulnerability": { "name": "CVE-2026-11940" },
+      "vulnerability": {
+        "name": "CVE-2026-11940"
+      },
       "timestamp": "2026-07-08T00:00:00Z",
       "products": [
         {
-          "@id": "pkg:oci/mulewatch-crawler",
+          "@id": "pkg:oci/mulewatch",
           "subcomponents": [
-            { "@id": "pkg:generic/python" }
+            {
+              "@id": "pkg:generic/python"
+            }
           ]
         }
       ],
@@ -21,13 +25,17 @@
       "impact_statement": "The application never imports tarfile and never extracts archives. No archive module (tarfile, zipfile, gzip, bz2, lzma) is imported anywhere in this image's source, and every file the crawler writes is a SQLite database."
     },
     {
-      "vulnerability": { "name": "CVE-2026-11972" },
+      "vulnerability": {
+        "name": "CVE-2026-11972"
+      },
       "timestamp": "2026-07-08T00:00:00Z",
       "products": [
         {
-          "@id": "pkg:oci/mulewatch-crawler",
+          "@id": "pkg:oci/mulewatch",
           "subcomponents": [
-            { "@id": "pkg:generic/python" }
+            {
+              "@id": "pkg:generic/python"
+            }
           ]
         }
       ],
@@ -36,13 +44,17 @@
       "impact_statement": "The application never imports tarfile and never extracts archives. No archive module (tarfile, zipfile, gzip, bz2, lzma) is imported anywhere in this image's source, and every file the crawler writes is a SQLite database."
     },
     {
-      "vulnerability": { "name": "CVE-2026-4360" },
+      "vulnerability": {
+        "name": "CVE-2026-4360"
+      },
       "timestamp": "2026-07-08T00:00:00Z",
       "products": [
         {
-          "@id": "pkg:oci/mulewatch-crawler",
+          "@id": "pkg:oci/mulewatch",
           "subcomponents": [
-            { "@id": "pkg:generic/python" }
+            {
+              "@id": "pkg:generic/python"
+            }
           ]
         }
       ],
@@ -51,13 +63,17 @@
       "impact_statement": "The application never imports tarfile and never extracts archives. No archive module (tarfile, zipfile, gzip, bz2, lzma) is imported anywhere in this image's source, and every file the crawler writes is a SQLite database."
     },
     {
-      "vulnerability": { "name": "CVE-2026-0864" },
+      "vulnerability": {
+        "name": "CVE-2026-0864"
+      },
       "timestamp": "2026-07-08T00:00:00Z",
       "products": [
         {
-          "@id": "pkg:oci/mulewatch-crawler",
+          "@id": "pkg:oci/mulewatch",
           "subcomponents": [
-            { "@id": "pkg:generic/python" }
+            {
+              "@id": "pkg:generic/python"
+            }
           ]
         }
       ],
@@ -66,13 +82,17 @@
       "impact_statement": "Configuration is operator-owned YAML. configparser is never used, and no config value is written from untrusted input."
     },
     {
-      "vulnerability": { "name": "CVE-2025-15366" },
+      "vulnerability": {
+        "name": "CVE-2025-15366"
+      },
       "timestamp": "2026-07-08T00:00:00Z",
       "products": [
         {
-          "@id": "pkg:oci/mulewatch-crawler",
+          "@id": "pkg:oci/mulewatch",
           "subcomponents": [
-            { "@id": "pkg:generic/python" }
+            {
+              "@id": "pkg:generic/python"
+            }
           ]
         }
       ],
@@ -81,51 +101,23 @@
       "impact_statement": "The imaplib module is not imported or used by the application."
     },
     {
-      "vulnerability": { "name": "CVE-2025-15367" },
+      "vulnerability": {
+        "name": "CVE-2025-15367"
+      },
       "timestamp": "2026-07-08T00:00:00Z",
       "products": [
         {
-          "@id": "pkg:oci/mulewatch-crawler",
+          "@id": "pkg:oci/mulewatch",
           "subcomponents": [
-            { "@id": "pkg:generic/python" }
+            {
+              "@id": "pkg:generic/python"
+            }
           ]
         }
       ],
       "status": "not_affected",
       "justification": "vulnerable_code_not_in_execute_path",
       "impact_statement": "The poplib module is not imported or used by the application."
-    },
-    {
-      "vulnerability": { "name": "CVE-2026-12003" },
-      "timestamp": "2026-07-08T00:00:00Z",
-      "products": [
-        {
-          "@id": "pkg:oci/mulewatch-crawler",
-          "subcomponents": [
-            { "@id": "pkg:generic/python" }
-          ]
-        }
-      ],
-      "status": "not_affected",
-      "justification": "vulnerable_code_not_in_execute_path",
-      "impact_statement": "The advisory affects Windows installs only. This image is built on Alpine Linux, where the VPATH landmark escape does not apply."
-    },
-    {
-      "vulnerability": { "name": "CVE-2025-60876" },
-      "timestamp": "2026-07-08T00:00:00Z",
-      "products": [
-        {
-          "@id": "pkg:oci/mulewatch-crawler",
-          "subcomponents": [
-            { "@id": "pkg:apk/alpine/busybox" },
-            { "@id": "pkg:apk/alpine/busybox-binsh" },
-            { "@id": "pkg:apk/alpine/ssl_client" }
-          ]
-        }
-      ],
-      "status": "not_affected",
-      "justification": "vulnerable_code_not_in_execute_path",
-      "impact_statement": "The busybox wget applet is present but the application never invokes it. An exploitable request-target injection requires a wget call built from untrusted input, which our source never makes."
     }
   ]
 }

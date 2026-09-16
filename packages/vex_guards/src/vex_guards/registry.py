@@ -5,12 +5,7 @@ guard descriptor. The keys are advisory identifiers (CVE or GHSA); the values ar
 the falsifiable premise each claim rests on.
 """
 
-from vex_guards.descriptors import (
-    BaseImageIsAlpine,
-    BinaryNotInvoked,
-    Guard,
-    ModuleNotImported,
-)
+from vex_guards.descriptors import Guard, ModuleNotImported
 
 GUARDS: dict[str, Guard] = {
     "CVE-2026-11940": ModuleNotImported("tarfile"),
@@ -19,6 +14,4 @@ GUARDS: dict[str, Guard] = {
     "CVE-2026-0864": ModuleNotImported("configparser"),
     "CVE-2025-15366": ModuleNotImported("imaplib"),
     "CVE-2025-15367": ModuleNotImported("poplib"),
-    "CVE-2025-60876": BinaryNotInvoked("wget"),
-    "CVE-2026-12003": BaseImageIsAlpine(),
 }

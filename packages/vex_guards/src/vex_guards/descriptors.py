@@ -16,18 +16,8 @@ class ModuleNotImported:
 
 
 @dataclass(frozen=True)
-class BinaryNotInvoked:
-    name: str
-
-
-@dataclass(frozen=True)
 class SubprocessDenies:
     program: str
-
-
-@dataclass(frozen=True)
-class BaseImageIsAlpine:
-    pass
 
 
 @dataclass(frozen=True)
@@ -41,7 +31,7 @@ class PackageMinVersion:
     minimum: str
 
 
-SourceGuard = ModuleNotImported | BinaryNotInvoked | SubprocessDenies | BaseImageIsAlpine
+SourceGuard = ModuleNotImported | SubprocessDenies
 ImageGuard = PackageAbsent | PackageMinVersion
 Guard = SourceGuard | ImageGuard
 
@@ -55,7 +45,7 @@ JUSTIFICATION_BY_FAMILY: dict[Family, str] = {
 
 def family(guard: Guard) -> Family:
     match guard:
-        case ModuleNotImported() | BinaryNotInvoked() | SubprocessDenies() | BaseImageIsAlpine():
+        case ModuleNotImported() | SubprocessDenies():
             return "source"
         case PackageAbsent() | PackageMinVersion():
             return "image"
