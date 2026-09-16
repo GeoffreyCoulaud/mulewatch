@@ -23,12 +23,13 @@ class SearchExecuted:
 
 @dataclass(frozen=True)
 class InstanceUnreachable:
-    instance: str
+    # One container, one amuled: the daemon identity is a constant, so the event carries
+    # no field (single-container design §6).
+    pass
 
 
 @dataclass(frozen=True)
 class SearchFailed:
-    instance: str
     network: str
 
 

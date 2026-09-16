@@ -6,7 +6,7 @@ routes. The handlers are closures capturing the dependencies: no ``app.state``.
 
 import csv
 import io
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode
@@ -77,21 +77,33 @@ _NAV_DESTINATIONS: tuple[tuple[str, str], ...] = (
 )
 
 
-def _nav_context(request: Request) -> dict[str, Any]:
-    """Context processor: give EVERY TemplateResponse its ``nav_items`` (no handler has to pass
-    them). The entry whose path matches the request exactly loses its link, which base.html then
-    renders as the bold current page: that is what replaces the per-page ``<h1>``.
+def _make_nav_context(amule_url: str) -> Callable[[Request], dict[str, Any]]:
+    """Build the context processor that gives EVERY TemplateResponse its ``nav_items`` (no
+    handler has to pass them). The entry whose path matches the request exactly loses its link,
+    which base.html then renders as the bold current page: that is what replaces the per-page
+    ``<h1>``.
 
     The match is exact, so a sub-page (``/files/{hash}``, ``/targets/{id}``) marks no entry
     active: it is not itself a nav destination, and it names itself with its own heading.
+
+    The last entry is the container's OTHER web surface, amuleweb (design §9). Its href is an
+    absolute, operator-configured base (mulewatch cannot know how it is reachable from the
+    browser), so it never equals a request path and never goes active.
     """
-    current = request.url.path
-    return {
-        "nav_items": tuple(
-            NavItem(label=label, link=() if path == current else (path,))
-            for path, label in _NAV_DESTINATIONS
-        )
-    }
+
+    def nav_context(request: Request) -> dict[str, Any]:
+        current = request.url.path
+        return {
+            "nav_items": (
+                *(
+                    NavItem(label=label, link=() if path == current else (path,))
+                    for path, label in _NAV_DESTINATIONS
+                ),
+                NavItem(label="aMule", link=(amule_url,)),
+            )
+        }
+
+    return nav_context
 
 
 def _resolve_target_display(
@@ -399,6 +411,7 @@ def build_app(
     templates_dir: Path,
     static_dir: Path,
     control: CrawlerControl,
+    amule_url: str,
 ) -> Starlette:
     """Build and return the wired Starlette application.
 
@@ -410,9 +423,14 @@ def build_app(
     ``control`` is the runtime-control PORT (``CrawlerControl``): the webui depends on the port,
     never on the concrete adapter (composition wires ``LoopCrawlerControl``). Every control POST
     dispatches a thread-safe, fire-and-forget intent to the crawler loop; the webui itself holds
-    no write connection (spec §4/§10)."""
+    no write connection (spec §4/§10).
 
-    templates = Jinja2Templates(directory=templates_dir, context_processors=[_nav_context])
+    ``amule_url`` is the base the nav's aMule entry points at (design §9); the caller reads it
+    from ``webui.amule_url``."""
+
+    templates = Jinja2Templates(
+        directory=templates_dir, context_processors=[_make_nav_context(amule_url)]
+    )
     target_segments = targets
     explainer = MatchingExplainer(matcher_config=matcher_config, targets=targets)
 

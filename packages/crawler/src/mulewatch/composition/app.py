@@ -1,11 +1,11 @@
-"""Composition root: assembles the pool + UNIQUE repos + engine + loop (spec §4/§6).
+"""Composition root: assembles the clients + UNIQUE repos + engine + loop (spec §4/§6).
 
 COMPOSITION layer (the only one allowed to import adapters AND application). Builds:
 - ONE ``SqliteCatalogRepository`` + ONE ``SqliteLocalStateRepository`` +
   ``SqliteSchedulerStateRepository`` (single writer, invariant §11), connections opened
   via ``open_catalog``/``open_local`` (migrations checked at startup, fail-fast §14).
 - the ``MatchingEngine`` (once), the ``node_id`` (config override or the one from local.db),
-- one ``MuleClient`` + ``SearchWorker`` per configured instance (pool, spec §3).
+- ONE ``MuleClient`` + ``SearchWorker`` on the container's single amuled (design §6).
 
 Loop (``_run_loop``): per cycle, ``run_search_cycle`` then sleep (cadence − elapsed).
 OBSERVABLE & BOUNDED shutdown (spec §6): ``loop.add_signal_handler`` (NOT ``KeyboardInterrupt``,
@@ -43,7 +43,6 @@ from mulewatch.adapters.config.crawler_config import (
 )
 from mulewatch.adapters.crawler_control_loop import LoopCrawlerControl
 from mulewatch.adapters.disk_space_shutil import ShutilDiskSpace
-from mulewatch.adapters.docker_restart_http import HttpMuleRestarter
 from mulewatch.adapters.gluetun_port import GluetunPortReader
 from mulewatch.adapters.mule_ec.client import AmuleEcClient
 from mulewatch.adapters.observability.apprise_notifier import AppriseNotifier
@@ -58,6 +57,7 @@ from mulewatch.adapters.persistence_sqlite.local_state_repository import (
 from mulewatch.adapters.persistence_sqlite.scheduler_state_repository import (
     SqliteSchedulerStateRepository,
 )
+from mulewatch.adapters.s6_restart import S6MuleRestarter
 from mulewatch.application.edge_state import EdgeState
 from mulewatch.application.port_sync_loop import PortSyncLoopDeps, port_sync_loop
 from mulewatch.application.reevaluate_catalog import reevaluate_catalog
@@ -100,11 +100,11 @@ def default_download_client_factory(endpoint: AmuleEndpoint) -> MuleDownloadClie
     return AmuleEcClient(endpoint.host, endpoint.port, endpoint.password)
 
 
-# Port-sync factories (injectable in test, like the client factories above). The 1st takes the
-# URL of the gluetun control-server, the 2nd the docker-socket-proxy URL; each returns the real
-# httpx adapter.
+# Port-sync factories (injectable in test, like the client factories above). The reader takes the
+# URL of the gluetun control-server; the restarter takes nothing — amuled is a local s6 service
+# at a fixed service directory (single-container design §9).
 PortForwardingReaderFactory = Callable[[str], PortForwardingReader]
-MuleRestarterFactory = Callable[[str], MuleRestarter]
+MuleRestarterFactory = Callable[[], MuleRestarter]
 
 
 def default_port_forwarding_reader_factory(gluetun_control_url: str) -> PortForwardingReader:
@@ -113,10 +113,9 @@ def default_port_forwarding_reader_factory(gluetun_control_url: str) -> PortForw
     return GluetunPortReader(client)
 
 
-def default_mule_restarter_factory(restarter_url: str) -> MuleRestarter:
-    """An httpx ``HttpMuleRestarter`` on the docker-socket-proxy URL (short timeout)."""
-    client = httpx.AsyncClient(base_url=restarter_url, timeout=httpx.Timeout(10.0))
-    return HttpMuleRestarter(client)
+def default_mule_restarter_factory() -> MuleRestarter:
+    """An ``S6MuleRestarter``: amuled is a local s6 service, so the restart takes no URL."""
+    return S6MuleRestarter()
 
 
 MetricsServer = Callable[[int, CollectorRegistry], None]
@@ -321,24 +320,23 @@ class CrawlerApp:
     ) -> PortSyncLoopDeps:
         """Assemble the port-sync loop deps (design §9). Assumes the config is present.
 
-        gluetun reader (factory) + restarter (factory), both ``aclose`` pushed onto the stack.
-        DEDICATED port-sync EC connection (R6: no contention with download/search) to the amuled
-        endpoint, connected TOLERATING ``MuleUnreachableError`` at boot (a down daemon does not kill
-        the crawler; the loop's backoff governs). In prod, host = ``gluetun`` (compose) - it's
-        the SAME endpoint as the other EC clients.
+        gluetun reader (factory, ``aclose`` pushed onto the stack) + restarter (factory; the s6
+        restarter holds no resource, so there is nothing to close). DEDICATED port-sync EC
+        connection (R6: no contention with download/search) to the amuled endpoint, connected
+        TOLERATING ``MuleUnreachableError`` at boot. That tolerance matters MORE in one container,
+        not less: the three processes start at once, so the crawler routinely reaches EC before
+        amuled listens (design §4). The loop's backoff governs the retries.
         """
         port_sync_config = self._crawler_config.port_sync
         assert port_sync_config is not None  # guaranteed by _port_sync_enabled (mypy: narrow)
 
         reader = self._port_forwarding_reader_factory(port_sync_config.gluetun_control_url)
         stack.push_async_callback(reader.aclose)  # type: ignore[attr-defined]
-        restarter = self._mule_restarter_factory(port_sync_config.restarter_url)
-        stack.push_async_callback(restarter.aclose)  # type: ignore[attr-defined]
+        restarter = self._mule_restarter_factory()
 
-        # DEDICATED port-sync EC connection: we target the 1st configured amuled endpoint (EC host
-        # in prod = gluetun). Tolerates MuleUnreachableError at boot, like the download connection.
-        endpoint = self._crawler_config.amules[0]
-        ec_client = self._client_factory(endpoint)
+        # DEDICATED port-sync EC connection to the container's one amuled (127.0.0.1:4712).
+        # Tolerates MuleUnreachableError at boot, like the download connection.
+        ec_client = self._client_factory(self._crawler_config.amule_endpoint)
         stack.push_async_callback(ec_client.close)
         try:
             await ec_client.connect()
@@ -372,10 +370,10 @@ class CrawlerApp:
 
         SHARED single repos (``catalog_repo`` already built; a ``SqliteDownloadRepository`` on
         the SAME ``local_conn`` - single writer on the event loop, no race). A 2nd EC connection
-        (``download_config.endpoint``) connected tolerating ``MuleUnreachableError`` (a down
-        daemon at startup does not kill the crawler; the loop's backoff governs).
+        to the same daemon (DECISION D3) connected tolerating ``MuleUnreachableError`` (a daemon
+        not yet listening at startup does not kill the crawler; the loop's backoff governs).
         """
-        download_client = self._download_client_factory(download_config.endpoint)
+        download_client = self._download_client_factory(self._crawler_config.amule_endpoint)
         stack.push_async_callback(download_client.close)
         try:
             await download_client.connect()
@@ -488,6 +486,7 @@ class CrawlerApp:
             templates_dir=webui_pkg_dir / "adapters" / "templates",
             static_dir=webui_pkg_dir / "adapters" / "static",
             control=control,
+            amule_url=self._crawler_config.webui.amule_url,
         )
         server = self._webui_server_factory(app)
         thread = threading.Thread(
@@ -518,7 +517,7 @@ class CrawlerApp:
     async def run(self) -> None:
         """Async entry point: opens the resources, installs the signals, loops (§6).
 
-        Ownership (spec §6): the ``AsyncExitStack`` owns the long-lived resources (client pool +
+        Ownership (spec §6): the ``AsyncExitStack`` owns the long-lived resources (EC clients +
         2 connections). The shutdown bound is an ``asyncio.timeout`` ENTERED DISARMED (deadline
         ``None``): the steady-state run (waiting on the signal, cycles) is UNBOUNDED - otherwise
         the crawler would die after ``shutdown_deadline_seconds`` of normal operation. ONLY the
@@ -589,31 +588,28 @@ class CrawlerApp:
                 telemetry=telemetry,
             )
 
-            clients: list[MuleClient] = []
-            workers: list[SearchWorker] = []
-            for endpoint in self._crawler_config.amules:
-                client = self._client_factory(endpoint)
-                stack.push_async_callback(client.close)
-                # CONNECT at pool assembly, BEFORE the 1st coverage readout (otherwise
-                # _aggregate_coverage hits an unconnected client and raises). A daemon down at
-                # startup must NOT bring down a multi-instance crawler: we TOLERATE the
-                # MuleUnreachableError (warning naming the instance) and CONTINUE - the worker's
-                # reconnection backoff will govern the retries. connect() is
-                # idempotent → the worker's later _ensure_connected() stays a no-op.
-                # We do NOT catch broader: EcAuthError (wrong password) is NOT a
-                # MuleUnreachableError → it keeps propagating (fail-fast config, spec §14).
-                try:
-                    await client.connect()
-                except MuleUnreachableError as error:
-                    _logger.warning(
-                        "instance %s unreachable at startup (%s): tolerated, backoff at cycle",
-                        endpoint.name,
-                        error,
-                    )
-                clients.append(client)
-                workers.append(SearchWorker(endpoint.name, client, deps))
+            endpoint = self._crawler_config.amule_endpoint
+            client = self._client_factory(endpoint)
+            stack.push_async_callback(client.close)
+            # CONNECT at setup, BEFORE the 1st coverage readout (otherwise _aggregate_coverage
+            # hits an unconnected client and raises). A daemon not yet listening must NOT bring
+            # the crawler down, and in one container that is the NORMAL case, not the exception:
+            # the crawler, amuled and amuleweb start simultaneously under s6, so the crawler
+            # routinely reaches EC first (design §4). We TOLERATE the MuleUnreachableError and
+            # CONTINUE - the worker's reconnection backoff governs the retries. connect() is
+            # idempotent → the worker's later _ensure_connected() stays a no-op.
+            # We do NOT catch broader: EcAuthError (wrong password) is NOT a
+            # MuleUnreachableError → it keeps propagating (fail-fast config, spec §14).
+            try:
+                await client.connect()
+            except MuleUnreachableError as error:
+                _logger.warning(
+                    "amuled unreachable at startup (%s): tolerated, backoff at cycle", error
+                )
+            clients: list[MuleClient] = [client]
+            workers = [SearchWorker(endpoint.name, client, deps)]
 
-            _logger.info("crawler started: %d instance(s), node_id=%s", len(clients), node_id)
+            _logger.info("crawler started: node_id=%s", node_id)
 
             download_deps: DownloadLoopDeps | None = None
             # FULL mode ⟺ the ``download`` section is present (``enabled: true``). The unified

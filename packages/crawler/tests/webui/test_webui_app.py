@@ -34,6 +34,8 @@ from mulewatch.webui.domain.views import (
 # ---------------------------------------------------------------------------
 
 TEST_HASH = "aabbccdd00112233aabbccdd00112233"
+# Where the nav's aMule entry points in these fixtures: the no-reverse-proxy default.
+_AMULE_URL = "http://localhost:4711"
 
 
 class _RecordingControl:
@@ -154,6 +156,7 @@ def populated_app(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     return app, TEST_HASH
 
@@ -210,6 +213,7 @@ def app_no_decision(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]:
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     return app, TEST_HASH
 
@@ -277,6 +281,7 @@ def app_retracted_decision(catalog_db: Path, local_db: Path) -> tuple[Starlette,
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     return app, TEST_HASH
 
@@ -315,6 +320,7 @@ def app_no_observations(catalog_db: Path, local_db: Path) -> tuple[Starlette, st
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     return app, TEST_HASH
 
@@ -375,6 +381,7 @@ def app_unknown_target(catalog_db: Path, local_db: Path) -> tuple[Starlette, str
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     return app, TEST_HASH
 
@@ -435,6 +442,7 @@ def app_download_tier_known_target(catalog_db: Path, local_db: Path) -> tuple[St
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     return app, TEST_HASH
 
@@ -495,6 +503,7 @@ def app_download_tier_unknown_target(catalog_db: Path, local_db: Path) -> tuple[
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     return app, TEST_HASH
 
@@ -840,6 +849,7 @@ def app_with_media_obs(catalog_db: Path, local_db: Path) -> tuple[Starlette, str
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     return app, TEST_HASH
 
@@ -916,6 +926,7 @@ def app_with_hostile_filename(catalog_db: Path, local_db: Path) -> tuple[Starlet
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     return app, TEST_HASH
 
@@ -1013,6 +1024,7 @@ async def test_files_page_shows_pagination_navigation(catalog_db: Path, local_db
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp1 = await client.get("/files")
@@ -1351,6 +1363,7 @@ def app_whole_episode(catalog_db: Path, local_db: Path) -> tuple[Starlette, str]
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     return app, TEST_HASH
 
@@ -1426,6 +1439,7 @@ def controls_app(catalog_db: Path, local_db: Path) -> tuple[Starlette, _Recordin
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=control,
+        amule_url=_AMULE_URL,
     )
     return app, control
 
@@ -1652,6 +1666,7 @@ def sortable_app(catalog_db: Path, local_db: Path) -> tuple[Starlette, list[str]
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_RecordingControl(),
+        amule_url=_AMULE_URL,
     )
     return app, [big, mid, small]
 
@@ -1839,6 +1854,39 @@ async def test_nav_marks_only_the_current_page_entry_as_active(
             continue
         assert f'<a href="{other_path}">{other_label}</a>' in resp.text
     assert resp.text.count('aria-current="page"') == 1
+
+
+@pytest.mark.asyncio
+async def test_nav_links_to_the_amule_web_ui(populated_app: tuple[Starlette, str]) -> None:
+    """The container publishes two web surfaces (design §9): the nav carries a link to amuleweb
+    so the operator can reach it from here. It is an EXTERNAL entry, so it never goes active."""
+    app, _ = populated_app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/")
+    assert f'<a href="{_AMULE_URL}">aMule</a>' in resp.text
+    assert resp.text.count('aria-current="page"') == 1  # still only the current page
+
+
+@pytest.mark.asyncio
+async def test_nav_amule_link_uses_the_configured_base(catalog_db: Path, local_db: Path) -> None:
+    """The base is configurable so the link survives a reverse proxy in front of 8080: mulewatch
+    cannot infer from the request how amuleweb is reachable from the operator's browser."""
+    import mulewatch.webui
+
+    webui_dir = Path(mulewatch.webui.__file__).parent
+    app = build_app(
+        catalog_db=catalog_db,
+        local_db=local_db,
+        matcher_config=_matcher(),
+        targets=_targets(),
+        templates_dir=webui_dir / "adapters" / "templates",
+        static_dir=webui_dir / "adapters" / "static",
+        control=_RecordingControl(),
+        amule_url="https://mule.example.org/amule",
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/")
+    assert '<a href="https://mule.example.org/amule">aMule</a>' in resp.text
 
 
 @pytest.mark.asyncio

@@ -16,7 +16,7 @@ _COUNTERS: tuple[tuple[MetricName, str, tuple[str, ...]], ...] = (
     (MetricName.OBSERVATIONS, "Observations recorded", ("network",)),
     (MetricName.SEARCH_FAILURES, "Failed searches", ("network",)),
     (MetricName.SEARCH_TASKS_DROPPED, "Tasks dropped (all in backoff)", ("network",)),
-    (MetricName.MULE_UNREACHABLE, "Unreachable instances", ("instance",)),
+    (MetricName.MULE_UNREACHABLE, "amuled unreachable", ()),
     (MetricName.SEARCH_BLIND_CYCLES, "Blind-coverage cycles", ()),
     (MetricName.DECISIONS, "Match decisions recorded", ("tier",)),
     (MetricName.DOWNLOADS_QUEUED, "Downloads queued", ()),

@@ -37,18 +37,18 @@ CASES: list[tuple[ev.Event, Report]] = [
         ),
     ),
     (
-        ev.InstanceUnreachable(instance="amule-1"),
+        ev.InstanceUnreachable(),
         Report(
             Severity.WARNING,
-            "instance amule-1 unreachable",
-            (MetricInstruction(MetricName.MULE_UNREACHABLE, "inc", (("instance", "amule-1"),)),),
+            "amuled unreachable",
+            (MetricInstruction(MetricName.MULE_UNREACHABLE, "inc"),),
         ),
     ),
     (
-        ev.SearchFailed(instance="amule-1", network="kad"),
+        ev.SearchFailed(network="kad"),
         Report(
             Severity.WARNING,
-            "search failed on kad (instance amule-1)",
+            "search failed on kad",
             (MetricInstruction(MetricName.SEARCH_FAILURES, "inc", (("network", "kad"),)),),
         ),
     ),

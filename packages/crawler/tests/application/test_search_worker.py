@@ -401,28 +401,28 @@ async def test_search_failure_emits_search_failed(
     catalog: SqliteCatalogRepository, engine: MatchingEngine
 ) -> None:
     # An application-level channel failure (MuleSearchFailedError) emits
-    # SearchFailed(instance, network).
+    # SearchFailed(network).
     clock = FakeClock()
     telemetry = RecordingTelemetry()
     client = FakeMuleClient(search_failures=[make_search_failed()])
     deps = _deps(catalog, engine, clock, _registry(clock), telemetry=telemetry)
     worker = SearchWorker("amule-1", client, deps)
     await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.GLOBAL))
-    assert telemetry.events == [SearchFailed(instance="amule-1", network="ed2k")]
+    assert telemetry.events == [SearchFailed(network="ed2k")]
 
 
 @pytest.mark.asyncio
 async def test_connect_failure_emits_instance_unreachable(
     catalog: SqliteCatalogRepository, engine: MatchingEngine
 ) -> None:
-    # A connection failure (unreachable instance) emits InstanceUnreachable(instance).
+    # A connection failure (unreachable daemon) emits InstanceUnreachable.
     clock = FakeClock()
     telemetry = RecordingTelemetry()
     client = FakeMuleClient(connect_failures=[make_unreachable()])
     deps = _deps(catalog, engine, clock, _registry(clock), telemetry=telemetry)
     worker = SearchWorker("amule-1", client, deps)
     await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.GLOBAL))
-    assert telemetry.events == [InstanceUnreachable(instance="amule-1")]
+    assert telemetry.events == [InstanceUnreachable()]
 
 
 @pytest.mark.asyncio
@@ -436,4 +436,4 @@ async def test_transport_failure_during_search_emits_instance_unreachable(
     deps = _deps(catalog, engine, clock, _registry(clock), telemetry=telemetry)
     worker = SearchWorker("amule-1", client, deps)
     await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.GLOBAL))
-    assert telemetry.events == [InstanceUnreachable(instance="amule-1")]
+    assert telemetry.events == [InstanceUnreachable()]

@@ -8,10 +8,10 @@ from mulewatch.composition import __main__ as entry
 from mulewatch.composition.app import CrawlerApp
 from mulewatch.domain.policy_fingerprint import policy_fingerprint
 
-_CONFIG = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler"
+_CONFIG = Path(__file__).resolve().parents[4] / "deploy"
 
 # Minimal UNIFIED crawler config (policy + observer wiring), secret via ${...}. The versioned
-# unified file (deploy/config/crawler/crawler.yml) is created by a later task; the
+# unified file (deploy/crawler.yml) is created by a later task; the
 # tests that actually load the config therefore write their own fixture into tmp_path.
 _UNIFIED_CONFIG = """\
 cycle_interval_seconds: 300.0
@@ -26,11 +26,7 @@ backoff:
   cap_seconds: 300.0
   factor: 2.0
   jitter_ratio: 0.3
-amules:
-  - name: amule-1
-    host: amuled
-    port: 4712
-    password: ${AMULE_EC_PASSWORD}
+amule_ec_password: ${AMULE_EC_PASSWORD}
 catalog_db_path: /data/catalog.db
 local_db_path: /data/local.db
 """
@@ -140,7 +136,7 @@ def test_main_refuses_to_start_on_invalid_config(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     bad = tmp_path / "crawler.yml"
-    bad.write_text("amules: []\ncatalog_db_path: c\nlocal_db_path: l\n", encoding="utf-8")
+    bad.write_text("catalog_db_path: c\nlocal_db_path: l\n", encoding="utf-8")
     code = entry.main(["--config", str(bad)])
     assert code == 1
     assert "Invalid config" in capsys.readouterr().err
@@ -154,9 +150,9 @@ def test_main_refuses_on_missing_file(tmp_path: Path, capsys: pytest.CaptureFixt
 
 def test_default_args_point_at_config_dir() -> None:
     namespace = entry._parse_args([])
-    assert namespace.config == Path("deploy/config/crawler/crawler.yml")
-    assert namespace.targets == Path("deploy/config/crawler/targets.yml")
-    assert namespace.matcher == Path("deploy/config/crawler/matcher.yml")
+    assert namespace.config == Path("deploy/crawler.yml")
+    assert namespace.targets == Path("deploy/targets.yml")
+    assert namespace.matcher == Path("deploy/matcher.yml")
 
 
 def test_package_main_shim_reexports_main() -> None:
@@ -215,17 +211,17 @@ def test_validate_config_reports_valid(
 
 
 def test_validate_config_defaults_point_at_config_dir() -> None:
-    # validate-config's options have the SAME deploy/config/crawler/*.yml defaults as the run.
+    # validate-config's options have the SAME deploy/*.yml defaults as the run.
     namespace = entry._parse_validate_args([])
-    assert namespace.config == Path("deploy/config/crawler/crawler.yml")
-    assert namespace.targets == Path("deploy/config/crawler/targets.yml")
-    assert namespace.matcher == Path("deploy/config/crawler/matcher.yml")
+    assert namespace.config == Path("deploy/crawler.yml")
+    assert namespace.targets == Path("deploy/targets.yml")
+    assert namespace.matcher == Path("deploy/matcher.yml")
 
 
 def test_validate_config_reports_missing_env_var(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # INTENDED SIDE EFFECT: the config references ${AMULE_EC_PASSWORD} (active section: amules);
+    # INTENDED SIDE EFFECT: the config references ${AMULE_EC_PASSWORD} (top-level key);
     # the variable missing from the environment → fail-fast interpolation → code 1, clear message.
     monkeypatch.delenv("AMULE_EC_PASSWORD", raising=False)
     code = entry.main(["validate-config", *_argv(_write_config(tmp_path))])
@@ -247,7 +243,7 @@ def test_validate_config_rejects_config_error(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     bad = tmp_path / "crawler.yml"
-    bad.write_text("amules: []\ncatalog_db_path: c\nlocal_db_path: l\n", encoding="utf-8")
+    bad.write_text("catalog_db_path: c\nlocal_db_path: l\n", encoding="utf-8")
     code = entry.main(["validate-config", "--config", str(bad)])
     assert code == 1
     assert "Invalid config" in capsys.readouterr().err

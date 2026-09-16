@@ -1,4 +1,4 @@
-"""Data guardrail: the PROD catalog (deploy/config/crawler/targets.yml) loads and
+"""Data guardrail: the PROD catalog (deploy/targets.yml) loads and
 respects the expected invariants (180 S1+S2 targets, contiguous numbering, 17 recovered).
 
 Cf. spec 2026-06-30-targets-keroro-dual-numbering §6. The 26 mono episodes have only one
@@ -10,7 +10,7 @@ from pathlib import Path
 from catalog_matching.validation import parse_targets
 from mulewatch.adapters.config.yaml_loader import load_yaml
 
-_TARGETS = Path(__file__).resolve().parents[4] / "deploy" / "config" / "crawler" / "targets.yml"
+_TARGETS = Path(__file__).resolve().parents[4] / "deploy" / "targets.yml"
 
 # Recovered segments (cf. spec §6): 17 in total.
 _FOUND = {

@@ -38,13 +38,27 @@ class BackoffConfig:
 
 @dataclass(frozen=True)
 class AmuleEndpoint:
-    """An ``amuled`` daemon reachable over EC (spec §5). ``name`` is the instance label
-    (logging, backoff/scheduler_state key); UNIQUE per config."""
+    """An ``amuled`` daemon reachable over EC. ``name`` is the instance label (logging,
+    backoff/scheduler_state key).
+
+    CODE-LEVEL ONLY: it has no YAML surface any more. The container holds exactly one amuled, at a
+    fixed address, so host/port/name are the constants below and the only deployment-sensitive
+    value (``amule_ec_password``) stays in ``crawler.yml`` (single-container design §6). The
+    dataclass survives because the EC integration suites build one in Python from environment
+    variables, and because the client factories take an endpoint, not four arguments.
+    """
 
     name: str
     host: str
     port: int
     password: str
+
+
+# The single amuled's address. Fixed in code for the same reason the webui bind is
+# (``0.0.0.0:8080``): one container, one daemon, nothing here for an operator to repoint.
+AMULE_EC_HOST = "127.0.0.1"
+AMULE_EC_PORT = 4712
+AMULE_INSTANCE_NAME = "amuled"
 
 
 @dataclass(frozen=True)
@@ -63,16 +77,15 @@ class DownloadConfig:
     earlier). ``min_free_bytes``: free-space floor on the output filesystem, below which a
     candidate is deferred. ``lost_after_seconds``: a queued/downloading row amuled has not shown
     for that long becomes ``failed``. ``output_dir``: the directory measured by ``statvfs``
-    (mounted READ-ONLY; no file is ever opened there). ``endpoint``: 2nd EC connection dedicated
-    to download (DECISION D3). amuled writes the finished file into its own IncomingDir and
-    nothing here ever touches it.
+    (no file is ever opened there). The download loop still gets its OWN EC connection
+    (DECISION D3), now built from the shared constants like every other one. amuled writes the
+    finished file into its own IncomingDir and nothing here ever touches it.
     """
 
     poll_interval_seconds: float
     min_free_bytes: int
     lost_after_seconds: float
     output_dir: str
-    endpoint: AmuleEndpoint
 
 
 @dataclass(frozen=True)
@@ -81,27 +94,31 @@ class PortSyncConfig:
 
     ``poll_interval_seconds``: cadence of the gluetun poll + port comparison.
     ``restart_min_interval_seconds``: rate-limit window for restarts.
-    ``gluetun_control_url`` = gluetun control-server (forwarded port);
-    ``restarter_url`` = docker-socket-proxy (amuled restart).
+    ``gluetun_control_url`` = gluetun control-server (forwarded port). The restart itself needs
+    no URL any more: amuled is a local s6 service (``S6MuleRestarter``, design §9).
     """
 
     poll_interval_seconds: float
     restart_min_interval_seconds: float
     gluetun_control_url: str
-    restarter_url: str
 
 
 @dataclass(frozen=True)
 class WebuiConfig:
     """In-process read-only webui HTTP surface (monolith-consolidation spec §8).
 
-    ``enabled`` gates the WHOLE HTTP surface (``false`` ⇒ headless crawler, no port). It is the
-    section's ONLY knob: the section is OPTIONAL (absent ⇒ enabled). The uvicorn bind is FIXED at
-    ``0.0.0.0:8080`` in the composition layer, not configurable here; exposure is governed by the
-    operator's Docker compose (published port + networks), not by an app-level bind address.
+    ``enabled`` gates the WHOLE HTTP surface (``false`` ⇒ headless crawler, no port). The section
+    is OPTIONAL (absent ⇒ enabled). The uvicorn bind is FIXED at ``0.0.0.0:8080`` in the
+    composition layer, not configurable here; exposure is governed by the operator's Docker
+    compose (published port + networks), not by an app-level bind address.
+
+    ``amule_url`` is where the nav's aMule link points. The container publishes two web surfaces
+    (design §9) and mulewatch cannot know how its own is reached, so this is a plain configurable
+    base: the default is the no-proxy case, and an operator behind a reverse proxy overrides it.
     """
 
     enabled: bool
+    amule_url: str = "http://localhost:4711"
 
 
 _DEFAULT_WEBUI = WebuiConfig(enabled=True)
@@ -138,9 +155,9 @@ class CrawlerConfig:
     ``backoff``, ``decision_poll_interval_seconds`` (nudge safety net),
     ``shutdown_deadline_seconds`` (hard bound of the clean shutdown).
 
-    Wiring (ex-local): ``amules`` (EC pool), DB paths, ``node_id`` (``None`` = the one from
-    ``local.db``), ``observability``, ``download`` (``None`` ⟺ observer mode), ``port_sync``
-    (``None`` ⟺ port-sync off).
+    Wiring (ex-local): ``amule_ec_password`` (the ONE daemon's EC secret; host/port are code
+    constants), DB paths, ``node_id`` (``None`` = the one from ``local.db``), ``observability``,
+    ``download`` (``None`` ⟺ observer mode), ``port_sync`` (``None`` ⟺ port-sync off).
 
     ``search_keywords``: keywords queried by the search loop (``search`` section
     optional; default ``("keroro", "titar")`` if absent).
@@ -154,7 +171,7 @@ class CrawlerConfig:
     backoff: BackoffConfig
     decision_poll_interval_seconds: float
     shutdown_deadline_seconds: float
-    amules: tuple[AmuleEndpoint, ...]
+    amule_ec_password: str
     catalog_db_path: str
     local_db_path: str
     node_id: str | None
@@ -163,6 +180,19 @@ class CrawlerConfig:
     download: DownloadConfig | None = None
     port_sync: PortSyncConfig | None = None
     webui: WebuiConfig = _DEFAULT_WEBUI
+
+    @property
+    def amule_endpoint(self) -> AmuleEndpoint:
+        """The single daemon's EC endpoint: code constants + the configured password.
+
+        ONE derivation point for all three EC connections (search, download, port-sync).
+        """
+        return AmuleEndpoint(
+            name=AMULE_INSTANCE_NAME,
+            host=AMULE_EC_HOST,
+            port=AMULE_EC_PORT,
+            password=self.amule_ec_password,
+        )
 
 
 def _require_mapping(value: Any, what: str) -> dict[str, Any]:
@@ -252,25 +282,6 @@ def _require_str(mapping: dict[str, Any], key: str, what: str, env: Mapping[str,
     return interpolated
 
 
-def _require_port(mapping: dict[str, Any], what: str) -> int:
-    if "port" not in mapping:
-        raise ConfigError(f"{what}: key 'port' missing")
-    value = mapping["port"]
-    if not isinstance(value, int) or isinstance(value, bool) or not (0 < value < 65536):
-        raise ConfigError(f"{what}.port: integer 1..65535 expected, got {value!r}")
-    return value
-
-
-def _parse_endpoint(mapping: dict[str, Any], what: str, env: Mapping[str, str]) -> AmuleEndpoint:
-    """Builds an ``AmuleEndpoint`` (name/host/password interpolated, port validated)."""
-    return AmuleEndpoint(
-        name=_require_str(mapping, "name", what, env),
-        host=_require_str(mapping, "host", what, env),
-        port=_require_port(mapping, what),
-        password=_require_str(mapping, "password", what, env),
-    )
-
-
 def _parse_observability(raw: dict[str, Any], env: Mapping[str, str]) -> ObservabilityConfig:
     log_level = raw.get("log_level", "INFO")
     if not isinstance(log_level, str) or log_level not in _LOG_LEVELS:
@@ -315,16 +326,15 @@ def _parse_observability(raw: dict[str, Any], env: Mapping[str, str]) -> Observa
 # written before them must still boot. 24 h absorbs an amuled restart or a night of EC downtime.
 _DEFAULT_MIN_FREE_BYTES = 10_737_418_240  # 10 GiB
 _DEFAULT_LOST_AFTER_SECONDS = 86_400.0
-_DEFAULT_OUTPUT_DIR = "/data/downloads"  # the read-only mount in deploy/base.compose.yml
+_DEFAULT_OUTPUT_DIR = "/downloads"  # the bind mount in deploy/base.compose.yml
 
 
-def _parse_download(raw: dict[str, Any], env: Mapping[str, str]) -> DownloadConfig | None:
+def _parse_download(raw: dict[str, Any]) -> DownloadConfig | None:
     if "download" not in raw:
         return None
     section = _require_mapping(raw["download"], "section 'download'")
     if not _bool_default(section, "enabled", False, "download"):
         return None  # laziness: we read/interpolate NOTHING else (no variable required)
-    endpoint_raw = _require_mapping(section.get("endpoint"), "download.endpoint")
     output_dir = section.get("output_dir", _DEFAULT_OUTPUT_DIR)
     if not isinstance(output_dir, str) or not output_dir:
         raise ConfigError(f"download.output_dir: non-empty string expected, got {output_dir!r}")
@@ -337,7 +347,6 @@ def _parse_download(raw: dict[str, Any], env: Mapping[str, str]) -> DownloadConf
             section, "lost_after_seconds", _DEFAULT_LOST_AFTER_SECONDS, "download"
         ),
         output_dir=output_dir,
-        endpoint=_parse_endpoint(endpoint_raw, "download.endpoint", env),
     )
 
 
@@ -371,12 +380,11 @@ def _parse_port_sync(raw: dict[str, Any], env: Mapping[str, str]) -> PortSyncCon
             section, "restart_min_interval_seconds", "port_sync"
         ),
         gluetun_control_url=_require_str(section, "gluetun_control_url", "port_sync", env),
-        restarter_url=_require_str(section, "restarter_url", "port_sync", env),
     )
 
 
-def _parse_webui(raw: dict[str, Any]) -> WebuiConfig:
-    """`webui` section (optional). Absent ⇒ enabled. Present ⇒ ``enabled`` only (default True).
+def _parse_webui(raw: dict[str, Any], env: Mapping[str, str]) -> WebuiConfig:
+    """`webui` section (optional). Absent ⇒ enabled, default aMule link.
 
     The bind is FIXED at 0.0.0.0:8080 in the composition layer, so this reads no host/port. Any
     other key in the section (including a legacy ``host``/``port``) is simply not read ⇒ ignored
@@ -384,7 +392,10 @@ def _parse_webui(raw: dict[str, Any]) -> WebuiConfig:
     if "webui" not in raw:
         return _DEFAULT_WEBUI
     section = _require_mapping(raw["webui"], "section 'webui'")
-    return WebuiConfig(enabled=_bool_default(section, "enabled", True, "webui"))
+    enabled = _bool_default(section, "enabled", True, "webui")
+    if "amule_url" not in section:
+        return WebuiConfig(enabled=enabled)
+    return WebuiConfig(enabled=enabled, amule_url=_require_str(section, "amule_url", "webui", env))
 
 
 def parse_crawler_config(raw: dict[str, Any], env: Mapping[str, str]) -> CrawlerConfig:
@@ -411,20 +422,6 @@ def parse_crawler_config(raw: dict[str, Any], env: Mapping[str, str]) -> Crawler
         raise ConfigError(
             f"keyword_pause_max_seconds ({pause_max}) < min ({pause_min}): empty interval"
         )
-    amules_raw = raw.get("amules")
-    if not isinstance(amules_raw, list) or not amules_raw:
-        raise ConfigError("section 'amules': NON-EMPTY list expected (≥ 1 instance, spec §5)")
-    endpoints: list[AmuleEndpoint] = []
-    seen_names: set[str] = set()
-    for index, entry in enumerate(amules_raw):
-        what = f"amules[{index}]"
-        endpoint = _parse_endpoint(_require_mapping(entry, what), what, env)
-        if endpoint.name in seen_names:
-            raise ConfigError(
-                f"duplicate instance name: {endpoint.name!r} (must be unique, spec §5)"
-            )
-        seen_names.add(endpoint.name)
-        endpoints.append(endpoint)
     node_id_raw = raw.get("node_id")
     if node_id_raw is not None and (not isinstance(node_id_raw, str) or not node_id_raw):
         raise ConfigError(f"node_id: non-empty string or absent expected, got {node_id_raw!r}")
@@ -442,13 +439,13 @@ def parse_crawler_config(raw: dict[str, Any], env: Mapping[str, str]) -> Crawler
         backoff=backoff,
         decision_poll_interval_seconds=_positive(raw, "decision_poll_interval_seconds", "crawler"),
         shutdown_deadline_seconds=_positive(raw, "shutdown_deadline_seconds", "crawler"),
-        amules=tuple(endpoints),
+        amule_ec_password=_require_str(raw, "amule_ec_password", "crawler", env),
         catalog_db_path=_require_str(raw, "catalog_db_path", "crawler", env),
         local_db_path=_require_str(raw, "local_db_path", "crawler", env),
         node_id=node_id_raw,
         search_keywords=_parse_search_keywords(raw),
         observability=observability,
-        download=_parse_download(raw, env),
+        download=_parse_download(raw),
         port_sync=_parse_port_sync(raw, env),
-        webui=_parse_webui(raw),
+        webui=_parse_webui(raw, env),
     )

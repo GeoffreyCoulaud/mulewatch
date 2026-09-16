@@ -272,6 +272,7 @@ def _build(catalog_db: Path, local_db: Path) -> Starlette:
         templates_dir=templates_dir,
         static_dir=static_dir,
         control=_StubControl(),
+        amule_url="http://localhost:4711",
     )
 
 

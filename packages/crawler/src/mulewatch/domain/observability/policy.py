@@ -127,17 +127,13 @@ def describe(event: Event) -> Report:
         case InstanceUnreachable():
             return Report(
                 Severity.WARNING,
-                f"instance {event.instance} unreachable",
-                (
-                    MetricInstruction(
-                        MetricName.MULE_UNREACHABLE, "inc", (("instance", event.instance),)
-                    ),
-                ),
+                "amuled unreachable",
+                (MetricInstruction(MetricName.MULE_UNREACHABLE, "inc"),),
             )
         case SearchFailed():
             return Report(
                 Severity.WARNING,
-                f"search failed on {event.network} (instance {event.instance})",
+                f"search failed on {event.network}",
                 (
                     MetricInstruction(
                         MetricName.SEARCH_FAILURES, "inc", (("network", event.network),)
