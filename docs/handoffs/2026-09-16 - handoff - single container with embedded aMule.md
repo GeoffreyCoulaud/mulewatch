@@ -253,22 +253,70 @@ Then, in order:
 The scope-reduction backlog from `2026-09-13 - handoff - scope reduction to catalog notify
 download.md` is unchanged by this work and is still the source of what comes after.
 
+## 7bis. What the holistic review changed, and what it left open
+
+Fixed in `34402f1`:
+
+- **The `finish` contract tore the container down on a restart it was meant to protect.** `main()`
+  caught only the config errors, so the `TimeoutError` from `run`'s shutdown deadline — armed at
+  `shutdown_deadline_seconds`, 10.0 in `crawler.yml` — exited 1, and `finish` escalates any non-zero
+  code into `s6-svscanctl -t`. An operator clicking Restart while an EC socket to a wedged amuled
+  dragged past 10 s therefore killed the whole node, amuled's eD2k and Kad sessions included, and it
+  looked like an ordinary `restart: unless-stopped` bounce. The deadline firing is now exit 0: the
+  bound working is the app keeping its promise not to hang. A worker timing out still arrives as an
+  `ExceptionGroup`, which does not match a bare `except TimeoutError`, so a real crash still exits
+  non-zero.
+- **`deploy/amule/` leaked the EC password digest into the git checkout.** The working folder IS a
+  clone since 2.0 — the runbook says so — and `amule.conf`, holding the MD5 of `AMULE_EC_PASSWORD`,
+  plus amuled's `known.met`, `clients.met` and peer `.dat` files, were all unignored. On `main` that
+  state lived in the `amule-state` named volume and never touched the worktree, so the exposure was
+  new. `.gitignore` now covers `deploy/amule/`, `deploy/data/` and both download directories, each
+  keeping its `.gitkeep`.
+- `services.d/mulewatch/run` takes `set -u`. Deliberately not `set -e`, which would turn the
+  `s6-svperms` failure the script explicitly tolerates into a non-zero exit, i.e. a container kill.
+- The uv pin moved to a named `FROM … AS uv` stage. Dependabot's Docker parser matches `FROM`, not
+  `COPY --from=<image>`, so the inline form had frozen that digest with no alert path.
+
+Left open, none of them breaking a node:
+
+- **`amuleweb` has no wait-for-amuled**, unlike every other EC consumer. On a cold start it connects
+  to `127.0.0.1:4712` before amuled listens, exits, and s6 respawns it (≥ 1 s apart) until it
+  succeeds. Bounded and self-correcting, but it means errors in the log on every boot, and
+  `test_one_container_supervises_the_three_services` can read `s6-svstat -u amuleweb` as `true` on a
+  process about to die — a real flake risk in that test, to fix in the test rather than the image.
+- **`/data` is the only recursive `chown` in the image, and it lives in a service `run`** rather than
+  in the one-shot with the other three mount points. It shipped where spec §4 put it, so it is not a
+  divergence, but it means `/data` ownership is only repaired as a side effect of the crawler
+  starting.
+- **Two pins have no updater.** The nixpkgs commit in `amule.nix` is bumped by hand, so every
+  aMule/wxWidgets CVE the new Grype coverage surfaces is a manual edit — that is the price of the
+  honest SBOM, and it needs a human in the loop. Separately, `vex_guards/sbom.py` filters
+  `type == "deb"` and so structurally cannot see the nix closure: harmless today (no image guard
+  exists) but the first image-family claim about aMule would pass every gate while matching nothing.
+
 ## 7. Inconsistencies knowingly left behind
 
-Found while writing the runbooks, all **outside lot 7's scope** (docs-only), all still true of the
-branch as it stands. None of them breaks anything; each is a small, self-contained follow-up.
+Found while writing the runbooks, all **outside lot 7's scope** (docs-only). Items 1 to 3 were
+fixed after the holistic review and are struck through below, kept for the record; 4 and 5 stand.
 
-1. **`AGENTS.md`'s orientation paragraph contradicts its own invariants.** Its "What this is"
+**A Verify-phase holistic review ran over the whole branch after the seven lots landed.** It fixed
+four things, listed in §7bis, and left three open. Its most useful output was negative: it verified
+against primary sources that `s6-svperms -G` grants *control* rights and not just group ownership,
+that `setpriv` sits in `util-linux` (priority `required`) and not the `util-linux-extra` split, and
+that s6-svscan's default SIGTERM handling is an orderly stop-and-wait — so `docker stop` needs no
+work. Those three were live doubts, and they hold.
+
+1. ~~FIXED (`1daa9d4`).~~ **`AGENTS.md`'s orientation paragraph contradicted its own invariants.** Its "What this is"
    section still reads "one image, one compose service `crawler`, one process", while the
    confinement invariant lower down (rewritten by lot 4) correctly describes one `mulewatch` service
    with three processes. Lot 7 was scoped to the RE2 note only and deliberately did not touch it.
    **Fix this before the next agent reads the file as its orientation.**
-2. **`connection.py`'s `_apply_migrations` docstring is stale.** It justifies `temp_store=MEMORY`
+2. ~~FIXED (`1daa9d4`).~~ **`connection.py`'s `_apply_migrations` docstring was stale.** It justifies `temp_store=MEMORY`
    with "in the container that is a 64m tmpfs (`/var/tmp` is not writable under `read_only: true`)".
    `base.compose.yml` now declares neither `tmpfs:` nor `read_only:`, so `/tmp` is the container's
    writable layer. The remedy is still *wanted* (it avoids spilling into that layer, and the OOM
    ceiling reasoning holds), but its stated reason no longer exists.
-3. **`port_sync_loop.py`'s module docstring still says "`SetPort` + restart the container".** It is
+3. ~~FIXED (`1daa9d4`).~~ **`port_sync_loop.py`'s module docstring said "`SetPort` + restart the container".** It is
    a process restart through `S6MuleRestarter` now.
 4. **Nothing enforces that `port_sync.enabled: true` only makes sense under the gluetun stack.**
    `_parse_port_sync` has no cross-check and `port_sync_loop` never raises. The old administration
