@@ -176,18 +176,36 @@ nix. **None of that is a running container.** Every item below is unverified.
 9. **That the MD5 digest written into `amule.conf` authenticates.** Read from aMule's source; never
    put through a real EC handshake. If it is wrong, the crawler loops on `EcAuthError` and the node
    never catalogues anything.
-10. **That `s6-svstat -u` prints literally `true`/`false`** in Debian Trixie's s6. Both healthchecks
-    and the smoke test compare against that exact string.
+10. ~~That `s6-svstat -u` prints literally `true`/`false`.~~ **NARROWED.** The review found both
+    literals in the shipped binary, and `-u` maps to the `up` field of its `-o` list, so the
+    healthchecks and the smoke test compare against the right tokens. Verified against nixpkgs' s6
+    **2.15.1.0**, not Debian trixie's build — see the caveat under item 14.
 11. **The `finish` contract**: that exit 0 restarts the crawler alone, that a non-zero exit really
     takes the container down through `s6-svscanctl -t`, and that `finish` receives `256` on a signal
     as assumed.
-12. **The whole port-sync restart path.** That `s6-svc -r /etc/services.d/amuled`, run by the
-    crawler as the unprivileged `amule` user *after* `s6-svperms -G amule`, actually succeeds. This
-    is the one place where the `s6-svperms` race and the privilege drop meet.
+12. **The whole port-sync restart path**, END TO END — but the permission half is now **verified**.
+    The shipped binary's own doc defines `-G group` as "allow members of group *group* to read and
+    **control** the service", control being explicitly "send control commands with commands such as
+    `s6-svc`". So `s6-svperms -G amule /etc/services.d/amuled` is the correct and sufficient
+    incantation. The membership chain closes too: `setpriv --regid amule --init-groups` puts the
+    crawler in group `amule` (gid `PGID`), the very group that is granted — and `run` does the grant
+    as root *before* the `setpriv`, so the permission exists before the Python process starts. The
+    doc also confirms what the bounded wait guards: `-u` (owner only) "is the default when
+    `s6-supervise` starts a service for the first time", so a wait that times out really does leave
+    `s6-svc -r` refused, exactly as `mulewatch/run` warns. What remains unverified is only that the
+    call succeeds at runtime against a live `s6-supervise`.
 13. **`s6-svperms` timing on a cold start** (spec §13). The bounded wait is 10 s; nobody knows the
     real figure.
-14. **`docker stop`.** That SIGTERM to `s6-svscan` stops all three services and reaps the tree
-    inside Docker's grace period. Assumed from s6's documented default handling.
+14. ~~`docker stop`.~~ **CLEARED.** With no `.s6-svscan/SIGTERM` script, s6-svscan's documented
+    default is an orderly "stop all services, wait for the whole supervision tree to die, then exit
+    0", and it creates `.s6-svscan` itself if absent — so `s6-svscanctl -t` in `finish` has its
+    control fifo. What is left is whether the tree dies inside Docker's grace period, which depends
+    on amuled's own shutdown, not on s6.
+
+    **Caveat covering items 10, 12 and 14:** all three were checked against nixpkgs' s6 2.15.1.0,
+    which is NOT the build the image ships (Debian trixie's). `-G` and the `true`/`false` output have
+    been stable since 2.11.1.0, so divergence is unlikely — but it is a different build, and the
+    first CI run is what settles it.
 
 ### The compose surface
 
