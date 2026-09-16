@@ -15,6 +15,10 @@ RUN nix-build /build/amule.nix -o /amule \
          ln -s "$(readlink -f /amule)/bin/$binary" "/closure/bin/$binary"; \
        done
 
+# uv, pinned through a named stage rather than `COPY --from=<image>`: Dependabot's Docker parser
+# only matches FROM lines, so the inline form froze this digest with no alert path.
+FROM ghcr.io/astral-sh/uv:0.9.9@sha256:f6e3549ed287fee0ddde2460a2a74a2d74366f84b04aaa34c1f19fec40da8652 AS uv
+
 # --- Python stage: build /app/.venv against Debian's python3, the same one the runtime holds ---
 FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS python
 
@@ -34,7 +38,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:0.9.9@sha256:f6e3549ed287fee0ddde2460a2a74a2d74366f84b04aaa34c1f19fec40da8652 /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /app
 

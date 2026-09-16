@@ -113,6 +113,14 @@ def main(argv: list[str] | None = None) -> int:
     ``run`` is a refusal to start just like a build-time invalid config, so we render it with the
     SAME clean message + non-zero exit code (instead of a bare traceback). The resources are
     already closed cleanly by ``run`` (LIFO stack) before the raise.
+
+    THE EXIT CODE IS A SUPERVISION CONTRACT, not just a shell convention. s6 reads it in
+    ``services.d/mulewatch/finish``: 0 means "restart the crawler alone, leave amuled's eD2k and
+    Kad sessions alive", anything else means ``s6-svscanctl -t`` — the whole container goes down.
+    So ``TimeoutError`` from ``run``'s shutdown deadline maps to 0: the bound firing is the app
+    KEEPING its promise not to hang, and an overrunning ``/controls/restart`` must not take the
+    node down. It is a bare ``TimeoutError`` only when the deadline itself fired; a worker
+    timing out surfaces as an ``ExceptionGroup`` and still exits non-zero, as a crash should.
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     tokens = sys.argv[1:] if argv is None else argv
@@ -128,6 +136,13 @@ def main(argv: list[str] | None = None) -> int:
     except (YamlLoadError, ConfigError, MatcherConfigError) as error:
         print(f"Invalid config, refusing to start: {error}", file=sys.stderr, flush=True)
         return 1
+    except TimeoutError:
+        print(
+            "Shutdown deadline elapsed: exiting on the bound rather than hanging.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 0
     return 0
 
 
