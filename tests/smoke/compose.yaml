@@ -1,62 +1,51 @@
 # Standalone SMOKE stack (compose_integration test). NOT a real deployment: it uses the
-# tests/smoke/ configs and named volumes (to exercise the mount permissions), without gluetun
-# or docker-proxy. One stack, no profiles.
+# tests/smoke/ configs and a throwaway state directory, without gluetun.
 # Driven by packages/crawler/tests/integration/test_compose_smoke.py.
 # Invoked with --project-directory <repo root>: every relative path resolves against the repo
 # root (context=., configs ./tests/smoke/*.yml).
+#
+# One service, like the real stacks: the crawler, amuled and amuleweb run under s6 in the same
+# container, so there is nothing left to wire between services.
 services:
-  amuled:
-    image: ngosang/amule:3.0.0-1
-    networks:
-      - ec
-    environment:
-      GUI_PWD: smoke-ec-password
-    volumes:
-      - amule-state:/home/amule/.aMule
-      - downloads:/downloads
-    restart: unless-stopped
-
-  crawler:
-    image: ghcr.io/geoffreycoulaud/mulewatch-crawler:${IMAGE_TAG:-latest}
+  mulewatch:
+    image: ghcr.io/geoffreycoulaud/mulewatch:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: packages/crawler/Dockerfile
-    user: "999:999"
-    read_only: true
-    tmpfs:
-      - /tmp:size=64m  # sandbox-confinement#3
-    cap_drop:
-      - ALL
+    # PID 1 is root (it creates the amule user and takes the bind mounts), exactly as in
+    # deploy/base.compose.yml: `user:`, `read_only:` and `cap_drop: ALL` cannot survive here.
     security_opt:
       - "no-new-privileges:true"
-    networks:
-      ec:
-        aliases: [crawler]
-      egress: {}
-    command:
-      - "--config"
-      - "/app/config/crawler.yml"
-      - "--targets"
-      - "/app/config/targets.yml"
-      - "--matcher"
-      - "/app/config/matcher.yml"
+    pids_limit: 512
+    mem_limit: 2g
+    # No `restart:` on purpose (default `no`): a crash must show up as an exited container, not
+    # as a backoff loop that makes the state check flap. The real stacks restart; the smoke does
+    # not, because here a crash IS the result.
+    #
+    # All four are hard-required by the startup one-shot: without them it exits 1 and the
+    # container dies. PUID/PGID are the invoking user's, so the state directory below stays
+    # readable from the host — the very thing named volumes used to hide.
+    environment:
+      PUID: ${PUID:?}
+      PGID: ${PGID:?}
+      AMULE_EC_PASSWORD: ${AMULE_EC_PASSWORD:?}
+      WEBUI_PWD: ${WEBUI_PWD:?}
     volumes:
       - ./tests/smoke/crawler.yml:/app/config/crawler.yml:ro
       - ./tests/smoke/targets.yml:/app/config/targets.yml:ro
-      - ./deploy/config/crawler/matcher.yml:/app/config/matcher.yml:ro
-      # Read-only, for statvfs only (download.output_dir): the same volume amuled writes its
-      # finished files to, so the crawler measures the filesystem that actually fills up.
-      - downloads:/data/downloads:ro
-      - catalog-db:/data/catalog
-      - local-db:/data/local
-    restart: unless-stopped
-
-networks:
-  ec: {}
-  egress: {}
-
-volumes:
-  catalog-db: {}
-  local-db: {}
-  amule-state: {}
-  downloads: {}
+      # The matcher policy has exactly ONE copy in the repo (AGENTS.md): the operator's.
+      - ./deploy/matcher.yml:/app/config/matcher.yml:ro
+      # Bind mounts, like the real stacks, so the PUID/PGID chown path is exercised for real
+      # (a root-owned mount point => `unable to open database file`). The test creates
+      # SMOKE_STATE and its three subdirectories, then throws them away.
+      - ${SMOKE_STATE:-/tmp/mulewatch-smoke}/amule:/home/amule/.aMule
+      - ${SMOKE_STATE:-/tmp/mulewatch-smoke}/data:/data
+      - ${SMOKE_STATE:-/tmp/mulewatch-smoke}/downloads:/downloads
+    # PITFALL: s6-svstat exits 0 even for a stopped service — it prints `false`, and exit 1 means
+    # s6-supervise itself is not running. Test the printed output, not the exit code.
+    healthcheck:
+      test: ["CMD-SHELL", 'test "$$(s6-svstat -u /etc/services.d/amuled)" = true']
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 30s

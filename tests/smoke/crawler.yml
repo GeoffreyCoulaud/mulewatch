@@ -7,29 +7,25 @@ keyword_pause_max_seconds: 0.5
 decision_poll_interval_seconds: 2.0
 shutdown_deadline_seconds: 5.0
 
+# One amuled per container, at 127.0.0.1:4712 (code constants). Only the secret is configurable,
+# and the compose file puts it in the environment of the very same container.
+amule_ec_password: ${AMULE_EC_PASSWORD}
+
 backoff:
   base_seconds: 1.0
   cap_seconds: 10.0
   factor: 2.0
   jitter_ratio: 0.3
 
-amules:
-  - name: amule-smoke
-    host: amuled
-    port: 4712
-    password: smoke-ec-password
-
 search:
   keywords: [keroro, titar]
 
-catalog_db_path: /data/catalog/catalog.db
-local_db_path: /data/local/local.db
+catalog_db_path: /data/catalog.db
+local_db_path: /data/local.db
 
-# webui served in-process by the crawler; 0.0.0.0 so docker exec can reach it.
+# webui served in-process by the crawler, on a bind fixed at 0.0.0.0:8080 in code.
 webui:
   enabled: true
-  host: 0.0.0.0
-  port: 8080
 
 download:
   enabled: true
@@ -40,10 +36,5 @@ download:
   # A queued/downloading entry amuled has not shown for this long becomes failed. An entry
   # stays in amuled's queue even with zero sources, so absence really does mean gone.
   lost_after_seconds: 86400
-  # Measured with statvfs, never read: mounted read-only in the compose file.
-  output_dir: /data/downloads
-  endpoint:
-    name: amule-smoke-dl
-    host: amuled
-    port: 4712
-    password: smoke-ec-password
+  # Measured with statvfs, never read. amuled writes incoming/ and temp/ under it.
+  output_dir: /downloads
