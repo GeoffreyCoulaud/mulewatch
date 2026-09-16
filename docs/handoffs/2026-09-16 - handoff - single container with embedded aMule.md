@@ -32,7 +32,7 @@ PID 1  entrypoint.sh (root)
 - Base: `debian:trixie-slim`, `python3` (3.13.x) and `s6` from Debian's own packages, plus aMule
   3.0.1 built from a **pinned nixpkgs** (`c7def046…`) and copied in as a bare store closure.
 - Stacks: `deploy/compose.yml` (direct, **one** service) and `deploy/gluetun.compose.yml` (VPN,
-  **two**), both `include:`-ing `deploy/base.compose.yml`.
+  **two**), both specializing `deploy/base.compose.yml` through `extends:`.
 - State: **bind mounts only**. `deploy/{data,amule,downloads}/` are plain folders. No named volume
   survives anywhere.
 - Python floor dropped to **3.13** (Trixie has no 3.14) across all three packages and mypy.
@@ -124,7 +124,23 @@ the reconciliation.**
   amuled only — deliberately, since it works with `webui.enabled: false` and a crawler crash already
   kills the container. But an operator reading `healthy` is reading about amuled.
 - **`base.compose.yml` must declare no `ports:` and no networking.** Compose merges `ports`
-  additively and cannot remove an entry an included fragment added, so each stack publishes its own.
+  additively and cannot remove an entry a shared fragment added, so each stack publishes its own.
+- **The shared fragment is reached with `extends:`, NOT `include:` — and the spec is wrong here.**
+  Spec §9, including its tree, prescribes `include:`. That does not work: `include:` imports the
+  fragment as a resource, so a stack that then declares `services: mulewatch:` to add its own ports
+  is refused outright with `services.mulewatch conflicts with imported resource`. It is a conflict,
+  never an override. `extends:` is the mechanism for specializing a shared service definition: it
+  instantiates only the named service, merges sequences additively (referenced first, then the
+  extender) and lets scalars go to the extender. Its restriction — `depends_on`, `links` and
+  `volumes_from` are never shared — falls well here, since `network_mode: service:gluetun` and
+  `depends_on: [gluetun]` belong to the VPN stack anyway and are declared locally. The constraint
+  §9 was protecting is unchanged and still honoured: the fragment publishes no port.
+  **This was caught by CI, not locally** — see the lesson below.
+- **A `docker compose config` that "passed" locally proved nothing.** The agent that wrote the
+  compose files reported all three stacks validating with exit 0, pulled through nix. They did not:
+  `nix run` is disabled on this machine (experimental features off), so the command failed and its
+  exit code was read as success. The conflict above then surfaced on the first CI run. When a tool
+  is unavailable, a green result is the thing to distrust first.
 - **`AMULE_EC_PASSWORD` is the source of truth, and `amule.conf` follows it.** The first draft wrote
   the MD5 digest only when the file was absent, while the crawler and amuleweb both read the live
   environment variable — so editing `.env` on a running node desynchronised the three processes
