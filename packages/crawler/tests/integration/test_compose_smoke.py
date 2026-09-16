@@ -326,9 +326,19 @@ def _exec_python(script: str, *args: str, files: tuple[Path, ...]) -> str:
     return result.stdout.strip()
 
 
-def _shared_hashes(files: tuple[Path, ...]) -> frozenset[str]:
-    """Hashes amuled currently shares, read over EC from inside the container."""
-    return frozenset(json.loads(_exec_python(_SHARED_HASHES, files=files)))
+def _shared_hashes(files: tuple[Path, ...]) -> frozenset[str] | None:
+    """Hashes amuled currently shares, read over EC from inside the container.
+
+    `None` means the EC call itself did not complete. That is a READINESS state, not a result:
+    `s6-svc -r` tears amuled down while its listening socket is still accepting, so a connection
+    opened in that window is accepted and then reset mid-handshake (observed in CI: the peer
+    closed during `_authenticate`, right after the salt request). Callers poll on it.
+    """
+    output = _exec("python", "-c", _SHARED_HASHES, files=files)
+    try:
+        return frozenset(json.loads(output))
+    except json.JSONDecodeError:
+        return None
 
 
 def _wait_new_shared_hash(
@@ -336,15 +346,19 @@ def _wait_new_shared_hash(
 ) -> str:
     """Poll until exactly one hash appeared in amuled's shared list, and return it.
 
-    amuled hashes the IncomingDir asynchronously at startup, so this is a readiness probe. The
-    "exactly one" bound is what identifies OUR file: the smoke amuled shares nothing else at
+    Called right after `s6-svc -r`, so it is the readiness probe for the restart TOO: amuled is
+    still shutting down for the first attempts (EC refuses or resets), then comes back and hashes
+    the IncomingDir asynchronously. A failed EC call is therefore a poll iteration, not a failure.
+    The "exactly one" bound is what identifies OUR file: the smoke amuled shares nothing else at
     that point (its only queue entry has no sources and no bytes, so it is not shared yet).
     """
     appeared: frozenset[str] = frozenset()
     for _ in range(attempts):
-        appeared = _shared_hashes(files) - before
-        if len(appeared) == 1:
-            return next(iter(appeared))
+        current = _shared_hashes(files)
+        if current is not None:
+            appeared = current - before
+            if len(appeared) == 1:
+                return next(iter(appeared))
         time.sleep(delay)
     raise AssertionError(f"expected exactly one new shared hash, got {sorted(appeared)}")
 
@@ -369,6 +383,7 @@ def test_a_file_amuled_shares_is_recorded_completed(project_files: tuple[Path, .
     )
 
     before = _shared_hashes(project_files)
+    assert before is not None, "amuled's EC server must answer before the restart"
     drop = _run(
         "exec",
         "-T",
