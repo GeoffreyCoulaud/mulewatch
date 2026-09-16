@@ -1,8 +1,15 @@
-# Base fragment, included by deploy/compose.yml and deploy/gluetun.compose.yml.
-# Holds the one shared service: crawler, amuled and amuleweb under s6, in a single container.
+# Base fragment, pulled in by deploy/compose.yml and deploy/gluetun.compose.yml through
+# `extends:`. Holds the one shared service: crawler, amuled and amuleweb under s6, in a single
+# container.
 #
-# It declares NO `ports:` and NO networking on purpose — compose merges `ports` additively and
-# cannot remove an entry an included fragment added, so each stack publishes its own.
+# `extends:` and NOT `include:` — a file may not redeclare a service it imported with `include:`
+# ("services.mulewatch conflicts with imported resource"), and both stacks must specialize this
+# service to add their own `ports:`. `extends:` is the mechanism meant for that: it instantiates
+# only the named service, merges sequences additively and lets the extending file win on scalars.
+#
+# This fragment declares NO `ports:` and NO networking on purpose — merging is additive and
+# cannot remove an entry the fragment added, and the two stacks publish differently (the VPN one
+# publishes 8080/4711 on gluetun, not here).
 #
 # Validate alone (from repo root):
 #   AMULE_EC_PASSWORD=x WEBUI_PWD=y docker compose -f deploy/base.compose.yml config

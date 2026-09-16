@@ -4,11 +4,11 @@
 #   docker compose up -d
 name: mulewatch
 
-include:
-  - path: base.compose.yml
-
 services:
   mulewatch:
+    extends:
+      file: base.compose.yml
+      service: mulewatch
     # 8080 is the mulewatch catalog UI and has NO authentication: catalog, crawl controls and a
     # read-only SQL console, to anyone who can reach it. 4711 is amuleweb, guarded by WEBUI_PWD.
     # Front both with the operator's reverse proxy or VPN.
