@@ -45,32 +45,24 @@ IP domestique et votre FAI voit les flux vers les pairs, sans leur contenu.
 ## Le risque légal
 
 **Partager une œuvre soumise au droit d'auteur sans autorisation est illégal dans la plupart des
-juridictions**, et c'est vrai dès qu'un nœud eMule tourne. Trois niveaux d'exposition :
+juridictions**, et c'est vrai dès qu'un nœud eMule tourne. Renseignez-vous sur la vôtre : les
+dispositifs de riposte varient d'un pays à l'autre, et ils changent.
+
+Trois niveaux d'exposition :
 
 - **Catalogage seul** (`download.enabled: false`) : aMule s'annonce comme source dès qu'un fichier
   est dans son IncomingDir ; sans téléchargement il reste vide, donc exposition faible.
 - **Téléchargement actif** (le défaut) : vous téléchargez **et** re-partagez, eMule étant
-  symétrique. Les fichiers terminés restent dans l'IncomingDir, donc offerts aux pairs tant que vous
-  ne les déplacez pas.
+  symétrique. Les fichiers terminés restent dans l'IncomingDir, donc offerts aux pairs tant que
+  vous ne les déplacez pas.
 - **[High-ID par la route B](high-id.md)** : un port ouvert sur votre box vous rend joignable
   directement, avec une visibilité accrue comme source et votre IP visible.
 
-Le risque pratique est **statistiquement faible, mais non nul**, et dépend de votre juridiction
-(France et Belgique ont un dispositif actif, l'Hadopi repris par l'Arcom en 2022 ; l'Allemagne
-pratique les *Abmahnungen*, avertissements payants des ayants droit ; la Suisse et le Canada sont
-moins agressifs sur le P2P), de la nature de votre cible (les surveillances P2P visent les
-nouveautés à forte valeur commerciale, pas un dessin animé Teletoon de 2008) et de votre pile.
-
-Le projet a par ailleurs quelques arguments à faire valoir : il est non-commercial, son catalogue ne
-fournit aucun service de téléchargement public — il documente l'existence d'un fichier sur le
-réseau — et une œuvre non rééditée, aux ayants droit inactifs, ne subit ni vente perdue ni marché
-concurrencé. **Ces arguments ne font pas le droit.** Ils peuvent peser dans une discussion, pas dans
-un tribunal ; et « j'utilisais un VPN » n'est pas une défense, seulement une piste plus dure à
-remonter pour la partie adverse.
-
-Si vous opérez pour une **bibliothèque, un musée ou une fondation de préservation**, des dérogations
-existent peut-être (exceptions pédagogiques ou patrimoniales, selon les pays) : faites valider par
-votre service juridique, et ne supposez pas qu'elles couvrent automatiquement le P2P.
+En pratique, le risque reste **faible mais non nul** : la surveillance du P2P se concentre sur les
+nouveautés à forte valeur commerciale, et eD2k est un réseau vieillissant où la cible de ce projet
+— un dessin animé de 2008 jamais réédité — n'intéresse personne. C'est une affaire de probabilité,
+pas de légalité. Là où une procédure est engagée, « j'utilisais un VPN » n'est pas une défense,
+seulement une piste plus dure à remonter.
 
 ## Ce qu'un VPN protège, et ce qu'il ne protège pas
 
