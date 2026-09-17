@@ -92,7 +92,6 @@ _CONFIG_ENV = {
     **_SMOKE_ENV,
     "WIREGUARD_PRIVATE_KEY": "x",
     "SERVER_COUNTRIES": "",
-    "LISTEN_PORT": "4662",
 }
 
 
