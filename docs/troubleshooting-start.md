@@ -4,9 +4,11 @@ Une fiche par symptôme d'installation, dans l'ordre des Points de contrôle du
 [guide d'installation](install.md). Pour le téléchargement, le High-ID, le stockage et la
 récupération après panne, voir [Diagnostics avancés](troubleshooting.md).
 
-> **Où lancer ces commandes.** Depuis votre dossier de travail, celui qui contient `compose.yml`.
-> Les chemins sont donc relatifs : `.env`, `crawler.yml`, `data/`. Sous la pile VPN, ajoutez
-> `-f gluetun.compose.yml` à chaque `docker compose ...`.
+!!! info "Où lancer ces commandes"
+
+    Depuis votre dossier de travail, celui qui contient `compose.yml`. Les chemins sont donc
+    relatifs : `.env`, `crawler.yml`, `data/`. Sous la pile VPN, ajoutez `-f gluetun.compose.yml` à
+    chaque `docker compose ...`.
 
 ### Docker introuvable, ou installé mais sans réponse
 
@@ -39,16 +41,22 @@ récupération après panne, voir [Diagnostics avancés](troubleshooting.md).
 - **Solution.** Renseignez les quatre dans `.env` (copiez `.env.example` si ce n'est pas déjà fait),
   puis `docker compose up -d`. Le détail de chacune est au
   [tableau de l'étape 3](install.md#3-choisir-vos-mots-de-passe).
-- **Cas voisin : un `change-me` oublié.** Si `AMULE_EC_PASSWORD` ou `WEBUI_PWD` est resté à sa
-  valeur d'exemple, le crawler journalise plus tard une erreur d'authentification. Vérifiez-le
-  ainsi — la commande ne doit **rien** afficher :
-  ```
-  grep -E '^(AMULE_EC_PASSWORD|WEBUI_PWD)=change-me' .env
-  ```
-  Le `change-me` restant sur `WIREGUARD_PRIVATE_KEY` est normal, il ne sert qu'au VPN. Attention si
-  vous changez `AMULE_EC_PASSWORD` sur un nœud **déjà lancé** : amuled garde le mot de passe de son
-  premier démarrage, voir
-  [« J'ai perdu `AMULE_EC_PASSWORD` »](troubleshooting.md#jai-perdu--je-ne-me-souviens-plus-de-amule_ec_password).
+
+??? question "Cas voisin : un `change-me` oublié"
+
+    Si `AMULE_EC_PASSWORD` ou `WEBUI_PWD` est resté à sa valeur d'exemple, le crawler journalise
+    plus tard une erreur d'authentification. Vérifiez-le ainsi — la commande ne doit **rien**
+    afficher :
+
+    ```
+    grep -E '^(AMULE_EC_PASSWORD|WEBUI_PWD)=change-me' .env
+    ```
+
+    Le `change-me` restant sur `WIREGUARD_PRIVATE_KEY` est normal, il ne sert qu'au VPN.
+
+    Attention si vous changez `AMULE_EC_PASSWORD` sur un nœud **déjà lancé** : amuled garde le mot
+    de passe de son premier démarrage, voir
+    [« J'ai perdu `AMULE_EC_PASSWORD` »](troubleshooting.md#jai-perdu--je-ne-me-souviens-plus-de-amule_ec_password).
 
 ### Un conteneur redémarre en boucle
 
@@ -66,16 +74,21 @@ récupération après panne, voir [Diagnostics avancés](troubleshooting.md).
     - **Mot de passe EC refusé** (`EcAuthError`) : voir le cas `change-me` ci-dessus.
     - **Journal d'une ligne, sans Python** : voir
       [« Une variable obligatoire manque »](#une-variable-obligatoire-manque).
-    - **Journal entièrement vide, juste après une montée d'image.** Le noyau a tué le conteneur,
-      donc rien n'a pu être écrit — c'est le pic mémoire d'une migration d'index sur un gros
-      catalogue, décrit dans [Limites connues](limits.md). Confirmez avec :
-      ```
-      docker inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}}' mulewatch-mulewatch-1
-      ```
-      `true 137` signe le manque de mémoire. Remède : relevez temporairement le `mem_limit` du
-      service `mulewatch` dans `base.compose.yml`, faites `docker compose up -d`, laissez le premier
-      démarrage aller à son terme, puis remettez la valeur d'origine. Le pic est ponctuel : une fois
-      l'index construit, il est maintenu au fil de l'eau.
+
+!!! bug "Journal entièrement vide, juste après une montée d'image"
+
+    Le noyau a tué le conteneur, donc rien n'a pu être écrit — ce n'est pas une panne applicative,
+    mais le pic mémoire d'une migration d'index sur un gros catalogue, décrit dans
+    [Limites connues](limits.md). Confirmez avec :
+
+    ```
+    docker inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}}' mulewatch-mulewatch-1
+    ```
+
+    `true 137` signe le manque de mémoire. Remède : relevez temporairement le `mem_limit` du service
+    `mulewatch` dans `base.compose.yml`, faites `docker compose up -d`, laissez le premier démarrage
+    aller à son terme, puis remettez la valeur d'origine. Le pic est ponctuel : une fois l'index
+    construit, il est maintenu au fil de l'eau.
 
 ### Le port est déjà pris
 
@@ -92,11 +105,17 @@ récupération après panne, voir [Diagnostics avancés](troubleshooting.md).
 
 - **Symptôme.** Le crawler boucle (lignes `cycle ...`) mais reste en `effective_coverage=blind`,
   avec des avertissements d'injoignabilité.
-- **D'abord, patientez.** Au premier démarrage, amuled amorce seul sa liste de serveurs eD2k et de
-  nœuds Kad par DNS et HTTPS sortant, ce qui prend 1 à 3 minutes. `blind` pendant ce temps est
-  attendu et se résorbe seul ; vous n'avez aucun serveur à ajouter. Un message **Low-ID** n'est pas
-  non plus une panne : c'est l'état normal par défaut, seule la joignabilité est sous-optimale, voir
-  [Devenir High-ID](high-id.md).
+
+!!! tip "D'abord, patientez : au premier démarrage, c'est attendu"
+
+    amuled amorce seul sa liste de serveurs eD2k et de nœuds Kad par DNS et HTTPS sortant, ce qui
+    prend 1 à 3 minutes. `effective_coverage=blind` pendant ce temps se résorbe tout seul ; vous
+    n'avez aucun serveur à ajouter.
+
+    Un message **Low-ID** n'est pas non plus une panne : c'est l'état normal par défaut, recherche,
+    catalogage et téléchargement fonctionnent, seule la joignabilité est sous-optimale. Voir
+    [Devenir High-ID](high-id.md).
+
 - **Si cela dure.** Vérifiez la sortie Internet de la machine (amuled a besoin du 443 sortant). **Si
   vous avez ajouté un VPN**, c'est presque toujours le tunnel `gluetun` qui n'est pas monté : le
   conteneur partage son réseau, donc tant que le tunnel est down, amuled n'a aucune sortie.
