@@ -69,11 +69,12 @@ sudo chown -R "$PUID:$PGID" data amule downloads
 ```
 
 **Étape 6, démarrez la nouvelle pile.** La pile directe est désormais `compose.yml`, et non
-`compose.yaml` :
+`compose.yaml` ; si vous étiez sur la pile VPN, c'est `-f gluetun.compose.yml` comme à
+l'étape 1 :
 
 ```bash
 docker compose up -d
-docker compose ps        # one service, `mulewatch`, Up (healthy) after ~30 s
+docker compose ps        # un seul service, `mulewatch`, Up (healthy) au bout de ~30 s
 ```
 
 ### Ce qui est repris, et ce qui ne l'est pas

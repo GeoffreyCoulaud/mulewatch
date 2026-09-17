@@ -29,8 +29,8 @@ Le projet a **deux niveaux** :
    (`[tool.poe.tasks]`) :
 
    ```bash
-   uv run poe check     # the full gate: lint-all + test (what pre-push and CI run)
-   uv run poe test      # the 3 unit suites alone, each in its own process
+   uv run poe check     # le gate complet : lint-all + test (ce que lancent pre-push et la CI)
+   uv run poe test      # les 3 suites unitaires seules, chacune dans son processus
    ```
 
    > La tâche `test` reste **par paquet** : elle lance `pytest` avec `cwd = packages/<pkg>` pour

@@ -7,6 +7,11 @@ leur ouverture. Si une étape dépasse votre confort, l'option de repli sûre es
 repartir d'un dossier `data/` vide (voir « Récupération après panne ») : vous perdez le catalogue
 accumulé, mais vous redémarrez d'un état connu.
 
+!!! info "Où lancer ces commandes"
+
+    Depuis votre dossier de travail, celui qui contient `compose.yml`. Sous la pile VPN,
+    ajoutez `-f gluetun.compose.yml` à chaque `docker compose ...`.
+
 ---
 
 ## Démarrage & réseau
@@ -319,10 +324,10 @@ donc par processus, et non par service compose. Depuis votre dossier de travail 
 `amuled`, `amuleweb` ou `mulewatch`) :
 
 ```bash
-docker compose exec mulewatch s6-svstat /etc/services.d/<svc>   # up/down + uptime in seconds
-docker compose exec mulewatch s6-svc -r /etc/services.d/<svc>   # restart it
-docker compose exec mulewatch s6-svc -d /etc/services.d/<svc>   # stop it
-docker compose exec mulewatch s6-svc -u /etc/services.d/<svc>   # start it again
+docker compose exec mulewatch s6-svstat /etc/services.d/<svc>   # actif/arrêté + durée en secondes
+docker compose exec mulewatch s6-svc -r /etc/services.d/<svc>   # le redémarrer
+docker compose exec mulewatch s6-svc -d /etc/services.d/<svc>   # l'arrêter
+docker compose exec mulewatch s6-svc -u /etc/services.d/<svc>   # le relancer
 ```
 
 Deux choses à savoir avant de les utiliser :

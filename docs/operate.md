@@ -48,10 +48,10 @@ le nœud semblera avoir perdu son catalogue. Les données, elles, sont toujours 
 d'un coup. Pour n'en toucher qu'un, adressez-vous à s6 :
 
 ```bash
-docker compose exec mulewatch s6-svstat /etc/services.d/amuled   # status
-docker compose exec mulewatch s6-svc -r /etc/services.d/amuled   # restart
-docker compose exec mulewatch s6-svc -d /etc/services.d/amuled   # stop
-docker compose exec mulewatch s6-svc -u /etc/services.d/amuled   # start
+docker compose exec mulewatch s6-svstat /etc/services.d/amuled   # état
+docker compose exec mulewatch s6-svc -r /etc/services.d/amuled   # redémarrer
+docker compose exec mulewatch s6-svc -d /etc/services.d/amuled   # arrêter
+docker compose exec mulewatch s6-svc -u /etc/services.d/amuled   # démarrer
 ```
 
 Remplacez `amuled` par `amuleweb` ou `mulewatch`. Il n'existe pas de service compose `amuled`, donc
