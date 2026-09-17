@@ -23,5 +23,5 @@ deploy/downloads/incoming/*
 deploy/downloads/temp/*
 !deploy/downloads/temp/.gitkeep
 vendor/
-# Worktrees crees par EnterWorktree (checkouts lies, hors versionnement)
+# Worktrees créés par EnterWorktree (checkouts liés, hors versionnement)
 .claude/worktrees/
