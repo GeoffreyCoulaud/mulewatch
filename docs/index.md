@@ -1,88 +1,64 @@
-# Documentation: mulewatch
+# mulewatch
 
-`mulewatch` continuously watches the eMule network (eD2k + Kad) to recover the lost episodes of the
-French dub of *Keroro mission Titar*, cataloguing the available metadata along the way. Design
-constraint: **the catalog's subject is the file, never the person** (no tracking, no
-deanonymization).
+mulewatch surveille le réseau eMule en continu pour retrouver des médias perdus. Sa première
+mission : la version française de *Keroro mission Titar*, diffusée sur Teletoon en 2008 et
+aujourd'hui quasiment introuvable.
 
-This documentation is organised **by audience**. Pick your entry point:
+Ces épisodes n'ont pas disparu. Ils réapparaissent par intermittence, le temps qu'un détenteur reste
+connecté, puis s'évanouissent. Une recherche manuelle tombe presque toujours au mauvais moment. Un
+nœud qui tourne jour et nuit, non : il cherche sans relâche, note tout ce qu'il croise, et vous
+prévient dès qu'un épisode manquant apparaît.
 
-## Operator / node host
+**Le sujet du catalogue est le fichier, jamais la personne.** mulewatch ne piste personne et ne
+cherche à désanonymiser personne. Il enregistre qu'un fichier existe, où et quand il a été vu, et
+rien d'autre.
 
-You want to **deploy and run** a node (homelab, server). *Honest prerequisite: this assumes you are
-comfortable with a **terminal** and **Docker** (Linux/server oriented); the default **Low-ID** state
-is enough to contribute.*
+## Par où commencer
 
-- **[Deployment runbook](install.md)**: *bring up* the `docker compose` stack and see it
-  run. Seven steps, then the annexes (VPN, High-ID, catalog-only mode, and the hand-run **migration
-  of a 1.x node to 2.0**), secrets, first boot, Low-ID.
-- **[Administration runbook](operate.md)**: *operate and tune* a running node.
-  Lifecycle, optional High-ID, Prometheus metrics, container hardening, catalog tools
-  (merge/compact/validate), known limits.
-- **[Troubleshooting runbook](troubleshooting.md)**: *fix a concrete problem*, whatever
-  your level. Symptom, cause, fix.
-- **[Legality, privacy, ethics](legal.md)**: what your node catalogues and stores (and
-  what it does not), the legal risk stated honestly, what a VPN really protects. Read this before
-  deploying a public node.
+| Vous voulez | Allez à |
+|---|---|
+| Monter un nœud, de zéro à un catalogue qui se remplit | [Installer un nœud](install.md) |
+| Le piloter au quotidien, le sauvegarder, le régler | [Faire tourner un nœud](operate.md) |
+| Réparer quelque chose qui ne marche pas | [Le déploiement bloque](troubleshooting-start.md) |
+| Savoir ce que vous risquez et ce que le nœud stocke | [Légalité et vie privée](legal.md) |
 
-## Collaboration between searchers
+Comptez une quinzaine de minutes pour l'installation, une fois Docker en place. Installer Docker est
+de loin l'étape la plus longue ; le reste tient en une commande et un mot de passe à choisir.
 
-`mulewatch` is designed so that **each searcher deploys their own node**; there is **no central
-hub** and that is deliberate (a non-goal for v0.x). Collaboration happens **offline**, by sharing
-SQLite databases (`catalog.db`) between searchers who each run their own node.
+Un nœud, c'est **un seul conteneur**. À l'intérieur tournent trois programmes : `amuled`, le client
+eMule ; `amuleweb`, son interface web ; et `mulewatch`, qui cherche, catalogue et sert le catalogue
+web. Vous n'avez normalement pas à le savoir, mais cela compte dès que vous lisez les journaux ou
+redémarrez une pièce, et les pages le rappellent là où ça se voit.
 
-**Architecture:**
-- Each searcher hosts **one complete node**, which is **one container**: the crawler (serving the
-  read-only webui in-process), `amuled` and `amuleweb`, supervised by s6. Each node owns its own
-  `catalog.db`.
-- Instances **do not know about each other** and never synchronise.
-- To share your findings: send your `catalog.db` (shared drive, git LFS, Nextcloud, any channel) to
-  another searcher, who **merges** it into their catalog with the `merge` tool.
+## Partager un catalogue entre chercheurs {#partage}
 
-**Merge tool:** every searcher can merge N collected catalogs into one, with
-[the `mulewatch.merge` tool documented in the administration runbook](operate.md#outils-de-catalogue).
-Merging is **idempotent** (re-merging the same file is a no-op) and **safe by default** (no
-overwrite without `--force`). Each file is identified by its **eD2k content fingerprint**, so a
-merge never creates duplicates.
+Chaque chercheur fait tourner **son propre nœud**. Il n'y a pas de serveur central, et c'est
+volontaire. Les nœuds ne se connaissent pas et ne se synchronisent jamais : le partage se fait à la
+main, en s'échangeant des fichiers de catalogue.
 
-**Typical sharing cycle:**
+Votre catalogue est un simple fichier, `data/catalog.db` dans votre dossier de travail. Pour le
+partager, copiez-le (nœud arrêté) et envoyez-le par le canal que vous voulez. Pour intégrer celui
+d'un autre chercheur, fusionnez-le au vôtre avec l'outil `merge`, décrit dans
+[Faire tourner un nœud](operate.md#outils-de-catalogue).
 
-1. You catalog locally for N weeks.
-2. You export your `catalog.db` (it is a plain file, `data/catalog.db` in your working folder —
-   copy it with the node stopped; see runbooks/administration.md § Planification disque).
-3. You exchange it with other searchers over an offline channel.
-4. You merge the received catalogs into yours: `python -m mulewatch.merge --output
-   catalog-merged.db your-catalog.db catalog-from-X.db catalog-from-Y.db`.
-5. You swap your live `catalog.db` for `catalog-merged.db` (stop the crawler, swap, restart).
+La fusion est sûre : chaque fichier est identifié par son empreinte de contenu, donc deux chercheurs
+qui ont vu le même fichier écrivent la même ligne. Refusionner deux fois le même catalogue ne change
+rien, et rien n'est écrasé sans que vous le demandiez.
 
-**What does not exist (at this stage):**
-- No discovery protocol for finding other searchers.
-- No automatic "another node found a file you are looking for" notification.
-- No real-time synchronisation and no central hub.
+Le cycle habituel : vous cataloguez quelques semaines, vous échangez votre `catalog.db`, vous
+fusionnez ce que vous recevez, et vous remplacez votre catalogue par le catalogue fusionné.
 
-These may emerge one day if the community grows; for now, manual sharing is plenty.
+## Ce qui n'existe pas
 
-## Developer / contributor / CI
+Pas de mécanisme pour découvrir les autres chercheurs, pas d'alerte quand un autre nœud trouve un
+fichier que vous cherchez, pas de synchronisation automatique, pas de serveur central. Cela viendra
+peut-être si le projet réunit du monde ; pour l'instant, l'échange à la main suffit largement.
 
-You **change the code** or set up CI: how to run the test suites (the per-package gate plus the
-integration suites), their exact prerequisites, continuous-integration leads, and the architecture
-and design decisions.
+## Contribuer au code
 
-- **[Testing guide](contributing/testing.md)**: every suite (unit + integration), CI leads, diagnostic
-  tools.
-- **[Architecture and behaviour](contributing/architecture.md)**: subsystems, interactions, runtime lifecycles.
-- **[Design specs](https://github.com/GeoffreyCoulaud/mulewatch/blob/main/agents/specs/)**: the authoritative MVP design (17 sections) and the per-subsystem
-  designs.
-- The **gate** (build/test/lint commands, hard rules) is described in `AGENTS.md` at the repo root.
-
-## History / decision record
-
-The **why** behind the choices, milestone by milestone, and the implementation plans that were
-executed.
-
-- **[Handoffs](https://github.com/GeoffreyCoulaud/mulewatch/blob/main/agents/handoffs/)**: one continuation guide per milestone
-  (`<ISO date> - handoff - <context>.md`); the most recent one is the entry point for the current
-  context.
-- **[Implementation plans](https://github.com/GeoffreyCoulaud/mulewatch/blob/main/agents/plans/)**: the plans executed in subagent-driven mode.
-- **[Reference notes](https://github.com/GeoffreyCoulaud/mulewatch/blob/main/agents/reference/)**: dated empirical findings (EC field richness, download opcodes,
-  amuled completion behaviour).
+Le code est en Python, en architecture hexagonale, avec des tests stricts. Voyez
+[Architecture du code](contributing/architecture.md) pour comprendre comment le crawler fonctionne,
+et [Lancer les tests](contributing/testing.md) pour les suites de tests et leurs prérequis. Les
+conventions du projet, les specs et l'historique des décisions vivent dans le dépôt, sous
+[`AGENTS.md`](https://github.com/GeoffreyCoulaud/mulewatch/blob/main/AGENTS.md) et
+[`agents/`](https://github.com/GeoffreyCoulaud/mulewatch/tree/main/agents).

@@ -1,4 +1,4 @@
-# Légalité, confidentialité, éthique — pour l'opérateur d'un nœud
+# Légalité et vie privée
 
 Ce guide s'adresse à **vous qui hébergez un nœud** `mulewatch` chez vous, sur un VPS, ou dans
 une infra que vous administrez. Il répond honnêtement à trois questions :
@@ -34,7 +34,7 @@ votre juridiction.
 
 - **Aucune IP de pair eMule.** Le crawler interroge aMule via son protocole EC ; aMule expose des
   identifiants opaques pour les sources, jamais d'adresses IP.
-- **Aucune trace utilisateur.** Pas de cookies, pas de session, pas de log d'accès — la WebUI est
+- **Aucune trace utilisateur.** Pas de cookies, pas de session, pas de log d'accès : la WebUI est
   en lecture seule et n'authentifie personne (l'auth doit être fournie par un reverse proxy en
   amont si vous l'exposez).
 - **Aucune télémétrie sortante.** Le crawler n'envoie rien à un service tiers. Les métriques
@@ -57,14 +57,14 @@ votre juridiction.
 ### Ce qui finit sur votre disque
 
 - Les bases SQLite du catalogue (`catalog.db`, `local.db`) : qq Mo à qq Go selon l'usage et la
-  compaction (cf. [runbook d'administration § Planification disque](operate.md#planification-disque)).
+  compaction (cf. [Faire tourner un nœud](operate.md#planification-disque)).
 - Quand le téléchargement est actif : les fichiers téléchargés, écrits directement dans
   `downloads/incoming` de votre dossier de travail. Rien ne les purge : ils s'accumulent jusqu'à
   ce que vous fassiez le ménage.
 
 ---
 
-## 2. Risque légal — honnêtement
+## 2. Risque légal, honnêtement
 
 ### Le constat de base
 
@@ -79,7 +79,7 @@ juridictions.** C'est vrai dès que vous faites tourner un nœud eMule, quel que
   votre dossier partagé). Les fichiers finis restant dans l'IncomingDir, ce re-partage dure tant
   que vous ne les déplacez pas.
 - **High-ID Route B** : vous ouvrez un port sur votre box, ce qui augmente votre visibilité comme
-  source — vous êtes joignable directement par les pairs, votre IP est visible.
+  source : vous êtes joignable directement par les pairs, votre IP est visible.
 
 ### Le risque pratique pour ce projet
 
@@ -90,14 +90,14 @@ Le risque est **statistiquement faible mais non nul**, et dépend de trois facte
    les ayants droit). La Suisse, le Canada, beaucoup d'autres juridictions sont moins agressives
    sur le P2P. Renseignez-vous sur votre pays.
 2. **La nature de votre cible.** Ce projet vise des **médias perdus** (œuvres non rééditées, aux
-   ayants droit inactifs ou introuvables). Statistiquement, ces œuvres ne mobilisent personne —
+   ayants droit inactifs ou introuvables). Statistiquement, ces œuvres ne mobilisent personne :
    les surveillances P2P ciblent les nouveautés à forte valeur commerciale, pas les épisodes
    d'un dessin animé Teletoon de 2008.
 3. **Votre choix de stack.** La stack VPN (gluetun) masque votre IP au FAI et aux pairs eMule ; la
    stack par défaut expose votre IP domestique.
 
 **Aucune de ces protections n'est une absolution juridique.** Si une procédure vous tombe dessus,
-« j'utilisais un VPN » n'est pas une défense — c'est juste plus difficile pour la partie
+« j'utilisais un VPN » n'est pas une défense, c'est juste plus difficile pour la partie
 adverse de remonter à vous.
 
 ### Ce qui distingue ce projet d'un client P2P généraliste
@@ -108,7 +108,7 @@ Argumentairement :
 - Un fichier *retrouvé* enrichit le patrimoine et, dans la mesure où l'ayant droit est inactif,
   ne lui cause aucun préjudice économique (pas de vente perdue, pas de marché concurrencé).
 - Le projet est explicitement **non-commercial**, sans publicité, sans monétisation.
-- Le catalogue ne sert pas à fournir un service de téléchargement public — il documente
+- Le catalogue ne sert pas à fournir un service de téléchargement public : il documente
   l'existence d'un fichier sur le réseau (preuve d'existence).
 
 Ces arguments ne font pas le droit. Ils peuvent peser dans une discussion, pas dans un tribunal.
@@ -118,7 +118,7 @@ Ces arguments ne font pas le droit. Ils peuvent peser dans une discussion, pas d
 Si votre nœud tourne pour le compte d'une **bibliothèque, d'un musée, d'une fondation de
 préservation** ou de toute structure publique, vous bénéficiez potentiellement de **dérogations
 spécifiques** (exceptions pédagogiques, exceptions de préservation patrimoniale dans certains
-pays). Faites valider par votre service juridique — ne déployez pas en supposant que ces
+pays). Faites valider par votre service juridique, et ne déployez pas en supposant que ces
 dérogations couvrent automatiquement le P2P.
 
 ---
@@ -169,15 +169,6 @@ Si vous voulez minimiser votre exposition :
   bibliothèque P2P partagée pré-existante, pas de tests autres).
 
 Si vous opérez en collaboration avec d'autres chercheurs, voir
-[docs/README.md § Collaboration between searchers](index.md#collaboration-between-searchers)
+[la page d'accueil](index.md#partage)
 pour le partage de catalogues hors-ligne.
 
----
-
-## Pour aller plus loin
-
-- [`runbooks/administration.md`](operate.md) : opérations courantes, durcissement
-  conteneur, limites connues.
-- [`runbooks/troubleshooting.md`](troubleshooting.md) : quand quelque chose casse.
-- [`AGENTS.md`](https://github.com/GeoffreyCoulaud/mulewatch/blob/main/AGENTS.md) : invariants de design (notamment « le sujet du catalogue est le
-  fichier, jamais la personne »).

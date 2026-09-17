@@ -1,18 +1,17 @@
 # Faire tourner un nœud
 
-Ce guide s'adresse à qui **exploite et règle** un nœud déjà monté. Pour *monter* la stack, commencez
-par le **[Runbook de déploiement](install.md)** ; pour résoudre un problème concret, le
-**[Runbook de dépannage](troubleshooting.md)**. On trouve ici le cycle de vie du nœud, le
-High-ID (optionnel), les métriques, le durcissement conteneur, les outils de
-catalogue et les limites connues. Le sujet du catalogue reste **le fichier, jamais la personne**.
+Cette page s'adresse à vous une fois le nœud monté : le piloter, le sauvegarder, le régler, savoir
+quoi regarder quand il ne catalogue plus. Si vous n'avez pas encore de nœud, commencez par
+[Installer un nœud](install.md). Si quelque chose est cassé, allez directement à
+[Diagnostics avancés](troubleshooting.md).
 
 ---
 
 ## Cycle de vie & données
 
 Un nœud est désormais **un seul conteneur** (service compose `mulewatch`) qui fait tourner **trois
-processus** sous le superviseur s6 : `amuled`, `amuleweb` et `mulewatch` — le crawler, qui sert
-aussi la webui en intra-processus, sur un thread dédié. PID 1 est l'entrypoint : il crée
+processus** sous le superviseur s6 : `amuled`, `amuleweb` et `mulewatch` (le crawler, qui sert
+aussi le catalogue web, sur un thread dédié). PID 1 est l'entrypoint : il crée
 l'utilisateur `amule` à partir de `PUID`/`PGID`, prend possession des points de montage, écrit un
 `amule.conf` **seulement s'il n'y en a pas**, puis passe la main à `s6-svscan`. Chaque service
 abandonne ensuite ses privilèges avec `setpriv`.
@@ -27,7 +26,7 @@ l'une d'elles manque ; les fichiers compose portent des gardes `:?`, de sorte qu
   (`catalog.db`, `local.db`), la config d'amuled dans `amule/`, les fichiers téléchargés dans
   `downloads/incoming` et `downloads/temp`. `docker compose down` n'y touche pas, et il n'y a plus
   de `-v` capable d'effacer le catalogue par accident : pour l'effacer, supprimez `data/` à la main.
-  Corollaire voulu : `sqlite3 data/catalog.db` marche directement depuis l'hôte — c'est le rôle de
+  Corollaire voulu : `sqlite3 data/catalog.db` marche directement depuis l'hôte, c'est le rôle de
   `PUID`/`PGID`, qui gardent ces dossiers lisibles sans `sudo`.
 - **Arrêter le nœud** : `docker compose down` (stack par défaut) ou
   `docker compose -f gluetun.compose.yml down` (stack VPN).
@@ -43,7 +42,7 @@ l'une d'elles manque ; les fichiers compose portent des gardes `:?`, de sorte qu
   voir « Diagnostic après panne » ci-dessous.
 - **Migration depuis un nœud 1.x** (deux images, quatre services, volumes nommés) : la procédure,
   manuelle et à faire une seule fois, est dans le
-  [runbook de déploiement, annexe E](migration-1x.md). Ne lancez pas
+  [Migrer un nœud 1.x](migration-1x.md). Ne lancez pas
   la 2.0 par-dessus un nœud 1.x sans
   l'avoir suivie : les volumes nommés ne sont pas lus par la nouvelle stack, et le nœud semblera
   avoir perdu son catalogue (les données, elles, sont toujours dans les volumes).
@@ -51,7 +50,7 @@ l'une d'elles manque ; les fichiers compose portent des gardes `:?`, de sorte qu
 ### Redémarrer un processus plutôt que le conteneur
 
 Le cycle de vie a désormais **deux niveaux**. `docker compose up -d`, `restart` et `down` agissent
-sur **tout le conteneur** — les trois processus d'un coup. Pour agir sur **un seul** processus,
+sur **tout le conteneur**, les trois processus d'un coup. Pour agir sur **un seul** processus,
 adressez-vous à s6 dans le conteneur :
 
 ```bash
@@ -62,39 +61,18 @@ docker compose exec mulewatch s6-svc -u /etc/services.d/amuled   # start
 ```
 
 Remplacez `amuled` par `amuleweb` ou `mulewatch` selon le besoin. Il n'y a plus de
-`docker compose restart amuled` — il n'existe pas de service compose `amuled`.
+`docker compose restart amuled` : il n'existe pas de service compose `amuled`.
 
-Le crawler est le seul service dont le code de sortie est interprété. Son script `finish` s6 le
-lit :
+Un détail qui compte quand vous redémarrez : si le crawler s'arrête proprement, comme le fait le
+bouton de redémarrage de `/controls`, s6 le relance seul et aMule garde ses sessions eD2k et Kad.
+S'il plante, tout le conteneur redescend, pour que la panne soit visible plutôt que silencieuse.
+aMule et amuleweb, eux, sont simplement relancés sur place.
 
-| Code de sortie | Ce que fait s6 | Pourquoi |
-|---|---|---|
-| `0` | redémarre le crawler **seul** | c'est le bouton de redémarrage de `/controls` dans la webui ; amuled garde ses sessions eD2k et Kad |
-| tout autre | `s6-svscanctl -t`, qui couche **tout le conteneur** | un plantage — une config invalide avant tout — doit produire une boucle de backoff `restart: unless-stopped` visible, et non un crash-loop silencieux dans un conteneur qui a toujours l'air sain |
+### Quand le nœud ne catalogue plus
 
-amuled et amuleweb sont supervisés normalement : ils plantent, s6 les relance, le backoff EC du
-crawler absorbe le trou.
-
-Le healthcheck du conteneur ne sonde qu'amuled, avec
-`test "$(s6-svstat -u /etc/services.d/amuled)" = true`. **Piège si vous scriptez autour :**
-`s6-svstat` sort en 0 même pour un service arrêté — il imprime `false` ; un code 1 signifie que
-`s6-supervise` lui-même ne tourne pas. Testez la valeur imprimée, jamais le code de retour.
-
-### Diagnostic après panne
-
-Si le nœud tourne mais ne semble plus catalogue / télécharge plus rien. Les trois processus
-partagent un seul flux de logs (`docker compose logs mulewatch`) ; chaque ligne est préfixée par le
-service qui l'a émise.
-
-| Symptôme | Premier check | Action |
-|---|---|---|
-| Le crawler tourne mais aucune nouvelle observation depuis > 1 h | `docker compose logs mulewatch --tail 100` | Cherchez « EC unavailable », « no servers » ou « cycle » récent. Si pas de cycle, amuled est probablement déconnecté du réseau (voir [runbook-troubleshooting](troubleshooting.md)). |
-| Téléchargements bloqués en QUEUED | `docker compose logs mulewatch \| grep -i download` | Vérifier que amuled est en High-ID **ou** qu'il a des sources (sources directes nécessaires en Low-ID). |
-| Un téléchargement fini n'apparaît pas dans `downloads/incoming` | `docker compose logs mulewatch --tail 100` | Voir la fiche [« Un fichier terminé n'apparaît jamais »](troubleshooting.md#un-fichier-terminé-napparaît-jamais-dans-downloadsincoming). |
-| Un processus est mort sans emporter le conteneur | `docker compose exec mulewatch s6-svstat /etc/services.d/amuled` | `false` = arrêté : relancez-le avec `s6-svc -u` (cf. ci-dessus) et cherchez la cause dans les logs. |
-| Le disque se remplit | `docker system df -v` puis `du -sh downloads/ data/` | Catalogue trop gros (voir Compaction) ou fichiers téléchargés accumulés : le crawler refuse de nouveaux téléchargements sous `download.min_free_bytes`, mais ne supprime jamais rien. |
-
-Pour les symptômes inconnus, voir le [runbook de dépannage](troubleshooting.md).
+Les trois processus partagent un seul flux de journaux, `docker compose logs mulewatch`, et
+chaque ligne est préfixée par le service qui l'a émise. C'est toujours le premier endroit à
+regarder. Pour aller du symptôme à la cause, voyez [Diagnostics avancés](troubleshooting.md).
 
 ### Planification disque
 
@@ -106,7 +84,7 @@ vos cibles) :
   Outils de catalogue) ramène l'historique au-delà de 90 jours à un rollup journalier : taux de
   compression élevé.
 - **`downloads/`** : les fichiers téléchargés, qui **s'accumulent sans borne** (rien ne les purge).
-  Depuis le 2026-09-13, le crawler **mesure** vraiment le disque : il n'accepte un nouveau candidat
+  Le crawler mesure vraiment le disque : il n'accepte un nouveau candidat
   que si `libre - reste à télécharger - taille du candidat` demeure au-dessus de
   `download.min_free_bytes` (10 Gio par défaut). C'est un **plancher**, pas un plafond : il bloque
   les nouveaux téléchargements quand le disque se tend, il n'efface rien. Le ménage dans
@@ -117,7 +95,7 @@ vos cibles) :
 - **`amule/`** : qq Mo (amule.conf, server.met, nodes.dat, prefs).
 
 Si votre VPS / NAS approche de saturation, lancez `du -sh downloads/ data/ amule/`
-pour identifier le coupable, puis `python -m mulewatch.compact` (cf. Outils de catalogue) ou
+pour identifier le coupable, puis compactez le catalogue (voir Outils de catalogue) ou
 faites le ménage dans `downloads/incoming`.
 
 ---
@@ -134,14 +112,14 @@ Tous ces outils sont **opérateurs et ponctuels** (pas de boucle, jamais déclen
   --output /data/catalog-merged.db /data/catalog.db /data/source-b.db …` consolide N `catalog.db` (un par chercheur/campagne) en un seul,
   **idempotent** (re-merger est un no-op) et safe-by-default (pas d'écrasement sans `--force` ;
   `--into <source>` pour fusionner dans une source existante). **Cycle de partage entre chercheurs
-  documenté dans [docs/README § Collaboration between searchers](index.md#collaboration-between-searchers).**
+  décrit sur la [page d'accueil](index.md#partage).**
 - **Compaction du catalogue** : `docker compose exec --user amule mulewatch python -m mulewatch.compact
   /data/catalog.db -o /data/catalog-compact.db [--keep-recent-days 90]` réduit la **seule** table qui croît sans borne,
   `file_observations` (une ligne par fichier observé à chaque cycle). Le brut des `--keep-recent-days`
   derniers jours (90 par défaut) est conservé tel quel ; au-delà, les observations sont **résumées en
   un rollup journalier** node-agnostique dans `file_observation_ranges` (une ligne par fichier et par
   **jour UTC** : ensemble des noms vus, ensemble des nœuds, min/max/somme de la disponibilité, plage
-  temporelle ; la moyenne se dérive de somme/compte). À lancer **crawler arrêté** — soit tout le
+  temporelle ; la moyenne se dérive de somme/compte). À lancer **crawler arrêté** : soit tout le
   conteneur (`docker compose down`), soit le seul processus crawler
   (`docker compose exec mulewatch s6-svc -d /etc/services.d/mulewatch`), ce qui laisse amuled
   garder ses sessions eD2k / Kad pendant l'opération. Il **reconstruit vers une sortie neuve**
@@ -206,7 +184,7 @@ Un nœud publie **deux** surfaces web, et elles n'ont pas la même posture :
 
 Le port **8080 n'a aucune authentification, d'aucune sorte**. Quiconque l'atteint obtient le
 catalogue, les POST de `/controls` qui modifient l'état et une console SQL en lecture seule.
-`WEBUI_PWD` ne protège **que le 4711** — il ne fait rien pour le 8080. Mettez le 8080 derrière un
+`WEBUI_PWD` ne protège **que le 4711**, il ne fait rien pour le 8080. Mettez le 8080 derrière un
 reverse proxy ou un VPN, ou gardez-le sur un réseau de confiance, et ne le posez pas sur l'Internet
 ouvert.
 
@@ -218,24 +196,10 @@ proxy amont (nginx, Caddy, Traefik, etc.) que vous mettez devant. Elle ne modifi
 elle ouvre ses propres connexions SQLite en lecture seule (`mode=ro` + `PRAGMA query_only=ON`) via
 son `ReaderProvider`, jamais une connexion en écriture.
 
-### Lancer la WebUI
-
-Rien de spécial à lancer : la WebUI est servie **en intra-processus** par le processus `mulewatch`,
-donc elle démarre et s'arrête **avec lui**, sans service ni profil dédié. N'importe laquelle des
-commandes de lancement du [Runbook de déploiement](install.md#5-lancer) la met en ligne, que le
-téléchargement soit activé ou non.
-
-```bash
-# Stack sans VPN
-docker compose up -d
-
-# Stack VPN : idem
-docker compose -f gluetun.compose.yml up -d
-```
-
-Pour la couper sans couper le crawl, mettez `webui.enabled: false` dans `crawler.yml` : cela ferme
-toute la surface HTTP 8080 (le crawl, lui, continue). Pour couper le crawl en gardant amuled vivant,
-c'est `docker compose exec mulewatch s6-svc -d /etc/services.d/mulewatch`.
+Il n'y a rien de spécial à lancer : le catalogue web est servi par le processus `mulewatch`
+lui-même, donc il démarre et s'arrête avec lui. Pour le couper sans couper le crawl, mettez
+`webui.enabled: false` dans `crawler.yml`. Pour couper le crawl en gardant aMule vivant, c'est
+`docker compose exec mulewatch s6-svc -d /etc/services.d/mulewatch`.
 
 ### Routes disponibles
 
@@ -295,20 +259,6 @@ Si vous faites cela, pensez à `webui.amule_url` dans `crawler.yml` : le lien «
 navigation est résolu par le navigateur, donc `http://localhost:4711` ne veut plus rien dire pour
 un visiteur distant. Pointez-le sur l'hôte réel (ou sur un second `reverse_proxy` : amuleweb, lui,
 a bien un mot de passe, `WEBUI_PWD`).
-
-> **Garantie lecture seule de la WebUI.** Servie **en intra-processus**, la WebUI lit les mêmes
-> `data/catalog.db` et `data/local.db` que le crawler (montés en **lecture-écriture** pour lui),
-> mais elle ouvre **ses propres** connexions SQLite en lecture seule via son `ReaderProvider` :
-> `mode=ro` **et** `PRAGMA query_only=ON`, jamais une connexion en écriture. Toute tentative
-> d'écriture est refusée par SQLite avant même d'atteindre le disque : votre catalogue est protégé
-> contre une régression du code WebUI.
->
-> *Historique : quand la WebUI était un conteneur séparé, un montage Docker en `:ro` avait été
-> essayé puis abandonné (instable avec SQLite en mode WAL : le crawler écrit `-shm` et `-wal` en
-> simultané, le noyau peut refuser les `mmap` sur un FS monté `ro`). En intra-processus, ce
-> raisonnement de montage est **caduc** (plus de conteneur séparé à monter) ; la garantie repose
-> désormais entièrement sur `mode=ro` + `query_only`. Voir
-> [`reference/2026-06-22-webui-wal-readonly.md`](https://github.com/GeoffreyCoulaud/mulewatch/blob/main/agents/reference/2026-06-22-webui-wal-readonly.md).*
 
 ---
 

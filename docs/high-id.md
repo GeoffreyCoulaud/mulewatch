@@ -1,83 +1,91 @@
 # Devenir High-ID
 
-Par défaut, votre nœud est en **Low-ID** : il catalogue et télécharge, mais avec moins de sources
-directes. Passer en **High-ID** (joignable depuis l'extérieur) apporte plus de sources et une
-recherche plus efficace. Ce n'est **pas obligatoire** pour cataloguer. Deux routes, selon votre
-pile :
+Par défaut, un nœud est en **Low-ID**, et il fonctionne très bien ainsi : il cherche, catalogue et
+télécharge. Il est seulement sous-optimal côté sources, parce que les autres pairs ne peuvent pas le
+joindre directement.
 
-| Route | Comment l'activer |
-|---|---|
-| **Pile par défaut, port ouvert** | Redirigez le port `4662` (en TCP **et** en UDP) depuis votre routeur vers cette machine. Si vous changez de port, changez-le dans la section `ports:` de `compose.yml`. |
-| **Pile VPN (gluetun), port forwarding** | Mettez `VPN_PORT_FORWARDING=on` dans votre `.env` **et** `port_sync.enabled: true` dans `crawler.yml`. Votre fournisseur VPN doit gérer le port forwarding ([liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)). |
+Le **High-ID** rend votre machine joignable depuis l'extérieur, ce qui donne plus de sources
+directes et une recherche plus efficace. C'est **facultatif** : si vous voulez juste contribuer au
+catalogage, le Low-ID suffit et vous pouvez passer cette page.
 
-Sur la route VPN, le nœud aligne désormais le client eMule sur le port forwardé entièrement **dans
-son propre conteneur** : il redémarre ce seul processus avec `s6-svc`. Il n'y a plus ni socket
-Docker, ni proxy de socket, ni service supplémentaire dans la boucle.
+Pour être joignable, il faut qu'un **port entrant** atteigne aMule. Deux routes, selon que vous
+gardez ou non un VPN devant le trafic P2P.
 
-Compromis, activation pas à pas et vérification :
-[runbook d'administration, § High-ID](high-id.md).
+## Route A, recommandée : le port forwarding de votre VPN
 
----
+gluetun sait demander un **port forwarding** à votre fournisseur VPN. Le port joignable est alors
+celui du VPN, et tout le trafic reste dans le tunnel. Le crawler interroge le serveur de contrôle de
+gluetun, et quand le port a changé, il redémarre aMule pour qu'il écoute sur le nouveau.
 
-Par défaut, un nœud est en **Low-ID** : il fonctionne très bien ainsi (recherche, catalogage,
-téléchargement), il est juste sous-optimal côté sources. Le **High-ID** rend la machine **joignable**
-depuis l'extérieur (plus de sources directes) ; c'est **facultatif**. Pour être joignable, il faut
-qu'un **port entrant** atteigne amuled : deux routes, selon que vous gardez ou non le VPN devant le
-trafic P2P.
+Ce redémarrage est local au conteneur : le crawler et aMule y sont deux processus voisins, donc rien
+ne passe par Docker. Il n'y a ni socket Docker, ni proxy, ni service supplémentaire dans la boucle.
 
-### Route A (recommandée) : derrière le VPN, via port forwarding
+**Deux réglages solidaires :**
 
-**Comment ça marche.** gluetun sait demander un **port forwarding** à votre fournisseur VPN : le
-port joignable est celui du VPN, **tout le trafic reste derrière le tunnel**. Le crawler interroge
-le serveur de contrôle de gluetun, et quand le port a changé, il redémarre amuled pour qu'il
-écoute sur le nouveau.
+1. Un fournisseur VPN **qui gère le port forwarding**, et `VPN_PORT_FORWARDING=on` dans votre
+   `.env`. Cherchez les fournisseurs marqués `PORT_FORWARDING: yes` dans la
+   [liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers).
+2. Dans `crawler.yml`, `port_sync.enabled: true`. Le bloc est déjà présent, avec
+   `gluetun_control_url` pointant sur `http://localhost:8000`.
 
-Depuis la 2.0, **Docker n'intervient plus du tout** dans cette boucle : le socket Docker, le
-service `docker-proxy` et les réseaux dédiés ont disparu. Le crawler et amuled sont deux processus
-du même conteneur, donc le redémarrage est un `s6-svc -r /etc/services.d/amuled` local. Et sous la
-stack VPN, mulewatch partage la pile réseau de gluetun (`network_mode: service:gluetun`), donc le
-serveur de contrôle est sur `localhost`.
+Cette route n'a de sens que sous `gluetun.compose.yml`. Dans la pile par défaut il n'y a pas de
+serveur de contrôle gluetun à joindre, donc le port-sync tournera dans le vide : il le signale et
+n'arrête pas le nœud pour autant.
 
-C'est aussi plus juste qu'avant : le port n'a jamais été re-bindable à chaud, donc le port-sync a
-toujours eu besoin d'un redémarrage de **processus** ; il redémarrait un **conteneur** seulement
-parce que le processus était hors de portée.
+Une fois actif, surveillez les événements `port-sync` dans les journaux et les métriques
+`emule_port_*`.
 
-**Configuration, deux réglages solidaires :**
+## Route B : ouvrir un port vous-même
 
-1. **VPN avec port forwarding** + `VPN_PORT_FORWARDING=on` dans `.env` (cherchez les fournisseurs
-   marqués `PORT_FORWARDING: yes` dans la [liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)).
-2. Dans `crawler.yml` : basculez `port_sync.enabled: true` (le bloc est présent par défaut,
-   `gluetun_control_url` pointant déjà sur `http://localhost:8000` ; réglage fin optionnel via les
-   autres champs de la section).
+Si votre fournisseur ne fait pas de port forwarding, redirigez le port `4662` (en TCP **et** en UDP)
+depuis votre box vers cette machine, pour que les pairs joignent aMule directement. Si vous changez
+de numéro de port, changez-le aussi dans la section `ports:` de `compose.yml`.
 
-Cela n'a de sens que sous `gluetun.compose.yml` : dans la stack par défaut, il n'y a pas de serveur
-de contrôle gluetun sur `localhost:8000`, et le port-sync tournera dans le vide — la dégradation
-étant tolérée (Low-ID, backoff, alerte de repli sur le canal *operations*), il n'arrêtera pas le
-nœud pour autant.
+C'est une option parfaitement viable. Le choix relève surtout de votre tolérance au risque, sur deux
+points :
 
-Une fois actif, surveillez les events `port-sync` / `High-ID retrouvé` dans les logs et les
-métriques `emule_port_*`.
+- **Légalité.** Partager une œuvre sous droit d'auteur est illégal dans la plupart des juridictions,
+  et c'est vrai dès qu'on fait tourner un nœud, route B ou non. Le risque pratique pour ce projet
+  est faible mais pas nul, et dépend surtout de votre pays. La discussion complète est dans
+  [Légalité et vie privée](legal.md).
+- **Surface d'attaque.** Un port entrant ouvert est un point d'entrée de plus sur votre réseau
+  domestique. Redirigez précisément ce port, jamais une plage, et gardez la machine à jour.
 
-### Route B : ouvrir un port vous-même
+La route A garde tout derrière le VPN sans rien ouvrir chez vous.
 
-Si votre fournisseur ne fait pas de port forwarding, le High-ID reste atteignable en
-**ouvrant/redirigeant un port** sur votre box/routeur vers le nœud, pour que les pairs joignent amuled
-directement. C'est une option **parfaitement viable** ; le choix relève surtout de votre **tolérance
-au risque**.
+## Le port forwardé change toutes les minutes (ProtonVPN et WireGuard)
 
-> #### À savoir
-> - **Légalité.** Partager une œuvre sous droit d'auteur est illégal **dans la plupart des
->   juridictions** : c'est vrai dès qu'on fait tourner un nœud, route B ou non. Le risque pratique
->   pour ce projet est **statistiquement faible** (eMule est un réseau de niche en 2026, et la cible,
->   des médias perdus aux ayants droit inactifs, mobilise peu) mais **n'est pas nul** ; il dépend
->   surtout de votre juridiction. Voir [`docs/legal-and-privacy.md`](legal.md) pour la
->   discussion détaillée (ce que le catalogue stocke et ne stocke pas, ce qu'un VPN protège vraiment,
->   responsabilités de l'opérateur).
-> - **Surface d'attaque réseau.** Un port entrant ouvert, c'est un point d'entrée de plus sur votre
->   réseau domestique : redirigez **précisément** ce port (pas une plage) et gardez la machine à jour.
->
-> La **route A** garde tout derrière le VPN sans ouvrir de port chez vous ; le **Low-ID**, lui,
-> convient déjà très bien si vous voulez juste contribuer au catalogage sans optimiser les sources.
+**Symptôme.** Dans les journaux de `gluetun`, un `port forwarded is <N>` **différent à chaque
+renouvellement**, toutes les 45 à 60 secondes, chaque fois précédé de
+`ERROR [port forwarding] refreshing port mapping … external port requested as X but received Y`. Le
+port-sync ne peut jamais converger : la cible bouge plus vite qu'il ne peut aligner aMule. Résultat,
+un Low-ID permanent alors même que le port-sync fonctionne.
 
----
+**Cause.** Le renouvellement NAT-PMP, obligatoire chez Proton, passe en UDP dans le tunnel
+WireGuard. Sur une clé mal configurée, la passerelle ne préserve pas le mapping au renouvellement et
+réassigne un port neuf. C'est un problème entre gluetun et Proton, pas un problème du crawler (voir
+[gluetun#3196](https://github.com/qdm12/gluetun/issues/3196)). `PORT_FORWARD_ONLY` seul ne suffit
+pas : vérifié sur le terrain, le phénomène persiste sur les serveurs P2P.
 
+**Solution.** Régénérez la clé WireGuard depuis le tableau de bord Proton, en couvrant les trois
+causes connues d'un coup :
+
+1. **Port Forwarding activé** sur la configuration au moment où vous la générez.
+2. **Moderate NAT désactivé.** Proton le documente comme incompatible avec NAT-PMP. C'est la cause
+   la plus fréquente.
+3. **Une clé propre à ce nœud.** Une même clé réutilisée par un autre gluetun ou un autre appareil
+   fait s'écraser mutuellement les renouvellements NAT-PMP.
+
+Remplacez ensuite `WIREGUARD_PRIVATE_KEY` dans `.env` et recréez les deux services. Le conteneur
+mulewatch vit dans le namespace réseau de gluetun, il doit donc être recréé avec lui :
+
+```bash
+docker compose -f gluetun.compose.yml up -d --force-recreate
+```
+
+Gardez `PORT_FORWARD_ONLY: "on"`, qui est correct, juste insuffisant seul. Pour valider, observez
+`gluetun` : le port doit apparaître **une fois**, puis rester silencieux plusieurs cycles (plus de
+5 minutes), sans `requested X but received Y`.
+
+Si le port-sync ne fait rien du tout, c'est un autre problème :
+[« Le port-sync reste inopérant »](troubleshooting.md#le-port-sync-reste-inopérant-toujours-low-id-alors-quil-est-activé).

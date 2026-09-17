@@ -1,87 +1,90 @@
-# Testing guide: mulewatch
+# Guide des tests : mulewatch
 
-This guide describes **how to run the integration suites** (the heavy ones, deselected by default),
-their **exact prerequisites**, and **what to expect** on output. It complements the
-[deployment runbook](../install.md): the runbook explains how to make the stack run, this
-guide explains how to **validate** it.
+Ce guide décrit **comment lancer les suites d'intégration** (les lourdes, désélectionnées par
+défaut), leurs **prérequis exacts** et **ce qu'il faut attendre** en sortie. Il complète
+[Installer un nœud](../install.md) : cette page-là explique comment faire tourner un nœud, celle-ci
+explique comment le **valider**.
 
-Audience: **local dev and CI**. Not for operators (who have no reason to run the test suites).
-Everything below is **extracted from the real code** (test files, `pyproject.toml`, compose files).
-Where a prerequisite cannot be checked in the code, it is marked "to be confirmed".
+Public : **dev local et CI**. Pas pour les opérateurs (qui n'ont aucune raison de lancer les suites
+de tests). Tout ce qui suit est **extrait du code réel** (fichiers de tests, `pyproject.toml`,
+fichiers compose). Lorsqu'un prérequis ne peut pas être vérifié dans le code, il est marqué
+« à confirmer ».
 
-> **The "real transfer" e2e suite was abandoned** (and its scaffolding deleted from the repo). The
-> reason: making a real `amuled` report a finished download would mean orchestrating and
-> reverse-engineering third-party tools (`amuled`, `ed2kd`), which mostly validates trusted
-> third-party behaviour rather than our code (the same argument as for the gluetun port-forwarding
-> layer). Completion detection stays covered by **unit tests** plus the deployment constraints
-> documented in `agents/reference/2026-06-17-amuled-completion-behavior.md`.
+> **La suite e2e « transfert réel » a été abandonnée** (et son échafaudage supprimé du dépôt). La
+> raison : faire en sorte qu'un vrai `amuled` signale un téléchargement terminé impliquerait
+> d'orchestrer et de rétro-concevoir des outils tiers (`amuled`, `ed2kd`), ce qui valide surtout le
+> comportement de tiers de confiance plutôt que notre code (le même argument que pour la couche de
+> port-forwarding gluetun). La détection de complétion reste couverte par des **tests unitaires**,
+> plus les contraintes de déploiement documentées dans
+> `agents/reference/2026-06-17-amuled-completion-behavior.md`.
 
 ---
 
-## 1. Overview: the test pyramid
+## 1. Vue d'ensemble : la pyramide de tests
 
-The project has **two levels**:
+Le projet a **deux niveaux** :
 
-1. **The unit gate** (run by default, **100 % branch coverage** enforced). This is what the pre-push
-   hook and CI check, through a single source of truth in `pyproject.toml`
-   (`[tool.poe.tasks]`):
+1. **Le gate unitaire** (lancé par défaut, **100 % de couverture de branches** imposée). C'est ce que
+   vérifient le hook pre-push et la CI, via une source de vérité unique dans `pyproject.toml`
+   (`[tool.poe.tasks]`) :
 
    ```bash
    uv run poe check     # the full gate: lint-all + test (what pre-push and CI run)
    uv run poe test      # the 3 unit suites alone, each in its own process
    ```
 
-   > The `test` task stays **per package**: it runs `pytest` with `cwd = packages/<pkg>` for each of
-   > the 3 packages, in separate processes, to keep coverage isolated. A bare `uv run pytest` from
-   > the repo root is **not** the gate (the root has no pytest config, and a root `conftest.py`
-   > neutralises collection, giving `exit 5`).
+   > La tâche `test` reste **par paquet** : elle lance `pytest` avec `cwd = packages/<pkg>` pour
+   > chacun des 3 paquets, dans des processus séparés, afin de garder la coverage isolée. Un simple
+   > `uv run pytest` depuis la racine du dépôt n'est **pas** le gate (la racine n'a pas de config
+   > pytest, et un `conftest.py` racine neutralise la collecte, donnant `exit 5`).
 
-   Each package's `addopts` **deselect** every integration marker
-   (`-m "not ec_integration and not …"`), so the gate never runs them, and they are excluded from
-   coverage measurement.
+   L'`addopts` de chaque paquet **désélectionne** tous les markers d'intégration
+   (`-m "not ec_integration and not …"`), si bien que le gate ne les lance jamais, et ils sont exclus
+   de la mesure de coverage.
 
-2. **The integration suites** (deselected by default, run **on demand**). Each one carries a pytest
-   **marker**. Run them one at a time with `--no-cov` (otherwise the package-wide 100 % threshold
-   makes a focused run "fail" even when the tests pass):
+2. **Les suites d'intégration** (désélectionnées par défaut, lancées **à la demande**). Chacune porte
+   un **marker** pytest. Lancez-les une à la fois avec `--no-cov` (sinon le seuil de 100 % valable
+   pour tout le paquet fait « échouer » un run ciblé même quand les tests passent) :
 
    ```bash
    ( cd packages/<pkg> && uv run pytest -m <marker> --no-cov )
    ```
 
-   These suites need external resources (Docker). **They do not run in a sandbox without full
-   network and Docker access**: run them on a real machine.
+   Ces suites ont besoin de ressources externes (Docker). **Elles ne tournent pas dans un bac à sable
+   sans accès réseau complet ni Docker** : lancez-les sur une vraie machine.
 
 ---
 
-## 2. Marker summary
+## 2. Récapitulatif des markers
 
-| Marker | Package | What it validates | Docker? | Other prerequisites | Command |
+| Marker | Paquet | Ce qu'il valide | Docker ? | Autres prérequis | Commande |
 |---|---|---|---|---|---|
-| `ec_integration` | crawler | The EC adapter (auth, network status, search cycle, get/set port) against a real amuled | **Yes** (you start it) | An amuled you provide, pointed at by `MULEWATCH_TEST_EC_HOST` (§3.0) | `( cd packages/crawler && uv run pytest -m ec_integration --no-cov )` |
-| `download_integration` | crawler | The EC mechanics of downloading (`add_link` into the download queue) against a real amuled | **Yes** (you start it) | Same amuled as above (§3.0) | `( cd packages/crawler && uv run pytest -m download_integration --no-cov )` |
-| `orchestration_integration` | crawler | A full crawl loop (one cycle plus a bounded shutdown) against a real amuled | **Yes** (you start it) | Same amuled as above (§3.0) | `( cd packages/crawler && uv run pytest -m orchestration_integration --no-cov )` |
-| `compose_integration` | crawler | Smoke e2e of the assembled docker compose stack (no VPN): wiring only | **Yes** (compose v2) | docker compose v2; one image build | `( cd packages/crawler && uv run pytest -m compose_integration --no-cov )` |
+| `ec_integration` | crawler | L'adapter EC (auth, statut réseau, cycle de recherche, get/set du port) face à un vrai amuled | **Oui** (à lancer soi-même) | Un amuled que vous fournissez, désigné par `MULEWATCH_TEST_EC_HOST` (§3.0) | `( cd packages/crawler && uv run pytest -m ec_integration --no-cov )` |
+| `download_integration` | crawler | La mécanique EC du téléchargement (`add_link` dans la file de téléchargement) face à un vrai amuled | **Oui** (à lancer soi-même) | Le même amuled que ci-dessus (§3.0) | `( cd packages/crawler && uv run pytest -m download_integration --no-cov )` |
+| `orchestration_integration` | crawler | Une boucle de crawl complète (un cycle plus un arrêt borné) face à un vrai amuled | **Oui** (à lancer soi-même) | Le même amuled que ci-dessus (§3.0) | `( cd packages/crawler && uv run pytest -m orchestration_integration --no-cov )` |
+| `compose_integration` | crawler | Smoke e2e de la stack docker compose assemblée (sans VPN) : câblage uniquement | **Oui** (compose v2) | docker compose v2 ; un build d'image | `( cd packages/crawler && uv run pytest -m compose_integration --no-cov )` |
 
 ---
 
-## 3. One section per marker (lightest to heaviest)
+## 3. Une section par marker (de la plus légère à la plus lourde)
 
-### 3.0 The amuled the three EC suites need (start it yourself)
+### 3.0 L'amuled dont les trois suites EC ont besoin (à lancer soi-même)
 
-`ec_integration`, `download_integration` and `orchestration_integration` all talk to the SAME
-`amuled`, and **none of them starts it**: the caller provides one and points the suites at it with
-three environment variables. They used to start their own container through `testcontainers`, which
-is unusable on hosts where Docker cannot create a veth pair on its default `bridge` network (the
-failure mode we hit for months: `failed to add the host (veth...) <=> sandbox (veth...) pair
-interfaces: operation not supported`). A plain `docker run` with a published port works everywhere.
+`ec_integration`, `download_integration` et `orchestration_integration` parlent toutes au MÊME
+`amuled`, et **aucune ne le démarre** : l'appelant en fournit un et y pointe les suites via trois
+variables d'environnement. Elles démarraient autrefois leur propre conteneur via `testcontainers`,
+ce qui est inutilisable sur les hôtes où Docker ne peut pas créer de paire veth sur son réseau
+`bridge` par défaut (le mode de défaillance rencontré pendant des mois : `failed to add the host
+(veth...) <=> sandbox (veth...) pair interfaces: operation not supported`). Un simple `docker run`
+avec un port publié fonctionne partout.
 
-| Variable | Required | Default | Meaning |
+| Variable | Requise | Défaut | Signification |
 |---|---|---|---|
-| `MULEWATCH_TEST_EC_HOST` | **Yes** | none | Host of the EC server. **Absent, and the three suites SKIP** with a message repeating the command below. |
-| `MULEWATCH_TEST_EC_PORT` | No | `4712` | EC port. |
-| `MULEWATCH_TEST_EC_PASSWORD` | No | `indexer-ec-test` | EC password (`GUI_PWD` of the daemon). |
+| `MULEWATCH_TEST_EC_HOST` | **Oui** | aucun | Hôte du serveur EC. **Absente, les trois suites sont ignorées (SKIP)**, avec un message qui reprend la commande ci-dessous. |
+| `MULEWATCH_TEST_EC_PORT` | Non | `4712` | Port EC. |
+| `MULEWATCH_TEST_EC_PASSWORD` | Non | `indexer-ec-test` | Mot de passe EC (`GUI_PWD` du démon). |
 
-Start a throwaway daemon, wait for its EC server, run the suites, throw it away:
+Lancez un démon jetable, attendez son serveur EC, lancez les suites, jetez-le :
 
 ```bash
 docker run -d --rm --name mulewatch-test-amuled \
@@ -96,188 +99,199 @@ export MULEWATCH_TEST_EC_PASSWORD=indexer-ec-test
 docker rm -f mulewatch-test-amuled
 ```
 
-The daemon is stateful (it persists preferences and the download queue in its container), so the
-suites are only reliably repeatable against a FRESH one: recreate it rather than reusing a
-long-lived container.
+Le démon est à état (il persiste ses préférences et sa file de téléchargement dans son conteneur), si
+bien que les suites ne sont fiablement répétables que face à un démon NEUF : recréez-le plutôt que de
+réutiliser un conteneur de longue durée.
 
 ---
 
-### 3.1 `ec_integration` (crawler, **Docker required**)
+### 3.1 `ec_integration` (crawler, **Docker requis**)
 
-**What it proves.** The EC adapter talks to a **real `amuled`**: the auth hash formula is validated
-against the daemon, auth fails with a wrong password, the network status decodes, and the full
-search, progress, fetch, stop cycle runs. The second file (`test_amuled_preferences.py`) validates
-the **listen-port get/set** (High-ID port-sync): `get_listen_port()` reads a plausible port, and the
-`set -> get` round trip returns the value that was set.
+**Ce que ça prouve.** L'adapter EC parle à un **vrai `amuled`** : la formule du hash d'auth est
+validée face au démon, l'auth échoue avec un mauvais mot de passe, le statut réseau se décode, et le
+cycle complet recherche, progression, récupération, arrêt se déroule. Le second fichier
+(`test_amuled_preferences.py`) valide le **get/set du port d'écoute** (port-sync High-ID) :
+`get_listen_port()` lit un port plausible, et l'aller-retour `set -> get` renvoie la valeur qui a été
+posée.
 
-**Exact prerequisites.** An amuled started per **§3.0** and `MULEWATCH_TEST_EC_HOST` exported.
-Without it the suite skips (it never fails on absence, and never silently passes).
+**Prérequis exacts.** Un amuled lancé selon le **§3.0** et `MULEWATCH_TEST_EC_HOST` exportée. Sans
+elle, la suite est ignorée (elle n'échoue jamais sur une absence, et ne passe jamais silencieusement).
 
-> The ephemeral container **has no eD2k network access**: a search may return `EC_OP_FAILED` or
-> empty results. The tests **tolerate that explicitly**: what is validated is the **request/response
-> cycle**, not the richness of the results.
+> Le conteneur éphémère **n'a aucun accès au réseau eD2k** : une recherche peut renvoyer
+> `EC_OP_FAILED` ou des résultats vides. Les tests **le tolèrent explicitement** : ce qui est validé,
+> c'est le **cycle requête/réponse**, pas la richesse des résultats.
 
-**Command.**
+**Commande.**
 ```bash
 ( cd packages/crawler && uv run pytest -m ec_integration --no-cov )
 ```
 
-**Expected.** 6 tests passed (4 in `test_amuled_ec.py` + 2 in `test_amuled_preferences.py`), no
-skips. `EC_OP_FAILED` is tolerated internally (the test still passes).
+**Attendu.** 6 tests passés (4 dans `test_amuled_ec.py` + 2 dans `test_amuled_preferences.py`), aucun
+skip. `EC_OP_FAILED` est toléré en interne (le test passe quand même).
 
 ---
 
-### 3.2 `download_integration` (crawler, **Docker required**)
+### 3.2 `download_integration` (crawler, **Docker requis**)
 
-**What it proves.** The EC mechanics of downloading against a real `amuled`: `add_link` is accepted
-and the link shows up in `download_queue` with a readable status. This is the **regression guard**
-for the partfile-hash decoding bug (the hash lives in the `EC_TAG_PARTFILE_HASH 0x031E` child tag,
-not in the parent's own value), hence a realistic hash and size (~700 MiB), **never** the MD4 of the
-empty file (which amuled treats as instantly complete and does not list).
+**Ce que ça prouve.** La mécanique EC du téléchargement face à un vrai `amuled` : `add_link` est
+accepté et le lien apparaît dans `download_queue` avec un statut lisible. C'est le **garde-fou de
+régression** du bug de décodage du hash de partfile (le hash vit dans le tag enfant
+`EC_TAG_PARTFILE_HASH 0x031E`, pas dans la valeur propre du parent), d'où un hash et une taille
+réalistes (~700 MiB), **jamais** le MD4 du fichier vide (qu'amuled traite comme instantanément
+complet et ne liste pas).
 
-**Exact prerequisites.** Same as `ec_integration` (§3.0).
+**Prérequis exacts.** Les mêmes que `ec_integration` (§3.0).
 
-**Command.**
+**Commande.**
 ```bash
 ( cd packages/crawler && uv run pytest -m download_integration --no-cov )
 ```
 
-**Expected.** 2 tests passed (`test_add_link_then_appears_in_download_queue` and
-`test_shared_files_round_trips`). Real completion is not
-reachable (no eD2k sources): only the add_link, queue, status cycle is validated.
+**Attendu.** 2 tests passés (`test_add_link_then_appears_in_download_queue` et
+`test_shared_files_round_trips`). Une complétion réelle n'est pas atteignable (pas de sources eD2k) :
+seul le cycle add_link, file, statut est validé.
 
 ---
 
-### 3.3 `orchestration_integration` (crawler, **Docker required**)
+### 3.3 `orchestration_integration` (crawler, **Docker requis**)
 
-**What it proves.** A real `CrawlerApp` (real `AmuleEcClient` + real SQLite databases on `tmp_path`)
-runs **one full cycle** against the provided `amuled` then **shuts down cleanly** within a 120 s
-`wait_for`. The key assertion: the cycle index advanced (`read_cycle_index() >= 1`), proving a cycle
-really completed.
+**Ce que ça prouve.** Une vraie `CrawlerApp` (vrai `AmuleEcClient` + vraies bases SQLite sur
+`tmp_path`) déroule **un cycle complet** face à l'`amuled` fourni puis **s'arrête proprement** dans
+un `wait_for` de 120 s. L'assertion clé : l'index de cycle a avancé (`read_cycle_index() >= 1`),
+prouvant qu'un cycle s'est réellement terminé.
 
-**Exact prerequisites.** Same as `ec_integration` (§3.0). The test loads the matcher config from
-the single source of truth, `deploy/matcher.yml`, and runs with the webui disabled
-(its bind is a fixed `0.0.0.0:8080`, which would collide with whatever already listens there).
+**Prérequis exacts.** Les mêmes que `ec_integration` (§3.0). Le test charge la config du matcher
+depuis la source de vérité unique, `deploy/matcher.yml`, et tourne avec la webui désactivée (son bind
+est un `0.0.0.0:8080` fixe, qui entrerait en collision avec ce qui écoute déjà là).
 
-**Command.**
+**Commande.**
 ```bash
 ( cd packages/crawler && uv run pytest -m orchestration_integration --no-cov )
 ```
 
-**Expected.** 1 test passed (`test_real_loop_runs_one_cycle_and_stops`). Search results may well be
-empty: what is validated is the **loop** (startup, search, cataloguing, bounded shutdown).
+**Attendu.** 1 test passé (`test_real_loop_runs_one_cycle_and_stops`). Les résultats de recherche
+peuvent tout à fait être vides : ce qui est validé, c'est la **boucle** (démarrage, recherche, mise
+au catalogue, arrêt borné).
 
 ---
 
-### 3.4 `compose_integration`: the smoke stack (crawler, **Docker + compose v2 required**)
+### 3.4 `compose_integration` : la stack smoke (crawler, **Docker + compose v2 requis**)
 
-**What it proves.** The **assembled** `docker compose` stack — **one** service since 2026-09-16,
-holding the crawler, amuled and amuleweb under s6 — starts and wires itself correctly. **No content
-byte is ever downloaded** (amuled has neither an eD2k server nor a VPN; only its EC server is
-exercised). Four things:
-1. `docker compose build` succeeds (the image builds);
-2. the container stays `Up`, turns **`healthy`**, `s6-svstat` reports all three services up, and the
-   in-process webui answers `/health` (polled through `docker compose exec`, so no host port is
-   needed);
-3. a file amuled shares and that has left its queue is recorded `completed` by the crawler — the
-   real EC path over loopback, against the real amuled of the shipped image;
-4. both deployment entry points render with `docker compose config`, and the rendered topology is
-   asserted: one `mulewatch` service, the VPN stack adding only `gluetun`, **nothing** left of
-   `crawler` / `amuled` / `docker-proxy`, and **no named volume** anywhere.
+**Ce que ça prouve.** La stack `docker compose` **assemblée** (**un seul** service depuis le
+2026-09-16, portant le crawler, amuled et amuleweb sous s6) démarre et se câble correctement.
+**Aucun octet de contenu n'est jamais téléchargé** (amuled n'a ni serveur eD2k ni VPN ; seul son
+serveur EC est sollicité). Quatre choses :
+1. `docker compose build` réussit (l'image se construit) ;
+2. le conteneur reste `Up`, devient **`healthy`**, `s6-svstat` signale les trois services up, et la
+   webui in-process répond à `/health` (interrogée via `docker compose exec`, donc aucun port hôte
+   n'est nécessaire) ;
+3. un fichier qu'amuled partage et qui a quitté sa file est enregistré `completed` par le crawler :
+   le vrai chemin EC par loopback, face au vrai amuled de l'image livrée ;
+4. les deux points d'entrée de déploiement se rendent avec `docker compose config`, et la topologie
+   rendue est vérifiée : un service `mulewatch`, la stack VPN n'ajoutant que `gluetun`, **rien** qui
+   subsiste de `crawler` / `amuled` / `docker-proxy`, et **aucun volume nommé** nulle part.
 
-The smoke **deliberately** exercises the real ownership path: state lives in **bind mounts** under a
-throwaway `SMOKE_STATE` directory created as the invoking user, whose own uid/gid are passed as
-`PUID`/`PGID`. The container's root PID 1 chowns those mount points and every service then drops to
-the `amule` user. A regression there shows up as `unable to open database file`.
+Le smoke sollicite **délibérément** le vrai chemin de propriété : l'état vit dans des **bind mounts**
+sous un répertoire jetable `SMOKE_STATE` créé sous l'utilisateur appelant, dont les uid/gid propres
+sont passés en `PUID`/`PGID`. Le PID 1 root du conteneur chowne ces points de montage et chaque
+service redescend ensuite vers l'utilisateur `amule`. Une régression là-dessus se manifeste par
+`unable to open database file`.
 
-**Exact prerequisites.**
-- **Docker** + **docker compose v2** (the test drives `docker compose …` through `subprocess`).
-- Builds run **from the repo root** (the test pins `cwd = repo root` and `--project-directory`).
-- Every interpolated variable is **stubbed by the test itself**: the four the image hard-requires
-  (`PUID`, `PGID`, `AMULE_EC_PASSWORD`, `WEBUI_PWD` — without them the startup one-shot exits 1 and
-  the container dies), plus gluetun's (`WIREGUARD_PRIVATE_KEY`, `SERVER_COUNTRIES`), which compose
-  interpolates at parse time even when gluetun is not part of the stack. Ports and the image tag are
-  written directly in `deploy/`'s compose files, so they interpolate nothing. **Nothing for
-  the operator to set.**
-- Compose files used: `tests/smoke/compose.yaml` (standalone) plus `deploy/compose.yml` and
-  `deploy/gluetun.compose.yml` for `test_entrypoint_config_renders`; the smoke configs live under
-  `tests/smoke/`.
-- The test imports **no** `mulewatch` module (this preserves the package's 100 % branch coverage).
+**Prérequis exacts.**
+- **Docker** + **docker compose v2** (le test pilote `docker compose …` via `subprocess`).
+- Les builds tournent **depuis la racine du dépôt** (le test fixe `cwd = racine du dépôt` et
+  `--project-directory`).
+- Chaque variable interpolée est **bouchonnée par le test lui-même** : les quatre que l'image exige
+  absolument (`PUID`, `PGID`, `AMULE_EC_PASSWORD`, `WEBUI_PWD`, sans lesquelles le one-shot de
+  démarrage sort en 1 et le conteneur meurt), plus celles de gluetun (`WIREGUARD_PRIVATE_KEY`,
+  `SERVER_COUNTRIES`), que compose interpole au parse même quand gluetun ne fait pas partie de la
+  stack. Les ports et le tag d'image sont écrits en dur dans les fichiers compose de `deploy/`, ils
+  n'interpolent donc rien. **Rien à régler pour l'opérateur.**
+- Fichiers compose utilisés : `tests/smoke/compose.yaml` (autonome) plus `deploy/compose.yml` et
+  `deploy/gluetun.compose.yml` pour `test_entrypoint_config_renders` ; les configs du smoke vivent
+  sous `tests/smoke/`.
+- Le test n'importe **aucun** module `mulewatch` (cela préserve les 100 % de couverture de branches
+  du paquet).
 
-**Command.**
+**Commande.**
 ```bash
 ( cd packages/crawler && uv run pytest -m compose_integration --no-cov )
 ```
 
-**Expected.** **5 tests passed** locally: `test_build_succeeds`,
+**Attendu.** **5 tests passés** en local : `test_build_succeeds`,
 `test_one_container_supervises_the_three_services`,
-`test_a_file_amuled_shares_is_recorded_completed`, and the 2 parametrized
-`test_entrypoint_config_renders` cases (`compose` and `gluetun`). In CI the image is prebuilt and
-`IMAGE_TAG` is set, so `test_build_succeeds` **skips** (4 passed, 1 skipped) and the `up` reuses the
-prebuilt image. Tear-down is a `docker compose down -v` plus the throwaway state directory, in a
-`finally`. Budget several minutes (the build and the up sit under 900 s timeouts).
+`test_a_file_amuled_shares_is_recorded_completed`, et les 2 cas paramétrés de
+`test_entrypoint_config_renders` (`compose` et `gluetun`). En CI l'image est préconstruite et
+`IMAGE_TAG` est posée, si bien que `test_build_succeeds` est **ignoré** (4 passés, 1 skip) et que le
+`up` réutilise l'image préconstruite. Le teardown est un `docker compose down -v` plus le répertoire
+d'état jetable, dans un `finally`. Prévoyez plusieurs minutes (le build et le up tiennent sous des
+timeouts de 900 s).
 
-> **Never executed.** As of 2026-09-16 there is no container runtime on the development machine, so
-> this suite — and the image it builds — has not been run once. See the
-> [single-container handoff](https://github.com/GeoffreyCoulaud/mulewatch/blob/main/agents/handoffs/2026-09-16%20-%20handoff%20-%20single%20container%20with%20embedded%20aMule.md),
+> **Jamais exécutée.** Au 2026-09-16 il n'y a aucun runtime de conteneurs sur la machine de
+> développement : cette suite (et l'image qu'elle construit) n'a donc pas été lancée une seule fois.
+> Voir le
+> [handoff mono-conteneur](https://github.com/GeoffreyCoulaud/mulewatch/blob/main/agents/handoffs/2026-09-16%20-%20handoff%20-%20single%20container%20with%20embedded%20aMule.md),
 > section 5.
 
 ---
 
-## 4. Machine prerequisites (installable summary)
+## 4. Prérequis machine (récapitulatif installable)
 
-To be able to run **every** suite:
+Pour pouvoir lancer **toutes** les suites :
 
-- **Docker** + **docker compose v2**. The EC suites talk to an amuled **you** start (§3.0, image
-  `ngosang/amule:3.0.0-1`); the compose suite drives `docker compose` directly.
-- A **`.env`** (copied from `deploy/.env.example`) for **manual** compose commands:
-  `WIREGUARD_PRIVATE_KEY`, `SERVER_COUNTRIES`, `AMULE_EC_PASSWORD`. Note that the
-  `compose_integration` test **stubs these itself**, so the `.env` is not required to run it.
+- **Docker** + **docker compose v2**. Les suites EC parlent à un amuled que **vous** lancez (§3.0,
+  image `ngosang/amule:3.0.0-1`) ; la suite compose pilote `docker compose` directement.
+- Un **`.env`** (copié depuis `deploy/.env.example`) pour les commandes compose **manuelles** :
+  `WIREGUARD_PRIVATE_KEY`, `SERVER_COUNTRIES`, `AMULE_EC_PASSWORD`. À noter que le test
+  `compose_integration` **les bouchonne lui-même**, donc le `.env` n'est pas requis pour le lancer.
 
 ---
 
-## 5. CI integration
+## 5. Intégration CI
 
-Already in CI:
+Déjà en CI :
 
-- `.github/workflows/validate.yml` is the reusable **gate**, called by `pr.yml` (on pull requests)
-  and by `release.yml` (on a tag push). Its jobs:
-  - `lint`: `uv run poe lint-all` (ruff, format, mypy, sqlfluff, template check);
-  - `test`: `uv run poe test` (the 3 per-package unit suites, 100 % branch each);
-  - `build-and-verify`: one job **per architecture on its native runner** (`amd64` on
-    `ubuntu-latest`, `arm64` on `ubuntu-24.04-arm`). Each builds the crawler image and then runs
-    **`compose_integration`** against that locally built image (`IMAGE_TAG=ci-<sha>`);
-  - `ec-integration`: starts one `ngosang/amule:3.0.0-1` with `docker run -p 4712:4712`, waits for
-    its EC log line, then runs **`ec_integration`, `download_integration` and
-    `orchestration_integration`** in one pytest call against it. Runner Docker can create a veth,
-    so the network failure that blocks these suites on some developer machines does not apply;
-  - `gate`: the single aggregation check required by branch protection.
-- `.github/workflows/pr.yml` also runs the `vex-checks` job (`poe vex-source-claims` +
+- `.github/workflows/validate.yml` est le **gate** réutilisable, appelé par `pr.yml` (sur les pull
+  requests) et par `release.yml` (sur un push de tag). Ses jobs :
+  - `lint` : `uv run poe lint-all` (ruff, format, mypy, sqlfluff, vérification des templates) ;
+  - `test` : `uv run poe test` (les 3 suites unitaires par paquet, 100 % de branches chacune) ;
+  - `build-and-verify` : un job **par architecture sur son runner natif** (`amd64` sur
+    `ubuntu-latest`, `arm64` sur `ubuntu-24.04-arm`). Chacun construit l'image du crawler puis lance
+    **`compose_integration`** contre cette image construite localement (`IMAGE_TAG=ci-<sha>`) ;
+  - `ec-integration` : lance un `ngosang/amule:3.0.0-1` avec `docker run -p 4712:4712`, attend sa
+    ligne de log EC, puis lance **`ec_integration`, `download_integration` et
+    `orchestration_integration`** contre lui en un seul appel pytest. Le Docker du runner sait créer
+    un veth, donc la défaillance réseau qui bloque ces suites sur certaines machines de
+    développement ne s'applique pas ;
+  - `gate` : l'unique check d'agrégation exigé par la protection de branche.
+- `.github/workflows/pr.yml` lance aussi le job `vex-checks` (`poe vex-source-claims` +
   `poe vex-claim-coverage`).
-- `.github/workflows/grype-scan.yml` scans the published image daily and reports into Code scanning.
+- `.github/workflows/grype-scan.yml` scanne quotidiennement l'image publiée et remonte dans Code
+  scanning.
 
-Every marker now runs in CI. The only suites still absent are the ones belonging to other
-packages (see their sections above).
+Tous les markers tournent désormais en CI. Les seules suites encore absentes sont celles appartenant
+aux autres paquets (voir leurs sections ci-dessus).
 
-The `ec-integration` job runs on `ubuntu-latest` only, not on both arches: it exercises the EC
-protocol code, which is pure Python and architecture-independent. The arch-sensitive artefact is
-the crawler image, and that is what `build-and-verify` covers on both runners.
-
----
-
-## 6. Diagnostic tools (measurement, dev)
-
-One-off tools aimed at the **developer** (measurement and diagnosis, not operation):
-
-- **EC richness probe**: `uv run python -m mulewatch.tools.ec_probe --all-tags …` dumps **every** raw
-  tag of a real search result (mapped and unmapped). It is what measured the fill rate of the fields
-  EC exposes. This is a **diagnostic** tool: a deployment does not need it (see the finding "EC
-  exposes no media metadata on search results").
+Le job `ec-integration` tourne sur `ubuntu-latest` seulement, pas sur les deux arches : il sollicite
+le code du protocole EC, qui est du Python pur et indépendant de l'architecture. L'artefact sensible
+à l'architecture est l'image du crawler, et c'est ce que `build-and-verify` couvre sur les deux
+runners.
 
 ---
 
-## 7. See also
+## 6. Outils de diagnostic (mesure, dev)
 
-- [Deployment runbook](../install.md): to **deploy and run** a node (it points back here
-  for in-depth validation).
-- [Documentation index](../index.md): routing by audience (operator / developer / history).
+Outils ponctuels destinés au **développeur** (mesure et diagnostic, pas exploitation) :
+
+- **Sonde de richesse EC** : `uv run python -m mulewatch.tools.ec_probe --all-tags …` déverse
+  **chaque** tag brut d'un vrai résultat de recherche (mappé ou non). C'est lui qui a mesuré le taux
+  de remplissage des champs qu'expose EC. C'est un outil de **diagnostic** : un déploiement n'en a
+  pas besoin (voir le constat « EC n'expose aucune métadonnée média sur les résultats de
+  recherche »).
+
+---
+
+## 7. Voir aussi
+
+- [Installer un nœud](../install.md) : pour déployer et faire tourner un nœud.
+- [Architecture du code](architecture.md) : comment le crawler fonctionne à l'intérieur.

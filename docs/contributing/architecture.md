@@ -1,27 +1,29 @@
-# Architecture and behaviour: mulewatch
+# Architecture et comportement : mulewatch
 
-> A readable overview of the system: subsystems, interactions, and runtime lifecycles.
-> For the **detailed design** see `agents/specs/` (the MVP spec is authoritative); to **operate** a
-> node see `docs/runbooks/`; for the **current state and next step** see `agents/handoffs/` (the most
-> recent one). This document describes *how it works*, not *how to deploy it*.
+> Une vue d'ensemble lisible du système : sous-systèmes, interactions et cycles de vie à l'exécution.
+> Pour la **conception détaillée**, voir `agents/specs/` (la spec du MVP fait autorité) ; pour
+> **exploiter** un nœud, voir [Faire tourner un nœud](../operate.md) ; pour l'**état courant et la prochaine étape**, voir
+> `agents/handoffs/` (le plus récent). Ce document décrit *comment ça marche*, pas *comment le
+> déployer*.
 >
-> Code anchor: the "Where the code lives" table in `AGENTS.md` gives the file for each subsystem.
+> Ancre de code : le tableau « Where the code lives » d'`AGENTS.md` donne le fichier de chaque
+> sous-système.
 
-## 1. In one sentence
+## 1. En une phrase
 
-`mulewatch` continuously watches the eMule network (eD2k + Kad, through an `amuled` driven over the
-**EC** protocol) to recover the lost French-dub episodes of *Keroro mission Titar*, cataloguing
-every piece of metadata it crosses along the way. **The catalog's subject is the file, never the
-person.**
+`mulewatch` surveille en continu le réseau eMule (eD2k + Kad, via un `amuled` piloté par le protocole
+**EC**) pour retrouver les épisodes perdus du doublage français de *Keroro mission Titar*, en
+cataloguant au passage chaque métadonnée croisée. **Le sujet du catalogue est le fichier, jamais la
+personne.**
 
-## 2. Subsystem overview
+## 2. Vue d'ensemble des sous-systèmes
 
-A **uv workspace** of three packages, plus external dependencies.
+Un **workspace uv** de trois paquets, plus des dépendances externes.
 
-**Context: the node and the outside world.** Since 2026-09-16 a node is **one container**: the
-crawler, `amuled` and `amuleweb` are three processes of one image, supervised by **s6** (`s6-svscan`
-is PID 1). Under the VPN stack that whole container shares gluetun's network namespace, so all of
-its traffic goes through the tunnel.
+**Contexte : le nœud et le monde extérieur.** Depuis le 2026-09-16, un nœud est **un seul
+conteneur** : le crawler, `amuled` et `amuleweb` sont trois processus d'une même image, supervisés
+par **s6** (`s6-svscan` est PID 1). Sous la stack VPN, tout ce conteneur partage le namespace réseau
+de gluetun, donc tout son trafic passe par le tunnel.
 
 ```mermaid
 flowchart LR
@@ -46,25 +48,28 @@ flowchart LR
   crawler -->|"notifications · apprise URL"| notif
 ```
 
-Consequences of that shape, each load-bearing elsewhere in this document:
+Conséquences de cette forme, chacune porteuse ailleurs dans ce document :
 
-- **The EC endpoint is a code constant** (`127.0.0.1:4712`, instance name `amuled`), like the webui's
-  `0.0.0.0:8080` bind. `crawler.yml` configures only the password, from `${AMULE_EC_PASSWORD}`.
-- **Restarting `amuled` is `s6-svc -r`**, a local process restart, not a container restart (§9).
-- **The three processes start at once**, so the crawler routinely reaches EC before `amuled`
-  listens; "daemon unreachable at startup" is tolerated and absorbed by the backoff.
-- **PID 1 is root** (it creates the `amule` user from `PUID`/`PGID` and takes the bind mounts), then
-  every service drops privileges with `setpriv`. `user:`, `read_only:` and `cap_drop: ALL` therefore
-  no longer apply to the shipped service; `no-new-privileges`, `pids_limit` and `mem_limit` remain.
-- **A non-zero crawler exit kills the container** (its s6 `finish` runs `s6-svscanctl -t`), so an
-  invalid config shows up as a visible restart loop. A clean exit — the webui's restart control —
-  brings the crawler back alone, and `amuled` keeps its eD2k and Kad sessions.
+- **Le point d'accès EC est une constante de code** (`127.0.0.1:4712`, nom d'instance `amuled`),
+  comme le bind `0.0.0.0:8080` de la webui. `crawler.yml` ne configure que le mot de passe, depuis
+  `${AMULE_EC_PASSWORD}`.
+- **Redémarrer `amuled`, c'est `s6-svc -r`**, un redémarrage de processus local, pas un redémarrage
+  de conteneur (§9).
+- **Les trois processus démarrent en même temps**, donc le crawler atteint couramment EC avant
+  qu'`amuled` n'écoute ; « démon injoignable au démarrage » est toléré et absorbé par le backoff.
+- **PID 1 est root** (il crée l'utilisateur `amule` depuis `PUID`/`PGID` et prend les bind mounts),
+  puis chaque service abandonne ses privilèges avec `setpriv`. `user:`, `read_only:` et
+  `cap_drop: ALL` ne s'appliquent donc plus au service livré ; `no-new-privileges`, `pids_limit` et
+  `mem_limit` restent.
+- **Une sortie non nulle du crawler tue le conteneur** (son `finish` s6 lance `s6-svscanctl -t`),
+  donc une config invalide se voit comme une boucle de redémarrage. Une sortie propre (le contrôle de
+  redémarrage de la webui) ramène le crawler seul, et `amuled` garde ses sessions eD2k et Kad.
 
-No Prometheus or Grafana container ships with the stack: the crawler exposes `/metrics` and an
-operator who wants dashboards points their own Prometheus at it.
+Aucun conteneur Prometheus ou Grafana n'est livré avec la stack : le crawler expose `/metrics` et un
+opérateur qui veut des tableaux de bord y pointe son propre Prometheus.
 
-**Internal components and shared data** (the crawler writes, the webui reads; `matching` is an
-imported library):
+**Composants internes et données partagées** (le crawler écrit, la webui lit ; `matching` est une
+bibliothèque importée) :
 
 ```mermaid
 flowchart RL
@@ -81,19 +86,19 @@ flowchart RL
   webui -->|imports| matching
 ```
 
-| Package | Dist | Role |
+| Paquet | Dist | Rôle |
 |---|---|---|
-| `mulewatch` | `mulewatch` | **Crawler**: drives `amuled` over EC, runs the search and download loops, persistence, observability. Contains the in-process webui subpackage `mulewatch.webui` (read-only catalog viewer). |
-| `catalog_matching` | `catalog-matching` | **Matching engine** (shared library): declarative file to episode policy. Imported by the crawler and by the webui. |
-| `vex_guards` | `vex-guards` | **Dev/CI tooling**: keeps our OpenVEX claims honest. Never shipped in a prod image. |
+| `mulewatch` | `mulewatch` | **Crawler** : pilote `amuled` par EC, fait tourner les boucles de recherche et de téléchargement, la persistance, l'observabilité. Contient le sous-paquet webui in-process `mulewatch.webui` (visualiseur de catalogue en lecture seule). |
+| `catalog_matching` | `catalog-matching` | **Moteur de matching** (bibliothèque partagée) : politique déclarative fichier vers épisode. Importé par le crawler et par la webui. |
+| `vex_guards` | `vex-guards` | **Outillage dev/CI** : garde honnêtes nos affirmations OpenVEX. Jamais livré dans une image de prod. |
 
-**Strict boundaries** (invariants): `catalog_matching` is pure and never imports `mulewatch`;
-`vex_guards` is never imported by shipped code.
+**Frontières strictes** (invariants) : `catalog_matching` est pur et n'importe jamais `mulewatch` ;
+`vex_guards` n'est jamais importé par du code livré.
 
-## 3. Two run modes, one topology
+## 3. Deux modes d'exécution, une seule topologie
 
-The mode follows **from the config** (`crawler.yml`, `download` section), not from a separate flag
-and not from a compose profile. Both compose stacks assemble the same services either way.
+Le mode découle **de la config** (`crawler.yml`, section `download`), pas d'un flag séparé ni d'un
+profil compose. Les deux stacks compose assemblent les mêmes services dans les deux cas.
 
 ```mermaid
 flowchart TB
@@ -103,19 +108,21 @@ flowchart TB
   app -->|"if port_sync"| p["Port-sync"]
 ```
 
-- **Download** (`download.enabled: true`, the shipped default): search **plus** download.
-- **Catalog only** (`download` absent or `enabled: false`): **only the search loop runs**. The node
-  catalogues and notifies, and downloads nothing.
-- **Port-sync** (`port_sync` section present and enabled): an independent loop, orthogonal to the
-  mode, that holds the **High-ID** behind the VPN (see §9).
+- **Téléchargement** (`download.enabled: true`, le défaut livré) : recherche **plus**
+  téléchargement.
+- **Catalogue seul** (`download` absent ou `enabled: false`) : **seule la boucle de recherche
+  tourne**. Le nœud catalogue et notifie, et ne télécharge rien.
+- **Port-sync** (section `port_sync` présente et activée) : une boucle indépendante, orthogonale au
+  mode, qui maintient le **High-ID** derrière le VPN (voir §9).
 
-Each loop is one iteration followed by a sleep (`*_interval_seconds` from the config), supervised by
-a `TaskGroup`: a loop that crashes loudly cancels its siblings (fail-fast), but *expected* I/O
-errors are absorbed inside a cycle (see §10, boundary discipline).
+Chaque boucle est une itération suivie d'un sommeil (`*_interval_seconds` depuis la config),
+supervisée par un `TaskGroup` : une boucle qui crashe bruyamment annule ses sœurs (fail-fast), mais
+les erreurs d'I/O *attendues* sont absorbées à l'intérieur d'un cycle (voir §10, discipline de
+frontière).
 
-## 4. Internal architecture of the crawler (Clean / Hexagonal)
+## 4. Architecture interne du crawler (Clean / Hexagonal)
 
-The dependency graph is a DAG pointing at the **pure domain**.
+Le graphe de dépendances est un DAG qui pointe vers le **domaine pur**.
 
 ```mermaid
 flowchart TB
@@ -133,18 +140,18 @@ flowchart TB
   adp -.->|implement| ports
 ```
 
-- **`domain/`** is **pure**: no I/O, no `yaml`/DB/network/clock/logging, no env reads. The `${VAR}`
-  interpolation in `crawler.yml` is resolved by the config adapter **before** anything reaches the
-  domain.
-- **`application/`** orchestrates the async use-cases by talking to **ports** (protocols).
-- **`adapters/`** carry all the I/O and satisfy the ports structurally.
-- **`composition/`** (`CrawlerApp`, `python -m mulewatch`) loads the config, validates it
-  *fail-fast*, wires the concrete adapters, and supervises the loops.
+- **`domain/`** est **pur** : pas d'I/O, pas de `yaml`/DB/réseau/horloge/logging, aucune lecture
+  d'env. L'interpolation `${VAR}` dans `crawler.yml` est résolue par l'adapter de config **avant**
+  que quoi que ce soit n'atteigne le domaine.
+- **`application/`** orchestre les cas d'usage asynchrones en parlant à des **ports** (protocoles).
+- **`adapters/`** portent toutes les I/O et satisfont les ports structurellement.
+- **`composition/`** (`CrawlerApp`, `python -m mulewatch`) charge la config, la valide *fail-fast*,
+  câble les adapters concrets et supervise les boucles.
 
-## 5. The search cycle
+## 5. Le cycle de recherche
 
-This is the heart of the system and its reason to exist: **being there 24/7** to catch a rare file
-the instant a source shares it. One cycle sweeps every keyword over every channel.
+C'est le cœur du système et sa raison d'être : **être là 24/7** pour attraper un fichier rare à
+l'instant où une source le partage. Un cycle balaie chaque mot-clé sur chaque canal.
 
 ```mermaid
 flowchart TD
@@ -160,29 +167,31 @@ flowchart TD
   cov -. "HEALTHY / DEGRADED / BLIND" .-> tel[["telemetry"]]
 ```
 
-Key points along the way:
+Points clés en chemin :
 
-- **Two channels** per keyword: `SearchChannel.GLOBAL` (multi-server eD2k) and `SearchChannel.KAD`.
-  One task = *(keyword, channel)*.
-- **Minimal keywords, from config**: `search.keywords` (default `keroro` + `titar`). `keroro` casts
-  a wide net; `titar` is a rare, non-saturable **French sentinel** (see the search-simplification
-  handoff for the *why*: real data showed that searching more does not help). Per-target keyword
-  generation was removed.
-- **Per-node seeded order** (`node_id : cycle_index`): two nodes diverge (no shared temporal blind
-  spots), while a single node replays the same order for the same cycle.
-- **LIFO queue + one worker**: the container holds exactly one `amuled`, so the pool that used to
-  spread tasks over several daemons collapsed onto a single worker (2026-09-16). The machinery is
-  unchanged — a worker whose daemon is in **backoff** re-queues the task *on top* for a peer — but
-  with no peer left, a task hitting backoff is *dropped* with a telemetry trace and replayed next
-  cycle. Multi-node redundancy is now entirely a matter of running several nodes and merging their
-  catalogs.
-- **Coverage is not liveness**: "the process is alive" does not imply "we can find something right
-  now". The daemon is *search-capable* if it has an eD2k HighID **or** is connected to Kad; that
-  yields `HEALTHY / DEGRADED / BLIND`. `BLIND` is logged loudly (edge-triggered, anti-spam).
-- **Resilience**: a `RepositoryError` at the end of a cycle is absorbed, the index does not advance,
-  and the cycle is replayed next round (append-only state, no corruption).
+- **Deux canaux** par mot-clé : `SearchChannel.GLOBAL` (multi-serveurs eD2k) et `SearchChannel.KAD`.
+  Une tâche = *(mot-clé, canal)*.
+- **Mots-clés minimaux, depuis la config** : `search.keywords` (défaut `keroro` + `titar`). `keroro`
+  ratisse large ; `titar` est une **sentinelle française** rare et non saturable (voir le handoff de
+  simplification de la recherche pour le *pourquoi* : les données réelles ont montré que chercher
+  davantage n'aide pas). La génération de mots-clés par cible a été supprimée.
+- **Ordre tiré par nœud** (`node_id : cycle_index`) : deux nœuds divergent (pas d'angles morts
+  temporels communs), tandis qu'un même nœud rejoue le même ordre pour le même cycle.
+- **File LIFO + un seul worker** : le conteneur ne contient exactement qu'un `amuled`, donc le pool
+  qui répartissait autrefois les tâches sur plusieurs démons s'est réduit à un worker unique
+  (2026-09-16). La mécanique est inchangée (un worker dont le démon est en **backoff** remet la tâche
+  *au sommet* pour un pair) mais, sans pair restant, une tâche qui tombe sur un backoff est
+  *abandonnée* avec une trace de télémétrie et rejouée au cycle suivant. La redondance multi-nœuds
+  est désormais entièrement affaire de faire tourner plusieurs nœuds et de fusionner leurs
+  catalogues.
+- **La couverture n'est pas la liveness** : « le processus est vivant » n'implique pas « on peut
+  trouver quelque chose là, maintenant ». Le démon est *search-capable* s'il a un HighID eD2k **ou**
+  s'il est connecté à Kad ; cela donne `HEALTHY / DEGRADED / BLIND`. `BLIND` est loggé bruyamment
+  (déclenché sur front, anti-spam).
+- **Résilience** : une `RepositoryError` en fin de cycle est absorbée, l'index n'avance pas, et le
+  cycle est rejoué au tour suivant (état append-only, pas de corruption).
 
-### 5.1 One search task, end to end
+### 5.1 Une tâche de recherche, de bout en bout
 
 ```mermaid
 sequenceDiagram
@@ -210,21 +219,23 @@ sequenceDiagram
   W->>A: stop_search()
 ```
 
-- An EC result becomes a `FileObservation` through `adapters/mule_ec/mapping.py` (capture-all: the
-  MD4 hash, the name, the size, the source count, plus every raw tag). **EC exposes no media
-  metadata on search results**: there is no duration, codec or bitrate anywhere, and since content
-  verification left the scope nothing downstream supplies it either. The catalog therefore holds
-  exactly what eD2k search reports.
-- The observation is written (`files` + `file_observations`) **then** matched. The decision
-  (`target_id`, `rule_name`, `tier`) goes into `match_decisions`. In download mode, a `download`
-  tier *nudges* the download loop so it reacts without waiting for its interval.
-- An EC application failure (`EC_OP_FAILED`) puts that **channel** into **backoff** (base
-  × factor^failures + jitter), persisted at the end of the cycle.
+- Un résultat EC devient une `FileObservation` via `adapters/mule_ec/mapping.py` (capture
+  exhaustive : le hash MD4, le nom, la taille, le nombre de sources, plus chaque tag brut). **EC
+  n'expose aucune métadonnée média sur les résultats de recherche** : il n'y a nulle part de durée,
+  de codec ni de bitrate, et depuis que la vérification de contenu est sortie du périmètre, rien en
+  aval ne les fournit non plus. Le catalogue contient donc exactement ce que la recherche eD2k
+  rapporte.
+- L'observation est écrite (`files` + `file_observations`) **puis** matchée. La décision
+  (`target_id`, `rule_name`, `tier`) va dans `match_decisions`. En mode téléchargement, un tier
+  `download` *pousse* la boucle de téléchargement pour qu'elle réagisse sans attendre son intervalle.
+- Un échec applicatif EC (`EC_OP_FAILED`) met ce **canal** en **backoff** (base × factor^échecs +
+  jitter), persisté en fin de cycle.
 
-## 6. From file to decision: the matching engine
+## 6. Du fichier à la décision : le moteur de matching
 
-Now that the search is "dumb" (2 keywords), **the matcher carries all the precision**. It is a
-**minimal fixed engine plus a 100 % YAML policy** (data validated *fail-fast*, no per-target code).
+Maintenant que la recherche est « bête » (2 mots-clés), **c'est le matcher qui porte toute la
+précision**. C'est un **moteur fixe minimal plus une politique 100 % YAML** (des données validées
+*fail-fast*, pas de code par cible).
 
 ```mermaid
 flowchart LR
@@ -243,24 +254,25 @@ flowchart LR
   dec -->|None| a4["discard"]
 ```
 
-- **Two natures of tokens**: *episode identifiers* (target-specific: segment number, title coverage)
-  versus *source markers* (agnostic: `teletoon`, `idf1`, `vf`). A marker alone identifies no
-  episode, so it only **upgrades** a weak identification (`notify -> download`), never carries one
-  on its own.
-- **Universal guards**: `is_keroro` (franchise **and** not foreign) prefixes every rule;
-  `is_episode` (= `is_keroro` **and** not a clip) prefixes every *actionable* rule. The anti-match
-  `foreign_lang` lives **inside** `is_keroro`, so a foreign file is **discarded**, not catalogued.
-- **Three-way format split**: video gets the actionable tiers; an archive gets `notify` (for review);
-  everything else (mp3, pdf and so on) gets only the permissive catalog tier (the "catalog every
-  piece of metadata" invariant).
-- **Deterministic decision**: among every rule that matches (across every target), take the
-  **highest tier** (`download > notify > catalog`), broken by rule index then `target_id`. The
-  explanation is *returned* (for the webui), never logged.
+- **Deux natures de tokens** : les *identifiants d'épisode* (spécifiques à une cible : numéro de
+  segment, couverture du titre) face aux *marqueurs de source* (agnostiques : `teletoon`, `idf1`,
+  `vf`). Un marqueur seul n'identifie aucun épisode, donc il ne fait que **rehausser** une
+  identification faible (`notify -> download`), il n'en porte jamais une à lui seul.
+- **Gardes universelles** : `is_keroro` (franchise **et** pas étranger) préfixe chaque règle ;
+  `is_episode` (= `is_keroro` **et** pas un clip) préfixe chaque règle *actionnable*. L'anti-match
+  `foreign_lang` vit **à l'intérieur** d'`is_keroro`, donc un fichier étranger est **écarté**, pas
+  catalogué.
+- **Séparation des formats en trois** : la vidéo obtient les tiers actionnables ; une archive obtient
+  `notify` (pour revue) ; tout le reste (mp3, pdf et compagnie) n'obtient que le tier catalogue
+  permissif (l'invariant « cataloguer chaque métadonnée »).
+- **Décision déterministe** : parmi toutes les règles qui matchent (toutes cibles confondues), prendre
+  le **tier le plus haut** (`download > notify > catalog`), départagé par l'index de règle puis le
+  `target_id`. L'explication est *retournée* (pour la webui), jamais loggée.
 
-## 7. Download to completion
+## 7. Du téléchargement à la complétion
 
-Active in download mode only. One iteration of `run_download_cycle` chains three steps over a single
-EC connection.
+Actif en mode téléchargement seulement. Une itération de `run_download_cycle` enchaîne trois étapes
+sur une seule connexion EC.
 
 ```mermaid
 flowchart TD
@@ -276,45 +288,50 @@ flowchart TD
   add --> mon --> comp --> done
 ```
 
-Load-bearing invariants (do not violate):
+Invariants porteurs (à ne pas violer) :
 
-- **The crawler PROD never reads the downloaded bytes, and never touches the output directory at
-  all.** Completion is a **positive signal**: the hash appears in `amuled`'s shared-files list
-  **and** has left the download queue (amuled shares partial downloads too, so the queue is what
-  separates a completion from a partial). It is never an inference about the content.
-- **Nothing moves the finished file.** amuled writes straight into its own `IncomingDir`,
-  bind-mounted to `./downloads/incoming` on the host; the crawler records the state change and
-  notifies, nothing more.
-- **Nothing inspects the file.** There is no type sniffing, no `ffprobe`, no antivirus scan: since
-  the scope reduction of 2026-09-13, judging whether a completed download really is the episode is a
-  manual step performed by the operator on the output directory.
-- `download_policy` is conservative: skip if `tier != download`, if the target is `complete`, if the
-  hash was already downloaded (dedup), or if admitting the file would break the disk floor. An
-  episode already `found` **is downloaded again** when a *new* hash matches it (deliberate archival
-  redundancy).
-- The disk floor (`download.min_free_bytes`) is **measured, not accounted** (2026-09-13): a candidate
-  is admitted only when `free - outstanding - size >= min_free`, where `free` is one
-  `shutil.disk_usage` call on `download.output_dir` and `outstanding` is what amuled's queue still
-  has to transfer, taken from the cycle's existing queue snapshot. The output directory is now
-  mounted **read-write** — `amuled` shares the container and writes into it — but the crawler still
-  never opens a file there: `statvfs` reads filesystem metadata, never bytes. The host's
-  `./downloads` is bound **whole**, not as its two subdirectories, precisely so that this `statvfs`
-  measures the filesystem that fills up rather than the container's writable layer.
-  Free space alone would be wrong, since the filesystem knows nothing of the bytes still coming.
-- **A download amuled no longer knows becomes `failed`** after `download.lost_after_seconds`
-  (default 24 h). Every cycle stamps `last_seen_at` for each hash present in amuled's queue **or**
-  its shared files, and a `queued`/`downloading` row older than the TTL is condemned. This is safe
-  because an entry stays in amuled's queue even with zero sources: absence really means gone.
-  amuled stays the authority, so a `failed` row that reappears in the queue resumes `downloading`,
-  and one that appears in the shared files completes and notifies.
-- The floor never deletes anything, and `is_downloaded()` stays state-blind: a `failed` row keeps
-  blocking automatic re-queuing, so completed files still accumulate without bound and a manual
-  retry means deleting the row.
+- **Le crawler PROD ne lit jamais les octets téléchargés, et ne touche jamais au répertoire de sortie
+  du tout.** La complétion est un **signal positif** : le hash apparaît dans la liste des fichiers
+  partagés d'`amuled` **et** a quitté la file de téléchargement (amuled partage aussi les
+  téléchargements partiels, donc c'est la file qui sépare une complétion d'un partiel). Ce n'est
+  jamais une inférence sur le contenu.
+- **Rien ne déplace le fichier terminé.** amuled écrit directement dans son propre `IncomingDir`,
+  bind-mounté sur `./downloads/incoming` côté hôte ; le crawler enregistre le changement d'état et
+  notifie, rien de plus.
+- **Rien n'inspecte le fichier.** Il n'y a pas de sniffing de type, pas d'`ffprobe`, pas d'analyse
+  antivirus : depuis la réduction de périmètre du 2026-09-13, juger si un téléchargement terminé est
+  réellement l'épisode est une étape manuelle effectuée par l'opérateur sur le répertoire de sortie.
+- `download_policy` est conservatrice : on saute si `tier != download`, si la cible est `complete`,
+  si le hash a déjà été téléchargé (dédup), ou si admettre le fichier casserait le plancher disque.
+  Un épisode déjà `found` **est retéléchargé** quand un *nouveau* hash lui correspond (redondance
+  d'archivage délibérée).
+- Le plancher disque (`download.min_free_bytes`) est **mesuré, pas comptabilisé** (2026-09-13) : un
+  candidat n'est admis que quand `free - outstanding - size >= min_free`, où `free` est un seul appel
+  `shutil.disk_usage` sur `download.output_dir` et `outstanding` ce qu'il reste à transférer à la
+  file d'amuled, pris dans l'instantané de file déjà présent dans le cycle. Le répertoire de sortie
+  est désormais monté **en lecture-écriture** (`amuled` partage le conteneur et y écrit) mais le
+  crawler n'y ouvre toujours aucun fichier : `statvfs` lit des métadonnées de système de fichiers,
+  jamais des octets. Le `./downloads` de l'hôte est monté **en entier**, pas comme ses deux
+  sous-répertoires, précisément pour que ce `statvfs` mesure le système de fichiers qui se remplit
+  plutôt que la couche inscriptible du conteneur.
+  L'espace libre seul serait faux, puisque le système de fichiers ne sait rien des octets encore à
+  venir.
+- **Un téléchargement qu'amuled ne connaît plus devient `failed`** après
+  `download.lost_after_seconds` (24 h par défaut). Chaque cycle estampille `last_seen_at` pour chaque
+  hash présent dans la file d'amuled **ou** dans ses fichiers partagés, et une ligne
+  `queued`/`downloading` plus vieille que le TTL est condamnée. C'est sûr parce qu'une entrée reste
+  dans la file d'amuled même avec zéro source : une absence signifie vraiment disparu. amuled reste
+  l'autorité, donc une ligne `failed` qui réapparaît dans la file repasse en `downloading`, et une
+  qui apparaît dans les fichiers partagés se complète et notifie.
+- Le plancher ne supprime jamais rien, et `is_downloaded()` reste aveugle à l'état : une ligne
+  `failed` continue de bloquer la remise en file automatique, donc les fichiers terminés
+  s'accumulent toujours sans borne et une nouvelle tentative manuelle passe par la suppression de la
+  ligne.
 
-`DownloadState` is a closed enum: `queued -> downloading -> completed`, or `failed`. `completed` is
-terminal; `failed` is terminal only until amuled says otherwise.
+`DownloadState` est une enum fermée : `queued -> downloading -> completed`, ou `failed`. `completed`
+est terminal ; `failed` n'est terminal que jusqu'à ce qu'amuled en décide autrement.
 
-## 8. Persistence: two databases, two roles
+## 8. Persistance : deux bases, deux rôles
 
 ```mermaid
 flowchart LR
@@ -331,34 +348,37 @@ flowchart LR
   end
 ```
 
-- **`catalog.db`** (schema version 5): the accumulated knowledge, **append-only** (`BEFORE
-  UPDATE/DELETE -> ABORT` triggers), so N nodes merge into one catalog (`python -m
-  mulewatch.merge`). Inserts are **idempotent** (`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`), so
-  they are safe across a restart mid-write.
-- **`local.db`** (schema version 5): the node's runtime state (identity, download tracking, the
-  scheduler's progress and backoff). **Never merged**: it belongs to one node.
+- **`catalog.db`** (version de schéma 5) : la connaissance accumulée, **append-only** (triggers
+  `BEFORE UPDATE/DELETE -> ABORT`), pour que N nœuds fusionnent en un seul catalogue (`python -m
+  mulewatch.merge`). Les insertions sont **idempotentes** (`INSERT OR IGNORE` /
+  `ON CONFLICT DO NOTHING`), donc sans danger en cas de redémarrage en pleine écriture.
+- **`local.db`** (version de schéma 5) : l'état d'exécution du nœud (identité, suivi des
+  téléchargements, progression et backoff de l'ordonnanceur). **Jamais fusionnée** : elle appartient
+  à un seul nœud.
 
-Migration `catalog/0005` dropped `file_verifications` and `local/0004` dropped `verification_tasks`,
-rewriting any surviving `quarantined` download row to `completed` (that value left `DownloadState`,
-and reading it back would raise). `local/0005` added `downloads.last_seen_at`, backfilled with
-`queued_at` so no pre-upgrade row is condemned on first boot.
+La migration `catalog/0005` a supprimé `file_verifications` et `local/0004` a supprimé
+`verification_tasks`, en réécrivant en `completed` toute ligne de téléchargement `quarantined`
+survivante (cette valeur a quitté `DownloadState`, et la relire lèverait une erreur). `local/0005` a
+ajouté `downloads.last_seen_at`, rempli avec `queued_at` pour qu'aucune ligne antérieure à la mise à
+niveau ne soit condamnée au premier démarrage.
 
-## 9. High-ID port-sync (optional)
+## 9. Port-sync High-ID (optionnel)
 
-Behind a VPN the inbound port changes; without a High-ID, connectability (and therefore coverage)
-degrades. The port-sync loop reads gluetun's **live forwarded port**, and if it differs from
-`amuled`'s port calls `set_listen_port` over EC, then **restarts the `amuled` process** so it
-rebinds, then re-checks the High-ID. It is rate-limited (at most one restart per window); if the
-port stays wrong, an edge-triggered alert fires (OPERATIONS audience). *Accepted risk: a High-ID
-increases exposure, see the administration runbook.*
+Derrière un VPN, le port entrant change ; sans High-ID, la connectabilité (et donc la couverture) se
+dégrade. La boucle de port-sync lit le **port forwardé courant** de gluetun et, s'il diffère du port
+d'`amuled`, appelle `set_listen_port` par EC, puis **redémarre le processus `amuled`** pour qu'il se
+rebinde, puis revérifie le High-ID. Elle est limitée en débit (au plus un redémarrage par fenêtre) ;
+si le port reste faux, une alerte déclenchée sur front part (audience OPERATIONS). *Risque accepté :
+un High-ID augmente l'exposition, voir [Devenir High-ID](../high-id.md).*
 
-Since 2026-09-16 that restart is a local `s6-svc -r /etc/services.d/amuled` (`S6MuleRestarter`), run
-in the container the crawler already lives in. The Docker socket, its confined proxy service and the
-`HttpMuleRestarter` are gone. This is also the more correct shape: the listen port was never
-re-bindable at runtime, so port-sync always needed a *process* restart — it restarted a *container*
-only because the process was out of reach.
+Depuis le 2026-09-16, ce redémarrage est un `s6-svc -r /etc/services.d/amuled` local
+(`S6MuleRestarter`), exécuté dans le conteneur où le crawler vit déjà. La socket Docker, son service
+proxy confiné et le `HttpMuleRestarter` ont disparu. C'est aussi la forme la plus correcte : le port
+d'écoute n'a jamais été rebindable à chaud, donc le port-sync a toujours eu besoin d'un redémarrage
+de *processus* ; il redémarrait un *conteneur* uniquement parce que le processus était hors de
+portée.
 
-## 10. Observability
+## 10. Observabilité
 
 ```mermaid
 flowchart LR
@@ -375,38 +395,64 @@ flowchart LR
   disp -->|best-effort| notif
 ```
 
-The **domain** emits pure `Event`s; a pure **policy** (`describe`) routes them into `Report`s (log
-severity + metric instructions + COMMUNITY/OPERATIONS audiences); the **adapter** dispatcher applies
-them. The Prometheus endpoint is served by the crawler itself on `observability.metrics.port`
-(default `9090`); nothing scrapes it out of the box, so publish that port and point your own
-Prometheus at it if you want dashboards.
+Le **domaine** émet des `Event` purs ; une **politique** pure (`describe`) les route vers des
+`Report` (sévérité de log + instructions de métrique + audiences COMMUNITY/OPERATIONS) ; le
+dispatcher **adapter** les applique. Le point d'accès Prometheus est servi par le crawler lui-même
+sur `observability.metrics.port` (`9090` par défaut) ; rien ne le scrape par défaut, donc publiez ce
+port et pointez-y votre propre Prometheus si vous voulez des tableaux de bord.
 
-**Boundary discipline (E-D13)**: notifier failures (apprise) and EC failures are **absorbed**
-(degradation); a failure in a 100 %-tested in-process component (for instance `PrometheusSink`)
-**crashes loudly**, because that is a bug, not a transient.
+**Discipline de frontière (E-D13)** : les échecs de notifieur (apprise) et les échecs EC sont
+**absorbés** (dégradation) ; un échec dans un composant in-process testé à 100 % (par exemple
+`PrometheusSink`) **crashe bruyamment**, parce que c'est un bug, pas un transitoire.
 
-## 11. Design invariants (recap)
+## 11. Invariants de conception (récapitulatif)
 
-- **The catalog's subject is the file, never the person**: no tracking, no deanonymization.
-- **The crawler PROD never reads the bytes and never touches the output directory**; completion is a
-  positive signal.
-- **Package boundaries**: `catalog_matching` never imports `mulewatch`; `vex_guards` is never
-  imported by shipped code.
-- **Two run modes** driven by the config (download / catalog-only), one compose topology.
-- **Matching policy 100 % in YAML**; the engine stays fixed and minimal.
-- **`domain/` is pure**; all the I/O lives in `adapters/`; the dependency graph is a DAG.
-- **`catalog.db` is append-only and mergeable; `local.db` is never merged.**
-- **Boundary discipline**: absorb expected external I/O failures, let tested internal code crash.
+- **Le sujet du catalogue est le fichier, jamais la personne** : pas de pistage, pas de
+  désanonymisation.
+- **Le crawler PROD ne lit jamais les octets et ne touche jamais au répertoire de sortie** ; la
+  complétion est un signal positif.
+- **Frontières de paquets** : `catalog_matching` n'importe jamais `mulewatch` ; `vex_guards` n'est
+  jamais importé par du code livré.
+- **Deux modes d'exécution** pilotés par la config (téléchargement / catalogue seul), une seule
+  topologie compose.
+- **Politique de matching 100 % en YAML** ; le moteur reste fixe et minimal.
+- **`domain/` est pur** ; toutes les I/O vivent dans `adapters/` ; le graphe de dépendances est un
+  DAG.
+- **`catalog.db` est append-only et fusionnable ; `local.db` n'est jamais fusionnée.**
+- **Discipline de frontière** : absorber les échecs d'I/O externes attendus, laisser crasher le code
+  interne testé.
 
-## 12. Code landmarks
+## 12. Repères dans le code
 
-| Subsystem | Location (under `packages/crawler/src/mulewatch/` unless noted) |
+| Sous-système | Emplacement (sous `packages/crawler/src/mulewatch/` sauf mention) |
 |---|---|
-| Loops and wiring | `composition/app.py` (`CrawlerApp`), `python -m mulewatch` |
-| Use-cases | `application/run_search_cycle.py`, `run_download_cycle.py`, `port_sync_loop.py` |
-| Search (pure) | `domain/search/` (`keywords`, `cycle`, `backoff`, `coverage`) |
-| Matching | `packages/matching/src/catalog_matching/` (engine + policy `deploy/matcher.yml`) |
-| EC boundary | `adapters/mule_ec/` (codec / transport / client); ports `ports/mule_client.py`, `ports/mule_download_client.py` |
-| Persistence | `adapters/persistence_sqlite/` (`.sql` migrations, repos) |
-| Observability | `domain/observability/`, `adapters/observability/` |
-| WebUI | `webui/` (in-process, own thread) |
+| Boucles et câblage | `composition/app.py` (`CrawlerApp`), `python -m mulewatch` |
+| Cas d'usage | `application/run_search_cycle.py`, `run_download_cycle.py`, `port_sync_loop.py` |
+| Recherche (pure) | `domain/search/` (`keywords`, `cycle`, `backoff`, `coverage`) |
+| Matching | `packages/matching/src/catalog_matching/` (moteur + politique `deploy/matcher.yml`) |
+| Frontière EC | `adapters/mule_ec/` (codec / transport / client) ; ports `ports/mule_client.py`, `ports/mule_download_client.py` |
+| Persistance | `adapters/persistence_sqlite/` (migrations `.sql`, repos) |
+| Observabilité | `domain/observability/`, `adapters/observability/` |
+| WebUI | `webui/` (in-process, thread dédié) |
+
+## 13. Le healthcheck lit la sortie de s6-svstat, pas son code de retour
+
+Si vous écrivez une sonde autour de `s6-svstat` (un contrôle de supervision, un `healthcheck:`
+maison), testez la valeur qu'elle imprime, pas son code de retour : sinon elle déclarera **sain un
+amuled arrêté**.
+
+`s6-svstat` sort en 0 même pour un service arrêté ; avec `-u`, il imprime `false` sur la sortie
+standard. Un code de retour non nul signifie tout autre chose : c'est s6-supervise lui-même qui ne
+tourne pas pour ce répertoire de service. Le healthcheck livré teste donc la valeur imprimée :
+
+```yaml
+test: ["CMD-SHELL", 'test "$$(s6-svstat -u /etc/services.d/amuled)" = true']
+```
+
+(le `$$` est l'échappement compose d'un `$` littéral ; dans le conteneur, la commande est
+`test "$(s6-svstat -u /etc/services.d/amuled)" = true`).
+
+**Ce que `unhealthy` signifie, et ne signifie pas.** Le conteneur ne passe `unhealthy` que quand
+amuled est arrêté. Un crawler arrêté est invisible au healthcheck par conception : un plantage du
+crawler couche déjà le conteneur, donc le sonder serait quasi tautologique, et sonder amuled
+continue de fonctionner sur un nœud qui tourne avec `webui.enabled: false`.
