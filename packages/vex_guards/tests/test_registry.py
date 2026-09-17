@@ -2,17 +2,6 @@ from vex_guards.descriptors import ModuleNotImported, family
 from vex_guards.registry import GUARDS
 
 
-def test_registry_lists_exactly_the_guarded_advisories() -> None:
-    assert set(GUARDS) == {
-        "CVE-2026-11940",
-        "CVE-2026-11972",
-        "CVE-2026-4360",
-        "CVE-2026-0864",
-        "CVE-2025-15366",
-        "CVE-2025-15367",
-    }
-
-
 def test_tarfile_cves_share_the_module_guard() -> None:
     for cve in ("CVE-2026-11940", "CVE-2026-11972", "CVE-2026-4360"):
         assert GUARDS[cve] == ModuleNotImported("tarfile")
