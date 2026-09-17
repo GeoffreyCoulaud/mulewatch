@@ -48,7 +48,7 @@ récupération après panne, voir [Diagnostics avancés](troubleshooting.md).
     plus tard une erreur d'authentification. Vérifiez-le ainsi — la commande ne doit **rien**
     afficher :
 
-    ```
+    ```bash
     grep -E '^(AMULE_EC_PASSWORD|WEBUI_PWD)=change-me' .env
     ```
 
@@ -81,7 +81,7 @@ récupération après panne, voir [Diagnostics avancés](troubleshooting.md).
     mais le pic mémoire d'une migration d'index sur un gros catalogue, décrit dans
     [Limites connues](limits.md). Confirmez avec :
 
-    ```
+    ```bash
     docker inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}}' mulewatch-mulewatch-1
     ```
 
@@ -119,13 +119,13 @@ récupération après panne, voir [Diagnostics avancés](troubleshooting.md).
 - **Si cela dure.** Vérifiez la sortie Internet de la machine (amuled a besoin du 443 sortant). **Si
   vous avez ajouté un VPN**, c'est presque toujours le tunnel `gluetun` qui n'est pas monté : le
   conteneur partage son réseau, donc tant que le tunnel est down, amuled n'a aucune sortie.
-  ```
+  ```bash
   docker compose -f gluetun.compose.yml logs gluetun
   ```
   Un tunnel sain affiche `[gluetun] [vpn] connected` et une IP publique qui n'est pas la vôtre.
   Sinon, corrigez la clé WireGuard et les autres variables VPN dans `.env`, puis redémarrez le seul
   processus amuled :
-  ```
+  ```bash
   docker compose -f gluetun.compose.yml exec mulewatch s6-svc -r /etc/services.d/amuled
   ```
   Plus de détails dans la
@@ -141,10 +141,10 @@ récupération après panne, voir [Diagnostics avancés](troubleshooting.md).
 - **La page ne se charge pas du tout.** La webui est servie en intra-processus par le crawler, il
   n'y a pas de service `webui` séparé — et un conteneur `Up (healthy)` ne prouve pas que le crawler
   est vivant, la sonde n'interroge qu'amuled. Vérifiez donc les deux :
-  ```
+  ```bash
   docker compose ps
   ```
-  ```
+  ```bash
   docker compose exec mulewatch s6-svstat /etc/services.d/mulewatch
   ```
   Conteneur pas `Up` → [« Un conteneur redémarre en boucle »](#un-conteneur-redémarre-en-boucle).

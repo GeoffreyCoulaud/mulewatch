@@ -8,7 +8,7 @@ Prérequis : [cosign](https://github.com/sigstore/cosign) installé.
 
 L'identité attendue est le workflow de release du dépôt :
 
-```sh
+```bash
 IMAGE=ghcr.io/geoffreycoulaud/mulewatch:latest
 IDENTITY='^https://github.com/GeoffreyCoulaud/mulewatch/.github/workflows/release.yml@refs/'
 ISSUER=https://token.actions.githubusercontent.com
@@ -16,7 +16,7 @@ ISSUER=https://token.actions.githubusercontent.com
 
 Vérifier la **signature** de l'image :
 
-```sh
+```bash
 cosign verify \
   --certificate-identity-regexp "$IDENTITY" \
   --certificate-oidc-issuer "$ISSUER" \
@@ -26,7 +26,7 @@ cosign verify \
 Vérifier une **attestation** (SBOM ou VEX ; `--type` parmi `cyclonedx`,
 `https://syft.dev/bom`, `openvex`) :
 
-```sh
+```bash
 cosign verify-attestation \
   --type openvex \
   --certificate-identity-regexp "$IDENTITY" \

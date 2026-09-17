@@ -25,7 +25,7 @@ Docker Desktop sous Windows et macOS, Docker Engine sous Linux.
 
 !!! success "Point de contrôle"
 
-    ```
+    ```bash
     docker compose version
     ```
 
@@ -73,7 +73,7 @@ en place** : ce sont des mots de passe en clair, donc des portes ouvertes.
 
 ## 4. Lancer
 
-```
+```bash
 docker compose up -d
 ```
 
@@ -81,7 +81,7 @@ Au premier lancement, Docker télécharge l'image, ce qui peut prendre quelques 
 
 !!! success "Point de contrôle"
 
-    ```
+    ```bash
     docker compose ps
     ```
 

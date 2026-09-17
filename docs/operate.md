@@ -228,7 +228,7 @@ compose qui gouverne l'accès.
 Le catalogue web n'a ni TLS ni authentification : mettez un reverse proxy devant dès qu'il est
 accessible sur le réseau. Exemple minimal avec Caddy, pointant sur le port publié par le nœud :
 
-```caddyfile
+```caddyfile title="Caddyfile"
 webui.example.com {
     basicauth /* {
         alice $2a$14$...  # bcrypt généré par caddy hash-password

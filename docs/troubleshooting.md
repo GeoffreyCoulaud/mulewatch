@@ -80,8 +80,7 @@ accumulé, mais vous redémarrez d'un état connu.
 - **Solution.** Si vous ajoutez un nouveau `${VAR}` dans `crawler.yml`, typiquement en activant une
   URL de notification `notifications[].url: "discord://${DISCORD_WEBHOOK_ID}/…"`, ajoutez la même
   variable au bloc `environment:` du service `mulewatch` :
-  ```yaml
-  # base.compose.yml
+  ```yaml title="base.compose.yml"
   mulewatch:
     environment:
       PUID: ${PUID:?}

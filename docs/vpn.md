@@ -19,7 +19,7 @@ Pour masquer votre IP aux autres pairs eD2k/Kad, faites passer le nœud par un V
    `gluetun.compose.yml`, et vous ajoutez `-f gluetun.compose.yml` à **toutes** les commandes
    compose ensuite (`ps`, `logs`, `pull`, `down`, etc.) :
 
-   ```
+   ```bash
    docker compose -f gluetun.compose.yml up -d
    ```
 

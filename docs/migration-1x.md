@@ -10,7 +10,7 @@ Lancez toutes les commandes depuis le dossier de l'ancien `compose.yaml`.
 **Étape 1, arrêtez le vieux nœud.** Sans `-v` : les volumes nommés sont vos données et votre retour
 arrière.
 
-```
+```bash
 docker compose down
 ```
 
@@ -20,7 +20,7 @@ docker compose down
 `local.db` et l'état d'aMule dans des volumes nommés ; la 2.0 les lit depuis `data/` et `amule/`.
 Copiez sans déplacer : des volumes intacts sont votre retour arrière.
 
-```
+```bash
 mkdir -p data amule downloads/incoming downloads/temp
 docker run --rm -v mulewatch_catalog-db:/src -v "$PWD/data":/dst alpine sh -c "cp -a /src/. /dst/"
 docker run --rm -v mulewatch_local-db:/src   -v "$PWD/data":/dst alpine sh -c "cp -a /src/. /dst/"
@@ -33,14 +33,14 @@ Un doute sur les noms ? `docker volume ls` : avant le renommage du projet, le pr
 Montés sur `/data/catalog` et `/data/local`, ces volumes portent leur fichier à la racine : copiés
 dans `data/`, les deux se retrouvent côte à côte, là où la 2.0 les cherche. Vérifiez :
 
-```
+```bash
 ls data/     # doit montrer catalog.db et local.db, côte à côte
 ```
 
 **Étape 3, déplacez vos trois fichiers de config à la racine du dossier de travail.** La 2.0 les
 monte d'à côté du fichier compose, non plus de `config/crawler/`.
 
-```
+```bash
 mv config/crawler/crawler.yml config/crawler/targets.yml config/crawler/matcher.yml .
 rmdir config/crawler config
 ```
@@ -64,14 +64,14 @@ où la 1.x en exigeait une : ajoutez `PUID`, `PGID` et `WEBUI_PWD` (étape 4 du 
 principal). Donnez ensuite à cet uid les données copiées, sorties de volumes appartenant à
 quelqu'un d'autre :
 
-```
+```bash
 sudo chown -R "$PUID:$PGID" data amule downloads
 ```
 
 **Étape 6, démarrez la nouvelle pile.** La pile directe est désormais `compose.yml`, et non
 `compose.yaml` :
 
-```
+```bash
 docker compose up -d
 docker compose ps        # one service, `mulewatch`, Up (healthy) after ~30 s
 ```
@@ -83,7 +83,7 @@ docker compose ps        # one service, `mulewatch`, Up (healthy) after ~30 s
   fait autorité. Changer ce mot de passe passe donc par `.env` et un redémarrage ; le reste est le
   vôtre. Vérifiez qu'`IncomingDir` et `TempDir` pointent sur `/downloads/incoming` et
   `/downloads/temp`, corrigez sinon :
-  ```
+  ```bash
   grep -E "^(Incoming|Temp)Dir" amule/amule.conf
   ```
 - **Votre catalogue est repris intact.** `catalog.db` est append-only, son schéma n'est pas touché

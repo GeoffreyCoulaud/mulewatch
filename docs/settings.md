@@ -11,7 +11,7 @@ cataloguer et être notifié, sans qu'aucun fichier n'atterrisse sur votre disqu
 1. Dans `crawler.yml`, passez `download.enabled` de `true` à `false`.
 2. Relancez depuis votre dossier de travail :
 
-   ```
+   ```bash
    docker compose up -d
    ```
 
