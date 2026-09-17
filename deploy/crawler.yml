@@ -9,8 +9,6 @@ keyword_pause_max_seconds: 4.0
 decision_poll_interval_seconds: 5.0
 shutdown_deadline_seconds: 10.0
 
-# The container holds exactly one amuled, at a host and port fixed in code (127.0.0.1:4712).
-# Only the password is configurable, and it comes from the environment (.env).
 amule_ec_password: ${AMULE_EC_PASSWORD}
 
 backoff:

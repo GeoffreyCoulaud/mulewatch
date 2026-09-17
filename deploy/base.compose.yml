@@ -1,45 +1,19 @@
-# Base fragment, pulled in by deploy/compose.yml and deploy/gluetun.compose.yml through
-# `extends:`. Holds the one shared service: crawler, amuled and amuleweb under s6, in a single
-# container.
-#
-# `extends:` and NOT `include:` — a file may not redeclare a service it imported with `include:`
-# ("services.mulewatch conflicts with imported resource"), and both stacks must specialize this
-# service to add their own `ports:`. `extends:` is the mechanism meant for that: it instantiates
-# only the named service, merges sequences additively and lets the extending file win on scalars.
-#
-# This fragment declares NO `ports:` and NO networking on purpose — merging is additive and
-# cannot remove an entry the fragment added, and the two stacks publish differently (the VPN one
-# publishes 8080/4711 on gluetun, not here).
-#
-# Validate alone (from repo root):
-#   AMULE_EC_PASSWORD=x WEBUI_PWD=y docker compose -f deploy/base.compose.yml config
+# Shared service definition, pulled into compose.yml and gluetun.compose.yml with `extends:`.
+# Each stack adds its own `ports:`; this file declares none.
 
 services:
   mulewatch:
-    image: ghcr.io/geoffreycoulaud/mulewatch:${IMAGE_TAG:-latest}
-    # PID 1 runs as root: it creates the amule user from PUID/PGID and takes ownership of the bind
-    # mounts, then every service drops privileges with setpriv. `user:`, `read_only:` and
-    # `cap_drop: ALL` therefore cannot survive on this service. Deliberate, with operator sign-off
-    # (spec 2026-09-16 §9): it reverses the crawler half of the 2026-06-17 posture decision, the
-    # crawler descending to amuled's confinement level rather than amuled rising to the crawler's.
-    # What is left is kept, and raised for three processes instead of one:
+    image: ghcr.io/geoffreycoulaud/mulewatch:latest
     security_opt:
       - "no-new-privileges:true"
     pids_limit: 512
     mem_limit: 2g
     restart: unless-stopped
-    # All four are HARD-REQUIRED: the startup one-shot exits 1 and the container dies without them.
-    # `:?` turns that into a clear `compose up` failure instead. Explicit mapping rather than
-    # `env_file: .env` for least privilege — the container has no business seeing the VPN key.
     environment:
       PUID: ${PUID:?}
       PGID: ${PGID:?}
       AMULE_EC_PASSWORD: ${AMULE_EC_PASSWORD:?}
       WEBUI_PWD: ${WEBUI_PWD:?}
-    # Relative bind mounts only, no named volume: the operator must be able to run
-    # `sqlite3 deploy/data/catalog.db` from the host. PUID/PGID are what keep these readable
-    # without sudo. ./downloads is bound whole rather than as its two subdirectories, so that the
-    # free-space floor (statvfs on /downloads, never a read) measures the host filesystem.
     volumes:
       - ./crawler.yml:/app/config/crawler.yml:ro
       - ./targets.yml:/app/config/targets.yml:ro
@@ -47,9 +21,7 @@ services:
       - ./amule:/home/amule/.aMule
       - ./data:/data
       - ./downloads:/downloads
-    # amuled is the process nothing else covers, and probing it works with `webui.enabled: false`.
-    # PITFALL: s6-svstat exits 0 even for a stopped service — it prints `false`, and exit 1 means
-    # s6-supervise itself is not running. Test the printed output, not the exit code.
+    # s6-svstat exits 0 for a stopped service too, so test what it prints, not its exit code.
     healthcheck:
       test: ["CMD-SHELL", 'test "$$(s6-svstat -u /etc/services.d/amuled)" = true']
       interval: 30s
