@@ -1,4 +1,4 @@
-"""PURE, SYNCHRONOUS EC codec: bytes ↔ tag tree (cf. docs/reference/ec-protocol.md §1-§3).
+"""PURE, SYNCHRONOUS EC codec: bytes ↔ tag tree (cf. agents/reference/ec-protocol.md §1-§3).
 
 GENERIC: encodes/decodes ANY EC packet (recursive container format). NO I/O.
 The tag names handled here are LOGICAL; the wire shift ``(name << 1) | children``

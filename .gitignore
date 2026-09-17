@@ -25,3 +25,6 @@ deploy/downloads/temp/*
 vendor/
 # Worktrees créés par EnterWorktree (checkouts liés, hors versionnement)
 .claude/worktrees/
+
+# Documentation site build output (zensical)
+site/

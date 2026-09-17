@@ -142,7 +142,7 @@ def _apply_migrations(connection: sqlite3.Connection, scripts: tuple[tuple[int, 
     table being sorted. Measured in the shipped image: 1.19M rows -> ~150MiB peak RSS of the
     512m limit, i.e. a ceiling near 4.5M rows. Past it the container is OOM-killed: SIGKILL,
     exit 137, no traceback and no MigrationError, which is far harder to diagnose than the
-    SQLITE_FULL this replaces (see docs/runbooks/troubleshooting.md). 0004 is one-shot (an index
+    SQLITE_FULL this replaces (see docs/troubleshooting.md). 0004 is one-shot (an index
     is maintained incrementally once built), but ``file_observations`` grows without bound, so a
     LATER migration sorting that table is the one to think twice about.
 

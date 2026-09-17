@@ -20,7 +20,7 @@ Every image pushed to GHCR is **signed** (keyless, OIDC-based, via
 
 Signing and attestation happen in `.github/workflows/release.yml` (job `publish-manifest`),
 bound to the multi-arch **index digest**; the signature is `--recursive`, so each per-arch
-child manifest is signed too. See `docs/runbooks/administration.md` (section "Vérifier
+child manifest is signed too. See `docs/verify-image.md` (section "Vérifier
 l'authenticité d'une image") for how to verify a pulled image.
 
 ## Vulnerability scanning

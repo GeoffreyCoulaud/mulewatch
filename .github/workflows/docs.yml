@@ -1,0 +1,51 @@
+name: Documentation
+
+# Builds the Zensical site from docs/ and publishes it to GitHub Pages.
+# Zensical's version is NOT installed ad hoc here: it comes from uv.lock via
+# setup-uv-env, so the site CI builds is the site a developer builds locally.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'zensical.toml'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time; a queued run supersedes an older one rather than racing it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: ./.github/actions/setup-uv-env
+        with:
+          save-cache: 'false'  # validate.yml owns the x86 cache key; this job restores only
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      # --strict turns broken links and dead anchors into a failure. Without it
+      # `zensical build` reports them and still exits 0, publishing them silently.
+      - name: Build the site
+        run: uv run poe docs-build
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        id: deployment

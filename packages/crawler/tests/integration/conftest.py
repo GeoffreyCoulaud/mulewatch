@@ -1,7 +1,7 @@
 """The amuled endpoint shared by the EC / download / orchestration integration suites.
 
 The daemon is provided by the CALLER (env vars below), not started by the test process:
-testcontainers' own bridge network is unusable on some hosts. See docs/testing-guide.md.
+testcontainers' own bridge network is unusable on some hosts. See docs/contributing/testing.md.
 """
 
 import os
@@ -18,7 +18,7 @@ _SKIP_REASON = (
     "  docker run -d --rm --name mulewatch-test-amuled -e GUI_PWD=indexer-ec-test \\\n"
     "      -p 4712:4712 ngosang/amule:3.0.0-1\n"
     f"then export {HOST_VAR}=127.0.0.1 {PORT_VAR}=4712 {PASSWORD_VAR}=indexer-ec-test\n"
-    "(full instructions: docs/testing-guide.md)"
+    "(full instructions: docs/contributing/testing.md)"
 )
 
 

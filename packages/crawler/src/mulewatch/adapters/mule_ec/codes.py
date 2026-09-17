@@ -1,4 +1,4 @@
-"""EC protocol constants, transcribed from docs/reference/ec-protocol.md §7.
+"""EC protocol constants, transcribed from agents/reference/ec-protocol.md §7.
 
 Upstream source: ``src/libs/ec/cpp/ECCodes.h`` + ``ECTagTypes.h`` (aMule tag 2.3.3;
 identical in 3.0.0 unless marked ✦). Tag names are the LOGICAL names: on the

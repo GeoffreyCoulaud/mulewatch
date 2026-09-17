@@ -158,7 +158,7 @@ async def _monitor(
     completion rule needs it, and a second read could contradict the first.
 
     Completion is NO LONGER inferred from bytes (PS_COMPLETE is unobservable via the queue - cf.
-    docs/reference/2026-06-17-amuled-completion-behavior.md): it comes from the shared files
+    agents/reference/2026-06-17-amuled-completion-behavior.md): it comes from the shared files
     (_handle_completions). Here we only record that amuled is pulling a queued download.
 
     ``FAILED`` is NOT a wall here: amuled is the authority on what it holds, so a row the TTL

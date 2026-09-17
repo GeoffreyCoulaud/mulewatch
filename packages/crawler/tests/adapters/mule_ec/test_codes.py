@@ -12,7 +12,7 @@ from mulewatch.adapters.mule_ec.errors import (
 
 
 def test_protocol_version_and_flags_match_reference() -> None:
-    # docs/reference/ec-protocol.md §7 (source: ECCodes.h 2.3.3).
+    # agents/reference/ec-protocol.md §7 (source: ECCodes.h 2.3.3).
     assert codes.EC_CURRENT_PROTOCOL_VERSION == 0x0204
     assert codes.EC_FLAG_BASE == 0x20
     assert codes.EC_FLAG_ZLIB == 0x00000001
