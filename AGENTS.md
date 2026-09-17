@@ -17,7 +17,7 @@ The live state, history, and recommended next step are deliberately **not** in t
 - `docs/testing-guide.md` — every test suite (unit + the integration markers), prerequisites, CI pistes.
 - `docs/runbooks/deployment.md`: bring a node up (the two compose stacks, VPN, secrets, first boot, High-ID/Low-ID); `docs/runbooks/administration.md`: operate & tune one (lifecycle, optional High-ID + its risks, metrics, container hardening, catalog tools, known limits); `docs/runbooks/troubleshooting.md`: symptom → cause → fix entries (any level).
 - `docs/reference/` — dated empirical findings about EC / amuled.
-- `git tag` — milestones are annotated `vX.Y.Z-<name>` (not pushed), one per subsystem.
+- `git tag` — releases are annotated `vX.Y.Z`, **pushed**, with the milestone name in the tag MESSAGE (`v1.0.1 - performance patch`), not in the tag itself. Pushing the tag is what publishes the versioned image: `release.yml` triggers on `v*` (and on every push to `main`, which publishes `latest`/`main`/`sha-<short>`).
 
 ### Where the code lives
 
@@ -131,7 +131,7 @@ Once the gate is green and code reviewed:
 
 1. **Write the handoff** in `docs/handoffs/<ISO date> - handoff - <context>.md`: current state, what was just built, learned pitfalls, suggested next step, what is NOT validated against real hardware. The handoff is committed before continuing the wrap phase.
 2. **Integrate.** **Push the branch and open a PR** for any change touching code, config, tests, `deploy/`, or CI: `main`'s branch protection requires the `validate / gate` check, but `enforce_admins: false` means a local admin merge silently bypasses CI — don't. Wait for the gate green, then merge (linear history is required → **squash or rebase**, not a merge commit). **Exception — documentation-only** (diff touches only `docs/**` + root `*.md`): a local merge/commit to `main` is fine, no PR needed. "Leave as-is" stays available when the user wants to handle it later.
-3. **Tag** annotated `vX.Y.Z-<name>` (not pushed), one per subsystem.
+3. **Tag** annotated `vX.Y.Z`, first line `vX.Y.Z - <milestone name>`, then what shipped. **Push it** — that is what builds and signs the versioned image.
 4. **Clean up** branch and/or worktree if applicable.
 
 Use the `finishing-a-development-branch` skill to guide this phase.
