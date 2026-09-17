@@ -4,115 +4,92 @@ description: "Migrer un nœud 1.x vers la 2.0 : une seule image, un seul service
 
 # Migrer un nœud 1.x vers la 2.0
 
-**Lisez ceci avant tout `docker compose pull` sur un nœud existant.** La 2.0 remplace deux images et
-jusqu'à quatre services par une seule image et un seul service, et sort vos données des volumes
-nommés Docker vers de simples dossiers. Ni code de compatibilité, ni migration automatique : à la
-main, une fois, le vieux nœud arrêté.
+La 2.0 remplace deux images et jusqu'à quatre services par une seule image et un seul service, et
+sort les données des volumes nommés vers de simples dossiers. Aucune migration automatique : faites
+les six étapes à la main, le vieux nœud arrêté, depuis le dossier de l'ancien `compose.yaml`.
 
-Lancez toutes les commandes depuis le dossier de l'ancien `compose.yaml`.
+!!! warning "Sauvegardez d'abord votre dossier de travail"
 
-**Étape 1, arrêtez le vieux nœud.** Sans `-v` : les volumes nommés sont vos données et votre retour
-arrière.
+    Cette migration édite vos fichiers de config sur place. Copiez le dossier entier avant de
+    commencer : `cp -a . ../mulewatch.1x.bak`.
+
+**1. Arrêtez le vieux nœud.** Sans `-v` : les volumes nommés sont vos données et votre retour arrière.
 
 ```bash
-docker compose down
+docker compose down     # ou -f gluetun.compose.yml si vous étiez sur la pile VPN
 ```
 
-(ou `docker compose -f gluetun.compose.yml down` si vous étiez sur la pile VPN.)
-
-**Étape 2, copiez chaque volume nommé dans son nouveau dossier.** La 1.x gardait `catalog.db`,
-`local.db` et l'état d'aMule dans des volumes nommés ; la 2.0 les lit depuis `data/` et `amule/`.
-Copiez sans déplacer : des volumes intacts sont votre retour arrière.
+**2. Copiez les volumes dans les nouveaux dossiers.** Copiez, ne déplacez pas.
 
 ```bash
 mkdir -p data amule downloads/incoming downloads/temp
-docker run --rm -v mulewatch_catalog-db:/src -v "$PWD/data":/dst alpine sh -c "cp -a /src/. /dst/"
-docker run --rm -v mulewatch_local-db:/src   -v "$PWD/data":/dst alpine sh -c "cp -a /src/. /dst/"
+docker run --rm -v mulewatch_catalog-db:/src  -v "$PWD/data":/dst  alpine sh -c "cp -a /src/. /dst/"
+docker run --rm -v mulewatch_local-db:/src    -v "$PWD/data":/dst  alpine sh -c "cp -a /src/. /dst/"
 docker run --rm -v mulewatch_amule-state:/src -v "$PWD/amule":/dst alpine sh -c "cp -a /src/. /dst/"
+ls data/     # catalog.db et local.db, côte à côte
 ```
 
-Un doute sur les noms ? `docker volume ls` : avant le renommage du projet, le préfixe était
-`deploy_` et non `mulewatch_`.
+Noms inconnus ? `docker volume ls` — avant le renommage du projet, le préfixe était `deploy_`.
 
-Montés sur `/data/catalog` et `/data/local`, ces volumes portent leur fichier à la racine : copiés
-dans `data/`, les deux se retrouvent côte à côte, là où la 2.0 les cherche. Vérifiez :
-
-```bash
-ls data/     # doit montrer catalog.db et local.db, côte à côte
-```
-
-**Étape 3, déplacez vos trois fichiers de config à la racine du dossier de travail.** La 2.0 les
-monte d'à côté du fichier compose, non plus de `config/crawler/`.
+**3. Remontez les configs d'un cran.** La 2.0 les monte d'à côté du fichier compose.
 
 ```bash
 mv config/crawler/crawler.yml config/crawler/targets.yml config/crawler/matcher.yml .
 rmdir config/crawler config
 ```
 
-**Étape 4, éditez `crawler.yml`.** Quatre retraits, trois changements, un ajout :
+**4. Éditez `crawler.yml`** (`deploy/crawler.yml` de la 2.0 fait référence) :
 
-- **retirez** la liste `amules:` : le conteneur a un seul client eMule, à une adresse figée dans le
-  code (`127.0.0.1:4712`) ;
-- **retirez** `download.endpoint:` (même raison) ;
-- **retirez** `port_sync.restarter_url:` : plus de proxy Docker à qui parler ;
-- **ajoutez**, au niveau racine, `amule_ec_password: ${AMULE_EC_PASSWORD}` ;
-- **changez** `catalog_db_path` en `/data/catalog.db` et `local_db_path` en `/data/local.db` ;
-- **changez** `download.output_dir` en `/downloads` ;
-- **changez** `port_sync.gluetun_control_url` en `http://localhost:8000` (mulewatch partage le
-  namespace réseau de gluetun, son contrôle est sur localhost).
+| Action | Clé | Pourquoi |
+|---|---|---|
+| Retirez | `amules:` | un seul client eMule, adresse figée dans le code |
+| Retirez | `download.endpoint` | idem |
+| Retirez | `port_sync.restarter_url` | plus de proxy Docker |
+| Ajoutez | `amule_ec_password: ${AMULE_EC_PASSWORD}` (racine) | |
+| Changez | `catalog_db_path` → `/data/catalog.db` | |
+| Changez | `local_db_path` → `/data/local.db` | |
+| Changez | `download.output_dir` → `/downloads` | |
+| Changez | `port_sync.gluetun_control_url` → `http://localhost:8000` | namespace réseau partagé avec gluetun |
 
-Le `deploy/crawler.yml` de la 2.0 fait référence en cas de doute.
-
-**Étape 5, complétez `.env`, puis prenez possession des dossiers.** La 2.0 exige quatre variables là
-où la 1.x en exigeait une : ajoutez `PUID`, `PGID` et `WEBUI_PWD` (étape 4 du parcours
-principal). Donnez ensuite à cet uid les données copiées, sorties de volumes appartenant à
-quelqu'un d'autre :
+**5. Complétez `.env`, puis prenez possession des dossiers.** Ajoutez `PUID`, `PGID` et `WEBUI_PWD`
+(étape 4 du parcours principal).
 
 ```bash
 sudo chown -R "$PUID:$PGID" data amule downloads
 ```
 
-**Étape 6, démarrez la nouvelle pile.** La pile directe est désormais `compose.yml`, et non
-`compose.yaml` ; si vous étiez sur la pile VPN, c'est `-f gluetun.compose.yml` comme à
-l'étape 1 :
+**6. Démarrez.** La pile directe est maintenant `compose.yml`, plus `compose.yaml`.
 
 ```bash
 docker compose up -d
-docker compose ps        # un seul service, `mulewatch`, Up (healthy) au bout de ~30 s
+docker compose ps        # un seul service, `mulewatch`, Up (healthy) en ~30 s
 ```
 
-### Ce qui est repris, et ce qui ne l'est pas
+## Ce qui change au premier boot
 
-- **Votre `amule.conf` existant est conservé**, à une clé près : le conteneur l'écrit s'il est
-  absent, puis aligne à chaque boot `ECPassword` (`[ExternalConnect]`) sur `AMULE_EC_PASSWORD`, qui
-  fait autorité. Changer ce mot de passe passe donc par `.env` et un redémarrage ; le reste est le
-  vôtre. Vérifiez qu'`IncomingDir` et `TempDir` pointent sur `/downloads/incoming` et
-  `/downloads/temp`, corrigez sinon :
+- **Votre `amule.conf` est conservé**, sauf `ECPassword` : le conteneur l'aligne à chaque boot sur
+  `AMULE_EC_PASSWORD`. Changez ce mot de passe par `.env` et un redémarrage. Vérifiez au passage
+  que `IncomingDir` et `TempDir` pointent sur `/downloads/incoming` et `/downloads/temp` :
   ```bash
   grep -E "^(Incoming|Temp)Dir" amule/amule.conf
   ```
-- **Votre catalogue est repris intact.** `catalog.db` est append-only, son schéma n'est pas touché
-  par cette version.
-- **Le backoff de recherche persisté repart de zéro, une fois.** Le nom interne du client eMule est
-  désormais la constante `amuled`, là où la 1.x le lisait dans `crawler.yml` (typiquement
-  `amule-1`). Backoff et avancement de l'ordonnanceur étant indexés dessus, les lignes de l'ancien
-  nom sont ignorées : le premier cycle 2.0 part d'une ardoise vierge. Sans gravité (au pire un canal mis en
-  pause est réessayé), mais cela explique les journaux bavards du premier boot.
-- **Le label `instance` a disparu** des métriques Prometheus qui le portaient : avec un seul client,
-  c'était une constante. Retirez-le des tableaux de bord qui groupaient dessus.
+- **Le catalogue est repris intact** : `catalog.db` est append-only, son schéma ne bouge pas.
+- **Le backoff de recherche repart de zéro, une fois.** Le nom du client est désormais la constante
+  `amuled` ; les lignes indexées sur l'ancien nom (typiquement `amule-1`) sont ignorées. Sans
+  gravité, mais cela explique les journaux bavards du premier boot.
+- **Le label `instance` a disparu** des métriques Prometheus. Retirez-le des tableaux de bord qui
+  groupaient dessus.
 
-### Retour arrière
+## Retour arrière
 
-L'image 1.x reste publiée sous son ancien nom, `ghcr.io/geoffreycoulaud/mulewatch-crawler`, figée
-et **jamais supprimée, délibérément** : c'est le chemin de retour. Restaurez votre ancien
-`compose.yaml`, votre `.env` et votre `config/crawler/` (git ou sauvegarde), remettez dans
-`IMAGE_TAG` le tag 1.x que vous utilisiez (la 2.0 n'a plus cette variable, son tag est dans
-`base.compose.yml`), puis `docker compose up -d`. Les volumes ont été copiés, jamais déplacés ni
-supprimés : le vieux nœud retrouve ses données intactes.
+L'image 1.x reste publiée sous `ghcr.io/geoffreycoulaud/mulewatch-crawler`, figée et jamais
+supprimée. Restaurez votre ancien `compose.yaml`, votre `.env` et votre `config/crawler/`, remettez
+votre tag 1.x dans `IMAGE_TAG` (la 2.0 n'a plus cette variable), puis `docker compose up -d`. Les
+volumes ont été copiés, jamais supprimés : le vieux nœud retrouve ses données.
 
-Après quelques jours de nouveau nœud éprouvé, supprimez les anciens volumes :
-`docker volume rm mulewatch_catalog-db mulewatch_local-db mulewatch_amule-state`. **C'est le point
-de non-retour** : en dernier, et seulement après avoir vérifié que `data/catalog.db` contient bien
-votre historique.
+Une fois le nouveau nœud éprouvé, et seulement après avoir vérifié que `data/catalog.db` contient
+votre historique, supprimez les anciens volumes — **point de non-retour** :
 
----
+```bash
+docker volume rm mulewatch_catalog-db mulewatch_local-db mulewatch_amule-state
+```
