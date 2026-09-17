@@ -1,6 +1,5 @@
-# VPN stack: mulewatch shares gluetun's network namespace. Two services, no socket proxy.
-# Automatic High-ID: VPN_PORT_FORWARDING=on (.env) + port_sync.enabled: true (crawler.yml);
-# port-sync now restarts amuled with `s6-svc` inside the container, so no Docker API is involved.
+# VPN stack: mulewatch runs inside gluetun's network.
+# For High-ID, set VPN_PORT_FORWARDING=on in .env and port_sync.enabled: true in crawler.yml.
 # Run (from deploy/):
 #   docker compose -f gluetun.compose.yml up -d
 name: mulewatch
@@ -18,24 +17,18 @@ services:
       SERVER_COUNTRIES: ${SERVER_COUNTRIES:-}
       VPN_PORT_FORWARDING: ${VPN_PORT_FORWARDING:-off}
       HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE: '{"auth":"none"}'
-    # mulewatch has no network of its own here, so its two web surfaces are published on gluetun.
-    # 8080 (mulewatch catalog UI) has NO authentication; 4711 (amuleweb) is guarded by WEBUI_PWD.
-    # NOT VALIDATED (docs/specs/2026-09-16-single-container-embedded-amule.md §13): sources
-    # disagree on whether gluetun's firewall also needs FIREWALL_INPUT_PORTS=8080,4711 for
-    # connections arriving from the LAN. If the ports answer from the host but not from another
-    # machine, that variable is the first thing to try.
-    # The eD2k port is NOT published: it comes in through the VPN's forwarded port, not the host.
+    # mulewatch has no network of its own, so its web ports are published here.
+    # 8080 (the catalog) has NO password: put it behind a reverse proxy or a VPN.
+    # 4711 (aMule's own web UI) is protected by WEBUI_PWD.
     ports:
-      - "${WEBUI_PORT:-8080}:8080"
-      - "${AMULEWEB_PORT:-4711}:4711"
+      - "8080:8080"
+      - "4711:4711"
     restart: unless-stopped
 
   mulewatch:
     extends:
       file: base.compose.yml
       service: mulewatch
-    # Declared HERE and not in the fragment: `extends:` never shares depends_on,
-    # links or volumes_from, and `network_mode: service:` belongs to the stack that
-    # owns the network anyway.
+    # Here and not in the fragment: `extends:` never carries depends_on over.
     network_mode: "service:gluetun"
     depends_on: [gluetun]

@@ -7,8 +7,6 @@ keyword_pause_max_seconds: 0.5
 decision_poll_interval_seconds: 2.0
 shutdown_deadline_seconds: 5.0
 
-# One amuled per container, at 127.0.0.1:4712 (code constants). Only the secret is configurable,
-# and the compose file puts it in the environment of the very same container.
 amule_ec_password: ${AMULE_EC_PASSWORD}
 
 backoff:
