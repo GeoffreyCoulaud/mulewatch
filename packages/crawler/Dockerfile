@@ -17,7 +17,7 @@ RUN nix-build /build/amule.nix -o /amule \
 
 # Keep the stage: Dependabot only reads FROM lines, so inlining it as a COPY --from=<image>
 # would freeze this digest with no update path.
-FROM ghcr.io/astral-sh/uv:0.9.9@sha256:f6e3549ed287fee0ddde2460a2a74a2d74366f84b04aaa34c1f19fec40da8652 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.15@sha256:62f8c047d0a0e9ece6b53fc63df902585a67a47a7f318ddec4a37db586edc8e3 AS uv
 
 # --- Python stage: build /app/.venv against Debian's python3, the same one the runtime holds ---
 FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132 AS python
