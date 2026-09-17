@@ -195,8 +195,9 @@ the `amule` user. A regression there shows up as `unable to open database file`.
 - Builds run **from the repo root** (the test pins `cwd = repo root` and `--project-directory`).
 - Every interpolated variable is **stubbed by the test itself**: the four the image hard-requires
   (`PUID`, `PGID`, `AMULE_EC_PASSWORD`, `WEBUI_PWD` — without them the startup one-shot exits 1 and
-  the container dies), plus gluetun's (`WIREGUARD_PRIVATE_KEY`, `SERVER_COUNTRIES`, `LISTEN_PORT`),
-  which compose interpolates at parse time even when gluetun is not part of the stack. **Nothing for
+  the container dies), plus gluetun's (`WIREGUARD_PRIVATE_KEY`, `SERVER_COUNTRIES`), which compose
+  interpolates at parse time even when gluetun is not part of the stack. Ports and the image tag are
+  written directly in `deploy/`'s compose files, so they interpolate nothing. **Nothing for
   the operator to set.**
 - Compose files used: `tests/smoke/compose.yaml` (standalone) plus `deploy/compose.yml` and
   `deploy/gluetun.compose.yml` for `test_entrypoint_config_renders`; the smoke configs live under

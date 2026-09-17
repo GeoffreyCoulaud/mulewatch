@@ -20,7 +20,7 @@ service, one process tree**:
 
 ```
 PID 1  entrypoint.sh (root)
-         └─ amule-config.sh        one-shot: create the `amule` user from PUID/PGID,
+         └─ amule-config.py        one-shot: create the `amule` user from PUID/PGID,
          │                         chown the mount points, write amule.conf if absent
          └─ exec s6-svscan /etc/services.d
               ├─ amuled            aMule 3.0.1, EC on 127.0.0.1:4712       (setpriv → amule)
@@ -42,7 +42,7 @@ PID 1  entrypoint.sh (root)
 | Lot | What landed |
 |---|---|
 | 1 | `requires-python = ">=3.13"` in three packages, mypy `python_version`, `uv.lock`, the AGENTS.md hard rule. |
-| 2 | `packages/crawler/docker/`: the pinned `amule.nix`, the three-stage `Dockerfile`, `entrypoint.sh`, `amule-config.sh`, `services.d/{amuled,amuleweb,mulewatch}` and the crawler's `finish`. |
+| 2 | `packages/crawler/docker/`: the pinned `amule.nix`, the three-stage `Dockerfile`, `entrypoint.sh`, `amule-config.py`, `services.d/{amuled,amuleweb,mulewatch}` and the crawler's `finish`. |
 | 3 | Deleted the amuled pool and `HttpMuleRestarter`; `AMULE_EC_HOST`/`AMULE_EC_PORT`/`AMULE_INSTANCE_NAME` became code constants; added `amule_ec_password`; added `S6MuleRestarter`; dropped the `instance` field from two events and its Prometheus label. |
 | 4 | The three compose files, `.env.example`, config files moved to the `deploy/` root, the matching corpus `parents[N]` paths, **and the AGENTS.md confinement-posture and `deploy/` invariants** (already rewritten — do not redo them). |
 | 5 | Two Alpine-era VEX claims and their guards removed, `load_apk_packages` → dpkg, the VEX product purl → `pkg:oci/mulewatch`, the `pname` rule written into `SECURITY.md`, and a release gate on the SBOM. |
@@ -145,12 +145,18 @@ the reconciliation.**
   the MD5 digest only when the file was absent, while the crawler and amuleweb both read the live
   environment variable — so editing `.env` on a running node desynchronised the three processes
   *silently*: amuled kept the old digest and refused both clients, while the container still looked
-  healthy. `amule-config.sh` now reconciles `ECPassword` in `[ExternalConnect]` on **every** boot,
+  healthy. `amule-config.py` now reconciles `ECPassword` in `[ExternalConnect]` on **every** boot,
   section-aware so a same-named key elsewhere in the file is left alone. Every other key stays the
   operator's. Rotating the password is editing `.env` and restarting, nothing more.
-  `amule-config.sh` is the one shell script here whose logic can lock the node out of itself, so it
-  carries a runnable check with no framework — `sh packages/crawler/docker/amule-config.test.sh`,
-  12 assertions over a temp root with the system commands stubbed. Run it after touching the awk.
+  The one-shot is **Python, not shell** (`configparser`, `RawConfigParser` so a `%` in a password or
+  a path survives, `optionxform = str` because aMule's keys are case-sensitive): section-aware
+  editing of an INI file is what the stdlib already does, and the awk that did it before was the
+  part most likely to be wrong. **The accepted trade-off is that it rewrites the whole file**, so
+  any comment the operator left in `amule.conf` is dropped on the next boot — acceptable because
+  aMule itself rewrites the file on its first save anyway.
+  `amule-config.py` is the one startup script here whose logic can lock the node out of itself, so
+  it carries a runnable check with no framework — `sh packages/crawler/docker/amule-config.test.sh`,
+  assertions over a temp root with the system commands stubbed. Run it after touching the script.
 
 ## 5. NOT VALIDATED AGAINST REAL HARDWARE
 
@@ -159,7 +165,7 @@ OrbStack; verified, not assumed. **The image was therefore never built and never
 its first real execution.
 
 Agents worked around the gap where they could, and it is worth being precise about what that buys:
-the nix expression **was** evaluated for real; `amule-config.sh` **was** run end to end against
+the nix expression **was** evaluated for real; `amule-config.py` **was** run end to end against
 stubs; all the compose files **were** validated with a real `docker compose config` pulled through
 nix. **None of that is a running container.** Every item below is unverified.
 
