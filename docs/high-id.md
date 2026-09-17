@@ -1,3 +1,7 @@
+---
+description: "Passer un nœud de Low-ID à High-ID : ce que cela apporte, et les risques que cela ajoute."
+---
+
 # Devenir High-ID
 
 Par défaut, un nœud est en **Low-ID**, et il fonctionne très bien ainsi : il cherche, catalogue et

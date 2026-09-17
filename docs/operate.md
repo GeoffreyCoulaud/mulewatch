@@ -1,3 +1,7 @@
+---
+description: "Piloter un nœud au quotidien : mises à jour, sauvegardes, journaux, métriques et outils de catalogue."
+---
+
 # Faire tourner un nœud
 
 Cette page s'adresse à vous une fois le nœud monté : le piloter, le sauvegarder, le régler, savoir

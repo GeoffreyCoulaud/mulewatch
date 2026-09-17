@@ -1,3 +1,7 @@
+---
+description: "Vue d'ensemble du crawler : sous-systèmes, interactions et cycles de vie à l'exécution."
+---
+
 # Architecture et comportement : mulewatch
 
 > Une vue d'ensemble lisible du système : sous-systèmes, interactions et cycles de vie à l'exécution.

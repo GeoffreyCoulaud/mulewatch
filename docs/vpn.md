@@ -1,3 +1,7 @@
+---
+description: "Faire passer le nœud derrière un VPN avec gluetun, pour masquer votre IP aux autres pairs."
+---
+
 # Passer derrière un VPN
 
 Pour masquer votre IP aux autres pairs eD2k/Kad, faites passer le nœud par un VPN avec le conteneur

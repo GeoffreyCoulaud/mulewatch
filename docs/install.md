@@ -1,3 +1,7 @@
+---
+description: "Monter un nœud en cinq étapes et une quinzaine de minutes : Docker, secrets, premier démarrage, premier catalogue."
+---
+
 # Installer un nœud
 
 Cinq étapes, une quinzaine de minutes une fois Docker en place. À la fin, un catalogue web sur

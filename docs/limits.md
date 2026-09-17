@@ -1,3 +1,7 @@
+---
+description: "Ce que mulewatch ne fait pas, et les conséquences pratiques des choix assumés."
+---
+
 # Limites connues
 
 Ce que mulewatch ne fait pas, et ce qui peut vous mordre. Rien ici n'est un bug : ce sont des choix

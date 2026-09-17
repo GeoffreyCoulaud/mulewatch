@@ -1,3 +1,7 @@
+---
+description: "Ce que votre nœud fait sur le réseau, ce qu'il stocke, et ce que vous risquez en l'hébergeant."
+---
+
 # Légalité et vie privée
 
 Ce guide s'adresse à **vous qui hébergez un nœud** `mulewatch` : chez vous, sur un VPS ou dans

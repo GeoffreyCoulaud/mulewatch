@@ -1,3 +1,7 @@
+---
+description: "Surveillance continue du réseau eMule pour retrouver des médias perdus, à commencer par la VF de Keroro mission Titar."
+---
+
 # mulewatch
 
 mulewatch surveille le réseau eMule en continu pour retrouver des médias perdus. Sa première
@@ -15,13 +19,39 @@ rien d'autre.
 
 ## Par où commencer
 
-| Vous voulez | Allez à |
-|---|---|
-| Monter un nœud, de zéro à un catalogue qui se remplit | [Installer un nœud](install.md) |
-| Le piloter au quotidien, le sauvegarder, le régler | [Faire tourner un nœud](operate.md) |
-| Réparer quelque chose qui ne marche pas | [Le déploiement bloque](troubleshooting-start.md) |
-| Savoir ce que vous risquez et ce que le nœud stocke | [Légalité et vie privée](legal.md) |
-| Comprendre un mot croisé en chemin | [Glossaire](glossary.md) |
+<div class="grid cards" markdown>
+
+-   __[Installer un nœud](install.md)__
+
+    ---
+
+    Monter un nœud, de zéro à un catalogue qui se remplit.
+
+-   __[Faire tourner un nœud](operate.md)__
+
+    ---
+
+    Le piloter au quotidien, le sauvegarder, le régler.
+
+-   __[Le déploiement bloque](troubleshooting-start.md)__
+
+    ---
+
+    Réparer quelque chose qui ne marche pas.
+
+-   __[Légalité et vie privée](legal.md)__
+
+    ---
+
+    Savoir ce que vous risquez et ce que le nœud stocke.
+
+-   __[Glossaire](glossary.md)__
+
+    ---
+
+    Comprendre un mot croisé en chemin.
+
+</div>
 
 Comptez une quinzaine de minutes pour l'installation, une fois Docker en place. Installer Docker est
 de loin l'étape la plus longue ; le reste tient en une commande et un mot de passe à choisir.

@@ -1,3 +1,7 @@
+---
+description: "Vérifier la signature cosign et les attestations d'une image mulewatch avant de la lancer."
+---
+
 # Vérifier l'authenticité d'une image
 
 

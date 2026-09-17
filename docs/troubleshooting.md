@@ -1,3 +1,7 @@
+---
+description: "Diagnostics au-delà du premier déploiement : téléchargement, High-ID, stockage, récupération après panne."
+---
+
 # Diagnostics avancés
 
 Ces sections vont plus loin que le premier déploiement : téléchargement, High-ID, stockage,
@@ -162,19 +166,22 @@ accumulé, mais vous redémarrez d'un état connu.
 - **Pour en réessayer un à la main**, supprimez sa ligne : `is_downloaded()` ignore l'état, donc une
   ligne `failed` continue de bloquer la remise en file automatique, à dessein. Il n'existe pas de
   contrôle webui pour cela et la console SQL est en lecture seule : c'est donc une écriture manuelle
-  sur `local.db`. Arrêtez d'abord le crawler seul (écrivain unique par doctrine ; amuled et amuleweb
-  continuent de tourner, donc les sessions eD2k/Kad survivent), écrivez en tant qu'utilisateur
-  `amule` du conteneur pour que les fichiers WAL créés par SQLite restent la propriété de
-  `PUID:PGID`, puis relancez le crawler :
+  sur `local.db`. Remplacez `<hash>` par le hash eD2k de la ligne à supprimer :
+
   ```bash
-  docker compose exec mulewatch s6-svc -d /etc/services.d/mulewatch
+  docker compose exec mulewatch s6-svc -d /etc/services.d/mulewatch # (1)!
   docker compose exec --user amule mulewatch python -c \
     "import sqlite3; db = sqlite3.connect('/data/local.db', autocommit=True); \
-     db.execute('DELETE FROM downloads WHERE ed2k_hash = ?', ('<hash>',))"
-  docker compose exec mulewatch s6-svc -u /etc/services.d/mulewatch
+     db.execute('DELETE FROM downloads WHERE ed2k_hash = ?', ('<hash>',))" # (2)!
+  docker compose exec mulewatch s6-svc -u /etc/services.d/mulewatch # (3)!
   ```
-  Le cycle suivant le remet en file depuis la décision du catalogue, à condition que le fichier
-  corresponde toujours à une cible qui n'est pas `complete`.
+
+  1.  On arrête le crawler **seul** : il est l'écrivain unique de `local.db` par doctrine. amuled
+      et amuleweb continuent de tourner, donc les sessions eD2k et Kad survivent.
+  2.  L'écriture se fait en tant qu'utilisateur `amule` du conteneur, pour que les fichiers WAL
+      créés par SQLite restent la propriété de `PUID:PGID`.
+  3.  Une fois le crawler relancé, le cycle suivant remet le fichier en file depuis la décision du
+      catalogue — à condition qu'il corresponde toujours à une cible qui n'est pas `complete`.
 - **Si rien du tout ne se télécharge**, vérifiez le plancher disque avant de soupçonner le TTL. Une
   ligne de journal `candidate hash=... -> skip_disk_cap (skipped/deferred)` signifie que l'espace
   libre, moins ce qu'amuled doit encore récupérer, passerait sous `download.min_free_bytes`. Un

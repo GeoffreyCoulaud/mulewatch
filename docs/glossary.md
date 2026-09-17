@@ -1,3 +1,7 @@
+---
+description: "Les termes que la documentation emploie sans les réexpliquer : jargon eMule, conteneur, vocabulaire du projet."
+---
+
 # Glossaire
 
 Les termes que la documentation emploie sans les réexpliquer à chaque fois.

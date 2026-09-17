@@ -1,3 +1,7 @@
+---
+description: "Migrer un nœud 1.x vers la 2.0 : une seule image, un seul service, et les données sorties des volumes nommés."
+---
+
 # Migrer un nœud 1.x vers la 2.0
 
 **Lisez ceci avant tout `docker compose pull` sur un nœud existant.** La 2.0 remplace deux images et

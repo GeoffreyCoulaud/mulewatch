@@ -1,3 +1,7 @@
+---
+description: "Lancer les suites de tests, leurs prérequis et ce qu'il faut attendre en sortie."
+---
+
 # Guide des tests : mulewatch
 
 Ce guide décrit **comment lancer les suites d'intégration** (les lourdes, désélectionnées par

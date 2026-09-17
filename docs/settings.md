@@ -1,3 +1,7 @@
+---
+description: "Les réglages courants d'un nœud en route : cataloguer sans télécharger, changer un port, brancher la supervision."
+---
+
 # Régler le nœud
 
 Les réglages que vous êtes le plus susceptible de vouloir changer une fois le nœud en route : ne

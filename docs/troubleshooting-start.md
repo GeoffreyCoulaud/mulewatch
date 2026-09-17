@@ -1,3 +1,7 @@
+---
+description: "Une fiche par symptôme d'installation : symptôme, cause, solution, dans l'ordre du guide d'installation."
+---
+
 # Le déploiement bloque
 
 Une fiche par symptôme d'installation, dans l'ordre des Points de contrôle du
