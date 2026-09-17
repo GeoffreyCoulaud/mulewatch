@@ -71,7 +71,7 @@ COPY --from=amule /closure/nix/store/ /nix/store/
 COPY --from=amule /closure/bin/ /usr/local/bin/
 
 COPY --from=python /app/.venv /app/.venv
-COPY packages/crawler/docker/entrypoint.sh packages/crawler/docker/amule-config.sh /usr/local/bin/
+COPY packages/crawler/docker/entrypoint.sh packages/crawler/docker/amule-config.py /usr/local/bin/
 COPY packages/crawler/docker/services.d/ /etc/services.d/
 
 ENV PATH="/app/.venv/bin:$PATH"

@@ -1,19 +1,19 @@
 #!/bin/sh
-# Runnable check for amule-config.sh, the only place where a stale EC password can lock the
-# crawler out of a healthy-looking daemon. No framework: run it by hand after touching the awk.
+# Runnable check for amule-config.py, the only place where a stale EC password can lock the
+# crawler out of a healthy-looking daemon. No framework: run it by hand after touching the script.
 #
 #   sh packages/crawler/docker/amule-config.test.sh
 #
-# It rewrites the script's absolute paths into a temp root and stubs the commands that need a
-# real system (user creation, ownership), so it exercises the config logic and nothing else.
+# It rewrites the script's absolute paths into a temp directory and stubs user creation, so it
+# exercises the amule.conf logic and nothing else.
 set -eu
 
-script=$(dirname "$0")/amule-config.sh
+script=$(dirname "$0")/amule-config.py
 root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT
 
 mkdir -p "$root/bin"
-for stub in groupadd useradd chown chmod; do
+for stub in groupadd useradd; do
 	printf '#!/bin/sh\nexit 0\n' >"$root/bin/$stub"
 	chmod +x "$root/bin/$stub"
 done
@@ -21,13 +21,14 @@ done
 printf '#!/bin/sh\nexit 2\n' >"$root/bin/getent"
 chmod +x "$root/bin/getent"
 PATH="$root/bin:$PATH"
-export PATH PUID=1000 PGID=1000 AMULE_EC_PASSWORD=hunter2 WEBUI_PWD=irrelevant
+# Our own uid/gid: the chown calls are real, and you may only chown to yourself.
+export PATH PUID="$(id -u)" PGID="$(id -g)" AMULE_EC_PASSWORD=hunter2 WEBUI_PWD=irrelevant
 
-sed -e "s#^config_dir=.*#config_dir=$root/home/.aMule#" \
-	-e "s#/downloads#$root/downloads#g" "$script" >"$root/under-test.sh"
+sed -E -e "s#^(HOME_DIR|CONFIG_DIR|INCOMING_DIR|TEMP_DIR) = \"#\1 = \"$root#" \
+	"$script" >"$root/under-test.py"
 
-conf="$root/home/.aMule/amule.conf"
-digest=$(printf %s hunter2 | md5sum | cut -d' ' -f1)
+conf="$root/home/amule/.aMule/amule.conf"
+digest=$(python3 -c 'import hashlib;print(hashlib.md5(b"hunter2").hexdigest())')
 failures=0
 
 check() { # check <name> <expected> <actual>
@@ -41,9 +42,9 @@ check() { # check <name> <expected> <actual>
 	fi
 }
 
-run() { sh "$root/under-test.sh"; }
+run() { python3 "$root/under-test.py"; }
 ec_password() { awk '/^\[/ { s = $0 } s == "[ExternalConnect]" && /^ECPassword=/' "$conf"; }
-reset() { rm -rf "$root/home"; mkdir -p "$root/home/.aMule"; }
+reset() { rm -rf "$root/home"; mkdir -p "$root/home/amule/.aMule"; }
 
 reset && rm -f "$conf" && run
 check "fresh install writes the digest" "ECPassword=$digest" "$(ec_password)"
@@ -90,7 +91,7 @@ check "a second boot changes nothing" "$first" "$(cat "$conf")"
 # A missing required variable must kill the boot rather than start half-configured.
 reset && rm -f "$conf"
 status=0
-( unset AMULE_EC_PASSWORD; sh "$root/under-test.sh" ) >/dev/null 2>&1 || status=$?
+( unset AMULE_EC_PASSWORD; python3 "$root/under-test.py" ) >/dev/null 2>&1 || status=$?
 check "a missing password aborts" "nonzero" "$([ "$status" -ne 0 ] && echo nonzero || echo zero)"
 
 echo
