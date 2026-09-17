@@ -62,7 +62,7 @@ Le projet a **deux niveaux** :
 | `ec_integration` | crawler | L'adapter EC (auth, statut réseau, cycle de recherche, get/set du port) face à un vrai amuled | **Oui** (à lancer soi-même) | Un amuled que vous fournissez, désigné par `MULEWATCH_TEST_EC_HOST` (§3.0) | `( cd packages/crawler && uv run pytest -m ec_integration --no-cov )` |
 | `download_integration` | crawler | La mécanique EC du téléchargement (`add_link` dans la file de téléchargement) face à un vrai amuled | **Oui** (à lancer soi-même) | Le même amuled que ci-dessus (§3.0) | `( cd packages/crawler && uv run pytest -m download_integration --no-cov )` |
 | `orchestration_integration` | crawler | Une boucle de crawl complète (un cycle plus un arrêt borné) face à un vrai amuled | **Oui** (à lancer soi-même) | Le même amuled que ci-dessus (§3.0) | `( cd packages/crawler && uv run pytest -m orchestration_integration --no-cov )` |
-| `compose_integration` | crawler | Smoke e2e de la stack docker compose assemblée (sans VPN) : câblage uniquement | **Oui** (compose v2) | docker compose v2 ; un build d'image | `( cd packages/crawler && uv run pytest -m compose_integration --no-cov )` |
+| `compose_integration` | crawler | Smoke e2e de la pile docker compose assemblée (sans VPN) : câblage uniquement | **Oui** (compose v2) | docker compose v2 ; un build d'image | `( cd packages/crawler && uv run pytest -m compose_integration --no-cov )` |
 
 ---
 
@@ -175,9 +175,9 @@ au catalogue, arrêt borné).
 
 ---
 
-### 3.4 `compose_integration` : la stack smoke (crawler, **Docker + compose v2 requis**)
+### 3.4 `compose_integration` : la pile smoke (crawler, **Docker + compose v2 requis**)
 
-**Ce que ça prouve.** La stack `docker compose` **assemblée** (**un seul** service depuis le
+**Ce que ça prouve.** La pile `docker compose` **assemblée** (**un seul** service depuis le
 2026-09-16, portant le crawler, amuled et amuleweb sous s6) démarre et se câble correctement.
 **Aucun octet de contenu n'est jamais téléchargé** (amuled n'a ni serveur eD2k ni VPN ; seul son
 serveur EC est sollicité). Quatre choses :
@@ -188,7 +188,7 @@ serveur EC est sollicité). Quatre choses :
 3. un fichier qu'amuled partage et qui a quitté sa file est enregistré `completed` par le crawler :
    le vrai chemin EC par loopback, face au vrai amuled de l'image livrée ;
 4. les deux points d'entrée de déploiement se rendent avec `docker compose config`, et la topologie
-   rendue est vérifiée : un service `mulewatch`, la stack VPN n'ajoutant que `gluetun`, **rien** qui
+   rendue est vérifiée : un service `mulewatch`, la pile VPN n'ajoutant que `gluetun`, **rien** qui
    subsiste de `crawler` / `amuled` / `docker-proxy`, et **aucun volume nommé** nulle part.
 
 Le smoke sollicite **délibérément** le vrai chemin de propriété : l'état vit dans des **bind mounts**
@@ -205,7 +205,7 @@ service redescend ensuite vers l'utilisateur `amule`. Une régression là-dessus
   absolument (`PUID`, `PGID`, `AMULE_EC_PASSWORD`, `WEBUI_PWD`, sans lesquelles le one-shot de
   démarrage sort en 1 et le conteneur meurt), plus celles de gluetun (`WIREGUARD_PRIVATE_KEY`,
   `SERVER_COUNTRIES`), que compose interpole au parse même quand gluetun ne fait pas partie de la
-  stack. Les ports et le tag d'image sont écrits en dur dans les fichiers compose de `deploy/`, ils
+  pile. Les ports et le tag d'image sont écrits en dur dans les fichiers compose de `deploy/`, ils
   n'interpolent donc rien. **Rien à régler pour l'opérateur.**
 - Fichiers compose utilisés : `tests/smoke/compose.yaml` (autonome) plus `deploy/compose.yml` et
   `deploy/gluetun.compose.yml` pour `test_entrypoint_config_renders` ; les configs du smoke vivent

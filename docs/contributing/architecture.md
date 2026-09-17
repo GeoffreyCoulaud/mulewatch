@@ -22,7 +22,7 @@ Un **workspace uv** de trois paquets, plus des dépendances externes.
 
 **Contexte : le nœud et le monde extérieur.** Depuis le 2026-09-16, un nœud est **un seul
 conteneur** : le crawler, `amuled` et `amuleweb` sont trois processus d'une même image, supervisés
-par **s6** (`s6-svscan` est PID 1). Sous la stack VPN, tout ce conteneur partage le namespace réseau
+par **s6** (`s6-svscan` est PID 1). Sous la pile VPN, tout ce conteneur partage le namespace réseau
 de gluetun, donc tout son trafic passe par le tunnel.
 
 ```mermaid
@@ -65,7 +65,7 @@ Conséquences de cette forme, chacune porteuse ailleurs dans ce document :
   donc une config invalide se voit comme une boucle de redémarrage. Une sortie propre (le contrôle de
   redémarrage de la webui) ramène le crawler seul, et `amuled` garde ses sessions eD2k et Kad.
 
-Aucun conteneur Prometheus ou Grafana n'est livré avec la stack : le crawler expose `/metrics` et un
+Aucun conteneur Prometheus ou Grafana n'est livré avec la pile : le crawler expose `/metrics` et un
 opérateur qui veut des tableaux de bord y pointe son propre Prometheus.
 
 **Composants internes et données partagées** (le crawler écrit, la webui lit ; `matching` est une
@@ -98,7 +98,7 @@ flowchart RL
 ## 3. Deux modes d'exécution, une seule topologie
 
 Le mode découle **de la config** (`crawler.yml`, section `download`), pas d'un flag séparé ni d'un
-profil compose. Les deux stacks compose assemblent les mêmes services dans les deux cas.
+profil compose. Les deux piles compose assemblent les mêmes services dans les deux cas.
 
 ```mermaid
 flowchart TB

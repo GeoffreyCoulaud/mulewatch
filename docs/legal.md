@@ -1,17 +1,11 @@
 # Légalité et vie privée
 
-Ce guide s'adresse à **vous qui hébergez un nœud** `mulewatch` chez vous, sur un VPS, ou dans
-une infra que vous administrez. Il répond honnêtement à trois questions :
+Ce guide s'adresse à **vous qui hébergez un nœud** `mulewatch` : chez vous, sur un VPS ou dans
+une infra que vous administrez. Il répond honnêtement à trois questions : ce que votre nœud
+catalogue, ce que vous risquez légalement, ce qu'un VPN protège vraiment (ou pas).
 
-1. **Qu'est-ce que mon nœud catalogue / stocke / transfère ?** (ce qui finit sur votre disque, ce
-   qui circule sur votre réseau, ce qui n'existe nulle part)
-2. **Qu'est-ce que je risque légalement ?** (le risque réel, qui dépend surtout de votre
-   juridiction et de votre choix de stack)
-3. **Qu'est-ce qu'un VPN protège vraiment ?** (et ce qu'il ne protège pas)
-
-Ce document n'est **pas un avis juridique**. Si vous opérez dans un cadre institutionnel
-(université, association de préservation, employeur), faites valider par un juriste qui connaît
-votre juridiction.
+Ce document n'est **pas un avis juridique**. Dans un cadre institutionnel (université, association
+de préservation, employeur), faites valider par un juriste qui connaît votre juridiction.
 
 ---
 
@@ -20,47 +14,42 @@ votre juridiction.
 ### Ce qui finit dans le catalogue (`data/catalog.db` et `data/local.db`)
 
 - **Empreintes eD2k (hashes)** des fichiers vus sur le réseau eMule.
-- **Noms de fichiers** tels qu'observés sur le réseau (les pairs publient ces noms pour leurs
-  partages).
-- **Tailles** et le nombre de sources rapporté par eD2k.
-- **Sources EC** sous forme d'identifiants anonymes (l'aMule local rapporte combien de pairs ont
-  une copie, pas qui sont ces pairs).
-- **Décisions de matching** : à quelle cible (épisode recherché) un fichier correspond, selon les
-  règles YAML configurées.
-- **Métadonnées techniques de votre nœud** : `node_id` interne, état du scheduler, dernière passe
-  de catalogage. Pas d'info utilisateur.
+- **Noms de fichiers** tels que publiés par les pairs.
+- **Tailles** et nombre de sources rapporté par eD2k.
+- **Sources EC** anonymisées : aMule dit combien de pairs ont une copie, pas qui.
+- **Décisions de matching** : la cible (épisode recherché) qu'un fichier satisfait, selon vos
+  règles YAML.
+- **Métadonnées techniques du nœud** : `node_id` interne, état du scheduler, dernière passe de
+  catalogage. Pas d'info utilisateur.
 
 ### Ce qui ne finit *pas* dans le catalogue
 
-- **Aucune IP de pair eMule.** Le crawler interroge aMule via son protocole EC ; aMule expose des
-  identifiants opaques pour les sources, jamais d'adresses IP.
-- **Aucune trace utilisateur.** Pas de cookies, pas de session, pas de log d'accès : la WebUI est
-  en lecture seule et n'authentifie personne (l'auth doit être fournie par un reverse proxy en
-  amont si vous l'exposez).
-- **Aucune télémétrie sortante.** Le crawler n'envoie rien à un service tiers. Les métriques
-  Prometheus sont **locales** : le crawler expose un endpoint `/metrics` que vous scrapez si vous
-  le voulez, et aucun Prometheus ni Grafana n'est livré avec la stack.
-- **Aucun contenu de fichier dans le catalogue.** Même quand le téléchargement est actif, seuls le
-  `hash`, le nom et les métadonnées eD2k sont indexés : le fichier lui-même vit dans
-  `downloads/incoming`, séparément. **Rien ne l'ouvre** : mulewatch ne lit jamais les octets d'un
-  fichier téléchargé (pas de sniff de type, pas de sonde média, pas d'antivirus).
+- **Aucune IP de pair eMule.** Le crawler passe par le protocole EC d'aMule, qui expose des
+  identifiants opaques, jamais d'adresses IP.
+- **Aucune trace utilisateur.** Ni cookies, ni session, ni log d'accès : la WebUI est en lecture
+  seule et n'authentifie personne ; exposée, elle exige un reverse proxy en amont pour l'auth.
+- **Aucune télémétrie sortante.** Rien ne part vers un service tiers. Les métriques restent
+  locales : un endpoint `/metrics` à scraper si vous voulez, sans Prometheus ni Grafana dans la
+  pile.
+- **Aucun contenu de fichier.** Même téléchargement actif, seuls le `hash`, le nom et les
+  métadonnées eD2k sont indexés ; le fichier vit à part dans `downloads/incoming`, et rien ne
+  l'ouvre : mulewatch ne lit jamais ses octets (ni sniff de type, ni sonde média, ni antivirus).
 
 ### Ce qui circule sur votre réseau
 
-- **Stack VPN (`gluetun.compose.yml`)** : tout le trafic P2P passe par le tunnel VPN. Votre
-  fournisseur d'accès Internet (FAI) ne voit que du trafic chiffré vers votre fournisseur VPN.
-- **Stack par défaut (`compose.yml`, sans VPN)** : le trafic P2P sort en clair depuis votre IP
-  domestique. Votre FAI voit les connexions vers les pairs eMule (pas le contenu, mais les flux).
-- **Trafic eMule** : protocole non chiffré (eD2k est ancien). Un pair sur le réseau peut voir
-  quels fichiers vous demandez et quels hashes vous proposez.
+- **Pile VPN (`gluetun.compose.yml`)** : tout le trafic P2P passe par le tunnel ; votre
+  fournisseur d'accès (FAI) ne voit que du chiffré vers le fournisseur VPN.
+- **Pile par défaut (`compose.yml`, sans VPN)** : le trafic P2P sort en clair depuis votre IP
+  domestique ; votre FAI voit les flux vers les pairs eMule, pas leur contenu.
+- **Trafic eMule** : eD2k est ancien, non chiffré. Un pair voit quels fichiers vous demandez et
+  quels hashes vous proposez.
 
 ### Ce qui finit sur votre disque
 
-- Les bases SQLite du catalogue (`catalog.db`, `local.db`) : qq Mo à qq Go selon l'usage et la
+- Les bases SQLite (`catalog.db`, `local.db`) : de quelques Mo à quelques Go selon l'usage et la
   compaction (cf. [Faire tourner un nœud](operate.md#planification-disque)).
-- Quand le téléchargement est actif : les fichiers téléchargés, écrits directement dans
-  `downloads/incoming` de votre dossier de travail. Rien ne les purge : ils s'accumulent jusqu'à
-  ce que vous fassiez le ménage.
+- Téléchargement actif : les fichiers écrits directement dans `downloads/incoming`. Rien ne les
+  purge : ils s'accumulent jusqu'à votre ménage.
 
 ---
 
@@ -69,106 +58,90 @@ votre juridiction.
 ### Le constat de base
 
 **Partager une œuvre soumise au droit d'auteur sans autorisation est illégal dans la plupart des
-juridictions.** C'est vrai dès que vous faites tourner un nœud eMule, quel que soit le mode :
+juridictions.** Cela vaut dès qu'un nœud eMule tourne, quel que soit le mode :
 
-- **Catalogage seul** (`download.enabled: false`) : techniquement, votre aMule annonce une
-  « source » sur le réseau dès qu'il a un fichier dans son IncomingDir. En pratique, l'IncomingDir
-  reste vide si vous ne téléchargez rien, donc votre exposition est faible.
-- **Téléchargement actif** (le défaut) : vous téléchargez ET re-partagez (eMule est un réseau
-  symétrique : ce que vous prenez, vous le rendez disponible aux autres pairs tant qu'il est dans
-  votre dossier partagé). Les fichiers finis restant dans l'IncomingDir, ce re-partage dure tant
-  que vous ne les déplacez pas.
-- **High-ID Route B** : vous ouvrez un port sur votre box, ce qui augmente votre visibilité comme
-  source : vous êtes joignable directement par les pairs, votre IP est visible.
+- **Catalogage seul** (`download.enabled: false`) : aMule annonce une « source » dès qu'un fichier
+  est dans son IncomingDir ; sans téléchargement il reste vide, donc exposition faible.
+- **Téléchargement actif** (le défaut) : vous téléchargez ET re-partagez. eMule est symétrique,
+  ce que vous prenez est offert aux pairs tant qu'il reste dans votre dossier partagé. Les
+  fichiers finis restent dans l'IncomingDir, donc partagés jusqu'à ce que vous les déplaciez.
+- **High-ID Route B** : un port ouvert sur votre box vous rend joignable directement par les
+  pairs ; visibilité accrue comme source, IP visible.
 
 ### Le risque pratique pour ce projet
 
-Le risque est **statistiquement faible mais non nul**, et dépend de trois facteurs :
+Le risque est **statistiquement faible mais non nul**. Il dépend de trois facteurs :
 
-1. **Votre juridiction.** France et Belgique ont des dispositifs actifs (Hadopi en France, géré
-   par l'Arcom depuis 2022). L'Allemagne pratique les *Abmahnungen* (avertissements payants par
-   les ayants droit). La Suisse, le Canada, beaucoup d'autres juridictions sont moins agressives
-   sur le P2P. Renseignez-vous sur votre pays.
-2. **La nature de votre cible.** Ce projet vise des **médias perdus** (œuvres non rééditées, aux
-   ayants droit inactifs ou introuvables). Statistiquement, ces œuvres ne mobilisent personne :
-   les surveillances P2P ciblent les nouveautés à forte valeur commerciale, pas les épisodes
-   d'un dessin animé Teletoon de 2008.
-3. **Votre choix de stack.** La stack VPN (gluetun) masque votre IP au FAI et aux pairs eMule ; la
-   stack par défaut expose votre IP domestique.
+1. **Votre juridiction.** France et Belgique ont des dispositifs actifs (Hadopi, géré par l'Arcom
+   depuis 2022) ; l'Allemagne pratique les *Abmahnungen*, avertissements payants des ayants
+   droit ; Suisse, Canada et d'autres sont moins agressifs sur le P2P. Renseignez-vous sur votre
+   pays.
+2. **La nature de votre cible.** Ce projet vise des médias perdus : œuvres non rééditées, aux
+   ayants droit inactifs ou introuvables. Les surveillances P2P visent les nouveautés à forte valeur
+   commerciale, pas un dessin animé Teletoon de 2008.
+3. **Votre choix de pile.** gluetun masque votre IP ; la pile par défaut l'expose.
 
-**Aucune de ces protections n'est une absolution juridique.** Si une procédure vous tombe dessus,
-« j'utilisais un VPN » n'est pas une défense, c'est juste plus difficile pour la partie
-adverse de remonter à vous.
+**Aucune de ces protections n'est une absolution juridique.** Face à une procédure, « j'utilisais
+un VPN » n'est pas une défense : c'est seulement plus dur à remonter pour la partie adverse.
 
 ### Ce qui distingue ce projet d'un client P2P généraliste
 
-Vous ne cherchez **pas** des nouveautés. Vous cherchez ce que **personne ne re-diffuse plus**.
-Argumentairement :
-
-- Un fichier *retrouvé* enrichit le patrimoine et, dans la mesure où l'ayant droit est inactif,
-  ne lui cause aucun préjudice économique (pas de vente perdue, pas de marché concurrencé).
-- Le projet est explicitement **non-commercial**, sans publicité, sans monétisation.
-- Le catalogue ne sert pas à fournir un service de téléchargement public : il documente
-  l'existence d'un fichier sur le réseau (preuve d'existence).
+- Un fichier retrouvé enrichit le patrimoine et, tant que l'ayant droit est inactif, ne lui cause
+  aucun préjudice économique : ni vente perdue, ni marché concurrencé.
+- Le projet est non-commercial, sans publicité ni monétisation.
+- Le catalogue ne fournit aucun service de téléchargement public : il documente l'existence d'un
+  fichier sur le réseau.
 
 Ces arguments ne font pas le droit. Ils peuvent peser dans une discussion, pas dans un tribunal.
 
 ### Si vous opérez dans un cadre institutionnel
 
-Si votre nœud tourne pour le compte d'une **bibliothèque, d'un musée, d'une fondation de
-préservation** ou de toute structure publique, vous bénéficiez potentiellement de **dérogations
-spécifiques** (exceptions pédagogiques, exceptions de préservation patrimoniale dans certains
-pays). Faites valider par votre service juridique, et ne déployez pas en supposant que ces
-dérogations couvrent automatiquement le P2P.
+Pour une **bibliothèque, un musée, une fondation de préservation** ou toute structure publique,
+des dérogations existent peut-être (exceptions pédagogiques ou de préservation patrimoniale,
+selon les pays). Faites valider par votre service juridique ; ne supposez pas qu'elles couvrent
+automatiquement le P2P.
 
 ---
 
 ## 3. Ce qu'un VPN protège vraiment (et pas)
 
-### Ce qu'un VPN bien configuré (la stack gluetun) protège
+### Ce qu'un VPN bien configuré (gluetun) protège
 
-- **Votre IP domestique vis-à-vis des pairs eMule.** Les autres clients sur le réseau voient l'IP
-  du serveur VPN, pas la vôtre.
-- **Vos flux vis-à-vis de votre FAI.** Votre FAI voit un tunnel chiffré vers votre fournisseur
-  VPN, pas le contenu du trafic.
-- **Votre IP dans une procédure légale ordinaire.** Une requête d'ayant droit à votre FAI ne
-  retourne rien d'utile (le FAI ne voit que le tunnel VPN).
+- **Votre IP domestique face aux pairs eMule** : ils voient l'IP du serveur VPN, pas la vôtre.
+- **Vos flux face à votre FAI** : il ne voit qu'un tunnel chiffré ; une requête d'ayant droit ne
+  lui retournera rien d'utile dans une procédure légale ordinaire.
 
 ### Ce qu'un VPN *ne protège pas*
 
-- **Une procédure judiciaire visant votre fournisseur VPN.** Les fournisseurs VPN peuvent être
-  contraints de fournir des logs (ou de prouver qu'ils n'en gardent pas). En théorie, un VPN
-  « no-log » avéré est protecteur ; en pratique, vérifiez la juridiction du fournisseur et son
-  historique.
-- **Une fuite DNS ou IPv6.** Si votre système fait des résolutions DNS hors tunnel, ou si IPv6
-  passe en clair, votre IP fuit. gluetun bloque ces fuites par défaut dans la stack
-  `deploy/gluetun.compose.yml` : c'est une de ses raisons d'être.
-- **Une corrélation de timing.** Si vous êtes la seule personne en France à télécharger une œuvre
-  obscure à 3h du matin, une analyse de flux côté FAI peut vous identifier malgré le VPN. Pour ce
-  projet, c'est de la science-fiction (la cible est trop banale et le volume trop faible pour
-  justifier une telle analyse).
-- **Un compromis de votre machine.** Si un attaquant entre dans votre conteneur amuled (rappel :
-  amuled n'est pas durci, [risque accepté](limits.md)),
-  il accède au dossier `downloads/` monté en bind et à l'état d'amuled : pas à votre IP via le
-  VPN, mais à tout ce qui est dans ces dossiers.
+- **Une procédure judiciaire visant votre fournisseur VPN.** Il peut être contraint de livrer ses
+  logs, ou de prouver qu'il n'en garde pas. Un « no-log » avéré protège en théorie ; vérifiez
+  sa juridiction et son historique.
+- **Une fuite DNS ou IPv6.** Des résolutions DNS hors tunnel ou un IPv6 en clair font fuir votre
+  IP ; gluetun les bloque par défaut dans `deploy/gluetun.compose.yml`, c'est une de ses raisons
+  d'être.
+- **Une corrélation de timing.** Seul en France à télécharger une œuvre obscure à 3h du matin,
+  vous restez identifiable par analyse de flux côté FAI malgré le VPN. Science-fiction ici : cible
+  trop banale, volume trop faible.
+- **Un compromis de votre machine.** Un attaquant entré dans votre conteneur amuled (rappel :
+  amuled n'est pas durci, [risque accepté](limits.md)) atteint `downloads/` monté en bind et
+  l'état d'amuled : pas votre IP via le VPN, mais tout leur contenu.
 
 ---
 
 ## 4. Recommandations opérationnelles
 
-Si vous voulez minimiser votre exposition :
+Pour minimiser votre exposition :
 
-- **Préférez la stack VPN** (gluetun, Low-ID) à la stack par défaut sans VPN.
-- **N'exposez sur Internet ni la WebUI ni l'endpoint `/metrics`.** Restez en réseau local, ou
-  passez par un VPN d'accès (WireGuard, Tailscale) + reverse proxy avec auth.
-- **Ne partagez pas votre IP publique** sur des forums liés au projet (« mon nœud est ici, venez
-  voir » expose votre IP même via VPN si vous êtes le seul à utiliser ce VPN à cet instant).
+- **Préférez la pile VPN** (gluetun, Low-ID) à la pile par défaut.
+- **N'exposez sur Internet ni la WebUI ni `/metrics`.** Restez en réseau local, ou passez par un
+  VPN d'accès (WireGuard, Tailscale) et un reverse proxy avec auth.
+- **Ne partagez pas votre IP publique** sur des forums liés au projet : « mon nœud est ici, venez
+  voir » vous expose même via VPN si vous êtes seul à l'utiliser à cet instant.
 - **Gardez votre système à jour.** Un port entrant ouvert (Route B) ou un conteneur compromis
   élargissent votre surface d'attaque.
-- **Ne mélangez pas usages.** N'utilisez pas ce nœud pour autre chose que mulewatch (pas de
-  bibliothèque P2P partagée pré-existante, pas de tests autres).
+- **Ne mélangez pas les usages.** Ce nœud ne sert qu'à mulewatch : pas de bibliothèque P2P
+  partagée pré-existante, pas d'autres tests.
 
-Si vous opérez en collaboration avec d'autres chercheurs, voir
-[la page d'accueil](index.md#partage)
-pour le partage de catalogues hors-ligne.
-
+Pour collaborer avec d'autres chercheurs, voir
+[la page d'accueil](index.md#partage) :
+partage de catalogues hors-ligne.
