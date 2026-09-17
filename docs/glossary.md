@@ -1,11 +1,65 @@
 # Glossaire
 
-| Terme | Sens |
-|---|---|
-| **pile** | Le ou les conteneurs que `docker compose` démarre ensemble, décrits par un fichier compose. La pile par défaut n'a qu'un service ; la pile VPN en ajoute un, `gluetun`. |
-| **dossier de travail** | Le dossier qui contient votre `compose.yml`, votre `.env` et vos données (`data/`, `amule/`, `downloads/`). Toutes les commandes se lancent depuis là. |
-| **service** | Une brique de la pile : un conteneur géré par `docker compose`. Un nœud est un service, `mulewatch` (deux avec le VPN, qui ajoute `gluetun`). |
-| **s6** | Le petit superviseur qui fait tourner les trois processus du conteneur (`amuled`, `amuleweb`, `mulewatch`) et en relance un s'il meurt. |
-| **eD2k / Kad** | Les deux réseaux eMule surveillés : eDonkey2000 (serveurs centraux) et Kademlia (décentralisé, sans serveur). |
-| **Low-ID / High-ID** | Le degré de joignabilité de votre nœud sur eD2k. High-ID = la machine est joignable depuis l'extérieur (plus de sources directes). Low-ID fonctionne aussi, simplement moins bien. |
-| **IncomingDir** | Le dossier où le client eMule écrit un fichier terminé. Ici, il est monté en bind sur `downloads/incoming` dans votre dossier de travail. |
+Les termes que la documentation emploie sans les réexpliquer à chaque fois.
+
+## Jargon eMule et conteneur
+
+Ceux-là sont opaques la première fois qu'on les croise. Inutile de revenir ici : partout
+ailleurs sur le site, ils sont soulignés en pointillés et affichent leur définition.
+
+eD2k
+:   eDonkey2000, le plus ancien des deux réseaux eMule surveillés. Il passe par des serveurs
+    centraux, auxquels le nœud se connecte.
+
+Kad
+:   Kademlia, le second réseau surveillé. Décentralisé : aucun serveur, les clients se trouvent
+    entre eux. Le nœud cherche sur les deux en parallèle.
+
+High-ID
+:   Votre nœud est joignable depuis l'extérieur, donc les autres clients peuvent l'appeler
+    directement. C'est le bon cas : plus de sources, des téléchargements plus rapides.
+
+Low-ID
+:   Votre nœud n'est pas joignable de l'extérieur — pare-feu, box, ou VPN sans port ouvert. Tout
+    fonctionne quand même, simplement avec moins de sources. C'est l'état par défaut, et il
+    convient parfaitement pour cataloguer.
+
+IncomingDir
+:   Le dossier où le client eMule dépose un fichier une fois terminé. Ici, il correspond à
+    `downloads/incoming` dans votre dossier de travail.
+
+s6
+:   Le petit superviseur qui, à l'intérieur du conteneur, fait tourner les trois programmes
+    (`amuled`, `amuleweb`, `mulewatch`) et en relance un s'il meurt. Vous le croisez surtout dans
+    les journaux.
+
+EC
+:   *External Connection*, le canal par lequel `mulewatch` pilote le client eMule : lancer une
+    recherche, mettre un fichier en file, lire l'état. Une erreur d'authentification EC signifie
+    presque toujours un `AMULE_EC_PASSWORD` qui ne correspond pas.
+
+## Vocabulaire du projet
+
+Des mots courants employés dans un sens précis. Le contexte suffit en général.
+
+pile
+:   Le ou les conteneurs que `docker compose` démarre ensemble, décrits par un fichier compose.
+    La pile par défaut n'en a qu'un ; la pile VPN ajoute `gluetun`.
+
+service
+:   Une brique de la pile : un conteneur géré par `docker compose`. Un nœud est un service,
+    `mulewatch` — deux avec le VPN.
+
+dossier de travail
+:   Le dossier qui contient votre `compose.yml`, votre `.env` et vos données (`data/`, `amule/`,
+    `downloads/`). Toutes les commandes de la documentation se lancent depuis là.
+
+--8<-- [start:abbr]
+*[eD2k]: eDonkey2000, le réseau eMule à serveurs centraux
+*[Kad]: Kademlia, le réseau eMule décentralisé, sans serveur
+*[High-ID]: Nœud joignable depuis l'extérieur : plus de sources, téléchargements plus rapides
+*[Low-ID]: Nœud non joignable de l'extérieur : moins de sources, mais tout fonctionne
+*[IncomingDir]: Le dossier où le client eMule dépose un fichier terminé, ici downloads/incoming
+*[s6]: Le superviseur qui fait tourner les trois programmes du conteneur et les relance
+*[EC]: External Connection, le canal par lequel mulewatch pilote le client eMule
+--8<-- [end:abbr]

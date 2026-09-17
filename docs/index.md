@@ -21,6 +21,7 @@ rien d'autre.
 | Le piloter au quotidien, le sauvegarder, le régler | [Faire tourner un nœud](operate.md) |
 | Réparer quelque chose qui ne marche pas | [Le déploiement bloque](troubleshooting-start.md) |
 | Savoir ce que vous risquez et ce que le nœud stocke | [Légalité et vie privée](legal.md) |
+| Comprendre un mot croisé en chemin | [Glossaire](glossary.md) |
 
 Comptez une quinzaine de minutes pour l'installation, une fois Docker en place. Installer Docker est
 de loin l'étape la plus longue ; le reste tient en une commande et un mot de passe à choisir.
