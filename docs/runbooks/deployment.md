@@ -335,7 +335,7 @@ pile :
 
 | Route | Comment l'activer |
 |---|---|
-| **Pile par défaut, port ouvert** | Redirigez `LISTEN_PORT` (`4662` par défaut, en TCP **et** en UDP) depuis votre routeur vers cette machine. Si vous changez de port, ajustez `LISTEN_PORT` dans votre `.env`. |
+| **Pile par défaut, port ouvert** | Redirigez le port `4662` (en TCP **et** en UDP) depuis votre routeur vers cette machine. Si vous changez de port, changez-le dans la section `ports:` de `compose.yml`. |
 | **Pile VPN (gluetun), port forwarding** | Mettez `VPN_PORT_FORWARDING=on` dans votre `.env` **et** `port_sync.enabled: true` dans `crawler.yml`. Votre fournisseur VPN doit gérer le port forwarding ([liste gluetun](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)). |
 
 Sur la route VPN, le nœud aligne désormais le client eMule sur le port forwardé entièrement **dans
@@ -349,9 +349,11 @@ Compromis, activation pas à pas et vérification :
 
 ## Annexe D. Ports et métriques
 
-- **Changer un port web.** Dans votre `.env` : `WEBUI_PORT` (`8080` par défaut, le catalogue) et
-  `AMULEWEB_PORT` (`4711` par défaut, l'interface d'aMule). Utile si l'un d'eux est déjà pris sur
-  votre machine. Ils ne changent que le côté **hôte** ; dans le conteneur, les ports sont figés.
+- **Changer un port web.** Les ports sont écrits en clair dans la section `ports:` du fichier de
+  votre pile — `compose.yml`, ou `gluetun.compose.yml` où ils sont publiés par le service
+  `gluetun` : `8080` pour le catalogue, `4711` pour l'interface d'aMule. Utile si l'un d'eux est
+  déjà pris sur votre machine. Ne changez que le nombre de **gauche**, le côté hôte
+  (`"8090:8080"`) ; dans le conteneur, les ports sont figés.
 - **Derrière un reverse proxy.** Si vous mettez un proxy devant le port 8080, réglez
   `webui.amule_url` dans `crawler.yml` sur l'adresse à laquelle **le navigateur** peut joindre
   l'interface d'aMule — cette clé n'est que la cible du lien de navigation, et c'est le navigateur,
@@ -482,10 +484,11 @@ docker compose ps        # one service, `mulewatch`, Up (healthy) after ~30 s
 L'image 1.x est toujours publiée, sous son **ancien nom** :
 `ghcr.io/geoffreycoulaud/mulewatch-crawler`. Ce paquet est figé en 1.x et **n'est délibérément
 jamais supprimé** — il est exactement ce chemin de retour arrière. Pour revenir : restaurez votre
-ancien `compose.yaml` et votre `config/crawler/` (git, ou votre sauvegarde), faites pointer
-`IMAGE_TAG` sur le tag 1.x que vous utilisiez, et `docker compose up -d`. Les volumes nommés ont
-seulement été copiés, jamais déplacés ni supprimés, donc le vieux nœud retrouve ses données là où il
-les avait laissées.
+ancien `compose.yaml`, votre `.env` et votre `config/crawler/` (git, ou votre sauvegarde) — en 1.x,
+le tag d'image se réglait par la variable `IMAGE_TAG` de ce `.env` ; mettez-y le tag 1.x que vous
+utilisiez, puis `docker compose up -d`. (En 2.0 cette variable n'existe plus : le tag de l'image est
+écrit dans `base.compose.yml`.) Les volumes nommés ont seulement été copiés, jamais déplacés ni
+supprimés, donc le vieux nœud retrouve ses données là où il les avait laissées.
 
 Une fois le nouveau nœud éprouvé — laissez-lui quelques jours — vous pouvez supprimer les anciens
 volumes avec `docker volume rm mulewatch_catalog-db mulewatch_local-db mulewatch_amule-state`. C'est

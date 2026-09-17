@@ -97,13 +97,13 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
   compose (un `docker run` nu). Le conteneur sort alors en moins d'une seconde, et tout son journal
   tient en une ligne :
   ```
-  /usr/local/bin/amule-config.sh: 6: PUID is required
+  PUID is required
   ```
 - **Le signe distinctif : aucune traceback Python.** Rien de Python n'a jamais démarré. Si vous
   voyez une traceback, ou une ligne `Invalid config, refusing to start:`, ce n'est pas votre cas :
   lisez plutôt [« Un conteneur redémarre en boucle »](#un-conteneur-redémarre-en-boucle).
 - **Cause.** Les quatre variables sont **strictement obligatoires**. Le one-shot de démarrage
-  `amule-config.sh` s'exécute comme première action de PID 1, avant les trois services : il crée
+  `amule-config.py` s'exécute comme première action de PID 1, avant les trois services : il crée
   l'utilisateur `amule` du conteneur à partir de `PUID`/`PGID`, prend possession des bind mounts et
   écrit le mot de passe aMule. Il sort en 1 si l'une des quatre manque ou est vide. Les fichiers
   compose ajoutent une garde `:?` sur chacune, pour que l'échec se manifeste par le message clair
@@ -226,16 +226,19 @@ tout se répare sans expertise : lire un journal, corriger une ligne, relancer u
 - **Cause.** mulewatch publie des ports sur l'hôte ; l'un d'eux est déjà utilisé (un autre service,
   une ancienne pile...). Le numéro dans le message vous dit lequel :
 
-  | Port par défaut | Variable à changer dans `.env` | Sert à |
-  |---|---|---|
-  | `8080` | `WEBUI_PORT` | le catalogue web mulewatch, **sans aucune authentification** |
-  | `4711` | `AMULEWEB_PORT` | amuleweb, l'interface web d'aMule, protégée par `WEBUI_PWD` |
-  | `4662` | `LISTEN_PORT` | le port eMule, TCP + UDP (publié par la **pile directe** seulement ; sous VPN il arrive par le port forwardé de gluetun) |
+  | Port par défaut | Sert à |
+  |---|---|
+  | `8080` | le catalogue web mulewatch, **sans aucune authentification** |
+  | `4711` | amuleweb, l'interface web d'aMule, protégée par `WEBUI_PWD` |
+  | `4662` | le port eMule, TCP + UDP (publié par la **pile directe** seulement ; sous VPN il arrive par le port forwardé de gluetun) |
 
-- **Solution.** Ouvrez `.env`, donnez au port concerné une valeur libre (par exemple
-  `WEBUI_PORT=8090`), enregistrez, puis relancez depuis votre dossier de travail :
+- **Solution.** Les ports ne sont pas des variables : ils sont écrits en clair dans la section
+  `ports:` du fichier de votre pile (`compose.yml`, ou `gluetun.compose.yml` où le service
+  `gluetun` publie les deux ports web). Ouvrez ce fichier et donnez au port concerné une valeur
+  libre **du côté gauche**, celui de l'hôte — par exemple `"8090:8080"`. Enregistrez, puis relancez
+  depuis votre dossier de travail :
   ```
-  nano .env
+  nano compose.yml
   ```
   ```
   docker compose up -d
@@ -588,7 +591,7 @@ Plusieurs causes, à vérifier dans cet ordre :
 
 - **Ce que fait l'image.** Il n'y a **plus aucun volume nommé** : tout est un bind mount relatif
   dans votre dossier de travail (`data/`, `amule/`, `downloads/`, plus les trois `.yml` montés en
-  lecture seule). Au démarrage, le one-shot `amule-config.sh` tourne en root, crée l'utilisateur
+  lecture seule). Au démarrage, le one-shot `amule-config.py` tourne en root, crée l'utilisateur
   `amule` avec `PUID:PGID`, puis donne **les points de montage** (`/home/amule/.aMule`,
   `/downloads/incoming`, `/downloads/temp`) à cet utilisateur. Le crawler fait de même sur `/data`.
 - **Ce qu'il ne fait pas : ce `chown` n'est PAS récursif** sur `downloads/` ni sur `amule/`, et

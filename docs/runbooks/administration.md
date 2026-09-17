@@ -361,16 +361,17 @@ c'est `docker compose exec mulewatch s6-svc -d /etc/services.d/mulewatch`.
 Servie en intra-processus, la WebUI ne lit **aucune** variable d'environnement dédiée : elle dérive
 tout de la config opérateur du crawler (`crawler.yml` + arguments de lancement). L'adresse d'écoute
 interne est **figée à `0.0.0.0:8080` dans le code** (non configurable) : c'est l'exposition via
-compose (port publié) qui gouverne l'accès, pas une adresse de bind applicative. La seule
-variable d'environnement en jeu est `WEBUI_PORT`, et uniquement côté hôte.
+compose (port publié) qui gouverne l'accès, pas une adresse de bind applicative. Aucune variable
+d'environnement n'est en jeu : le port publié côté hôte est écrit en clair dans la section `ports:`
+du fichier compose.
 
 | Réglage | Où | Valeur par défaut | Rôle |
 |---|---|---|---|
 | `catalog_db_path` | `crawler.yml` | `/data/catalog.db` | Base catalogue, lue en lecture seule par la WebUI (= `data/catalog.db` côté hôte) |
 | `local_db_path` | `crawler.yml` | `/data/local.db` | Base état local, lue en lecture seule par la WebUI (= `data/local.db` côté hôte) |
 | `webui.amule_url` | `crawler.yml` | `http://localhost:4711` | Cible du lien « aMule » dans la navigation. À changer **uniquement** si un reverse proxy est devant le 8080 : c'est le navigateur qui résout cette URL, pas le conteneur. |
-| `WEBUI_PORT` | `.env` (env) | `8080` | Port **publié côté hôte** dans le mapping compose `"${WEBUI_PORT:-8080}:8080"` (hôte:conteneur). Ne change PAS le port d'écoute interne. |
-| `AMULEWEB_PORT` | `.env` (env) | `4711` | Idem pour amuleweb (`"${AMULEWEB_PORT:-4711}:4711"`), l'autre surface web. |
+| port publié du catalogue | `compose.yml` (`ports:`) | `8080` | Port **publié côté hôte** dans le mapping `"8080:8080"` (hôte:conteneur) : changez le nombre de gauche pour publier ailleurs. Ne change PAS le port d'écoute interne. |
+| port publié d'amuleweb | `compose.yml` (`ports:`) | `4711` | Idem pour amuleweb (`"4711:4711"`), l'autre surface web. Sous la pile VPN, les deux mappings sont portés par le service `gluetun` dans `gluetun.compose.yml`. |
 
 ### Exposition derrière un reverse proxy
 
