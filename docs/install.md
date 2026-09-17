@@ -35,7 +35,7 @@ Docker Desktop sous Windows et macOS, Docker Engine sous Linux.
 
 Sur <https://github.com/GeoffreyCoulaud/mulewatch>, bouton vert **`Code`** puis **`Download ZIP`**.
 Décompressez, et gardez **uniquement le dossier `deploy`** : copiez-le où vous voulez, renommez-le à
-votre goût. C'est votre **dossier de travail** ; toutes les commandes qui suivent s'y lancent. Le
+votre goût. C'est votre **[dossier de travail](glossary.md#vocabulaire-du-projet)** ; toutes les commandes qui suivent s'y lancent. Le
 reste du ZIP peut être supprimé.
 
 Vous y trouvez les fichiers compose, les réglages du nœud (`crawler.yml`, `targets.yml`,

@@ -90,6 +90,12 @@ pymdownx.highlight.pygments_lang_class = true
 pymdownx.inlinehilite = {}
 pymdownx.keys = {}
 pymdownx.magiclink = {}
+# The abbreviations block of the glossary is appended to every page, so jargon like High-ID or
+# s6 carries its definition on hover site-wide. base_path is resolved from the directory the
+# build runs in (the repo root), and is narrowed to docs/ so nothing outside it can be embedded.
+pymdownx.snippets.base_path = ["docs"]
+pymdownx.snippets.check_paths = true
+pymdownx.snippets.auto_append = ["glossary.md:abbr"]
 pymdownx.superfences = {}
 pymdownx.tabbed.alternate_style = true
 pymdownx.tasklist.custom_checkbox = true
