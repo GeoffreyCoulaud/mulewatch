@@ -13,8 +13,7 @@ def _write_sbom(tmp_path: Path, artifacts: list[dict[str, str]]) -> Path:
 
 
 def test_load_dpkg_packages_keeps_only_deb_artifacts(tmp_path: Path) -> None:
-    # The image is Debian now: Syft types its OS packages "deb". "apk" is another
-    # distro's noise and "nix" is the aMule closure, neither of which a dpkg guard judges.
+    # "apk" belongs to another distro and "nix" to aMule: neither comes from dpkg.
     path = _write_sbom(
         tmp_path,
         [
@@ -61,9 +60,7 @@ def test_package_min_version_fails_below_minimum() -> None:
 
 
 def test_package_min_version_compares_the_upstream_part_of_a_debian_version() -> None:
-    # A Debian version is [epoch:]upstream[-revision]: the epoch and the Debian
-    # revision are packaging metadata, not upstream code, so only the middle is
-    # comparable. Taken whole, "1:8.14.1-2" is not even a valid PEP 440 version.
+    # Only the upstream part compares; whole, "1:8.14.1-2" is not a valid version.
     guards: dict[str, ImageGuard] = {"CVE-2016-1405": PackageMinVersion("curl", "8.14")}
     assert evaluate_image_guards(guards, [DebPackage("curl", "1:8.14.1-2")]) == []
 

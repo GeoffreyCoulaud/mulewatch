@@ -1,12 +1,7 @@
-"""Tests for ``S6MuleRestarter`` (single-container design §9): ``s6-svc -r`` on amuled's service.
+"""Tests for ``S6MuleRestarter``.
 
-The boundary faked here is the PROGRAM, not the spawning: every test really runs
-``asyncio.create_subprocess_exec`` and really reaps a real child, only against ``/bin/true``,
-``/bin/false`` or a nonexistent path instead of ``s6-svc``. That is the honest fake, because the
-adapter's whole job IS the spawn-and-reap: what it must get right is the exit-code reading, the
-stderr capture and the OSError path, all of which a real child exercises. ``s6-svc`` itself cannot
-run in a unit test (it needs a live s6-supervise and its control FIFO), and mocking the spawn would
-test nothing but the mock.
+``s6-svc`` needs a live s6 to run, so the tests spawn ``/bin/true``, ``/bin/false`` or a missing
+path instead. Reading what the child did is the adapter's whole job, so it stays a real child.
 """
 
 import pytest

@@ -44,7 +44,6 @@ pytestmark = pytest.mark.compose_integration
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _SMOKE = _REPO_ROOT / "tests/smoke/compose.yaml"
 
-# One service now: crawler + amuled + amuleweb share a container, supervised by s6.
 _SERVICE = "mulewatch"
 _S6_SERVICES = ("amuled", "amuleweb", "mulewatch")
 

@@ -5,9 +5,8 @@ exec 2>&1
 # explicitly tolerates into a non-zero exit, which `finish` escalates into killing the container.
 set -u
 
-# s6-svperms needs amuled's supervise directory, which s6-supervise only creates once it has
-# started amuled — and all three services start at the same time. Bounded wait: without the group
-# permission we lose the ability to restart amuled for a port change, not the crawl itself.
+# Wait for amuled's supervise directory: all three services start together. If it never shows
+# up, we only lose the ability to restart amuled for a port change, so carry on crawling.
 control=/etc/services.d/amuled/supervise/control
 attempt=0
 while [ ! -e "$control" ] && [ "$attempt" -lt 100 ]; do

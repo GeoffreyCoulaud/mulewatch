@@ -26,11 +26,8 @@ let
     buildInputs = [ zlib pcre2 expat curl ];
   });
 
-  # The pname is load-bearing: Syft derives the CPE from the package name, and the daemon/httpServer
-  # override renames the derivation to amule-web-daemon, a name the NVD does not know. Grype would
-  # then report zero findings on a vulnerable aMule, silently. Forcing it back to "amule" yields
-  # cpe:2.3:a:amule:amule:3.0.1 and real matches.
-  # See docs/specs/2026-09-16-single-container-embedded-amule.md, section 8.
+  # The pname must stay "amule": Syft builds the CPE from it, and the override below renames the
+  # derivation to amule-web-daemon, which the NVD does not know — Grype would then find nothing.
   amule' = (amule.override {
     monolithic = false; enableDaemon = true; httpServer = true; wxwidgets_3_2 = wxBase;
   }).overrideAttrs (_: { pname = "amule"; });

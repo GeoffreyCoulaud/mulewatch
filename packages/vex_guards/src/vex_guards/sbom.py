@@ -16,11 +16,10 @@ class DebPackage:
 
 
 def load_dpkg_packages(path: Path) -> list[DebPackage]:
-    """The dpkg-installed packages of a Syft JSON SBOM, in document order.
+    """The dpkg packages of a Syft JSON SBOM, in document order.
 
-    Syft types a Debian package "deb". Everything else in the SBOM (the aMule nix
-    closure, our Python wheels) is another cataloger's output, not dpkg's, so no
-    dpkg-scoped guard has anything to say about it.
+    Syft types those "deb". The rest (aMule's nix closure, our Python wheels) does
+    not come from dpkg, so a dpkg guard has nothing to say about it.
     """
     doc = json.loads(path.read_text())
     return [
@@ -33,13 +32,10 @@ def load_dpkg_packages(path: Path) -> list[DebPackage]:
 def _upstream(version: str) -> str:
     """The upstream part of a Debian ``[epoch:]upstream[-revision]`` version.
 
-    The epoch and the Debian revision are packaging metadata, not upstream code, so
-    a minimum-version claim is only ever about the middle part. Stripping them also
-    keeps the result parseable: "1:8.14.1-2" is not a valid PEP 440 version.
+    Epoch and revision are packaging, not code, so a version claim ignores them.
 
-    ponytail: PEP 440 ordering over a Debian upstream version. Close enough for the
-    numeric upstreams we ship; a "~rc1" upstream would raise InvalidVersion. Swap in
-    a real Debian comparator the day a min-version guard actually needs one.
+    ponytail: compared as a Python version; a "~rc1" upstream would raise. Swap in a
+    real Debian comparator the day one shows up.
     """
     _, _, without_epoch = version.rpartition(":")
     upstream, _, _ = without_epoch.rpartition("-")

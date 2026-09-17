@@ -1,8 +1,7 @@
 #!/bin/sh
 exec 2>&1
-# amuleweb hashes both passwords itself, so they go in as plain text. --amule-config-file would
-# read the EC password straight from amule.conf, but it makes amuleweb ignore every other option
-# (including --admin-pass) and silence its own logs, so we pass the endpoint's password instead.
-# Host and port are left at their defaults: 127.0.0.1:4712, which is where our amuled listens.
+# Passwords go in as plain text: amuleweb hashes them itself. Not --amule-config-file, which
+# reads the EC password from amule.conf but makes amuleweb ignore the rest of its command line.
+# Its defaults already point at 127.0.0.1:4712, where amuled listens.
 exec setpriv --reuid amule --regid amule --init-groups \
 	env HOME=/home/amule amuleweb --password="$AMULE_EC_PASSWORD" --admin-pass="$WEBUI_PWD"

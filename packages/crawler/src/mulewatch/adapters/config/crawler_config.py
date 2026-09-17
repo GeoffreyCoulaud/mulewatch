@@ -39,13 +39,7 @@ class BackoffConfig:
 @dataclass(frozen=True)
 class AmuleEndpoint:
     """An ``amuled`` daemon reachable over EC. ``name`` is the instance label (logging,
-    backoff/scheduler_state key).
-
-    CODE-LEVEL ONLY: it has no YAML surface any more. The container holds exactly one amuled, at a
-    fixed address, so host/port/name are the constants below and the only deployment-sensitive
-    value (``amule_ec_password``) stays in ``crawler.yml`` (single-container design §6). The
-    dataclass survives because the client factories take an endpoint, not four arguments.
-    """
+    backoff/scheduler_state key)."""
 
     name: str
     host: str
@@ -53,8 +47,6 @@ class AmuleEndpoint:
     password: str
 
 
-# The single amuled's address. Fixed in code for the same reason the webui bind is
-# (``0.0.0.0:8080``): one container, one daemon, nothing here for an operator to repoint.
 AMULE_EC_HOST = "127.0.0.1"
 AMULE_EC_PORT = 4712
 AMULE_INSTANCE_NAME = "amuled"
