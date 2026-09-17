@@ -1,10 +1,7 @@
 #!/bin/sh
-# $1 is the exit code, or 256 when the crawler was killed by a signal.
-#
-# A clean exit is /controls/restart asking for one: s6 brings mulewatch back by itself and amuled
-# keeps its eD2k and Kad sessions. Anything else — an invalid configuration above all — takes the
-# whole container down, so `restart: unless-stopped` shows a visible backoff loop instead of a
-# silent crash loop inside a container that still looks healthy.
+# $1 is the exit code, or 256 when a signal killed the crawler.
+# A clean exit is /controls/restart asking for one: s6 restarts the crawler alone, amuled keeps
+# its sessions. Anything else stops the container, so a bad config is visible instead of looping.
 [ "$1" = 0 ] && exit 0
 
 exec s6-svscanctl -t /etc/services.d

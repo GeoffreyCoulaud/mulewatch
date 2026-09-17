@@ -23,7 +23,6 @@ class SearchExecuted:
 
 @dataclass(frozen=True)
 class InstanceUnreachable:
-    # One container, one amuled: no daemon identity to carry (single-container design §6).
     pass
 
 

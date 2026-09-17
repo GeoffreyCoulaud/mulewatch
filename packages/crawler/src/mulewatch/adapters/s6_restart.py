@@ -1,14 +1,7 @@
-"""``S6MuleRestarter`` adapter: restart amuled through s6 (single-container design §9).
+"""Restart amuled with ``s6-svc``: it runs in this container, under the same supervisor.
 
-The crawler and amuled share one container and one process tree, supervised by s6, so restarting
-amuled is a local ``s6-svc -r`` on its service directory — no Docker API, no socket proxy. We use
-the documented ``s6-svc`` command rather than writing to ``supervise/control`` ourselves: the
-byte-level FIFO protocol is an s6 internal detail.
-
-``s6-svc`` returns immediately once the signal is queued (it does not wait for the restart), so
-there is nothing to poll here. Exit 0 → success; any other exit code, or an ``s6-svc`` that cannot
-be run at all → ``RestarterError``, absorbed by the port-sync loop (alert + backoff). NO internal
-retry: the next cycle retries under the rate-limit.
+``s6-svc`` returns as soon as the signal is queued, so there is nothing to wait for. Anything
+that goes wrong raises ``RestarterError``; the port-sync loop alerts and retries next cycle.
 """
 
 import asyncio
@@ -19,8 +12,6 @@ from mulewatch.ports.mule_restarter import RestarterError
 
 _logger = logging.getLogger("mulewatch.adapters.s6_restart")
 
-# The service directory is fixed by the image layout (/etc/services.d/amuled), like the webui's
-# 0.0.0.0:8080 bind: one container, one amuled, nothing for an operator to point elsewhere.
 _RESTART_COMMAND: tuple[str, ...] = ("s6-svc", "-r", "/etc/services.d/amuled")
 
 

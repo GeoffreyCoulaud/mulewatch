@@ -14,11 +14,6 @@ dist/
 # Secrets de déploiement (EC password, clé VPN) — JAMAIS versionnés.
 # Seul deploy/.env.example est versionné ; deploy/.env (et tout .env) est ignoré.
 .env
-# Le dossier de travail de l'opérateur EST un checkout git depuis la 2.0 (bind mounts relatifs,
-# plus de volumes nommés). Ce que le conteneur y écrit ne doit jamais partir dans un commit :
-# deploy/amule/ contient amule.conf, donc le digest MD5 de AMULE_EC_PASSWORD, plus les .met et
-# .dat de pairs ; deploy/downloads/ contient les fichiers récupérés et les .part.
-# Les .gitkeep restent versionnés : ce sont eux qui font exister les points de montage.
 deploy/amule/*
 !deploy/amule/.gitkeep
 deploy/data/*

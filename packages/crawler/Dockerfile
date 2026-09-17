@@ -15,8 +15,6 @@ RUN nix-build /build/amule.nix -o /amule \
          ln -s "$(readlink -f /amule)/bin/$binary" "/closure/bin/$binary"; \
        done
 
-# uv, pinned through a named stage rather than `COPY --from=<image>`: Dependabot's Docker parser
-# only matches FROM lines, so the inline form froze this digest with no alert path.
 FROM ghcr.io/astral-sh/uv:0.9.9@sha256:f6e3549ed287fee0ddde2460a2a74a2d74366f84b04aaa34c1f19fec40da8652 AS uv
 
 # --- Python stage: build /app/.venv against Debian's python3, the same one the runtime holds ---
@@ -62,9 +60,8 @@ FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc401
 ARG VERSION=0.0.0
 LABEL org.opencontainers.image.version=${VERSION}
 
-# s6 comes from Debian, not from the s6-overlay tarball, so that dpkg knows about it and the
-# security feed covers it. Its dependencies pull skalibs and execline in; python3's pull
-# libsqlite3-0, libssl3 and the rest. Do not hand-list them.
+# s6 comes from Debian, not from the s6-overlay tarball, so dpkg knows about it and the
+# security feed covers it.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 s6 \
     && rm -rf /var/lib/apt/lists/*
@@ -77,7 +74,6 @@ COPY --from=python /app/.venv /app/.venv
 COPY packages/crawler/docker/entrypoint.sh packages/crawler/docker/amule-config.sh /usr/local/bin/
 COPY packages/crawler/docker/services.d/ /etc/services.d/
 
-# The venv comes first so that `docker compose run --rm --entrypoint python ...` keeps working.
 ENV PATH="/app/.venv/bin:$PATH"
 WORKDIR /app
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
