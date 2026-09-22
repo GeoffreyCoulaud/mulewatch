@@ -34,42 +34,42 @@ récupération après panne, voir [Diagnostics avancés](troubleshooting.md).
   ```
   error while interpolating services.mulewatch.environment.PUID: required variable "PUID" is not set
   ```
-  Idem pour `PGID`, `AMULE_EC_PASSWORD` et `WEBUI_PWD`. Variante : la variable est déclarée mais
-  vide, et le conteneur sort en moins d'une seconde sur une seule ligne de journal, `PUID is
-  required`. **Le signe distinctif est l'absence de traceback Python** : rien de Python n'a démarré.
-  Si vous en voyez une, lisez plutôt
+  Idem pour `PGID`, `AMULE_EC_PASSWORD` et `AMULE_API_PASSWORD`. Variante : la variable est
+  déclarée mais vide, et le conteneur sort en moins d'une seconde sur une seule ligne de journal,
+  `PUID is required`. **Le signe distinctif est l'absence de traceback Python** : rien de Python
+  n'a démarré. Si vous en voyez une, lisez plutôt
   [« Un conteneur redémarre en boucle »](#un-conteneur-redémarre-en-boucle).
 - **Cause.** Les quatre variables sont strictement obligatoires : le one-shot de démarrage les lit
   avant tout le reste, pour créer l'utilisateur du conteneur, prendre possession des dossiers montés
-  et écrire le mot de passe aMule. Il sort en 1 si l'une manque ou est vide.
+  et écrire les deux mots de passe aMule. Il sort en 1 si l'une manque ou est vide.
 - **Solution.** Renseignez les quatre dans `.env` (copiez `.env.example` si ce n'est pas déjà fait),
   puis `docker compose up -d`. Le détail de chacune est au
   [tableau de l'étape 3](install.md#3-choisir-vos-mots-de-passe).
 
 ??? question "Cas voisin : un `change-me` oublié"
 
-    Si `AMULE_EC_PASSWORD` ou `WEBUI_PWD` est resté à sa valeur d'exemple, le crawler journalise
-    plus tard une erreur d'authentification. Vérifiez-le ainsi — la commande ne doit **rien**
-    afficher :
+    Si `AMULE_EC_PASSWORD` ou `AMULE_API_PASSWORD` est resté à sa valeur d'exemple, votre nœud
+    démarre avec un mot de passe public. Vérifiez-le ainsi : la commande ne doit **rien** afficher :
 
     ```bash
-    grep -E '^(AMULE_EC_PASSWORD|WEBUI_PWD)=change-me' .env
+    grep -E '^(AMULE_EC_PASSWORD|AMULE_API_PASSWORD)=change-me' .env
     ```
 
     Le `change-me` restant sur `WIREGUARD_PRIVATE_KEY` est normal, il ne sert qu'au VPN.
 
-    Attention si vous changez `AMULE_EC_PASSWORD` sur un nœud **déjà lancé** : amuled garde le mot
-    de passe de son premier démarrage, voir
+    Changer l'un des deux sur un nœud **déjà lancé** demande un redémarrage du nœud, pas seulement
+    une édition : voir
     [« J'ai perdu `AMULE_EC_PASSWORD` »](troubleshooting.md#jai-perdu--je-ne-me-souviens-plus-de-amule_ec_password).
 
 ### Un conteneur redémarre en boucle
 
 - **Symptôme.** `docker compose ps` montre le service en **`Restarting`** ou `Exited`.
 - **Diagnostic.** Il n'y a qu'un seul service, `mulewatch` (plus `gluetun` sous la pile VPN) : la
-  question n'est pas « quel conteneur ? » mais **lequel des trois processus a échoué**. Lisez
-  `docker compose logs mulewatch` — le journal est entrelacé, amuled, amuleweb et le crawler y
-  écrivent tous — et repérez qui parle en dernier. Seul un arrêt non nul du crawler couche le
-  conteneur ; si amuled ou amuleweb tombe, s6 le relance sur place et le conteneur reste `Up`.
+  question n'est pas « quel conteneur ? » mais **lequel des processus a échoué**. Lisez
+  `docker compose logs mulewatch` : le journal est entrelacé, amuled et le crawler y écrivent tous
+  les deux, repérez qui parle en dernier. Seul un arrêt non nul du crawler couche le conteneur ; si
+  amuled tombe, s6 le relance sur place et le conteneur reste `Up`. amuleapi, démarré par amuled,
+  n'écrit pas là mais dans `amule/amuleapi.log`.
 - **Causes fréquentes.**
     - **Configuration invalide.** Le journal finit par `Invalid config, refusing to start: ...`.
       Corrigez `crawler.yml`, `targets.yml` ou `matcher.yml`, puis `docker compose up -d`. Vous
@@ -97,8 +97,8 @@ récupération après panne, voir [Diagnostics avancés](troubleshooting.md).
 ### Le port est déjà pris
 
 - **Symptôme.** `docker compose up -d` s'arrête sur `bind: address already in use`. Le numéro dans
-  le message dit lequel : `8080` (le catalogue), `4711` (amuleweb) ou `4662` (le port eMule, publié
-  par la pile directe seulement).
+  le message dit lequel : `8080` (le catalogue), `4711` (l'interface d'aMule) ou `4662` (le port
+  eMule, publié par la pile directe seulement).
 - **Cause.** Un autre programme occupe déjà ce port sur votre machine.
 - **Solution.** Les ports ne sont pas des variables, ils sont écrits en clair dans le `ports:` de
   votre pile. Donnez au port concerné une valeur libre **du côté gauche**, par exemple

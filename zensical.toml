@@ -19,6 +19,7 @@ nav = [
     { "Devenir High-ID" = "high-id.md" },
     { "Régler le nœud" = "settings.md" },
     { "Migrer un nœud 1.x" = "migration-1x.md" },
+    { "Migrer un nœud 2.x" = "migration-2x.md" },
     { "Vérifier une image" = "verify-image.md" },
   ] },
   { "Quand ça coince" = [

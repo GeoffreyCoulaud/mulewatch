@@ -14,14 +14,15 @@ quoi regarder quand il ne catalogue plus. Si vous n'avez pas encore de nœud, co
 ## Cycle de vie & données
 
 Un nœud est **un seul conteneur**, le service compose `mulewatch`. Dedans, le superviseur s6 fait
-tourner trois processus : `amuled`, `amuleweb` et `mulewatch`, le crawler, qui sert aussi le
-catalogue web sur un thread dédié. Au démarrage, le conteneur crée l'utilisateur `amule` à partir de
-`PUID` et `PGID`, prend possession des dossiers montés, puis écrit un `amule.conf` **seulement s'il
-n'y en a pas**.
+tourner deux services : `amuled` et `mulewatch`, le crawler, qui sert aussi le catalogue web sur un
+thread dédié. `amuled` démarre à son tour `amuleapi`, l'interface web d'aMule : cela fait trois
+processus, mais deux services supervisés. Au démarrage, le conteneur crée l'utilisateur `amule` à
+partir de `PUID` et `PGID`, prend possession des dossiers montés, puis écrit un `amule.conf`
+**seulement s'il n'y en a pas**.
 
-Quatre variables sont obligatoires : `PUID`, `PGID`, `AMULE_EC_PASSWORD` et `WEBUI_PWD`. Si l'une
-manque, `docker compose up` échoue avec un message clair, plutôt que de démarrer un conteneur qui
-meurt aussitôt.
+Quatre variables sont obligatoires : `PUID`, `PGID`, `AMULE_EC_PASSWORD` et `AMULE_API_PASSWORD`.
+Si l'une manque, `docker compose up` échoue avec un message clair, plutôt que de démarrer un
+conteneur qui meurt aussitôt.
 
 **Persistance.** Tout vit dans des dossiers de votre dossier de travail, jamais dans des volumes
 Docker : le catalogue et l'état local dans `data/` (`catalog.db`, `local.db`), la configuration
@@ -58,19 +59,22 @@ docker compose exec mulewatch s6-svc -d /etc/services.d/amuled   # arrêter
 docker compose exec mulewatch s6-svc -u /etc/services.d/amuled   # démarrer
 ```
 
-Remplacez `amuled` par `amuleweb` ou `mulewatch`. Il n'existe pas de service compose `amuled`, donc
-`docker compose restart amuled` ne veut rien dire.
+Remplacez `amuled` par `mulewatch`. Il n'existe pas de service compose `amuled`, donc
+`docker compose restart amuled` ne veut rien dire. `amuleapi` n'est pas un service s6 non plus :
+c'est `amuled` qui le démarre, donc redémarrer `amuled` le redémarre avec lui.
 
 Un détail qui compte : si le crawler s'arrête proprement, comme le fait le bouton de redémarrage de
 `/controls`, s6 le relance seul et aMule garde ses sessions eD2k et Kad. S'il plante, tout le
-conteneur redescend, pour que la panne soit visible plutôt que silencieuse. aMule et amuleweb, eux,
-sont simplement relancés sur place.
+conteneur redescend, pour que la panne soit visible plutôt que silencieuse. aMule, lui, est
+simplement relancé sur place.
 
 ### Quand le nœud ne catalogue plus
 
-Les trois processus partagent un seul flux de journaux, `docker compose logs mulewatch`, et chaque
-ligne est préfixée par le service qui l'a émise. C'est toujours le premier endroit à regarder. Pour
-aller du symptôme à la cause, voyez [Diagnostics avancés](troubleshooting.md).
+Les deux services supervisés partagent un seul flux de journaux, `docker compose logs mulewatch`,
+et chaque ligne est préfixée par le service qui l'a émise. C'est toujours le premier endroit à
+regarder. amuleapi fait exception : démarré par `amuled` plutôt que par s6, il écrit dans
+`amule/amuleapi.log` de votre dossier de travail. Pour aller du symptôme à la cause, voyez
+[Diagnostics avancés](troubleshooting.md).
 
 ### Planification disque
 
@@ -177,12 +181,12 @@ Un nœud publie deux surfaces web, qui n'ont pas la même posture :
 | Port | Ce que c'est | Authentification |
 |---|---|---|
 | **8080** | l'interface de catalogue mulewatch | **AUCUNE, D'AUCUNE SORTE** |
-| **4711** | amuleweb, l'interface propre à aMule | le mot de passe admin `WEBUI_PWD` |
+| **4711** | amuleapi, l'interface propre à aMule | le mot de passe admin `AMULE_API_PASSWORD` |
 
 **Le port 8080 n'a aucune authentification, d'aucune sorte.** Quiconque l'atteint obtient le
 catalogue, les contrôles de `/controls` qui modifient l'état, et une console SQL en lecture seule.
-`WEBUI_PWD` ne protège que le 4711. Mettez le 8080 derrière un reverse proxy ou un VPN, ou gardez-le
-sur un réseau de confiance, et ne le posez jamais sur l'Internet ouvert.
+`AMULE_API_PASSWORD` ne protège que le 4711. Mettez le 8080 derrière un reverse proxy ou un VPN, ou
+gardez-le sur un réseau de confiance, et ne le posez jamais sur l'Internet ouvert.
 
 Le catalogue web est servi en lecture seule, dans le processus `mulewatch` lui-même : il démarre et
 s'arrête avec lui, il n'y a rien de spécial à lancer. Il ne modifie jamais les bases, parce qu'il
@@ -225,7 +229,7 @@ compose qui gouverne l'accès.
 | `local_db_path` | `crawler.yml` | `/data/local.db` | Base état local, lue en lecture seule (= `data/local.db` côté hôte) |
 | `webui.amule_url` | `crawler.yml` | `http://localhost:4711` | Cible du lien « aMule » dans la navigation. À changer uniquement derrière un reverse proxy : c'est le navigateur qui résout cette URL, pas le conteneur. |
 | port publié du catalogue | `compose.yml` (`ports:`) | `8080` | Dans le mapping `"8080:8080"`, changez le nombre de gauche pour publier ailleurs. Ne change pas le port d'écoute interne. |
-| port publié d'amuleweb | `compose.yml` (`ports:`) | `4711` | Idem pour amuleweb. Sous la pile VPN, les deux mappings sont portés par le service `gluetun`. |
+| port publié d'amuleapi | `compose.yml` (`ports:`) | `4711` | Idem pour amuleapi. Sous la pile VPN, les deux mappings sont portés par le service `gluetun`. |
 
 ### Exposition derrière un reverse proxy
 
@@ -243,4 +247,4 @@ webui.example.com {
 
 Pensez alors à `webui.amule_url` dans `crawler.yml` : le lien « aMule » est résolu par le
 navigateur, donc `http://localhost:4711` ne veut plus rien dire pour un visiteur distant. Pointez-le
-sur l'hôte réel, ou sur un second `reverse_proxy`. amuleweb, lui, a bien un mot de passe.
+sur l'hôte réel, ou sur un second `reverse_proxy`. amuleapi, lui, a bien un mot de passe.
