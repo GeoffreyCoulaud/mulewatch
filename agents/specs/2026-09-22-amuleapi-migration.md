@@ -1,7 +1,7 @@
 # Spec: migrate from EC to amuleapi (aMule 3.1.0)
 
 Date: 2026-09-22
-Status: awaiting operator approval
+Status: approved by the operator, 2026-09-22
 Supersedes the transport half of `agents/specs/2026-06-10-crawler-mvp-design.md` §4 and the
 whole of `agents/reference/ec-protocol.md` (which becomes a historical record).
 
@@ -151,8 +151,10 @@ The break is already loud by construction: `amule-config.py`'s `required()` exit
 editing `.env` fails at boot with the name of the missing variable, rather than starting and
 misbehaving. That is a better failure than a silent fallback.
 
-This makes the release **3.0.0**, together with the other breaking change: `amuleweb` is
-gone, so 4711 now serves a different web UI. `docs/migration-2x.md` is written for it,
+This makes the release **3.0.0**. The operator's criterion, recorded because it settles
+future cases too: a release is major when an existing config stops working without an edit,
+however slight the edit. Renaming one variable in `.env` qualifies. The other breaking change
+is that `amuleweb` is gone, so 4711 now serves a different web UI. `docs/migration-2x.md` is written for it,
 modelled on `docs/migration-1x.md` (French, same shape: stop the node, edit, restart, with a
 rollback section). Two steps, since no data moves and no port moves:
 
@@ -520,6 +522,9 @@ where one is passed today. It touches the append-only decision semantics and the
   either.
 - The fill rate of `media` on real Keroro searches is unknown. §8.2 exists because of that.
 
-## 10. Open question for the operator
+## 10. Approval
 
-None blocking. D1 through D7 are settled; approve or amend them and lot 1 can start.
+Approved 2026-09-22. D1 through D7 stand as written, with the 3.0.0 criterion recorded in D6.
+
+D1 carries the one condition that can still overturn it (§3.1, `amuleapi-static`), and it is
+the first thing lot 1 verifies.
