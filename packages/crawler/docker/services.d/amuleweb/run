@@ -1,7 +1,0 @@
-#!/bin/sh
-exec 2>&1
-# Passwords go in as plain text: amuleweb hashes them itself. Not --amule-config-file, which
-# reads the EC password from amule.conf but makes amuleweb ignore the rest of its command line.
-# Its defaults already point at 127.0.0.1:4712, where amuled listens.
-exec setpriv --reuid amule --regid amule --init-groups \
-	env HOME=/home/amule amuleweb --password="$AMULE_EC_PASSWORD" --admin-pass="$WEBUI_PWD"

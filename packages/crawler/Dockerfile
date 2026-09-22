@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# --- aMule stage: build aMule 3.0.1 from a pinned nixpkgs, export its runtime closure ---
+# --- aMule stage: build aMule 3.1.0 from a pinned nixpkgs, export its runtime closure ---
 FROM nixos/nix:2.35.2@sha256:7a007c766426c1877758ddc5cb87a965ac131fc78c582ce0083d922d51ae945c AS amule
 
 COPY packages/crawler/docker/amule.nix /build/amule.nix
@@ -11,7 +11,7 @@ COPY packages/crawler/docker/amule.nix /build/amule.nix
 RUN nix-build /build/amule.nix -o /amule \
     && mkdir -p /closure/nix/store /closure/bin \
     && nix-store -qR "$(readlink -f /amule)" | xargs -r cp -a -t /closure/nix/store \
-    && for binary in amuled amuleweb ed2k; do \
+    && for binary in amuled amuleapi ed2k; do \
          ln -s "$(readlink -f /amule)/bin/$binary" "/closure/bin/$binary"; \
        done
 
@@ -55,7 +55,7 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-editable --package mulewatch
 
-# --- Runtime: one image, three supervised processes ---
+# --- Runtime: one image, two supervised services (amuled itself starts amuleapi) ---
 FROM debian:trixie-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 # ARG after FROM only lives in the stage that declares it, hence the re-declaration.
