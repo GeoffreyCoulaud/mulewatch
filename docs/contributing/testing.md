@@ -55,7 +55,11 @@ Le projet a **deux niveaux** :
    ```
 
    Ces suites ont besoin de ressources externes (Docker). **Elles ne tournent pas dans un bac à sable
-   sans accès réseau complet ni Docker** : lancez-les sur une vraie machine.
+   sans accès réseau complet ni Docker** : lancez-les sur une vraie machine. Sur une vraie machine,
+   elles tournent bel et bien, Docker Desktop compris : les trois suites qui parlent au démon
+   prennent celui que vous leur fournissez (§3.0) et `compose_integration` pilote `docker compose`.
+   La seule réserve porte sur un test de `compose_integration`, et elle tient au moteur : voir
+   [§3.4](#34-compose_integration--la-pile-smoke-crawler-docker--compose-v2-requis).
 
 ---
 
@@ -115,6 +119,12 @@ docker rm -f mulewatch-test-amuled
 Le démon est à état (il persiste ses préférences et sa file de téléchargement dans son conteneur), si
 bien que les suites ne sont fiablement répétables que face à un démon NEUF : recréez-le plutôt que de
 réutiliser un conteneur de longue durée.
+
+Ces trois suites n'ont **aucune exigence particulière sur le moteur Docker** : elles parlent à un
+démon par un port publié, rien de plus. Elles ont été lancées avec succès sur la machine de
+développement, sous Docker Desktop, le 2026-09-22 (9 tests). Toute note plus ancienne les déclarant
+impossibles à lancer localement décrivait l'ancien montage `testcontainers`, qui démarrait son propre
+conteneur et son propre Ryuk ; ce montage n'existe plus.
 
 ---
 
@@ -224,17 +234,46 @@ service redescend ensuite vers l'utilisateur `amule`. Une régression là-dessus
   sous `tests/smoke/`.
 - Le test n'importe **aucun** module `mulewatch` (cela préserve les 100 % de couverture de branches
   du paquet).
+- **Un moteur dont les montages liés sont de vrais montages du noyau.** C'est la seule exigence qui
+  ne saute pas aux yeux, et elle porte sur un test : voir l'encadré ci-dessous.
 
 **Commande.**
 ```bash
 ( cd packages/crawler && uv run pytest -m compose_integration --no-cov )
 ```
 
-**Attendu.** **5 tests passés** en local : `test_build_succeeds`,
+!!! warning "Sous Docker Desktop, un test échoue, et ce n'est pas un bug du code"
+
+    `test_a_file_amuled_shares_is_recorded_completed` échoue sous Docker Desktop sur Linux, et
+    seulement là. L'état du smoke vit dans un montage lié, que Desktop fait passer par sa machine
+    virtuelle : ce montage médié ne garde pas le fichier `-shm` de SQLite cohérent d'un processus à
+    l'autre. Le crawler estampille bien la complétion (sa propre connexion la voit, il ne la rejoue
+    jamais) et **aucun autre processus ne la lit** : le test, qui relit la base depuis un second
+    processus, voit une ligne restée `downloading`. Mesuré le 2026-09-22 : la même scène passe dès
+    que `/data` n'est plus un montage lié, et elle passe aussi sur le moteur Docker natif avec un
+    vrai montage lié du noyau. Le même test échouait déjà avant la migration vers amuleapi
+    (vérifié en reconstruisant le commit précédent), donc ne le rediagnostiquez pas en bug de code.
+
+    **L'échappatoire**, si votre machine fait tourner les deux : `DOCKER_CONTEXT` et `DOCKER_HOST`
+    sont transmis à la CLI par le harnais (les deux seules variables de votre environnement qui le
+    sont), donc un run se pointe sur un autre moteur sans rien modifier :
+
+    ```bash
+    ( cd packages/crawler && DOCKER_CONTEXT=default uv run pytest -m compose_integration --no-cov )
+    ```
+
+    Cela suppose un noyau hôte où `veth` est disponible : si le module manque (typiquement après
+    une mise à jour du noyau tant que la machine n'a pas redémarré), le démon natif ne sait plus
+    créer de réseau et `docker run` échoue sur
+    `failed to add the host (veth…) <=> sandbox (veth…) pair interfaces: operation not supported`.
+
+**Attendu.** **7 tests passés** en local : les deux tests du harnais
+(`test_the_harness_hides_everything_but_the_daemon_selectors`,
+`test_a_chosen_daemon_that_answers_nothing_fails_the_call`), `test_build_succeeds`,
 `test_one_container_supervises_the_two_services`,
 `test_a_file_amuled_shares_is_recorded_completed`, et les 2 cas paramétrés de
 `test_entrypoint_config_renders` (`compose` et `gluetun`). En CI l'image est préconstruite et
-`IMAGE_TAG` est posée, si bien que `test_build_succeeds` est **ignoré** (4 passés, 1 skip) et que le
+`IMAGE_TAG` est posée, si bien que `test_build_succeeds` est **ignoré** (6 passés, 1 skip) et que le
 `up` réutilise l'image préconstruite. Le teardown est un `docker compose down -v` plus le répertoire
 d'état jetable, dans un `finally`. Prévoyez plusieurs minutes (le build et le up tiennent sous des
 timeouts de 900 s).
