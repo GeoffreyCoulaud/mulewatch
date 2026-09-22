@@ -16,6 +16,7 @@ import httpx
 
 from mulewatch.adapters.mule_api.errors import (
     ApiAuthError,
+    ApiError,
     ApiRejectedError,
     ApiUnreachableError,
     error_from_response,
@@ -101,7 +102,19 @@ class AmuleApiClient:
         self._search_id = None
 
     async def start_search(self, keyword: str, channel: SearchChannel) -> None:
-        """Starts a search and keeps its id. The previous search's results stay readable."""
+        """Stops the search in flight, then starts a new one and keeps its id.
+
+        The stop is what EC's start did implicitly, and it is not optional: Kademlia refuses a
+        keyword still on its search list, so a node that re-searches a keyword within one Kad
+        lifetime would get `400 amuled_rejected` for as long as the old search lives. Only
+        `POST /search/{id}/stop` takes it off that list; freeing the search does not. Observed
+        on the image, 2026-09-22. A stop that fails changes nothing: the search is gone either
+        way, and the start below reports whatever the daemon actually thinks.
+        """
+        if self._search_id is not None:
+            with suppress(ApiError):
+                await self.stop_search()
+            self._search_id = None
         payload = await self._call(
             "POST", "/search", body={"query": keyword, "type": channel.value}
         )

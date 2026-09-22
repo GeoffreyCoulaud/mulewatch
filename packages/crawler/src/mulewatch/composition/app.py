@@ -321,7 +321,7 @@ class CrawlerApp:
         """Assemble the port-sync loop deps (design §9). Assumes the config is present.
 
         gluetun reader (factory, ``aclose`` pushed onto the stack) + restarter (factory; the s6
-        restarter holds no resource, so there is nothing to close). DEDICATED port-sync EC
+        restarter holds no resource, so there is nothing to close). DEDICATED port-sync
         session (R6: no contention with download/search) to the amuled endpoint, connected
         TOLERATING ``MuleUnreachableError`` at boot. That tolerance matters MORE in one container,
         not less: the processes start at once, so the crawler routinely reaches amuleapi before
@@ -517,7 +517,7 @@ class CrawlerApp:
     async def run(self) -> None:
         """Async entry point: opens the resources, installs the signals, loops (§6).
 
-        Ownership (spec §6): the ``AsyncExitStack`` owns the long-lived resources (EC clients +
+        Ownership (spec §6): the ``AsyncExitStack`` owns the long-lived resources (daemon clients +
         2 connections). The shutdown bound is an ``asyncio.timeout`` ENTERED DISARMED (deadline
         ``None``): the steady-state run (waiting on the signal, cycles) is UNBOUNDED - otherwise
         the crawler would die after ``shutdown_deadline_seconds`` of normal operation. ONLY the
@@ -564,7 +564,7 @@ class CrawlerApp:
             catalog_repo = SqliteCatalogRepository(catalog_conn, node_id)
             scheduler_state = SqliteSchedulerStateRepository(local_conn)
             engine = MatchingEngine(self._matcher_config, self._targets)
-            # In-process webui (spec §5): own thread + loop, started EARLY (before the EC client
+            # In-process webui (spec §5): own thread + loop, started EARLY (before the daemon client
             # + startup backfill) so it is up promptly and stays isolated from the crawler's
             # synchronous work. Gated by ``webui.enabled``; a crash degrades (spec §17.1). Its
             # graceful stop is on ``stack`` → runs at the normal shutdown unwind (after DB conns
@@ -677,7 +677,7 @@ class CrawlerApp:
                     telemetry=telemetry,
                     edge=edge,
                 )
-                _human(f"{len(clients)} EC connection(s) closing…")
+                _human(f"{len(clients)} amuled session(s) closing…")
                 await stack.aclose()
                 _human("Databases closed: exiting.")
         finally:
