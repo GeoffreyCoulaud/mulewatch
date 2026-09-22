@@ -34,8 +34,8 @@ jobs:
         run: uv run poe test
 
   # One job per arch on its native runner: build the image (loaded locally, and pushed
-  # by digest when inputs.push), run the compose smoke stack against the local image, then
-  # upload the digest for the release merge. The push exporter runs during the build, but
+  # by digest when inputs.push), run the compose smoke stack and the daemon-facing suites
+  # against the local image, then upload the digest for the release merge. The push exporter runs during the build, but
   # only publish-manifest publishes a tag, and it is downstream of this job's integration
   # step, so no tag ever references an image that failed integration.
   build-and-verify:
@@ -93,6 +93,38 @@ jobs:
         run: ( cd packages/crawler && uv run pytest -m compose_integration --no-cov -q )
         env:
           IMAGE_TAG: ci-${{ github.sha }}
+      # amuleapi ships with aMule 3.1.0, so the daemon these three suites drive is now the image
+      # this job just built rather than a third-party one. Same configs as the smoke stack: the
+      # crawler service needs them to stay up, and `finish` stops the container if it does not.
+      - name: Start a throwaway daemon (${{ matrix.arch }})
+        run: |
+          docker run -d --rm --name amuled -p 4711:4711 \
+            -e PUID="$(id -u)" -e PGID="$(id -g)" \
+            -e AMULE_EC_PASSWORD=indexer-ec-test -e AMULE_API_PASSWORD=indexer-api-test \
+            -v "$PWD/tests/smoke/crawler.yml:/app/config/crawler.yml:ro" \
+            -v "$PWD/tests/smoke/targets.yml:/app/config/targets.yml:ro" \
+            -v "$PWD/deploy/matcher.yml:/app/config/matcher.yml:ro" \
+            "$IMAGE:ci-${{ github.sha }}"
+          for _ in $(seq 1 90); do
+            # `if`, not `&&`: the step runs under `set -e`, where a bare failing curl aborts it.
+            if curl -fsS http://127.0.0.1:4711/api/v1/health >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          echo "::error::amuleapi never answered on /api/v1/health"
+          docker logs amuled
+          exit 1
+      - name: API, download and orchestration integration (${{ matrix.arch }})
+        run: |
+          cd packages/crawler
+          uv run pytest \
+            -m "api_integration or download_integration or orchestration_integration" --no-cov -q
+        env:
+          MULEWATCH_TEST_API_HOST: 127.0.0.1
+          MULEWATCH_TEST_API_PORT: '4711'
+          MULEWATCH_TEST_API_PASSWORD: indexer-api-test
+      - name: Stop the throwaway daemon (${{ matrix.arch }})
+        if: ${{ always() }}
+        run: docker rm -f amuled || true
       - name: Export the digest
         if: ${{ inputs.push }}
         run: |
@@ -109,43 +141,12 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # The three EC suites talk to an amuled the CALLER provides (docs/contributing/testing.md 3.0). The
-  # runner's Docker can create a veth, so a published-port `docker run` is all it takes.
-  ec-integration:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: ./.github/actions/setup-uv-env
-        with:
-          save-cache: 'false'  # lint is the x86 cache writer
-      - name: Start a throwaway amuled
-        run: |
-          docker run -d --rm --name amuled \
-            -e GUI_PWD=indexer-ec-test -p 4712:4712 ngosang/amule:3.0.0-1
-          for _ in $(seq 1 90); do
-            # `if`, not `&&`: the step runs under `set -e`, where a bare failing grep aborts it.
-            if docker logs amuled 2>&1 | grep -q 'listening on 0.0.0.0:4712'; then exit 0; fi
-            sleep 2
-          done
-          echo "::error::amuled never announced its EC server"
-          docker logs amuled
-          exit 1
-      - name: EC, download and orchestration integration
-        run: |
-          cd packages/crawler
-          uv run pytest -m "ec_integration or download_integration or orchestration_integration" \
-            --no-cov -q
-        env:
-          MULEWATCH_TEST_EC_HOST: 127.0.0.1
-          MULEWATCH_TEST_EC_PORT: '4712'
-          MULEWATCH_TEST_EC_PASSWORD: indexer-ec-test
-
   # Single aggregation gate for branch protection: require only `validate / gate` instead of the
   # individual (matrix-suffixed) job checks, stable when jobs/matrix legs change. `if: always()`
   # is essential: GitHub treats a *skipped* required check as passing, so the gate must always run
   # and fail explicitly rather than be skipped when an upstream job fails.
   gate:
-    needs: [lint, test, build-and-verify, ec-integration]
+    needs: [lint, test, build-and-verify]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
