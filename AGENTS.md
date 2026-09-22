@@ -17,6 +17,7 @@ The live state, history, and recommended next step are deliberately **not** in t
 - `docs/contributing/testing.md` — every test suite (unit + the integration markers), prerequisites, CI pistes.
 - `docs/install.md`: bring a node up (the two compose stacks, VPN, secrets, first boot, High-ID/Low-ID); `docs/operate.md`: operate & tune one (lifecycle, optional High-ID + its risks, metrics, container hardening, catalog tools, known limits); `docs/troubleshooting.md`: symptom → cause → fix entries (any level).
 - `agents/reference/` — dated empirical findings about EC / amuled.
+- `BACKLOG.md` (repo root) — what the project intends to do next, one entry of at most two lines each, linking the spec that holds the detail. **Read it before proposing work**, and write to it only after the operator has agreed. It carries no history: an entry is deleted when it ships or is dropped, never annotated.
 - `git tag` — releases are annotated `vX.Y.Z`, **pushed**, with the milestone name in the tag MESSAGE (`v1.0.1 - performance patch`), not in the tag itself. Pushing the tag is what publishes the versioned image: `release.yml` triggers on `v*` (and on every push to `main`, which publishes `latest`/`main`/`sha-<short>`).
 
 ### Where the code lives

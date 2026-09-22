@@ -424,7 +424,11 @@ of `agents/reference/ec-protocol.md` knows that document stopped at 3.0.0.
 
 ## 8. Follow-up lots
 
-These are tracked here so a later session can pick them up without re-deriving the analysis.
+Each of these has a two-line entry in `BACKLOG.md` pointing back here; that file is the way
+in, this section is the reasoning behind it. Delete the entry there when a lot ships, and
+leave this section alone: it is the record of why.
+
+These are written out so a later session can pick one up without re-deriving the analysis.
 None of them belongs in lots 1 and 2.
 
 ### 8.1 Lot 2: capabilities the API opens up
