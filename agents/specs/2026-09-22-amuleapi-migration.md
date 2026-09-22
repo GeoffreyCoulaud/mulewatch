@@ -137,7 +137,27 @@ fall out of typed JSON on its own. The mapper keeps it explicitly: every key of 
 object that is not mapped to a structured field is rendered into `raw_meta` as a
 `(key, value)` pair, same as the EC adapter did with unmapped tags.
 
-### D6. REST polling first, SSE later
+### D6. `WEBUI_PWD` becomes `AMULE_API_PASSWORD`, breaking, no shim
+
+Accepting both names for a release would mean carrying a fallback in
+`docker/amule-config.py`, a second branch in its test script, and a deprecation notice
+somewhere, for a variable an operator edits once in a `.env` file.
+
+The break is already loud by construction: `amule-config.py`'s `required()` exits with
+`AMULE_API_PASSWORD is required` before any service starts, so a node upgraded without
+editing `.env` fails at boot with the name of the missing variable, rather than starting and
+misbehaving. That is a better failure than a silent fallback.
+
+This makes the release **3.0.0**, alongside the other breaking surface changes: port 4711
+becomes 4713, and `amuleweb` is gone. `docs/migration-2x.md` is written for it, modelled on
+`docs/migration-1x.md` (French, same shape: stop the node, edit, restart, with a rollback
+section). Three steps only, since no data moves:
+
+1. rename `WEBUI_PWD` to `AMULE_API_PASSWORD` in `.env`;
+2. change the published port from `4711` to `4713`;
+3. the aMule web UI is at a new address and is a different UI.
+
+### D7. REST polling first, SSE later
 
 The crawl loop keeps its current polling shape in this migration. SSE is a separate lot
 (§8.3): it changes the loop's state machine and adds a long-lived connection to manage, for a
@@ -204,10 +224,11 @@ No guest password: guest is enabled precisely by having one, and read-only acces
 surface exposes the daemon's filesystem paths, our `user_hash` and the raw log.
 
 The crawler authenticates against amuleapi with that same admin password, so
-`deploy/crawler.yml` gains a reference to it. It is `WEBUI_PWD` today, which is now a
-misleading name for a variable that also gates the crawler's own transport: rename it to
-`AMULE_API_PASSWORD` in `deploy/.env.example` and the compose files, keeping the old name
-accepted for one release so an existing node does not break on upgrade.
+`deploy/crawler.yml` gains a reference to it. `WEBUI_PWD` is now a misleading name for a
+variable that also gates the crawler's own transport, so it is renamed to
+`AMULE_API_PASSWORD`.
+
+**This is a deliberate breaking change, with no compatibility shim** (D6).
 
 ### 3.3 s6
 
@@ -216,14 +237,23 @@ The image goes from three supervised services to two (`amuled`, `mulewatch`).
 
 ### 3.4 Deployment surface
 
-- `deploy/compose.yml`, `deploy/gluetun.compose.yml`: `4711:4711` becomes `4713:4713`.
-- `deploy/crawler.yml`: `amule_url` moves from `http://localhost:4711` to `:4713`.
-- `tests/smoke/compose.yaml` and the `compose_integration` suite: same port, plus a probe of
-  `GET /api/v1/health` (no auth, no EC roundtrip, answers while amuled is busy) as the
-  readiness check.
-- `docs/`: `install.md`, `operate.md`, `settings.md`, `vpn.md`, `troubleshooting.md`,
-  `troubleshooting-start.md`, `index.md`, `glossary.md`, `contributing/architecture.md`,
-  `contributing/testing.md` all name amuleweb or 4711. French, as everything under `docs/` is.
+- `deploy/compose.yml`, `deploy/gluetun.compose.yml`, `deploy/base.compose.yml`: `4711:4711`
+  becomes `4713:4713`, and `WEBUI_PWD` becomes `AMULE_API_PASSWORD` (D6).
+- `deploy/.env.example`: same rename.
+- `deploy/crawler.yml`: `amule_url` moves from `http://localhost:4711` to `:4713`, and the
+  crawler's own amuleapi credential is wired in.
+- `tests/smoke/compose.yaml` and the `compose_integration` suite: same port and variable,
+  plus a probe of `GET /api/v1/health` (no auth, no EC roundtrip, answers while amuled is
+  busy) as the readiness check.
+- `docker/amule-config.test.sh`: the `[AmuleApi]` section and the renamed variable, including
+  the **negative path** (the variable absent must abort the boot with its name, per the
+  project's quality bar of proving a guard fails on bad input, not only that it passes).
+- `docs/`: a new `migration-2x.md` (D6), plus `install.md`, `operate.md`, `settings.md`,
+  `vpn.md`, `troubleshooting.md`, `troubleshooting-start.md`, `index.md`, `glossary.md`,
+  `limits.md`, `contributing/architecture.md`, `contributing/testing.md`, which all name
+  amuleweb, 4711 or `WEBUI_PWD`. French, as everything under `docs/` is. The nav gains the
+  new page; `poe docs-build` runs `--strict`, so a stale link fails the build rather than
+  shipping.
 
 The confinement posture does not move: `no-new-privileges:true`, `pids_limit: 512`,
 `mem_limit: 2g`, `setpriv` on each service. The process count is unchanged at three, but the
@@ -477,4 +507,4 @@ where one is passed today. It touches the append-only decision semantics and the
 
 ## 10. Open question for the operator
 
-None blocking. D1 through D6 are settled; approve or amend them and lot 1 can start.
+None blocking. D1 through D7 are settled; approve or amend them and lot 1 can start.
