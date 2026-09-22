@@ -106,7 +106,7 @@ is the reconciliation.
   host bind mount, the crawler stamped the completion (its own log says so, and it never re-fired,
   so its own connection sees the new state) while every other process reading the same file kept
   seeing the old row, `last_seen_at` included. Move `/data` into the container's own filesystem and
-  the identical scenario passes. This is what fails `test_a_file_amuled_shares_is_recorded_
+  the identical scenario passes. Reproduced on `a1c6def` too, so it predates this lot. This is what fails `test_a_file_amuled_shares_is_recorded_
   completed` here, and it is the same class of trap as the tmpfs/`temp_store` one recorded on
   2026-07-06: **verify a DB change the way the node will run it, and do not trust a cross-process
   read through a Desktop bind mount.**
@@ -148,8 +148,15 @@ What is still NOT validated:
 
 - **arm64.** Only the amd64 image was built. CI covers both.
 - **The compose smoke's completion scenario on this machine.** `test_a_file_amuled_shares_is_
-  recorded_completed` fails here, and the cause is the environment, not the code: see the pitfall
-  below. The other three tests of that suite pass against the built image.
+  recorded_completed` fails here, and it **already failed before this lot**: bisected on 2026-09-22
+  by building `a1c6def` (the branch point, EC adapter still in place) in a worktree and running
+  that one test against it, same machine, same bind-mounted `/data`. Identical failure, identical
+  signature (`expected 'completed True', last was 'downloading False'`), and a hand-driven repro on
+  that same old image shows the crawler logging `✅ download completed` while another process
+  reading the same file still sees `downloading` with `last_seen_at` frozen. It is a property of
+  this machine, not of the migration: see the pitfall below. The other three tests of that suite
+  pass against the built image. **CI is where this scenario gets its first honest run** - the
+  runners bind-mount through the kernel, not through a Desktop VM.
 - **`no-new-privileges` alongside `setpriv`**, inherited from the single-container work
   (`agents/specs/2026-09-16-single-container-embedded-amule.md` §13). Unchanged by this lot, and
   still unvalidated.
