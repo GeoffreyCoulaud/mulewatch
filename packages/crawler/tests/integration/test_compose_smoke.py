@@ -11,6 +11,13 @@ download (amuled has neither an eD2k server nor a VPN; only its EC server is exe
   3. both deployment entry points render with `docker compose config`, as one service each.
 Tear-down: `docker compose down -v` plus the throwaway state directory, in a finally.
 
+The suite needs an engine whose bind mounts are REAL KERNEL MOUNTS. Under Docker Desktop on
+Linux the state lives in the Desktop VM's mediated mount, which does not keep SQLite's `-shm`
+coherent between processes: the crawler stamps a completion its own connection sees and no other
+process ever does, so `test_a_file_amuled_shares_is_recorded_completed` fails there and only
+there. `DOCKER_CONTEXT` and `DOCKER_HOST` are forwarded to the CLI (`_docker_env`) precisely so
+the run can be pointed at another engine.
+
 Mechanics established EMPIRICALLY (compose v5, Docker 29):
   * The compose file's relative paths are resolved against the project-directory. We PIN it
     explicitly to `_REPO_ROOT` via `--project-directory` (cf. `_run`): `./tests/smoke/...` and
@@ -33,7 +40,7 @@ import subprocess
 import tempfile
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from functools import partial
 from pathlib import Path
 
@@ -96,6 +103,26 @@ _CONFIG_ENV = {
     "SERVER_COUNTRIES": "",
 }
 
+# The ONLY two variables of the caller's environment the docker CLI is allowed to see. They pick
+# WHICH daemon answers, they change nothing about what the suite does, and without them the suite
+# is unpointable at anything but the machine's default context - which on a host running Docker
+# Desktop is the Desktop VM, whose mediated bind mounts break this suite (see the module docstring).
+# CI sets neither, so CI behaviour is unchanged. Everything else stays stripped: the sanitised
+# environment is what keeps the smoke reproducible.
+_DAEMON_SELECTORS = ("DOCKER_CONTEXT", "DOCKER_HOST")
+
+
+def _docker_env(*extra: Mapping[str, str]) -> dict[str, str]:
+    """The environment handed to a `docker` subprocess: PATH, the stubs, the daemon selectors."""
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+    for mapping in extra:
+        env.update(mapping)
+    for name in _DAEMON_SELECTORS:
+        value = os.environ.get(name)
+        if value is not None:
+            env[name] = value
+    return env
+
 
 def _run(*args: str, files: tuple[Path, ...], timeout: float) -> subprocess.CompletedProcess[str]:
     """Run `docker compose -p <project> -f ... <args>` from the repo root (cwd)."""
@@ -115,11 +142,7 @@ def _run(*args: str, files: tuple[Path, ...], timeout: float) -> subprocess.Comp
     return subprocess.run(
         command,
         cwd=_REPO_ROOT,
-        env={
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-            **_SMOKE_ENV,
-            **({"IMAGE_TAG": _IMAGE_TAG} if _IMAGE_TAG is not None else {}),
-        },
+        env=_docker_env(_SMOKE_ENV, {"IMAGE_TAG": _IMAGE_TAG} if _IMAGE_TAG is not None else {}),
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -216,6 +239,34 @@ def project_files() -> Iterator[tuple[Path, ...]]:
         shutil.rmtree(_STATE_DIR, ignore_errors=True)
 
 
+def test_the_harness_hides_everything_but_the_daemon_selectors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DOCKER_CONTEXT", "chosen")
+    monkeypatch.setenv("HOME", "/somewhere")
+    env = _docker_env(_SMOKE_ENV)
+
+    assert env["DOCKER_CONTEXT"] == "chosen"
+    assert env["PUID"] == str(os.getuid())
+    assert "HOME" not in env  # the sanitised environment is what keeps the smoke reproducible
+
+
+def test_a_chosen_daemon_that_answers_nothing_fails_the_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Negative path of the two daemon selectors, which is the only side worth proving.
+
+    Without the allowlist the variable never reaches the CLI: the call quietly lands on the
+    machine's default daemon and SUCCEEDS, which is how a run meant for one engine ends up
+    exercising another. Pointing it at a socket nothing listens on must therefore fail.
+    """
+    monkeypatch.setenv("DOCKER_HOST", "unix:///nonexistent/mulewatch-smoke.sock")
+    result = _run("ps", files=(_SMOKE,), timeout=120)
+
+    assert result.returncode != 0, result.stdout
+    assert "mulewatch-smoke.sock" in result.stderr + result.stdout
+
+
 @pytest.mark.skipif(_USES_PREBUILT, reason="image prebuilt in CI - nothing to build")
 def test_build_succeeds(project_files: tuple[Path, ...]) -> None:
     result = _run("build", files=project_files, timeout=1800)
@@ -269,7 +320,7 @@ def test_entrypoint_config_renders(label: str, path: str) -> None:
     result = subprocess.run(
         command,
         cwd=_REPO_ROOT,
-        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), **_CONFIG_ENV},
+        env=_docker_env(_CONFIG_ENV),
         capture_output=True,
         text=True,
         timeout=120,
