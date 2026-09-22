@@ -1,9 +1,7 @@
-"""A fake amuleapi, served to the client through ``httpx.MockTransport``.
+"""A fake amuleapi served through ``httpx.MockTransport``, so the tests drive the real stack.
 
-Close enough to the real surface that the tests exercise the real httpx stack: the bearer is
-checked, the list routes page the way the documented ones do (``limit`` defaults to 100, so a
-client that forgets it silently gets the first hundred rows, which is §7.5's whole point), and
-every error comes back in the ``{"error": {code, message}}`` envelope.
+Its list routes default ``limit`` to 100 like the real ones, which is what makes a client that
+forgets to ask for more fail here instead of on a node with a hundred shared files.
 """
 
 import json

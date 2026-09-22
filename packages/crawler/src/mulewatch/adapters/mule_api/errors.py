@@ -1,16 +1,7 @@
-"""amuleapi adapter error hierarchy (spec amuleapi §4.1; orchestration §7).
+"""Adapter errors, inheriting the port contract so the application never imports this adapter.
 
-The adapter SIGNALS, it does not decide, exactly as the EC adapter did: no hidden retry, no
-silent crash. What changed is that "the daemon is unreachable" is now TWO states, because
-amuleapi is a hop of its own: it can be up while its link to amuled is down (``503
-ec_unavailable``). Both degrade the same way here, and ``GET /health`` is what tells them apart
-for the operator.
-
-The error CONTRACT consumed by the application lives in the PORT (``ports/mule_client.py``);
-the classes below INHERIT from it (adapter->port dependency, allowed) so the application NEVER
-depends on this adapter. The mapping: an operation the daemon refused -> ``MuleSearchFailed
-Error`` (channel backoff); anything else, transport included -> ``MuleUnreachableError``
-(instance down); a login refused stays outside the loop contract (config problem, fail-fast).
+A refused operation backs off the channel, anything else marks the daemon unreachable, and a
+refused login stays outside both: it is a config problem, and the crawler must fail fast on it.
 """
 
 import json
@@ -64,7 +55,7 @@ def _envelope(response: httpx.Response) -> tuple[str, str]:
     """``{"error": {code, message}}`` -> the pair, or placeholders if the body is not one."""
     try:
         payload = json.loads(response.content)
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:  # JSONDecodeError is one
         return "", response.reason_phrase
     error = payload.get("error") if isinstance(payload, dict) else None
     if not isinstance(error, dict):

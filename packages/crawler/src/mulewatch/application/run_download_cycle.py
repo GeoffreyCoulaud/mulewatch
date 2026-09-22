@@ -1,40 +1,20 @@
-"""The download loop: monitor → completions → new candidates → sleep/nudge (§5).
+"""The download loop: monitor → completions → new candidates → sleep/nudge (spec §5).
 
-APPLICATION layer. A SINGLE task, serial, on the sole download session (spec §3/§5):
-no interleaving. ``run_download_cycle`` runs ONE iteration (testable without a
-shutdown event); ``download_loop`` repeats it then waits ``poll_interval`` OR the nudge
-(``DecisionSignal``), until a shutdown event - wired by ``CrawlerApp``.
+One serial task on the sole download session. ``run_download_cycle`` runs ONE iteration;
+``download_loop`` repeats it until shutdown, waiting ``poll_interval`` or the decision nudge.
+Three things in it are not obvious and have each cost a field incident:
 
-Flow of one iteration (spec §5, DECISION D8):
-  0. CONNECT + QUEUE SNAPSHOT: ``connect()`` (idempotent, and the ONLY thing that re-arms a
-     session after the daemon went away) then ONE ``download_queue()`` read, shared by steps 1
-     and 2.
-  1. MONITOR: for each queue entry KNOWN to ``downloads``, reconciles ``downloading``
-     (QUEUED→DOWNLOADING); an unknown entry (download outside the crawler) is ignored.
-     Completion is NO LONGER inferred from bytes (see ``_monitor``).
-  2. COMPLETIONS: ``shared_files()`` → each tracked hash present in amuled's SHARED files AND
-     no longer transferring (amuled shares PARTIAL downloads too, so the queue is what separates
-     a completion from a partial, see ``_handle_completions``) → ``set_state(completed)``. The file
-     stays where amuled put it: nothing moves it, nothing reads it. Already ``completed`` →
-     skipped, so the completion notification fires once.
-  2b. PRESENCE + TTL: every hash amuled still knows (queue OR shared files) gets its
-     ``last_seen_at`` stamped, THEN a ``queued``/``downloading`` row unseen for
-     ``lost_after_seconds`` becomes ``failed`` (see ``_expire_lost``). Stamping first is what
-     keeps a row present right now from being condemned.
-  3. CANDIDATES: ``catalog.download_decisions()`` (latest=download) ∖ ``downloads`` → for
-     each, ``download_policy`` (target status, dedup, free space) → if ``download``:
-     ``build_ed2k_link`` (from ``last_observation``) → ``add_link`` → ``record_queued``.
-     ``outstanding`` is carried IN MEMORY as the cycle proceeds (a candidate admitted now is
-     not in amuled's queue yet).
+- **A completion is the shared list, never the bytes.** amuled shares PARTIAL downloads too, so
+  a hash is completed only once it is shared AND no longer transferring (2026-09-02: 065B was
+  stamped complete at 20.1 %). The queue alone stopped answering "still transferring" when it
+  began carrying completed-but-uncleared entries, hence ``is_complete``.
+- **Stamp presence BEFORE condemning.** ``last_seen_at`` is written for everything amuled still
+  knows, and only then does the TTL fail what it has not seen.
+- **Step 0 re-connects every iteration.** It is idempotent and nearly free, and it is what makes
+  "the client reconnects next round" true (2026-09-04 to 09-11: 7 days of a dead loop).
 
-Errors (Plan C contracts, spec §9): ``MuleUnreachableError`` (daemon out of reach) → tolerate, skip
-the iteration. ``OSError`` on the disk measurement (output mount gone) → tolerate, admit
-nothing. Step 0 re-arms the connection on EVERY iteration (``connect()`` is idempotent):
-that is what makes "the client reconnects next round" true. Without it the loop stayed wedged on
-"client not connected (call connect() first)" forever after any amuled restart (field,
-2026-09-04 to 09-11: 7 days of a dead download loop, one warning per 30 s).
-``RepositoryError`` → absorbed (log + continue).
-NEVER abandon a stalled download. Determinism: ``Clock``/``sleep`` injected.
+Errors: ``MuleUnreachableError`` and ``OSError`` on the disk measurement skip the iteration,
+``RepositoryError`` is logged and the cycle continues. A stalled download is never abandoned.
 """
 
 import asyncio
@@ -152,18 +132,10 @@ def _target_status(targets: Sequence[TargetSegment], target_id: str) -> str:
 async def _monitor(
     deps: DownloadDeps, states: dict[str, DownloadState], queue: tuple[DownloadEntry, ...]
 ) -> None:
-    """Reconciles ``downloads`` with the amuled queue: QUEUED→DOWNLOADING (step 1, spec §5).
+    """Reconciles ``downloads`` with the queue: QUEUED→DOWNLOADING, and nothing else.
 
-    ``queue`` is the cycle's ONE snapshot (step 0), shared with ``_handle_completions``: the
-    completion rule needs it, and a second read could contradict the first.
-
-    Completion is NO LONGER inferred from bytes (PS_COMPLETE is unobservable via the queue - cf.
-    agents/reference/2026-06-17-amuled-completion-behavior.md): it comes from the shared files
-    (_handle_completions). Here we only record that amuled is pulling a queued download.
-
-    ``FAILED`` is NOT a wall here: amuled is the authority on what it holds, so a row the TTL
-    condemned (or one whose add_link amuled rejected) that reappears in the queue resumes.
-    ``COMPLETED`` stays a wall, so its notification never fires twice.
+    ``FAILED`` is not a wall, since amuled is the authority on what it holds; ``COMPLETED`` is
+    one, so its notification never fires twice.
     """
     for entry in queue:
         current = states.get(entry.ed2k_hash)
@@ -198,23 +170,11 @@ async def _handle_completions(
     transferring: frozenset[str],
     shared: tuple[SharedFileEntry, ...],
 ) -> None:
-    """Completes each tracked hash that is SHARED **and** no longer transferring (step 2, §5).
+    """Completes each tracked hash that is SHARED **and** no longer transferring.
 
-    Presence in the shared files ALONE is not a completion: amuled shares PARTIAL downloads too
-    (standard eMule: you upload what you have downloaded). The discriminator is the queue, which
-    a finished file leaves, minus the entries it holds complete until they are cleared. Field
-    2026-09-02: without that check the crawler stamped 065B ``completed`` at 20.1 %.
-    ``completed`` hashes are ignored; a ``failed`` one is NOT, so a download the TTL condemned
-    that turns out to be shared completes and notifies.
-
-    The queue was read in step 0, BEFORE this shared snapshot: a file completing in between is
-    therefore seen as "still queued" and completed on the NEXT cycle (30 s later). The shared
-    signal persists, so the delay is harmless, and the inverse order would be the unsafe one.
-
-    PER-HASH isolation (error-boundary#2): a ``RepositoryError`` on one hash is logged and
-    CONTINUES with the next ones. Without this net, a repo failure on hash N would abandon
-    N+1, N+2 of the same cycle (the completion signal is re-evaluated the next cycle; no
-    permanent loss, but intra-cycle starvation is undesirable).
+    A ``failed`` hash completes too: the TTL can condemn a download that had in fact finished.
+    The queue predates this snapshot, so a file that finishes in between waits one cycle, which
+    the persistent shared signal makes harmless. A repo failure on one hash skips that hash only.
     """
     for entry in shared:
         current = states.get(entry.ed2k_hash)
