@@ -79,10 +79,27 @@ the supervision argument suggests:
 | its output is not in `docker logs` | same cause | amuleapi writes `amuleapi.log` in its config dir, which is the bind-mounted `deploy/amule/`. The output moves, it is not lost |
 | an orphaned process on shutdown | `amule.cpp:364-372` sends SIGTERM then SIGKILL | not a risk |
 
-**Condition.** amuled passes no `--static-root`, so this decision holds only if amuleapi
-finds its `amuleapi-static` folder unaided (see §3.1). If it does not, `StaticRoot` forces an
-`amuleapi.conf` back into existence and most of the saving above evaporates; revisit D1 then
-rather than writing the config file and keeping autorun.
+**Condition, now verified (2026-09-22).** amuled passes no `--static-root`, so D1 held only
+if amuleapi finds its `amuleapi-static` folder unaided. It does. Built locally from the
+derivation in §3.1 and run for real:
+
+```
+GET /api/v1/health  ->  {"status":"ok","ec_connected":true,"snapshot_ready":true}
+GET /                ->  200, text/html, 1106 bytes
+```
+
+The folder installs to `$out/share/amule/amuleapi-static` and CMake bakes that absolute store
+path into the binary, so the lookup does not depend on where the executable is invoked from.
+No `StaticRoot`, no `amuleapi.conf`. The same run also confirmed the shutdown cascade: killing
+amuled took amuleapi with it, leaving nothing behind.
+
+Two details the run turned up, both about how amuled locates the binary:
+
+- the preference is `/AmuleApi/Path` (`src/Preferences.cpp:1492`), defaulting to the bare name
+  `amuleapi`, resolved through `PATH`. The image's `/usr/local/bin` symlink satisfies that, so
+  the key is left alone.
+- amuled **rewrites `amule.conf` when it exits**, which our `amule-config.py` docstring already
+  warns about. Editing the file under a running daemon silently loses the edit.
 
 ### D2. amuleweb is removed
 
@@ -340,6 +357,7 @@ and go to `raw_meta`.
 - `shared_files()` calls `GET /shared` and keeps only `hash`, as `SharedFileEntry` already
   does. Completion stays the positive signal it is today: the file appearing in the shared
   list. No byte is read, nothing touches the output directory.
+- **Both must page. This is a correctness requirement, not a nicety** (§7.5).
 - `add_link()` calls `POST /downloads`. `POST /search/results/{hash}/download` would let us
   skip building an ed2k link entirely, but it only works while the search that produced the
   hit is still live in amuled's 20-entry ring, which our loop does not guarantee. Keep the
@@ -417,7 +435,47 @@ amuleapi down means the crawler is blind even when amuled is fine. `GET /health`
 without touching EC, which is what lets the two failures be told apart. Per boundary
 discipline (E-D13) both degrade rather than crash.
 
-### 7.5 `EC_FLAG_UNKNOWN_MASK` moved
+### 7.5 Every list endpoint silently returns only the first 100 rows
+
+Observed against a running 3.1.0, not read off the examples, which show a bare
+`{"downloads": [...]}`:
+
+```
+GET /api/v1/downloads?status=all
+{"downloads":[],"total":0,"offset":0,"limit":100}
+```
+
+`limit` defaults to `100` on `/downloads`, `/shared`, `/search/{id}/results` and every other
+list route. Omitting it returns the first hundred items, not the collection.
+
+For `shared_files()` that is a silent completion failure waiting to happen: amuled auto-shares
+every finished download, so a long-lived node crosses a hundred shared files and the newest
+one, which is the one we are waiting for, falls outside the window. Nothing errors. The
+download simply never registers as complete.
+
+Upstream also warns that `offset` is a position, so paging with it loses a row whenever the
+collection shrinks underneath the cursor, and the lost row is reported by nothing afterwards.
+The documented safe form is keyset paging, which is what the adapter uses:
+
+```
+GET /api/v1/shared?sort=hash&limit=500
+GET /api/v1/shared?sort=hash&limit=500&after=<hash of the last row>
+   ...until a page comes back shorter than limit
+```
+
+`limit=1000000000` is the sanctioned "give me everything" value, but paging is cheap here and
+does not depend on the collection fitting in one response. **The test for this is a fixture of
+more than 100 shared files**, exercising the negative path rather than asserting that a
+three-item list round-trips.
+
+### 7.6 `kad.state` has values the prose does not enumerate
+
+A daemon with Kad switched off reports `"disabled"`, which is not in the doc's
+`connected` / `connecting` / `disconnected` list. `KadStatus` maps unknown strings to `OFF`
+rather than raising: an unrecognised state is a daemon that is newer or configured
+differently, not a protocol error.
+
+### 7.7 `EC_FLAG_UNKNOWN_MASK` moved
 
 3.1.0 changed it from `0xff7f7f08` to `0xff7f7f00`, bit `0x08` becoming `EC_FLAG_ENCRYPTED`.
 Only relevant to the EC adapter, which this spec deletes, and harmless in the interim: we
@@ -501,15 +559,33 @@ retract a target only when no name matches it. In shape that is passing a list o
 where one is passed today. It touches the append-only decision semantics and the
 `DecisionSignal` path, so it gets its own branch, its own tests and its own handoff.
 
-## 9. Not validated against real hardware
+## 9. Validation status
 
-- The nix override of `version` and `hash` to 3.1.0 has not been built. The two build deltas
-  (§3.1) are read from the CMake diff, not from a successful build.
-- **Whether `amuleapi-static` is found automatically** (§3.1). Inferred from upstream's
-  documented lookup order against our nix closure, not observed. This is D1's condition, so
-  it is the first thing to check once the image builds.
+### Validated on 2026-09-22, on the developer machine
+
+Built from the derivation in §3.1 with the host's own nix, and run for real against a
+throwaway config directory with the networks switched off:
+
+- the nix override to 3.1.0 **builds**, with the two deltas (`python3` in `nativeBuildInputs`,
+  `BUILD_AMULEAPI=ON`) and nothing else. Output: `bin/{amuled,amuleapi,ed2k}` and
+  `share/amule/amuleapi-static`;
+- **autorun works**: with `[AmuleApi] Enabled=1` and the binary on `PATH`, amuled starts
+  amuleapi, which reports `ec_connected: true` and `snapshot_ready: true`;
+- **the frontend is served unaided**, `200 text/html` on `/`, which settles D1's condition;
+- `amuleapi --set-admin-pass` writes its file, and the resulting password logs in over
+  `POST /auth/login?include_token=true`;
+- `GET /status`, `GET /downloads?status=all` and `GET /preferences` answer in the documented
+  shapes;
+- killing amuled takes amuleapi down with it, leaving no orphan.
+
+This is a developer machine, not the node: it says the design holds, not that the image does.
+
+### Still not validated
+
+- Everything above **inside the image**, where the binary is a `/usr/local/bin` symlink into
+  the store rather than the store path itself, and where the config dir is a bind mount.
 - `amuleapi --set-admin-pass` running as the `amule` user from the root one-shot, and the
-  resulting `amuleapi-passwords` file mode, have not been exercised.
+  resulting `amuleapi-passwords` file mode.
 - amuleapi's console output going into a pipe amuled never drains (D1) is read from the
   source, and the conclusion that it cannot realistically fill 64 KiB rests on counting
   console write sites in `src/webapi/`, not on watching a node run for a month. If a node

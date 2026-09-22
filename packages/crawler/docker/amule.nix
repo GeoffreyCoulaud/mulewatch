@@ -1,4 +1,4 @@
-# aMule 3.0.1 (amuled + amuleweb + ed2k), built headless from a pinned nixpkgs.
+# aMule 3.1.0 (amuled + amuleapi + ed2k), built headless from a pinned nixpkgs.
 #
 # Pinning nixpkgs by commit is what makes the build reproducible and the SBOM stable: every
 # component in the closure keeps a name and a version, which is the whole reason we package aMule
@@ -26,10 +26,31 @@ let
     buildInputs = [ zlib pcre2 expat curl ];
   });
 
+  version = "3.1.0";
+
   # The pname must stay "amule": Syft builds the CPE from it, and the override below renames the
-  # derivation to amule-web-daemon, which the NVD does not know — Grype would then find nothing.
+  # derivation to amule-daemon, which the NVD does not know: Grype would then find nothing.
+  #
+  # nixpkgs is still on 3.0.1, hence the src override. It replaces the whole fetchFromGitHub
+  # rather than just `version`: the upstream expression reads `tag = finalAttrs.version` but keeps
+  # the hash as a literal inside src, so bumping version alone would fetch 3.1.0 and check it
+  # against 3.0.1's hash.
   amule' = (amule.override {
-    monolithic = false; enableDaemon = true; httpServer = true; wxwidgets_3_2 = wxBase;
-  }).overrideAttrs (_: { pname = "amule"; });
+    monolithic = false; enableDaemon = true; httpServer = false; wxwidgets_3_2 = wxBase;
+  }).overrideAttrs (old: {
+    inherit version;
+    pname = "amule";
+    src = fetchFromGitHub {
+      owner = "amule-org";
+      repo = "amule";
+      tag = version;
+      hash = "sha256-IO0sAqCEWNsLtf7jQUHOAbCs50M13KN1vVSO2lBG7d0=";
+    };
+    # 3.1.0 generates sources at configure time, which the 3.0.1 expression has no reason to know
+    # about.
+    nativeBuildInputs = old.nativeBuildInputs ++ [ python3 ];
+    # BUILD_AMULEAPI is new in 3.1.0, so it is not among the expression's own cmakeFlags.
+    cmakeFlags = old.cmakeFlags ++ [ (lib.cmakeBool "BUILD_AMULEAPI" true) ];
+  });
 in
 amule'
