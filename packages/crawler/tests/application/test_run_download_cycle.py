@@ -41,9 +41,8 @@ _TARGETS = (
 class FakeDownloadClient:
     """Scripted MuleDownloadClient: SCRIPTED download queue, captures added links.
 
-    ``disconnected`` models the REAL adapter's state after a dead EC stream: every I/O call
-    raises ``MuleUnreachableError`` until ``connect()`` succeeds (``AmuleEcClient`` nulls its
-    transport on the first failed read, then every later call fails the same way).
+    ``disconnected`` models the REAL adapter's state before a login: every I/O call raises
+    ``MuleUnreachableError`` until ``connect()`` succeeds.
     """
 
     def __init__(

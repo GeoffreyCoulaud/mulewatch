@@ -38,8 +38,8 @@ class BackoffConfig:
 
 @dataclass(frozen=True)
 class AmuleEndpoint:
-    """An ``amuled`` daemon reachable over EC. ``name`` is the instance label (logging,
-    backoff/scheduler_state key)."""
+    """An ``amuled`` daemon reachable through ``amuleapi``. ``name`` is the instance label
+    (logging, backoff/scheduler_state key)."""
 
     name: str
     host: str
@@ -47,8 +47,8 @@ class AmuleEndpoint:
     password: str
 
 
-AMULE_EC_HOST = "127.0.0.1"
-AMULE_EC_PORT = 4712
+AMULE_API_HOST = "127.0.0.1"
+AMULE_API_PORT = 4711
 AMULE_INSTANCE_NAME = "amuled"
 
 
@@ -146,7 +146,8 @@ class CrawlerConfig:
     ``backoff``, ``decision_poll_interval_seconds`` (nudge safety net),
     ``shutdown_deadline_seconds`` (hard bound of the clean shutdown).
 
-    Wiring (ex-local): ``amule_ec_password`` (the ONE daemon's EC secret; host/port are code
+    Wiring (ex-local): ``amule_api_password`` (the daemon's amuleapi admin password, the same
+    one the aMule web UI takes; host/port are code
     constants), DB paths, ``node_id`` (``None`` = the one from ``local.db``), ``observability``,
     ``download`` (``None`` ⟺ observer mode), ``port_sync`` (``None`` ⟺ port-sync off).
 
@@ -162,7 +163,7 @@ class CrawlerConfig:
     backoff: BackoffConfig
     decision_poll_interval_seconds: float
     shutdown_deadline_seconds: float
-    amule_ec_password: str
+    amule_api_password: str
     catalog_db_path: str
     local_db_path: str
     node_id: str | None
@@ -174,15 +175,15 @@ class CrawlerConfig:
 
     @property
     def amule_endpoint(self) -> AmuleEndpoint:
-        """The single daemon's EC endpoint: code constants + the configured password.
+        """The single daemon's amuleapi endpoint: code constants + the configured password.
 
-        ONE derivation point for all three EC connections (search, download, port-sync).
+        ONE derivation point for all three sessions (search, download, port-sync).
         """
         return AmuleEndpoint(
             name=AMULE_INSTANCE_NAME,
-            host=AMULE_EC_HOST,
-            port=AMULE_EC_PORT,
-            password=self.amule_ec_password,
+            host=AMULE_API_HOST,
+            port=AMULE_API_PORT,
+            password=self.amule_api_password,
         )
 
 
@@ -429,7 +430,7 @@ def parse_crawler_config(raw: dict[str, Any], env: Mapping[str, str]) -> Crawler
         backoff=backoff,
         decision_poll_interval_seconds=_positive(raw, "decision_poll_interval_seconds", "crawler"),
         shutdown_deadline_seconds=_positive(raw, "shutdown_deadline_seconds", "crawler"),
-        amule_ec_password=_require_str(raw, "amule_ec_password", "crawler", env),
+        amule_api_password=_require_str(raw, "amule_api_password", "crawler", env),
         catalog_db_path=_require_str(raw, "catalog_db_path", "crawler", env),
         local_db_path=_require_str(raw, "local_db_path", "crawler", env),
         node_id=node_id_raw,

@@ -19,7 +19,7 @@ services:
       HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE: '{"auth":"none"}'
     # mulewatch has no network of its own, so its web ports are published here.
     # 8080 (the catalog) has NO password: put it behind a reverse proxy or a VPN.
-    # 4711 (aMule's own web UI) is protected by WEBUI_PWD.
+    # 4711 (aMule's own web UI) is protected by AMULE_API_PASSWORD.
     ports:
       - "8080:8080"
       - "4711:4711"

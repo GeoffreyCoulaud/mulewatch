@@ -11,7 +11,7 @@ any defensive parse (port 0 / control-server unreachable / EC dead) → "not rea
 
 ``run_port_sync_cycle`` NEVER RAISES (top-level net like ``run_download_cycle``); every
 re-looping path sleeps ``poll_interval_seconds`` (no busy-spin). ``port_sync_loop`` repeats
-until shutdown. We declare local NARROW Protocols (the real ``AmuleEcClient`` AND a minimal
+until shutdown. We declare local NARROW Protocols (the real ``AmuleApiClient`` AND a minimal
 fake satisfy them) - we do NOT widen ``ports/mule_client.py``.
 """
 
@@ -41,7 +41,7 @@ _MISMATCH = "port_mismatch"
 class PortPreferences(Protocol):
     """Subset of ``MuleClient`` consumed by the loop (local typing, design §4.2).
 
-    The real ``AmuleEcClient`` (connect, new get/set_listen_port, existing network_status) AND a
+    The real ``AmuleApiClient`` (connect, get/set_listen_port, network_status) AND a
     minimal fake satisfy it. Stubs on ONE line.
     """
 
@@ -59,7 +59,7 @@ class PortSyncDeps:
     """Dependencies of a port-sync cycle (composition assembles them once, design §4.3)."""
 
     reader: PortForwardingReader  # reads the live forwarded port (gluetun)
-    ports: PortPreferences  # EC get/set/connstate (AmuleEcClient, dedicated connection R6)
+    ports: PortPreferences  # get/set port + status (AmuleApiClient, dedicated session R6)
     restarter: MuleRestarter  # restart amuled via the proxy
     clock: Clock  # injected sleep/now (determinism)
     telemetry: Telemetry  # observability events
@@ -101,12 +101,11 @@ async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None
             # control-server not ready / PF not negotiated → we stay Low-ID, NO alert.
             await deps.clock.sleep(deps.poll_interval_seconds)
             return
-        # (Re)connect the dedicated EC client BEFORE any EC op. IDEMPOTENT (AmuleEcClient.connect
+        # (Re)connect the dedicated client BEFORE any call. IDEMPOTENT (AmuleApiClient.connect
         # is a no-op when already connected), but ESSENTIAL after a restart: our own restart() - or
-        # a VPN renegotiation - kills the connection, and the client self-heals by nulling its
-        # transport on the next failed read. Without this call the loop would stay stuck "EC client
-        # not connected" forever (the field deadlock). A failed reconnect (amuled still down) raises
-        # under ``MuleClientError`` → absorbed + backoff below, like any other EC failure.
+        # a VPN renegotiation - ends the session. Without this call the loop would stay stuck on
+        # "client not connected" forever (the field deadlock). A failed reconnect (amuled still
+        # down) raises under ``MuleClientError`` → absorbed + backoff below, like any other one.
         await deps.ports.connect()
         current = await deps.ports.get_listen_port()
         if live == current:
@@ -159,12 +158,11 @@ async def run_port_sync_cycle(deps: PortSyncDeps, state: _PortSyncState) -> None
                 )
             )
     except MuleClientError as error:
-        # get/set_listen_port / network_status failed (amuled down / EC dead / EC_OP_FAILED) →
-        # tolerated (the spec catches the base ``EcError``; on the application side we catch its
-        # port ANCESTOR ``MuleClientError`` - which covers unreachable AND application failure -
-        # without importing the adapter, dependency rule §4). Backoff, no crash (top-level net
-        # §4.4).
-        _logger.warning("EC failed during port-sync (%s): tolerated, backoff", error)
+        # get/set_listen_port / network_status failed (amuled down, amuleapi down, or the
+        # operation refused) → tolerated: we catch the port ANCESTOR ``MuleClientError``, which
+        # covers unreachable AND application failure, without importing the adapter (dependency
+        # rule §4). Backoff, no crash (top-level net §4.4).
+        _logger.warning("amuleapi failed during port-sync (%s): tolerated, backoff", error)
         await deps.clock.sleep(deps.poll_interval_seconds)
 
 

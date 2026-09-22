@@ -44,7 +44,7 @@ from mulewatch.adapters.config.crawler_config import (
 from mulewatch.adapters.crawler_control_loop import LoopCrawlerControl
 from mulewatch.adapters.disk_space_shutil import ShutilDiskSpace
 from mulewatch.adapters.gluetun_port import GluetunPortReader
-from mulewatch.adapters.mule_ec.client import AmuleEcClient
+from mulewatch.adapters.mule_api.client import AmuleApiClient
 from mulewatch.adapters.observability.apprise_notifier import AppriseNotifier
 from mulewatch.adapters.observability.dispatcher import ObservabilityDispatcher
 from mulewatch.adapters.observability.prometheus_sink import PrometheusSink
@@ -91,13 +91,13 @@ _logger = logging.getLogger("mulewatch.composition.app")
 ClientFactory = Callable[[AmuleEndpoint], MuleClient]
 
 # DOWNLOAD client factory: same endpoint type, but the client satisfies
-# MuleDownloadClient (AmuleEcClient satisfies both Protocols structurally, DECISION D3).
+# MuleDownloadClient (AmuleApiClient satisfies both Protocols structurally, DECISION D3).
 DownloadClientFactory = Callable[[AmuleEndpoint], MuleDownloadClient]
 
 
 def default_download_client_factory(endpoint: AmuleEndpoint) -> MuleDownloadClient:
-    """An ``AmuleEcClient`` dedicated to download (distinct EC connection, DECISION D3)."""
-    return AmuleEcClient(endpoint.host, endpoint.port, endpoint.password)
+    """An ``AmuleApiClient`` dedicated to download (its own session, DECISION D3)."""
+    return AmuleApiClient(endpoint.host, endpoint.port, endpoint.password)
 
 
 # Port-sync factories (injectable in test, like the client factories above). The reader takes the
@@ -184,8 +184,8 @@ def _build_policy(config: CrawlerConfig) -> WorkerPolicy:
 
 
 def default_client_factory(endpoint: AmuleEndpoint) -> MuleClient:
-    """A real ``AmuleEcClient`` on the given endpoint (default factory, substituted in test)."""
-    return AmuleEcClient(endpoint.host, endpoint.port, endpoint.password)
+    """A real ``AmuleApiClient`` on the given endpoint (default factory, substituted in test)."""
+    return AmuleApiClient(endpoint.host, endpoint.port, endpoint.password)
 
 
 class CrawlerApp:
@@ -322,10 +322,10 @@ class CrawlerApp:
 
         gluetun reader (factory, ``aclose`` pushed onto the stack) + restarter (factory; the s6
         restarter holds no resource, so there is nothing to close). DEDICATED port-sync EC
-        connection (R6: no contention with download/search) to the amuled endpoint, connected
+        session (R6: no contention with download/search) to the amuled endpoint, connected
         TOLERATING ``MuleUnreachableError`` at boot. That tolerance matters MORE in one container,
-        not less: the three processes start at once, so the crawler routinely reaches EC before
-        amuled listens (design §4). The loop's backoff governs the retries.
+        not less: the processes start at once, so the crawler routinely reaches amuleapi before
+        amuled has started it (design §4). The loop's backoff governs the retries.
         """
         port_sync_config = self._crawler_config.port_sync
         assert port_sync_config is not None  # guaranteed by _port_sync_enabled (mypy: narrow)
@@ -334,12 +334,12 @@ class CrawlerApp:
         stack.push_async_callback(reader.aclose)  # type: ignore[attr-defined]
         restarter = self._mule_restarter_factory()
 
-        # DEDICATED port-sync EC connection to the container's one amuled (127.0.0.1:4712).
-        # Tolerates MuleUnreachableError at boot, like the download connection.
-        ec_client = self._client_factory(self._crawler_config.amule_endpoint)
-        stack.push_async_callback(ec_client.close)
+        # DEDICATED port-sync session to the container's one amuleapi (127.0.0.1:4711).
+        # Tolerates MuleUnreachableError at boot, like the download session.
+        ports_client = self._client_factory(self._crawler_config.amule_endpoint)
+        stack.push_async_callback(ports_client.close)
         try:
-            await ec_client.connect()
+            await ports_client.connect()
         except MuleUnreachableError as error:
             _logger.warning(
                 "port-sync daemon unreachable at startup (%s): tolerated, retry by the loop",
@@ -347,7 +347,7 @@ class CrawlerApp:
             )
         return PortSyncLoopDeps(
             reader=reader,
-            ports=ec_client,  # type: ignore[arg-type]  # AmuleEcClient satisfait PortPreferences
+            ports=ports_client,  # type: ignore[arg-type]  # AmuleApiClient satisfies PortPreferences
             restarter=restarter,
             clock=self._clock,
             telemetry=telemetry,
@@ -369,7 +369,7 @@ class CrawlerApp:
         """Assemble the download loop deps (download mode, spec §7).
 
         SHARED single repos (``catalog_repo`` already built; a ``SqliteDownloadRepository`` on
-        the SAME ``local_conn`` - single writer on the event loop, no race). A 2nd EC connection
+        the SAME ``local_conn`` - single writer on the event loop, no race). A 2nd session
         to the same daemon (DECISION D3) connected tolerating ``MuleUnreachableError`` (a daemon
         not yet listening at startup does not kill the crawler; the loop's backoff governs).
         """
@@ -594,11 +594,11 @@ class CrawlerApp:
             # CONNECT at setup, BEFORE the 1st coverage readout (otherwise _aggregate_coverage
             # hits an unconnected client and raises). A daemon not yet listening must NOT bring
             # the crawler down, and in one container that is the NORMAL case, not the exception:
-            # the crawler, amuled and amuleweb start simultaneously under s6, so the crawler
-            # routinely reaches EC first (design §4). We TOLERATE the MuleUnreachableError and
-            # CONTINUE - the worker's reconnection backoff governs the retries. connect() is
-            # idempotent → the worker's later _ensure_connected() stays a no-op.
-            # We do NOT catch broader: EcAuthError (wrong password) is NOT a
+            # the crawler and amuled start together under s6, and amuled starts amuleapi itself,
+            # so the crawler routinely knocks first (design §4). We TOLERATE the
+            # MuleUnreachableError and CONTINUE - the worker's reconnection backoff governs the
+            # retries. connect() is idempotent → the worker's later _ensure_connected() stays a
+            # no-op. We do NOT catch broader: ApiAuthError (wrong password) is NOT a
             # MuleUnreachableError → it keeps propagating (fail-fast config, spec §14).
             try:
                 await client.connect()

@@ -1,7 +1,7 @@
 """Lightweight end-to-end: the REAL crawl loop against a REAL amuled (spec §8).
 
 Dedicated run: uv run pytest -m orchestration_integration --no-cov
-Validates that a real ``CrawlerApp`` (real ``AmuleEcClient`` + real SQLite DBs) runs
+Validates that a real ``CrawlerApp`` (real ``AmuleApiClient`` + real SQLite DBs) runs
 ONE full cycle against the provided ``amuled`` then stops CLEANLY. The results may be
 empty (no guaranteed eD2k network access): it is the LOOP (startup, search, cataloging,
 bounded shutdown) that is validated, not the richness of the results.
@@ -28,7 +28,7 @@ from mulewatch.adapters.persistence_sqlite.scheduler_state_repository import (
 )
 from mulewatch.composition.app import CrawlerApp
 from mulewatch.ports.mule_client import NetworkStatus
-from tests.integration.conftest import EcEndpoint
+from tests.integration.conftest import ApiEndpoint
 
 pytestmark = pytest.mark.orchestration_integration
 
@@ -86,10 +86,10 @@ class _ShutdownAfterFirstCycleClient:
 
 
 @pytest.mark.asyncio
-async def test_real_loop_runs_one_cycle_and_stops(amuled: EcEndpoint, tmp_path: Path) -> None:
+async def test_real_loop_runs_one_cycle_and_stops(amuled: ApiEndpoint, tmp_path: Path) -> None:
     import asyncio
 
-    from mulewatch.adapters.mule_ec.client import AmuleEcClient
+    from mulewatch.adapters.mule_api.client import AmuleApiClient
 
     matcher_config = parse_matcher_config(load_yaml(_MATCHER))
     crawler_config = CrawlerConfig(
@@ -107,7 +107,7 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: EcEndpoint, tmp_path: 
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=60.0, factor=2.0, jitter_ratio=0.3),
         decision_poll_interval_seconds=5.0,
         shutdown_deadline_seconds=30.0,
-        amule_ec_password=amuled.password,
+        amule_api_password=amuled.password,
         catalog_db_path=str(tmp_path / "catalog.db"),
         local_db_path=str(tmp_path / "local.db"),
         node_id=None,
@@ -119,7 +119,7 @@ async def test_real_loop_runs_one_cycle_and_stops(amuled: EcEndpoint, tmp_path: 
 
     def factory(endpoint: AmuleEndpoint) -> _ShutdownAfterFirstCycleClient:
         # The endpoint is derived from code constants now: use the caller's daemon instead.
-        inner = AmuleEcClient(amuled.host, amuled.port, endpoint.password, timeout=30.0)
+        inner = AmuleApiClient(amuled.host, amuled.port, endpoint.password, timeout=30.0)
         return _ShutdownAfterFirstCycleClient(inner, app_holder)
 
     app = CrawlerApp(

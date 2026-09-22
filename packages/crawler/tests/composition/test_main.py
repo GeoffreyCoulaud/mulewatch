@@ -25,7 +25,7 @@ backoff:
   cap_seconds: 300.0
   factor: 2.0
   jitter_ratio: 0.3
-amule_ec_password: ${AMULE_EC_PASSWORD}
+amule_api_password: ${AMULE_API_PASSWORD}
 catalog_db_path: /data/catalog.db
 local_db_path: /data/local.db
 """
@@ -67,7 +67,7 @@ def _argv(config: Path) -> list[str]:
 
 def test_build_app_assembles_a_crawler_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Config WITHOUT observability section → covers build_app's `observability is None` branch.
-    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+    monkeypatch.setenv("AMULE_API_PASSWORD", "s3cr3t")
     app = entry.build_app(_args(_write_config(tmp_path)))
     assert isinstance(app, CrawlerApp)
 
@@ -78,7 +78,7 @@ def test_build_app_computes_policy_fingerprint_from_matcher_and_targets_bytes(
     # The fingerprint (Task 6) is derived from the RAW bytes of matcher.yml/targets.yml
     # (not the parsed config) and threaded into the CrawlerApp, so the startup gate can
     # compare it against the marker stored in local.db.
-    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+    monkeypatch.setenv("AMULE_API_PASSWORD", "s3cr3t")
     args = _args(_write_config(tmp_path))
     app = entry.build_app(args)
     expected = policy_fingerprint(args.matcher.read_bytes(), args.targets.read_bytes())
@@ -89,7 +89,7 @@ def test_build_app_applies_log_level_when_observability_configured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """build_app's observability is not None branch calls setLevel."""
-    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+    monkeypatch.setenv("AMULE_API_PASSWORD", "s3cr3t")
     config = _write_config(tmp_path, body=_UNIFIED_CONFIG_WITH_OBS)
     app = entry.build_app(_args(config))
     assert isinstance(app, CrawlerApp)
@@ -202,7 +202,7 @@ def test_validate_config_does_not_start_the_app(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # validate-config starts NOTHING: neither build_app nor asyncio.run.
-    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+    monkeypatch.setenv("AMULE_API_PASSWORD", "s3cr3t")
 
     def boom_run(coro: object) -> None:  # pragma: no cover - must never be called
         raise AssertionError("asyncio.run must not be called by validate-config")
@@ -218,7 +218,7 @@ def test_validate_config_does_not_start_the_app(
 def test_validate_config_reports_valid(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+    monkeypatch.setenv("AMULE_API_PASSWORD", "s3cr3t")
     code = entry.main(["validate-config", *_argv(_write_config(tmp_path))])
     assert code == 0
     assert "Config valid" in capsys.readouterr().out
@@ -235,9 +235,9 @@ def test_validate_config_defaults_point_at_config_dir() -> None:
 def test_validate_config_reports_missing_env_var(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # INTENDED SIDE EFFECT: the config references ${AMULE_EC_PASSWORD} (top-level key);
+    # INTENDED SIDE EFFECT: the config references ${AMULE_API_PASSWORD} (top-level key);
     # the variable missing from the environment → fail-fast interpolation → code 1, clear message.
-    monkeypatch.delenv("AMULE_EC_PASSWORD", raising=False)
+    monkeypatch.delenv("AMULE_API_PASSWORD", raising=False)
     code = entry.main(["validate-config", *_argv(_write_config(tmp_path))])
     assert code == 1
     assert "Invalid config" in capsys.readouterr().err
@@ -266,7 +266,7 @@ def test_validate_config_rejects_config_error(
 def test_validate_config_rejects_matcher_config_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+    monkeypatch.setenv("AMULE_API_PASSWORD", "s3cr3t")
     bad_matcher = tmp_path / "matcher.yaml"
     # rules non-list → MatcherConfigError (structural parse)
     bad_matcher.write_text("tokens: {}\nrules: {}\n", encoding="utf-8")
@@ -287,7 +287,7 @@ def test_validate_config_rejects_matcher_config_error(
 def test_validate_config_rejects_config_error_in_targets(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("AMULE_EC_PASSWORD", "s3cr3t")
+    monkeypatch.setenv("AMULE_API_PASSWORD", "s3cr3t")
     bad_targets = tmp_path / "targets.yaml"
     bad_targets.write_text("episodes: nope\n", encoding="utf-8")  # episodes non-list → ConfigError
     argv = [
