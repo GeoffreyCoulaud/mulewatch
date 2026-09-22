@@ -1,5 +1,10 @@
 # Protocole EC (External Connections) d'aMule — référence pour le client Python
 
+> **Document historique depuis le 2026-09-22.** Le crawler ne parle plus EC : il pilote amuled par
+> amuleapi (`agents/specs/2026-09-22-amuleapi-migration.md`), et EC n'est plus qu'un lien interne
+> entre amuleapi et amuled. Ce document s'arrête à aMule 3.0.0 ; 3.1.0 a par exemple déplacé
+> `EC_FLAG_UNKNOWN_MASK` de `0xff7f7f08` à `0xff7f7f00`, le bit `0x08` devenant `EC_FLAG_ENCRYPTED`.
+
 Référence vérifiée **sur les sources** : `amule-project/amule` au tag **`2.3.3`** (sauf mention
 contraire) et `amule-org/amule` au tag **`3.0.0`** (la version compilée par l'image Docker
 `ngosang/docker-amule`). La version de protocole est identique dans les deux
