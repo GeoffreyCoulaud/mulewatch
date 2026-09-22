@@ -2,7 +2,8 @@
 """Run once by the entrypoint, as root, before any service starts.
 
 Creates the `amule` user, takes ownership of the bind mounts, writes a minimal amule.conf if
-the operator has none, and rewrites ECPassword from AMULE_EC_PASSWORD on every boot.
+the operator has none, rewrites ECPassword from AMULE_EC_PASSWORD and the [AmuleApi] section on
+every boot, then hands amuleapi its admin password.
 """
 
 import configparser
@@ -31,7 +32,7 @@ def missing(*getent_args: str) -> bool:
 puid = required("PUID")
 pgid = required("PGID")
 ec_password = required("AMULE_EC_PASSWORD")
-required("WEBUI_PWD")
+api_password = required("AMULE_API_PASSWORD")
 
 conf_path = os.path.join(CONFIG_DIR, "amule.conf")
 
@@ -62,17 +63,24 @@ parser = configparser.RawConfigParser(strict=False)
 parser.optionxform = str
 if not parser.read(conf_path):
     # aMule reads its settings through wxConfig, so an absent key takes its declared default.
-    # Only the settings whose 3.0.1 default is wrong for us go in (ECPort already defaults to 4712).
+    # Only the settings whose 3.1.0 default is wrong for us go in (ECPort already defaults to 4712).
     parser["eMule"] = {"IncomingDir": INCOMING_DIR, "TempDir": TEMP_DIR}
     parser["ExternalConnect"] = {"AcceptExternalConnections": "1"}
 
-# The variable is the source of truth, so this is reconciled on EVERY boot: a file left holding a
-# stale digest locks the crawler and amuleweb out of a daemon that looks perfectly healthy. Every
-# other key stays the operator's to edit -- except his comments, which configparser drops on
-# rewrite. aMule rewrites the file itself on its first save anyway.
+# The variables are the source of truth, so these are reconciled on EVERY boot: a file left
+# holding a stale digest locks amuleapi out of a daemon that looks perfectly healthy, and a moved
+# HttpPort leaves the published 4711 answering nothing. Every other key stays the operator's to
+# edit -- except his comments, which configparser drops on rewrite. aMule rewrites the file itself
+# on its first save anyway.
 if not parser.has_section("ExternalConnect"):
     parser.add_section("ExternalConnect")
 parser["ExternalConnect"]["ECPassword"] = digest
+
+# amuled starts amuleapi itself in OnInit and hands it a one-off EC token, so there is no second
+# password here and no amuleapi.conf at all: bind address and port travel on its command line.
+if not parser.has_section("AmuleApi"):
+    parser.add_section("AmuleApi")
+parser["AmuleApi"].update({"Enabled": "1", "BindAddress": "0.0.0.0", "HttpPort": "4711"})
 
 # aMule writes `Key=value`, not `Key = value`.
 with open(conf_path, "w") as handle:
@@ -80,3 +88,23 @@ with open(conf_path, "w") as handle:
 
 os.chown(conf_path, int(puid), int(pgid))
 os.chmod(conf_path, 0o600)
+
+# A non-loopback BindAddress needs an admin password or amuleapi refuses to start. The command
+# writes amuleapi-passwords (0600) and exits; it runs as the amule user so the file lands with the
+# ownership amuleapi expects when amuled starts it.
+subprocess.run(
+    [
+        "setpriv",
+        "--reuid",
+        puid,
+        "--regid",
+        pgid,
+        "--init-groups",
+        "env",
+        f"HOME={HOME_DIR}",
+        "amuleapi",
+        f"--config-dir={CONFIG_DIR}",
+        f"--set-admin-pass={api_password}",
+    ],
+    check=True,
+)
