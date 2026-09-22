@@ -52,16 +52,37 @@ as idempotent.
 
 ## 2. Decisions
 
-### D1. amuleapi runs as our own s6 service, not as amuled's autorun child
+### D1. amuled launches amuleapi (autorun), rather than an s6 service of its own
 
-aMule 3.1.0 can launch amuleapi itself (`amule.conf` `[AmuleApi] Enabled=1`), handing it a
-one-off EC token so it never holds a copy of the EC password. We do not use that.
+`amule.conf` `[AmuleApi] Enabled=1` makes amuled start amuleapi in `OnInit`
+(`src/amule.cpp:1297`), passing `--bind` and `--http-port` on the command line
+(`amule.cpp:1349-1352`) and handing it a one-off EC token that the child unlinks as soon as
+it has read it (with a backstop in amuled that removes it unread after a timeout,
+`amule.cpp:2045`).
 
-Rationale: s6 is this image's supervisor. A process amuled spawns escapes it, so it has no
-restart policy and its output is not captured through s6 like the other three. The security
-gain of the ephemeral token is theoretical when both processes run in the same container and
-already share `deploy/amule/`. amuleapi gets the EC password through its own
-`amuleapi.conf`, which is exactly the trust model `amuleweb` has today.
+This is the option with the least to maintain, and by a wider margin than it first looks:
+
+- **No `amuleapi.conf` at all.** Bind address and port arrive on the command line, so
+  `docker/amule-config.py` needs three keys in `amule.conf`, a file it already writes, rather
+  than a second config-file writer and its tests.
+- **No second copy of the EC password.** The ephemeral token replaces it. `amuleweb` today
+  takes the password on its command line, so this is strictly better than what it replaces.
+- **One s6 service directory removed, none added.**
+
+The risks were checked against the 3.1.0 source rather than assumed, and are narrower than
+the supervision argument suggests:
+
+| Risk | Verified behaviour | Why it is acceptable |
+|---|---|---|
+| amuleapi is not restarted if it dies | `TerminationProcessAmuleApi.cpp:36` sets the pid to 0 and nothing respawns; the launch is a one-shot in `OnInit` | amuled dying is the common failure and s6 still covers it: restarting amuled respawns amuleapi. Only "amuleapi dies alone" is uncovered, and the existing unreachable-daemon alerting sees it |
+| its output is never drained | the constructor calls `Redirect()`, creating pipes, and `CTerminationProcess` only logs on terminate: nothing reads them, so a full 64 KiB pipe would block the child on `write()` | `src/webapi/HttpServer.cpp` has no per-request logging. Across `src/webapi/` there are 13 console write sites: startup, `WARN`, `FATAL`, and `500 from handler`. Filling 64 KiB needs a sustained error loop, which is already a broken state |
+| its output is not in `docker logs` | same cause | amuleapi writes `amuleapi.log` in its config dir, which is the bind-mounted `deploy/amule/`. The output moves, it is not lost |
+| an orphaned process on shutdown | `amule.cpp:364-372` sends SIGTERM then SIGKILL | not a risk |
+
+**Condition.** amuled passes no `--static-root`, so this decision holds only if amuleapi
+finds its `amuleapi-static` folder unaided (see §3.1). If it does not, `StaticRoot` forces an
+`amuleapi.conf` back into existence and most of the saving above evaporates; revisit D1 then
+rather than writing the config file and keeping autorun.
 
 ### D2. amuleweb is removed
 
@@ -146,54 +167,52 @@ The `pname = "amule"` override stays: Syft builds the CPE from it and the NVD do
 `amule-web-daemon`. Rename `amule-web-daemon` to whatever the new flag combination produces
 only in the override, never in `pname`.
 
-Exported binaries become `amuled`, `amuleapi`, `ed2k`. The `amuleapi-static` frontend folder
-must be exported alongside the binaries, and `StaticRoot` set to its absolute store path:
-amuleapi looks for it "next to its own executable", and our binaries are symlinks in
-`/usr/local/bin`, so the automatic lookup cannot be relied on. **Verify this against the
-built closure rather than assuming.**
+Exported binaries become `amuled`, `amuleapi`, `ed2k`.
 
-### 3.2 `amuleapi.conf`
+**The one thing to verify before anything else is built on top of it** (it is D1's
+condition): that amuleapi finds its `amuleapi-static` frontend folder unaided. It tries, in
+order, the macOS bundle, the directory its own executable lives in, the path configured at
+build time, and the platform shared-data directory. The third should resolve, because CMake
+bakes the nix store path in, and it is the one that does not care that `/usr/local/bin/
+amuleapi` is a symlink. If it does not resolve, `/` answers 404 while the REST API keeps
+working, and setting `StaticRoot` means reintroducing `amuleapi.conf`: reopen D1 at that
+point rather than quietly adding the file back.
 
-`docker/amule-config.py` gains a second file, written with the same
-`RawConfigParser(optionxform=str)` treatment and the same "the environment variable is the
-source of truth, reconciled on every boot" rule that `ECPassword` already gets:
+amuled resolves the binary through `thePrefs::GetAmuleApiPath()`, so the closure's real store
+path is the safer value to configure there, not the `/usr/local/bin` symlink.
+
+### 3.2 Configuration
+
+Per D1, there is no `amuleapi.conf`. `docker/amule-config.py` adds one section to the
+`amule.conf` it already writes:
 
 ```ini
-[Server]
+[AmuleApi]
+Enabled=1
 BindAddress=0.0.0.0
-Port=4713
-StaticRoot=<nix store path of amuleapi-static>
-
-[EC]
-Host=127.0.0.1
-Port=4712
-Password=<AMULE_EC_PASSWORD, plaintext>
+HttpPort=4713
 ```
-
-Note the asymmetry with `amule.conf`: `ECPassword` there holds the **MD5 digest**, while
-`[EC]/Password` here holds the **plaintext**. Do not copy the digest across.
 
 `BindAddress=0.0.0.0` requires an admin password to be set first, or amuleapi refuses to
 start. The one-shot therefore also runs `amuleapi --set-admin-pass="$WEBUI_PWD"` as the
-`amule` user before the services come up, reusing the variable `amuleweb` used for the same
-purpose. `--set-admin-pass` writes its file and exits.
+`amule` user before s6 starts anything, reusing the variable `amuleweb` uses today for the
+same purpose. `--set-admin-pass` writes `amuleapi-passwords` (mode 0600, in the config dir)
+and exits. There is deliberately no `--password` option in amuleapi, because a password on a
+command line is visible through `ps`.
 
 No guest password: guest is enabled precisely by having one, and read-only access to this
 surface exposes the daemon's filesystem paths, our `user_hash` and the raw log.
 
+The crawler authenticates against amuleapi with that same admin password, so
+`deploy/crawler.yml` gains a reference to it. It is `WEBUI_PWD` today, which is now a
+misleading name for a variable that also gates the crawler's own transport: rename it to
+`AMULE_API_PASSWORD` in `deploy/.env.example` and the compose files, keeping the old name
+accepted for one release so an existing node does not break on upgrade.
+
 ### 3.3 s6
 
-`docker/services.d/amuleweb/` is replaced by `docker/services.d/amuleapi/`:
-
-```sh
-#!/bin/sh
-exec 2>&1
-exec setpriv --reuid amule --regid amule --init-groups \
-	env HOME=/home/amule amuleapi --config-dir=/home/amule/.aMule
-```
-
-There is deliberately no `--password` option in amuleapi (a password on the command line is
-visible through `ps`), which is why the EC password goes through the config file.
+`docker/services.d/amuleweb/` is deleted and nothing replaces it: amuled brings amuleapi up.
+The image goes from three supervised services to two (`amuled`, `mulewatch`).
 
 ### 3.4 Deployment surface
 
@@ -207,7 +226,14 @@ visible through `ps`), which is why the EC password goes through the config file
   `contributing/testing.md` all name amuleweb or 4711. French, as everything under `docs/` is.
 
 The confinement posture does not move: `no-new-privileges:true`, `pids_limit: 512`,
-`mem_limit: 2g`, three processes under s6 (amuled, amuleapi, mulewatch) with `setpriv`.
+`mem_limit: 2g`, `setpriv` on each service. The process count is unchanged at three, but the
+tree is one level deeper: s6 supervises `amuled` and `mulewatch`, and `amuled` owns
+`amuleapi` (D1). `pids_limit: 512` has ample room; `no-new-privileges` is inherited by the
+grandchild, so amuleapi is covered by it without anything being added.
+
+`docs/limits.md` and the residual-risk paragraph in `AGENTS.md` need one word changed: a
+compromise of any of the three processes still reaches the same bind mounts, and amuleapi is
+now one of the three.
 
 ## 4. Lot 2: the adapter
 
@@ -432,11 +458,17 @@ where one is passed today. It touches the append-only decision semantics and the
 
 - The nix override of `version` and `hash` to 3.1.0 has not been built. The two build deltas
   (§3.1) are read from the CMake diff, not from a successful build.
-- Whether `amuleapi-static` is found automatically, and whether `StaticRoot` needs the
-  absolute store path, is inferred from upstream's documentation of the lookup order against
-  our symlinked `/usr/local/bin` layout. It has not been observed.
+- **Whether `amuleapi-static` is found automatically** (§3.1). Inferred from upstream's
+  documented lookup order against our nix closure, not observed. This is D1's condition, so
+  it is the first thing to check once the image builds.
 - `amuleapi --set-admin-pass` running as the `amule` user from the root one-shot, and the
   resulting `amuleapi-passwords` file mode, have not been exercised.
+- amuleapi's console output going into a pipe amuled never drains (D1) is read from the
+  source, and the conclusion that it cannot realistically fill 64 KiB rests on counting
+  console write sites in `src/webapi/`, not on watching a node run for a month. If a node
+  ever wedges with amuleapi alive but unresponsive, this is the first hypothesis.
+- That the ephemeral EC token handoff works when amuled and amuleapi run as the same
+  unprivileged `amule` user inside the container, with the config dir on a bind mount.
 - `no-new-privileges` alongside `setpriv` remains unvalidated on real hardware from the
   single-container work (`agents/specs/2026-09-16-single-container-embedded-amule.md` §13);
   swapping amuleweb for amuleapi does not change that, but it does not clear it
