@@ -45,6 +45,7 @@ PID 1  entrypoint.sh (root)
 | `73a1a94` | CI: the three daemon-facing suites moved into `build-and-verify` and now run on both arches. |
 | `24e2270` | `docs/` (French): the new `migration-2x.md` plus every page that named amuleweb, `WEBUI_PWD` or the EC protocol; nav updated. |
 | `4ca0288` | `AGENTS.md`: subsystem table, invariants, and the gotchas section rewritten around amuleapi. |
+| `3ce38c1` | Two fixes the built image turned up: `start_search` stops the search in flight first, and the completion rule stopped reading a completed-awaiting-clear queue entry as "still transferring". |
 
 ## 3. Where the implementation diverged from the spec
 
@@ -65,10 +66,19 @@ is the reconciliation.
    serve amuleapi (it exists only in 3.1.0). The three suites now run inside `build-and-verify`,
    against a throwaway container started from the image that job just built, on both arches. This
    is outside the scope the lot was given, but leaving it would have failed the gate on the PR.
-5. **A search is never freed.** The EC `start_search` wiped the previous results; `POST /search`
-   does not, and the adapter does not `DELETE` the old id either. amuled's 20-entry ring evicts them
-   on its own, and at one search every few minutes that costs nothing. It becomes a scheduler
-   concern the moment lot 2 lands (spec §7.2).
+5. **`start_search` stops the search in flight first.** Not in the spec, and not optional:
+   Kademlia refuses a keyword that is still on its search list, so the image logged
+   `400 amuled_rejected: Kademlia: Search keyword is already on search list: keroro` on every
+   cycle of the smoke config. Probed on the running daemon: `POST /search/{id}/stop` takes the
+   keyword off that list, `DELETE /search/{id}` does **not**. This also restores what EC's
+   `start_search` did implicitly (it wiped the previous search).
+6. **`?status=all` broke completion, and the fix is in `run_download_cycle`.** §4.3 mandates it,
+   and it puts amuled's completed-but-not-yet-cleared entries in the queue snapshot. The
+   completion rule reads "present in the queue" as "still transferring", so every finished
+   download would have stayed `downloading` until an operator cleared it: the exact shape of the
+   2026-09-11 field stall. The rule now excludes only entries that are **not** complete
+   (`DownloadEntry.is_complete`, which existed for this and had no caller), which keeps the
+   2026-09-02 guard against stamping a partial at 20 %.
 
 ## 4. Pitfalls learned (the ones worth a reader's time)
 
@@ -92,32 +102,59 @@ is the reconciliation.
 - **`media` is an advertisement, not a measurement.** Server-advertised, `null` on most global and
   Kad hits, and free to contradict the file. Lot 3 (duration rules) waits for a measured fill rate
   on the real node, which is exactly why it is still in `BACKLOG.md`.
+- **SQLite in a Docker Desktop bind mount is not coherent between processes.** With `/data` on a
+  host bind mount, the crawler stamped the completion (its own log says so, and it never re-fired,
+  so its own connection sees the new state) while every other process reading the same file kept
+  seeing the old row, `last_seen_at` included. Move `/data` into the container's own filesystem and
+  the identical scenario passes. This is what fails `test_a_file_amuled_shares_is_recorded_
+  completed` here, and it is the same class of trap as the tmpfs/`temp_store` one recorded on
+  2026-07-06: **verify a DB change the way the node will run it, and do not trust a cross-process
+  read through a Desktop bind mount.**
 - **amuleapi's console output is not in `docker logs`.** amuled starts it with redirected pipes it
   never drains; amuleapi writes `amuleapi.log` into the config dir, which is the bind-mounted
   `deploy/amule/`. `docs/operate.md` says so now. If a node ever wedges with amuleapi alive but
   unresponsive, a full 64 KiB pipe is the first hypothesis (spec D1).
 
-## 5. What is NOT validated against real hardware
+## 5. What was validated, and what was not
 
-The gate is green (`uv run poe check`: 916 + 255 + 66 tests, 100 % branch coverage per package,
-ruff, mypy over src and tests, sqlfluff, templates) and `uv run poe docs-build --strict` passes. All
-of that is host-side. What follows has never run:
+The gate is green (`uv run poe check`: 919 + 255 + 66 tests, 100 % branch coverage per package,
+ruff, mypy over src and tests, sqlfluff, templates) and `uv run poe docs-build --strict` passes.
 
-- **The image itself.** At the time of writing a `docker build` of `packages/crawler/Dockerfile` was
-  started on the development machine; whatever its outcome, no node has run this image.
-- **`amuleapi --set-admin-pass` from the root one-shot, through `setpriv`, as the `amule` user**,
-  and the resulting `amuleapi-passwords` file mode on a bind mount. The shell test stubs `setpriv`
-  and only asserts the argv.
-- **The ephemeral EC token handoff** between amuled and amuleapi when both run as the same
-  unprivileged user with the config dir on a bind mount.
-- **The whole adapter against a real amuleapi.** Every unit test runs against
-  `httpx.MockTransport` and a fake modelled on the upstream reference. The three daemon-facing
-  suites (`api_integration`, `download_integration`, `orchestration_integration`) were rewritten but
-  have not been run: per earlier sessions they do not work in this environment.
+**Unlike the 2026-09-16 lot, this one was run for real.** There IS a container runtime on the
+development machine now (Docker Desktop 29.8.0), so the image was built and driven:
+
+- **The image builds** (`docker build -f packages/crawler/Dockerfile`), amd64.
+- **amuled starts amuleapi by itself inside the image**, from the `/usr/local/bin` symlink, and
+  serves its frontend unaided: `GET /api/v1/health` answers
+  `{"status":"ok","ec_connected":true,"snapshot_ready":true}` and `GET /` answers `200 text/html`.
+  That settles D1's condition **inside the image**, which was the one thing that could overturn it.
+- **`amuleapi --set-admin-pass` works from the root one-shot through `setpriv`**: it writes
+  `amuleapi-passwords` mode `0600` owned by the `amule` user, and the crawler logs in with it.
+- **The ephemeral EC token handoff works with the config dir on a bind mount** (`ec_connected:
+  true` on a run with `/home/amule/.aMule`, `/data` and `/downloads` all bind-mounted).
+- **`[AmuleApi] Enabled=1 / BindAddress=0.0.0.0 / HttpPort=4711`** lands in `amule.conf`, and s6
+  supervises exactly two services, both `true`.
+- **The three daemon-facing suites pass against a real amuleapi**: 9 tests,
+  `api_integration or download_integration or orchestration_integration`, with
+  `MULEWATCH_TEST_API_*` pointed at the running image.
+- **A real completion, end to end**: a file dropped in `IncomingDir`, amuled restarted, the hash
+  read back from `GET /shared`, a `downloads` row seeded, and the crawler stamped it `completed`
+  and notified (`✅ download completed: 062A`) within one poll.
+- **The crawl loop drives the API for minutes on end** without a single `4xx` other than the
+  daemon's honest refusals (no eD2k server, Kad not bootstrapped), each one mapping to the channel
+  backoff it should.
+
+What is still NOT validated:
+
+- **arm64.** Only the amd64 image was built. CI covers both.
+- **The compose smoke's completion scenario on this machine.** `test_a_file_amuled_shares_is_
+  recorded_completed` fails here, and the cause is the environment, not the code: see the pitfall
+  below. The other three tests of that suite pass against the built image.
 - **`no-new-privileges` alongside `setpriv`**, inherited from the single-container work
   (`agents/specs/2026-09-16-single-container-embedded-amule.md` §13). Unchanged by this lot, and
   still unvalidated.
-- **The real fill rate of `media`** on Keroro searches. Unknown, and it is what lot 3 waits on.
+- **Anything on the real node**: a real search against a real eD2k server, a real download, and
+  therefore **the real fill rate of `media`**, which is what lot 3 waits on.
 
 ## 6. Suggested next step
 
