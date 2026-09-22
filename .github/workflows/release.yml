@@ -80,11 +80,19 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.IMAGE }}
+          # `latest` means the newest RELEASE, so it moves on a version tag and nowhere else.
+          # `{{is_default_branch}}` was exactly wrong for that: it is true on a branch push and
+          # false on a tag push (a tag ref is not a branch), so it pinned `latest` to the tip of
+          # main and left it behind on every release. An unreleased build is tested through the
+          # `main` tag, which `type=ref` publishes on every push.
+          #
+          # Keep comments OUT of `tags:` below: it is a literal block, and the action parses it as
+          # CSV skipping only empty lines, so a `#` line becomes a bogus tag definition.
           tags: |
             type=ref,event=branch
             type=sha
             type=semver,pattern={{version}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
       # --- Pre-publish VEX honesty gate ------------------------------------------------------
       # The per-arch images already exist in ghcr by digest (pushed, gated behind integration,
