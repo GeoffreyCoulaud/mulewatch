@@ -91,14 +91,17 @@ replacement. amuleapi's Web UI covers the same sections as the desktop GUI (Netw
 with tabs, Downloads, Shared Files, Clients, Messages, Statistics, Preferences), in light and
 dark, responsive. Keeping both would mean three HTTP surfaces for two jobs.
 
-Port 4711 becomes 4713. The image drops the `amuleweb` binary from the closure and the
-`amuleweb` s6 service.
+The image drops the `amuleweb` binary from the closure and the `amuleweb` s6 service.
+
+**The published port stays 4711.** amuleapi's default is 4713, but the port is ours to set
+(`[AmuleApi] HttpPort`), so it inherits amuleweb's rather than forcing every operator to
+re-map one. What answers on 4711 changes; where to point a browser does not.
 
 ### D3. mulewatch's own webui stays
 
 `mulewatch.webui` serves the catalog, the match decisions and the SQL console. amuleapi knows
-nothing about any of that. After the migration the node publishes 8080 (catalog) and 4713
-(aMule), against 8080 and 4711 today.
+nothing about any of that. The node keeps publishing exactly two ports, 8080 (catalog) and
+4711 (aMule), before and after.
 
 ### D4. Alternate filenames are flattened back into observations
 
@@ -148,14 +151,13 @@ The break is already loud by construction: `amule-config.py`'s `required()` exit
 editing `.env` fails at boot with the name of the missing variable, rather than starting and
 misbehaving. That is a better failure than a silent fallback.
 
-This makes the release **3.0.0**, alongside the other breaking surface changes: port 4711
-becomes 4713, and `amuleweb` is gone. `docs/migration-2x.md` is written for it, modelled on
-`docs/migration-1x.md` (French, same shape: stop the node, edit, restart, with a rollback
-section). Three steps only, since no data moves:
+This makes the release **3.0.0**, together with the other breaking change: `amuleweb` is
+gone, so 4711 now serves a different web UI. `docs/migration-2x.md` is written for it,
+modelled on `docs/migration-1x.md` (French, same shape: stop the node, edit, restart, with a
+rollback section). Two steps, since no data moves and no port moves:
 
 1. rename `WEBUI_PWD` to `AMULE_API_PASSWORD` in `.env`;
-2. change the published port from `4711` to `4713`;
-3. the aMule web UI is at a new address and is a different UI.
+2. the aMule web UI on 4711 is amuleapi's now, not amuleweb's.
 
 ### D7. REST polling first, SSE later
 
@@ -163,9 +165,12 @@ The crawl loop keeps its current polling shape in this migration. SSE is a separ
 (§8.3): it changes the loop's state machine and adds a long-lived connection to manage, for a
 gain that is small at one node and one search every few minutes.
 
-## 3. Lot 1: the image
+## 3. Lot 1, part one: the image
 
-Branch scope: `packages/crawler/Dockerfile`, `packages/crawler/docker/`, `deploy/`,
+**Lot 1 is one branch and one PR**, covering §3 and §4 together. See the note at the head of
+§4 for why the two halves cannot be split.
+
+Scope of this half: `packages/crawler/Dockerfile`, `packages/crawler/docker/`, `deploy/`,
 `tests/smoke/`, `docs/`.
 
 ### 3.1 aMule 3.1.0 in `amule.nix`
@@ -210,8 +215,11 @@ Per D1, there is no `amuleapi.conf`. `docker/amule-config.py` adds one section t
 [AmuleApi]
 Enabled=1
 BindAddress=0.0.0.0
-HttpPort=4713
+HttpPort=4711
 ```
+
+`HttpPort` is set explicitly rather than left at amuleapi's 4713 default, so the published
+port does not move (D2).
 
 `BindAddress=0.0.0.0` requires an admin password to be set first, or amuleapi refuses to
 start. The one-shot therefore also runs `amuleapi --set-admin-pass="$WEBUI_PWD"` as the
@@ -237,13 +245,13 @@ The image goes from three supervised services to two (`amuled`, `mulewatch`).
 
 ### 3.4 Deployment surface
 
-- `deploy/compose.yml`, `deploy/gluetun.compose.yml`, `deploy/base.compose.yml`: `4711:4711`
-  becomes `4713:4713`, and `WEBUI_PWD` becomes `AMULE_API_PASSWORD` (D6).
-- `deploy/.env.example`: same rename.
-- `deploy/crawler.yml`: `amule_url` moves from `http://localhost:4711` to `:4713`, and the
-  crawler's own amuleapi credential is wired in.
-- `tests/smoke/compose.yaml` and the `compose_integration` suite: same port and variable,
-  plus a probe of `GET /api/v1/health` (no auth, no EC roundtrip, answers while amuled is
+- `deploy/compose.yml`, `deploy/gluetun.compose.yml`, `deploy/base.compose.yml`,
+  `deploy/.env.example`: `WEBUI_PWD` becomes `AMULE_API_PASSWORD` (D6). The `ports:` lists do
+  not change (D2).
+- `deploy/crawler.yml`: `amule_url` keeps its value; the crawler's own amuleapi credential is
+  wired in.
+- `tests/smoke/compose.yaml` and the `compose_integration` suite: the renamed variable, plus
+  a probe of `GET /api/v1/health` (no auth, no EC roundtrip, answers while amuled is
   busy) as the readiness check.
 - `docker/amule-config.test.sh`: the `[AmuleApi]` section and the renamed variable, including
   the **negative path** (the variable absent must abort the boot with its name, per the
@@ -251,7 +259,7 @@ The image goes from three supervised services to two (`amuled`, `mulewatch`).
 - `docs/`: a new `migration-2x.md` (D6), plus `install.md`, `operate.md`, `settings.md`,
   `vpn.md`, `troubleshooting.md`, `troubleshooting-start.md`, `index.md`, `glossary.md`,
   `limits.md`, `contributing/architecture.md`, `contributing/testing.md`, which all name
-  amuleweb, 4711 or `WEBUI_PWD`. French, as everything under `docs/` is. The nav gains the
+  amuleweb or `WEBUI_PWD`. French, as everything under `docs/` is. The nav gains the
   new page; `poe docs-build` runs `--strict`, so a stale link fails the build rather than
   shipping.
 
@@ -265,13 +273,16 @@ grandchild, so amuleapi is covered by it without anything being added.
 compromise of any of the three processes still reaches the same bind mounts, and amuleapi is
 now one of the three.
 
-## 4. Lot 2: the adapter
+## 4. Lot 1, part two: the adapter
 
-Branch scope: `packages/crawler/src/mulewatch/adapters/mule_api/` and the deletion of
+Scope: `packages/crawler/src/mulewatch/adapters/mule_api/` and the deletion of
 `adapters/mule_ec/` plus the two probe tools.
 
-Lots 1 and 2 must reach `main` together (removing amuleweb without the adapter leaves the
-crawler talking EC to a daemon that no longer has a web UI), but they are two PRs.
+Same branch, same PR as §3. The image and the adapter cannot ship apart: an image built
+without the adapter leaves the crawler speaking EC while it is the daemon's config that
+changed, and an adapter without the image has no amuleapi to talk to. Neither half is
+independently mergeable, so splitting them would only mean parking a broken `main` behind a
+second review.
 
 ### 4.1 Shape
 
@@ -285,7 +296,7 @@ adapters/mule_api/
 
 The ports keep their current contracts, including `MuleClient` having no notion of a
 `search_id`: the adapter holds the id of the single in-flight search per instance, exactly
-reproducing today's one-search-at-a-time behaviour. Multi-search is lot 3.
+reproducing today's one-search-at-a-time behaviour. Multi-search is lot 2.
 
 The error contract maps as follows (`ports/mule_client.py`):
 
@@ -383,13 +394,13 @@ otherwise.
 
 ### 7.1 `media` is a hint, never a measurement
 
-See §4.2. It is server-advertised and can contradict the file. This is why lot 4 (matching
+See §4.2. It is server-advertised and can contradict the file. This is why lot 3 (matching
 rules on duration) waits for a measured fill rate rather than shipping with lots 1 and 2.
 
 ### 7.2 amuled keeps only 20 searches
 
 A search evicted from amuled's ring reads `404`. Irrelevant at one search at a time; a
-scheduler constraint the moment lot 3 lands.
+scheduler constraint the moment lot 2 lands.
 
 ### 7.3 A `401` is terminal for the session
 
@@ -416,7 +427,7 @@ of `agents/reference/ec-protocol.md` knows that document stopped at 3.0.0.
 These are tracked here so a later session can pick them up without re-deriving the analysis.
 None of them belongs in lots 1 and 2.
 
-### 8.1 Lot 3: capabilities the API opens up
+### 8.1 Lot 2: capabilities the API opens up
 
 - **Multi-search.** Our EC client has no notion of a `search_id`: one search at a time.
   amuleapi runs several concurrently, and a global and a Kad search never disturb each other.
@@ -433,16 +444,16 @@ None of them belongs in lots 1 and 2.
   `null` when the daemon has no figure (never `0`, which would read as a full disk). There is
   already a `ports/disk_space.py`.
 
-### 8.2 Lot 4: matching rules on duration
+### 8.2 Lot 3: matching rules on duration
 
 `FileCandidate.duration_sec` and `.bitrate_kbps` exist, `AttrBetweenMatcher` exists, and
-`deploy/matcher.yml` uses neither, because the data never arrived. Once lot 2 is on the real
+`deploy/matcher.yml` uses neither, because the data never arrived. Once lot 1 is on the real
 node, measure the fill rate of `media` across the catalog, then write `attr_between` rules. A
 24-minute runtime is a strong discriminator against a film or a compilation, but only if the
 field is populated often enough to be worth a rule. Do not write the rules before the
 measurement.
 
-### 8.3 Lot 5: SSE
+### 8.3 Lot 4: SSE
 
 `GET /api/v1/events` streams typed frames on filterable channels. What is actually worth
 having, in order:
@@ -461,7 +472,7 @@ Cost: a long-lived connection with reconnect, `Last-Event-ID` and `resync` frame
 and §7.3's `401` rule applies to the stream too. At one node with a search every few minutes,
 the polling shape is adequate, which is why this is deferred rather than folded in.
 
-### 8.4 Lot 6: union of names per hash in the decision layer
+### 8.4 Lot 5: union of names per hash in the decision layer
 
 A bug this migration's analysis uncovered, independent of the migration itself.
 
