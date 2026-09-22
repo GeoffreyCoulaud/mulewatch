@@ -1,16 +1,16 @@
 """``MuleDownloadClient`` port: the DOWNLOAD operations expected from an eMule client.
 
 SEPARATE from ``MuleClient`` (ISP, spec download §2.4/§4 — DECISION D3): search does not
-depend on the download methods and vice versa. The SAME adapter class (``AmuleEcClient``) can
-implement both Protocols STRUCTURALLY; in production, the download connection is a SEPARATE
-instance (its own EC connection, spec §2.2). The port imports ONLY the domain and the shared
+depend on the download methods and vice versa. The SAME adapter class (``AmuleApiClient``) can
+implement both Protocols STRUCTURALLY; in production, the download client is a SEPARATE
+instance (its own session, spec §2.2). The port imports ONLY the domain and the shared
 network DTO ``NetworkStatus`` (already in ``ports/mule_client.py`` — reused, not duplicated:
 HighID required to download in full mode).
 
 ``DownloadEntry`` is the port DTO (frozen): the crawler NEVER READS the bytes (spec §4);
-``download_queue`` only returns EC METADATA; completion comes from the SHARED files, never
-from the bytes. The ERROR contract is Plan C's: a dead stream raises ``MuleUnreachableError``
-(``ports/mule_client.py``) — the application tolerates it (spec §9).
+``download_queue`` only returns the daemon's own metadata; completion comes from the SHARED
+files, never from the bytes. The ERROR contract is Plan C's: a dead hop raises
+``MuleUnreachableError`` (``ports/mule_client.py``) — the application tolerates it (spec §9).
 """
 
 from dataclasses import dataclass
@@ -21,7 +21,7 @@ from mulewatch.ports.mule_client import NetworkStatus
 
 @dataclass(frozen=True)
 class DownloadEntry:
-    """An entry of amuled's download queue (EC metadata ONLY, spec §4).
+    """An entry of amuled's download queue (the daemon's own metadata ONLY, spec §4).
 
     ``ed2k_hash`` = content key (lowercase hex 32). ``size_done``/``size_full`` = bytes
     transferred / total size. ``is_complete`` is true ONLY if the total size is known (> 0)
@@ -50,12 +50,12 @@ class DownloadEntry:
 
 @dataclass(frozen=True)
 class SharedFileEntry:
-    """An entry of amuled's SHARED files list (``EC_OP_SHARED_FILES`` response).
+    """An entry of amuled's SHARED files list (``GET /shared``).
 
     A downloaded file is auto-shared by amuled on completion (POSITIVE completion signal,
     cf. design 2026-06-17). ``ed2k_hash`` (lowercase hex 32) matches a tracked download, and
     is the ONLY field: the crawler never needs the on-disk name, since it never touches the
-    file. NO byte is read (EC metadata only, spec §4).
+    file. NO byte is read (daemon metadata only, spec §4).
     """
 
     ed2k_hash: str

@@ -91,7 +91,7 @@ def _crawler_config(
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=60.0, factor=2.0, jitter_ratio=0.0),
         decision_poll_interval_seconds=5.0,
         shutdown_deadline_seconds=shutdown_deadline,
-        amule_ec_password="p",
+        amule_api_password="p",
         catalog_db_path=str(tmp_path / "catalog.db"),
         local_db_path=str(tmp_path / "local.db"),
         node_id=node_id,
@@ -467,18 +467,18 @@ async def test_normal_run_outlives_shutdown_deadline_without_a_signal(
 
 
 def test_default_client_factory_builds_an_amule_client() -> None:
-    from mulewatch.adapters.mule_ec.client import AmuleEcClient
+    from mulewatch.adapters.mule_api.client import AmuleApiClient
 
     endpoint = AmuleEndpoint(name="amule-1", host="gluetun", port=4712, password="secret")
-    assert isinstance(default_client_factory(endpoint), AmuleEcClient)
+    assert isinstance(default_client_factory(endpoint), AmuleApiClient)
 
 
 def test_default_download_client_factory_builds_an_amule_client() -> None:
-    from mulewatch.adapters.mule_ec.client import AmuleEcClient
+    from mulewatch.adapters.mule_api.client import AmuleApiClient
     from mulewatch.composition.app import default_download_client_factory
 
     endpoint = AmuleEndpoint(name="dl", host="gluetun", port=4799, password="secret")
-    assert isinstance(default_download_client_factory(endpoint), AmuleEcClient)
+    assert isinstance(default_download_client_factory(endpoint), AmuleApiClient)
 
 
 # A close that drags FAR beyond the armed bound (0.05 s) and FAR beyond the assertion

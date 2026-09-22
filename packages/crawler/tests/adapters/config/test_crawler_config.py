@@ -34,14 +34,14 @@ def _minimal_raw() -> dict[str, Any]:
         },
         "decision_poll_interval_seconds": 5.0,
         "shutdown_deadline_seconds": 10.0,
-        "amule_ec_password": "secret",
+        "amule_api_password": "secret",
         "catalog_db_path": "/data/catalog.db",
         "local_db_path": "/data/local.db",
     }
 
 
 def _env() -> dict[str, str]:
-    return {"AMULE_EC_PASSWORD": "s3cr3t"}
+    return {"AMULE_API_PASSWORD": "s3cr3t"}
 
 
 def _full_download_section() -> dict[str, Any]:
@@ -77,7 +77,7 @@ def test_parses_a_valid_config() -> None:
         backoff=BackoffConfig(base_seconds=2.0, cap_seconds=300.0, factor=2.0, jitter_ratio=0.3),
         decision_poll_interval_seconds=5.0,
         shutdown_deadline_seconds=10.0,
-        amule_ec_password="secret",
+        amule_api_password="secret",
         catalog_db_path="/data/catalog.db",
         local_db_path="/data/local.db",
         node_id=None,
@@ -170,25 +170,25 @@ def test_node_id_override_is_kept() -> None:
 def test_endpoint_is_derived_from_code_constants_and_the_password() -> None:
     config = parse_crawler_config(_minimal_raw(), _env())
     assert config.amule_endpoint == AmuleEndpoint(
-        name="amuled", host="127.0.0.1", port=4712, password="secret"
+        name="amuled", host="127.0.0.1", port=4711, password="secret"
     )
 
 
-def test_missing_amule_ec_password_is_fatal() -> None:
+def test_missing_amule_api_password_is_fatal() -> None:
     raw = _minimal_raw()
-    del raw["amule_ec_password"]
-    with pytest.raises(ConfigError, match="amule_ec_password"):
+    del raw["amule_api_password"]
+    with pytest.raises(ConfigError, match="amule_api_password"):
         parse_crawler_config(raw, _env())
 
 
-def test_empty_amule_ec_password_is_fatal() -> None:
-    raw = _minimal_raw() | {"amule_ec_password": ""}
+def test_empty_amule_api_password_is_fatal() -> None:
+    raw = _minimal_raw() | {"amule_api_password": ""}
     with pytest.raises(ConfigError, match="non-empty string"):
         parse_crawler_config(raw, _env())
 
 
-def test_non_string_amule_ec_password_is_fatal() -> None:
-    raw = _minimal_raw() | {"amule_ec_password": 1234}
+def test_non_string_amule_api_password_is_fatal() -> None:
+    raw = _minimal_raw() | {"amule_api_password": 1234}
     with pytest.raises(ConfigError, match="non-empty string"):
         parse_crawler_config(raw, _env())
 
@@ -223,16 +223,16 @@ def test_empty_node_id_string_is_fatal() -> None:
 def test_password_interpolated_from_env() -> None:
     # The domain never reads the environment: the adapter resolves ${NAME} before anything else
     # sees the value (design §6).
-    raw = _minimal_raw() | {"amule_ec_password": "${AMULE_EC_PASSWORD}"}
-    cfg = parse_crawler_config(raw, {"AMULE_EC_PASSWORD": "s3cr3t"})
-    assert cfg.amule_ec_password == "s3cr3t"
+    raw = _minimal_raw() | {"amule_api_password": "${AMULE_API_PASSWORD}"}
+    cfg = parse_crawler_config(raw, {"AMULE_API_PASSWORD": "s3cr3t"})
+    assert cfg.amule_api_password == "s3cr3t"
     assert cfg.amule_endpoint.password == "s3cr3t"
 
 
 def test_missing_env_var_raises() -> None:
-    raw = _minimal_raw() | {"amule_ec_password": "${AMULE_EC_PASSWORD}"}
+    raw = _minimal_raw() | {"amule_api_password": "${AMULE_API_PASSWORD}"}
     with pytest.raises(ConfigError):
-        parse_crawler_config(raw, {})  # AMULE_EC_PASSWORD not set
+        parse_crawler_config(raw, {})  # AMULE_API_PASSWORD not set
 
 
 # ----------------------------------------------------------------- download

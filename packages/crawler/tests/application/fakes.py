@@ -151,12 +151,12 @@ class FakeMuleClient:
 class UnreachableStatusClient(FakeMuleClient):
     """Variant whose ``network_status`` raises ``MuleUnreachableError`` (unreachable instance).
 
-    Models the real EC adapter: a non-connected client raises ``EcConnectError`` (which IS a
+    Models the real adapter: a non-connected client raises ``ApiUnreachableError`` (which IS a
     ``MuleUnreachableError``) on a status read. Serves to cover the tolerant branch of
     ``_aggregate_coverage`` (unreachable instance → not search-capable, no crash)."""
 
     async def network_status(self) -> NetworkStatus:
-        raise MuleUnreachableError("EC client not connected (instance unreachable)")
+        raise MuleUnreachableError("client not connected (instance unreachable)")
 
 
 def make_unreachable(message: str = "down") -> MuleUnreachableError:

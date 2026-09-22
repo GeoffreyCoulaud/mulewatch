@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from mulewatch.adapters.mule_ec.errors import EcConnectError, EcFailureError
+from mulewatch.adapters.mule_api.errors import ApiRejectedError, ApiUnreachableError
 from mulewatch.application.edge_state import EdgeState
 from mulewatch.application.port_sync_loop import (
     _MISMATCH,
@@ -42,7 +42,7 @@ class FakePortForwardingReader:
 
 
 class FakePortPreferences:
-    """Programmable EC get/set/connstate (subset of AmuleEcClient).
+    """Programmable get/set port + status (subset of AmuleApiClient).
 
     ``get_error``/``set_error`` inject an EC failure on the matching method.
     ``ed2k_high`` drives the post-restart re-check. ``set_ports``/``status_calls`` trace.
@@ -67,14 +67,14 @@ class FakePortPreferences:
         self.connect_calls = 0
 
     def _require_connected(self) -> None:
-        # Mirrors AmuleEcClient._require_transport: every EC op fails "not connected" until a
+        # Mirrors AmuleApiClient._call: every op fails "not connected" until a
         # successful connect(). Models the field deadlock — a restart nulls the transport, and
         # without a reconnect every subsequent op raises this forever.
         if not self._connected:
-            raise EcConnectError("EC client not connected (call connect() first)")
+            raise ApiUnreachableError("client not connected (call connect() first)")
 
     async def connect(self) -> None:
-        # Idempotent, like AmuleEcClient.connect: a no-op when already connected, a real revival
+        # Idempotent, like AmuleApiClient.connect: a no-op when already connected, a real revival
         # after a prior EC failure dropped the transport (self._connected False).
         self.connect_calls += 1
         self._connected = True
@@ -314,7 +314,7 @@ async def test_rate_limit_expired_runs_set_and_restart() -> None:
 @pytest.mark.asyncio
 async def test_ec_error_on_get_is_absorbed_and_sleeps() -> None:
     reader = FakePortForwardingReader(port=51820)
-    ports = FakePortPreferences(get_error=EcConnectError("amuled down"))
+    ports = FakePortPreferences(get_error=ApiUnreachableError("amuled down"))
     restarter = FakeMuleRestarter()
     clock = FakeClock()
     deps = _deps(reader=reader, ports=ports, restarter=restarter, clock=clock)
@@ -327,7 +327,7 @@ async def test_ec_error_on_get_is_absorbed_and_sleeps() -> None:
 @pytest.mark.asyncio
 async def test_ec_error_on_set_is_absorbed_and_sleeps() -> None:
     reader = FakePortForwardingReader(port=51820)
-    ports = FakePortPreferences(current_port=4662, set_error=EcConnectError("amuled down"))
+    ports = FakePortPreferences(current_port=4662, set_error=ApiUnreachableError("amuled down"))
     restarter = FakeMuleRestarter()
     clock = FakeClock()
     deps = _deps(reader=reader, ports=ports, restarter=restarter, clock=clock)
@@ -339,11 +339,11 @@ async def test_ec_error_on_set_is_absorbed_and_sleeps() -> None:
 
 @pytest.mark.asyncio
 async def test_application_level_ec_failure_is_also_absorbed() -> None:
-    # EcFailureError (EC_OP_FAILED, a MuleSearchFailedError — NOT a MuleUnreachableError) must
+    # ApiRejectedError (a MuleSearchFailedError — NOT a MuleUnreachableError) must
     # ALSO be absorbed: the net catches MuleClientError, the ancestor of the port errors. Without
     # this wide net, a set_listen_port replying EC_OP_FAILED would crash the loop.
     reader = FakePortForwardingReader(port=51820)
-    ports = FakePortPreferences(current_port=4662, set_error=EcFailureError("pref refused"))
+    ports = FakePortPreferences(current_port=4662, set_error=ApiRejectedError("pref refused"))
     clock = FakeClock()
     deps = _deps(reader=reader, ports=ports, clock=clock)
     await run_port_sync_cycle(deps, _PortSyncState())  # does not raise

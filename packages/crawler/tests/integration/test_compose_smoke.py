@@ -2,11 +2,12 @@
 
 Dedicated run: ( cd packages/crawler && uv run pytest -m compose_integration --no-cov )
 Docker + docker compose v2 required. Brings up the ONE service of tests/smoke/compose.yaml —
-the crawler, amuled and amuleweb under s6 in a single container — and asserts the WIRING, NO real
+the crawler and amuled under s6 in a single container — and asserts the WIRING, NO real
 download (amuled has neither an eD2k server nor a VPN; only its EC server is exercised):
   1. `docker compose build` succeeds (the image builds).
-  2. the container stays Up, turns `healthy`, supervises its three s6 services, and its
-     in-process webui answers /health.
+  2. the container stays Up, turns `healthy`, supervises its two s6 services, answers on
+     amuleapi's /health (started by amuled, not by s6), and its in-process webui answers
+     /health.
   3. both deployment entry points render with `docker compose config`, as one service each.
 Tear-down: `docker compose down -v` plus the throwaway state directory, in a finally.
 
@@ -20,7 +21,7 @@ Mechanics established EMPIRICALLY (compose v5, Docker 29):
     uid/gid as PUID/PGID, so the smoke exercises the real ownership path: the container's root
     PID 1 chowns those mount points, then every service drops to the `amule` user and writes
     there. A regression on that path shows up as `unable to open database file`.
-  * The image hard-requires PUID, PGID, AMULE_EC_PASSWORD and WEBUI_PWD: without them the
+  * The image hard-requires PUID, PGID, AMULE_EC_PASSWORD and AMULE_API_PASSWORD: without them the
     startup one-shot exits 1 and the container dies. They are supplied on every compose call,
     since the file is re-parsed each time (and each has a `:?` guard).
 """
@@ -45,7 +46,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _SMOKE = _REPO_ROOT / "tests/smoke/compose.yaml"
 
 _SERVICE = "mulewatch"
-_S6_SERVICES = ("amuled", "amuleweb", "mulewatch")
+_S6_SERVICES = ("amuled", "mulewatch")
 
 # In CI, the build step pre-builds the image and passes IMAGE_TAG; the smoke then consumes it
 # WITHOUT a rebuild. Locally (IMAGE_TAG absent) we rebuild via compose, as before.
@@ -75,6 +76,7 @@ _STATE_DIR = Path(tempfile.gettempdir()) / _PROJECT
 _STATE_SUBDIRS = ("amule", "data", "downloads")
 
 _EC_PASSWORD = "smoke-ec-password"
+_API_PASSWORD = "smoke-api-password"
 
 # Everything the smoke stack interpolates. PUID/PGID are OURS on purpose: the bind mounts must
 # stay readable from the host, which is the whole reason named volumes were dropped.
@@ -82,7 +84,7 @@ _SMOKE_ENV = {
     "PUID": str(os.getuid()),
     "PGID": str(os.getgid()),
     "AMULE_EC_PASSWORD": _EC_PASSWORD,
-    "WEBUI_PWD": "smoke-webui-password",
+    "AMULE_API_PASSWORD": _API_PASSWORD,
     "SMOKE_STATE": str(_STATE_DIR),
 }
 
@@ -186,6 +188,13 @@ _WEBUI_HEALTH = (
     "import urllib.request;print(urllib.request.urlopen('http://localhost:8080/health').status)"
 )
 
+# amuleapi is supervised by amuled, not by s6, so s6-svstat says nothing about it. Its /health
+# needs no token and touches no EC, so it answers while amuled is still busy starting up.
+_AMULEAPI_HEALTH = (
+    "import urllib.request;"
+    "print(urllib.request.urlopen('http://localhost:4711/api/v1/health').status)"
+)
+
 
 @pytest.fixture
 def project_files() -> Iterator[tuple[Path, ...]]:
@@ -213,8 +222,8 @@ def test_build_succeeds(project_files: tuple[Path, ...]) -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_one_container_supervises_the_three_services(project_files: tuple[Path, ...]) -> None:
-    """The single container runs, turns healthy, and holds amuled + amuleweb + the crawler."""
+def test_one_container_supervises_the_two_services(project_files: tuple[Path, ...]) -> None:
+    """The single container runs, turns healthy, and holds amuled + amuleapi + the crawler."""
     result = _run("up", "-d", *_BUILD_FLAGS, files=project_files, timeout=1800)
     assert result.returncode == 0, result.stderr
 
@@ -222,7 +231,6 @@ def test_one_container_supervises_the_three_services(project_files: tuple[Path, 
     # The compose healthcheck tests s6-svstat's OUTPUT, not its exit code (it exits 0 for a
     # stopped service too). `healthy` therefore means amuled really is up under s6.
     _wait_for("health", lambda: _ps_field("Health", project_files), "healthy", project_files)
-    # amuleweb is covered by nothing else: it has no port the crawler talks to and no EC surface.
     for service in _S6_SERVICES:
         svstat = partial(
             _exec, "s6-svstat", "-u", f"/etc/services.d/{service}", files=project_files
@@ -233,6 +241,14 @@ def test_one_container_supervises_the_three_services(project_files: tuple[Path, 
     _wait_for(
         "webui /health",
         lambda: _exec("python", "-c", _WEBUI_HEALTH, files=project_files),
+        "200",
+        project_files,
+    )
+    # amuleapi answering is the only proof that amuled's autorun worked and that the crawler has
+    # a transport at all: nothing else in this stack reaches it.
+    _wait_for(
+        "amuleapi /health",
+        lambda: _exec("python", "-c", _AMULEAPI_HEALTH, files=project_files),
         "200",
         project_files,
     )
@@ -278,15 +294,15 @@ _INCOMING_DIR = "/downloads/incoming"
 _SEEDED_TARGET = "062A"
 _SEEDED_SIZE = 65536
 
-# The one amuled is in THIS container, at the address fixed in code (design §6).
-_EC_HOST, _EC_PORT = "127.0.0.1", 4712
+# The one amuleapi is in THIS container, at the address fixed in code (design §6).
+_API_HOST, _API_PORT = "127.0.0.1", 4711
 
 _SHARED_HASHES = f"""
 import asyncio, json
-from mulewatch.adapters.mule_ec.client import AmuleEcClient
+from mulewatch.adapters.mule_api.client import AmuleApiClient
 
 async def main() -> None:
-    client = AmuleEcClient({_EC_HOST!r}, {_EC_PORT}, {_EC_PASSWORD!r})
+    client = AmuleApiClient({_API_HOST!r}, {_API_PORT}, {_API_PASSWORD!r})
     await client.connect()
     print(json.dumps(sorted(entry.ed2k_hash for entry in await client.shared_files())))
     await client.close()
@@ -325,12 +341,11 @@ def _exec_python(script: str, *args: str, files: tuple[Path, ...]) -> str:
 
 
 def _shared_hashes(files: tuple[Path, ...]) -> frozenset[str] | None:
-    """Hashes amuled currently shares, read over EC from inside the container.
+    """Hashes amuled currently shares, read over the API from inside the container.
 
-    `None` means the EC call itself did not complete. That is a READINESS state, not a result:
-    `s6-svc -r` tears amuled down while its listening socket is still accepting, so a connection
-    opened in that window is accepted and then reset mid-handshake (observed in CI: the peer
-    closed during `_authenticate`, right after the salt request). Callers poll on it.
+    `None` means the call itself did not complete. That is a READINESS state, not a result:
+    `s6-svc -r` takes amuleapi down with amuled and brings both back, and in between the API
+    answers `503 ec_unavailable` or nothing at all. Callers poll on it.
     """
     output = _exec("python", "-c", _SHARED_HASHES, files=files)
     try:
@@ -365,10 +380,10 @@ def test_a_file_amuled_shares_is_recorded_completed(project_files: tuple[Path, .
     """End to end: amuled shares a file that left the queue, the crawler completes and notifies.
 
     Drives the running container rather than an in-process cycle: the shipped image carries the
-    EC adapter, amuled and the migrations, so the whole path (real EC connection over loopback,
-    real amuled, real local.db on a bind mount) is exercised without building a parallel harness.
-    The ed2k hash is never computed here; amuled computes it and we read it back over EC, which
-    is what makes seeding a matching row possible at all.
+    API adapter, amuled and the migrations, so the whole path (real HTTP call over loopback, real
+    amuled behind amuleapi, real local.db on a bind mount) is exercised without building a
+    parallel harness. The ed2k hash is never computed here; amuled computes it and we read it
+    back over the API, which is what makes seeding a matching row possible at all.
     """
     result = _run("up", "-d", *_BUILD_FLAGS, files=project_files, timeout=1800)
     assert result.returncode == 0, result.stderr

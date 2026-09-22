@@ -4,7 +4,7 @@
 # Invoked with --project-directory <repo root>: every relative path resolves against the repo
 # root (context=., configs ./tests/smoke/*.yml).
 #
-# One service, like the real stacks: the crawler, amuled and amuleweb run under s6 in the same
+# One service, like the real stacks: the crawler and amuled run under s6 in the same
 # container, so there is nothing left to wire between services.
 services:
   mulewatch:
@@ -28,7 +28,7 @@ services:
       PUID: ${PUID:?}
       PGID: ${PGID:?}
       AMULE_EC_PASSWORD: ${AMULE_EC_PASSWORD:?}
-      WEBUI_PWD: ${WEBUI_PWD:?}
+      AMULE_API_PASSWORD: ${AMULE_API_PASSWORD:?}
     volumes:
       - ./tests/smoke/crawler.yml:/app/config/crawler.yml:ro
       - ./tests/smoke/targets.yml:/app/config/targets.yml:ro

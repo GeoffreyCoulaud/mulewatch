@@ -9,7 +9,7 @@ keyword_pause_max_seconds: 4.0
 decision_poll_interval_seconds: 5.0
 shutdown_deadline_seconds: 10.0
 
-amule_ec_password: ${AMULE_EC_PASSWORD}
+amule_api_password: ${AMULE_API_PASSWORD}
 
 backoff:
   base_seconds: 2.0

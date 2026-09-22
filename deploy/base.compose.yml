@@ -13,7 +13,7 @@ services:
       PUID: ${PUID:?}
       PGID: ${PGID:?}
       AMULE_EC_PASSWORD: ${AMULE_EC_PASSWORD:?}
-      WEBUI_PWD: ${WEBUI_PWD:?}
+      AMULE_API_PASSWORD: ${AMULE_API_PASSWORD:?}
     volumes:
       - ./crawler.yml:/app/config/crawler.yml:ro
       - ./targets.yml:/app/config/targets.yml:ro
