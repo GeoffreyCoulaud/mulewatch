@@ -55,8 +55,8 @@ renseignez les quatre valeurs obligatoires. Le conteneur refuse de démarrer si 
 
 | Variable | Ce qu'il faut y mettre |
 |---|---|
-| `AMULE_EC_PASSWORD` | Un mot de passe d'au moins **12 caractères**, de votre choix. Il relie le crawler au client eMule ; notez-le quelque part. |
-| `WEBUI_PWD` | Un autre mot de passe de votre choix. Il protège l'interface web d'aMule sur le port 4711. |
+| `AMULE_EC_PASSWORD` | Un mot de passe d'au moins **12 caractères**, de votre choix. Il relie entre eux les deux processus aMule ; notez-le quelque part. |
+| `AMULE_API_PASSWORD` | Un autre mot de passe de votre choix. Il protège l'interface web d'aMule sur le port 4711, et c'est aussi par lui que le crawler pilote le client eMule. |
 | `PUID` | Votre identifiant d'utilisateur : `id -u` sous macOS et Linux, `1000` sous Windows. |
 | `PGID` | Votre identifiant de groupe : `id -g` sous macOS et Linux, `1000` sous Windows. |
 
@@ -65,8 +65,9 @@ en place** : ce sont des mots de passe en clair, donc des portes ouvertes.
 
 !!! danger "Le port 8080 n'a aucune authentification"
 
-    `WEBUI_PWD` protège le port **4711 seulement**. Le catalogue mulewatch sur le port **8080** est
-    servi **sans mot de passe, sans connexion, sans jeton CSRF**, et il expose le catalogue, les
+    `AMULE_API_PASSWORD` protège le port **4711 seulement**. Le catalogue mulewatch sur le port
+    **8080** est servi **sans mot de passe, sans connexion, sans jeton CSRF**, et il expose le
+    catalogue, les
     contrôles de crawl (pause, passe forcée, redémarrage) **et une console SQL en lecture seule** à
     quiconque atteint ce port.
 
@@ -99,7 +100,7 @@ Votre nœud sert deux pages web :
 | Adresse | Ce que c'est | Mot de passe |
 |---|---|---|
 | <http://localhost:8080> | **Le catalogue mulewatch** : catalogue en lecture seule, contrôles de crawl, console SQL. | **Aucun.** Voir l'avertissement de l'étape 3. |
-| <http://localhost:4711> | **L'interface web propre à aMule** : transferts, serveurs, état Kad. | `WEBUI_PWD` de votre `.env`. |
+| <http://localhost:4711> | **L'interface web propre à aMule** : recherche, transferts, serveurs, état Kad. | `AMULE_API_PASSWORD` de votre `.env`. |
 
 Sur un serveur distant, remplacez `localhost` par son adresse.
 

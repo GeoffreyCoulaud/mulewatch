@@ -49,19 +49,21 @@ accumulé, mais vous redémarrez d'un état connu.
   ```bash
   docker compose -f gluetun.compose.yml exec mulewatch s6-svc -r /etc/services.d/amuled
   ```
-- **Version d'aMule.** Elle n'est plus un paramètre de déploiement : aMule **3.0.1** est compilé
+- **Version d'aMule.** Elle n'est plus un paramètre de déploiement : aMule **3.1.0** est compilé
   dans notre propre image depuis un nixpkgs épinglé. Il n'y a plus d'image tierce à vérifier ni à
   épingler ; la version d'aMule suit celle de l'image mulewatch.
 
 ### s6 a redémarré un processus et le conteneur est resté debout
 
-- **Symptôme.** amuled (ou amuleweb) réapparaît dans le journal (amuled se ré-annonce, recharge
+- **Symptôme.** amuled réapparaît dans le journal (il se ré-annonce, recharge
   `server.met`) alors que `docker compose ps` n'a jamais quitté `Up`. Ou bien : vous avez appuyé sur
   le bouton de redémarrage de `/controls` et rien ne semble être arrivé au conteneur.
-- **Cause. C'est normal.** s6 supervise chacun des trois processus indépendamment et en relance un
-  sur place quand il meurt. Le conteneur ne tombe que lorsque le crawler sort en code non nul : son
-  script `finish` demande alors à s6 de coucher tout l'arbre de supervision, de sorte que
-  `restart: unless-stopped` donne une boucle de backoff visible au lieu d'un crash-loop silencieux.
+- **Cause. C'est normal.** s6 supervise chacun de ses deux services indépendamment et en relance un
+  sur place quand il meurt. amuleapi n'en fait pas partie : `amuled` le démarre et l'arrête avec
+  lui, donc un redémarrage d'`amuled` en entraîne un d'amuleapi. Le conteneur ne tombe que lorsque
+  le crawler sort en code non nul : son script `finish` demande alors à s6 de coucher tout l'arbre
+  de supervision, de sorte que `restart: unless-stopped` donne une boucle de backoff visible au lieu
+  d'un crash-loop silencieux.
   Une sortie propre du crawler, exactement ce que demande le bouton de redémarrage de `/controls`,
   ramène le crawler seul ; amuled garde ses sessions eD2k et Kad, ce qui est tout l'intérêt.
 - **Comment le confirmer.** `s6-svstat` affiche l'uptime du service en secondes : un petit nombre
@@ -69,7 +71,6 @@ accumulé, mais vous redémarrez d'un état connu.
   ```bash
   docker compose exec mulewatch s6-svstat /etc/services.d/mulewatch
   docker compose exec mulewatch s6-svstat /etc/services.d/amuled
-  docker compose exec mulewatch s6-svstat /etc/services.d/amuleweb
   ```
 - **Conséquence à garder en tête.** Un conteneur en `Up (healthy)` ne prouve **pas** que le crawler
   tourne : le healthcheck n'interroge qu'amuled, et le conteneur ne passe `unhealthy` que quand
@@ -95,7 +96,7 @@ accumulé, mais vous redémarrez d'un état connu.
       PUID: ${PUID:?}
       PGID: ${PGID:?}
       AMULE_EC_PASSWORD: ${AMULE_EC_PASSWORD:?}
-      WEBUI_PWD: ${WEBUI_PWD:?}
+      AMULE_API_PASSWORD: ${AMULE_API_PASSWORD:?}
       DISCORD_WEBHOOK_ID: ${DISCORD_WEBHOOK_ID:?}     # ← nouvelle ligne par secret ajouté
       DISCORD_WEBHOOK_TOKEN: ${DISCORD_WEBHOOK_TOKEN:?}
   ```
@@ -124,9 +125,9 @@ accumulé, mais vous redémarrez d'un état connu.
   `downloading`, c'est qu'il n'est tout simplement pas fini : rien n'est cassé.
 - **Si le crawler dit `completed` mais que le dossier est vide**, amuled a posé le fichier ailleurs.
   Deux causes, dans l'ordre :
-  1. **Une catégorie amuled redirige la destination.** Dans `amule.conf` (ou via amuleweb sur le
-     port 4711), aucune catégorie ne doit porter un `Path=` non vide qui envoie le fichier terminé
-     hors d'`IncomingDir`.
+  1. **Une catégorie amuled redirige la destination.** Dans `amule.conf` (ou via l'interface
+     d'aMule sur le port 4711), aucune catégorie ne doit porter un `Path=` non vide qui envoie le
+     fichier terminé hors d'`IncomingDir`.
   2. **`IncomingDir` ne pointe pas sur le chemin monté en bind.** Le one-shot de démarrage écrit
      `IncomingDir=/downloads/incoming` et `TempDir=/downloads/temp` dans `amule.conf`, mais
      seulement quand ce fichier est absent. Un nœud migré depuis une organisation plus ancienne
@@ -177,7 +178,7 @@ accumulé, mais vous redémarrez d'un état connu.
   ```
 
   1.  On arrête le crawler **seul** : il est l'écrivain unique de `local.db` par doctrine. amuled
-      et amuleweb continuent de tourner, donc les sessions eD2k et Kad survivent.
+      continue de tourner, donc les sessions eD2k et Kad survivent.
   2.  L'écriture se fait en tant qu'utilisateur `amule` du conteneur, pour que les fichiers WAL
       créés par SQLite restent la propriété de `PUID:PGID`.
   3.  Une fois le crawler relancé, le cycle suivant remet le fichier en file depuis la décision du
@@ -265,24 +266,19 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 ### J'ai perdu / je ne me souviens plus de `AMULE_EC_PASSWORD`
 
-- **Symptôme.** Le crawler refuse de se connecter à amuled (`EcAuthError` dans les logs), et
-  amuleweb (port 4711) refuse lui aussi de joindre amuled.
-- **Le piège.** Changer `AMULE_EC_PASSWORD` dans `.env` **ne suffit pas**. Le crawler et amuleweb
-  prennent bien la nouvelle valeur au redémarrage, mais amuled lit son mot de passe dans
-  `amule/amule.conf`, sous forme de digest MD5, et ce fichier n'est écrit par l'image que s'il est
-  absent. Après votre premier démarrage, il existe : sa valeur survit à tous les redémarrages. Les
-  trois processus se désynchronisent alors.
-- **Solution.** Choisissez un nouveau mot de passe, mettez-le dans `.env`, puis alignez
-  `amule.conf` à la main. Depuis votre dossier de travail :
-  ```bash
-  printf %s 'mon-nouveau-mot-de-passe' | md5sum | cut -d' ' -f1
-  ```
-  Reportez le digest obtenu dans la ligne `ECPassword=` de `amule/amule.conf` (section
-  `[ExternalConnect]`), puis :
+- **Symptôme.** amuleapi n'arrive plus à joindre amuled : la page du port 4711 se charge mais ne
+  montre aucun transfert, et le crawler journalise des `503 ec_unavailable`.
+- **Le piège.** Ce mot de passe ne sert plus qu'au lien interne entre amuleapi et amuled. Le
+  one-shot de démarrage l'aligne dans `amule/amule.conf` à chaque boot, donc le changer dans `.env`
+  suffit désormais : un redémarrage du nœud propage la nouvelle valeur des deux côtés.
+- **Solution.** Choisissez un nouveau mot de passe, mettez-le dans `.env`, puis :
   ```bash
   docker compose up -d --force-recreate
   ```
-  Pas de perte de catalogue : le mot de passe ne protège que le canal EC, pas les données.
+  Pas de perte de catalogue : le mot de passe ne protège que le canal interne, pas les données. Si
+  vous avez oublié `AMULE_API_PASSWORD` à la place, la marche à suivre est la même : le one-shot le
+  réécrit dans `amule/amuleapi-passwords` à chaque boot. Pensez seulement à reporter la nouvelle
+  valeur partout où vous vous connectiez avec l'ancienne.
 - **Variante brutale.** Supprimer `amule/amule.conf` le fait régénérer au prochain démarrage, avec
   le mot de passe de `.env`. Vous perdez en revanche tous les autres réglages aMule accumulés dans
   ce fichier ; les serveurs eD2k et les nœuds Kad, eux, vivent dans `server.met` / `nodes.dat` et
@@ -326,9 +322,9 @@ Quelques scénarios « j'ai cassé quelque chose, comment je remonte ? » :
 
 ### Piloter un processus dans le conteneur
 
-Les trois processus sont supervisés par s6 dans l'unique conteneur `mulewatch` : ils se pilotent
-donc par processus, et non par service compose. Depuis votre dossier de travail (`<svc>` vaut
-`amuled`, `amuleweb` ou `mulewatch`) :
+Deux services sont supervisés par s6 dans l'unique conteneur `mulewatch` : ils se pilotent donc par
+service, et non par service compose. Depuis votre dossier de travail (`<svc>` vaut `amuled` ou
+`mulewatch` ; amuleapi suit `amuled`, qui le démarre) :
 
 ```bash
 docker compose exec mulewatch s6-svstat /etc/services.d/<svc>   # actif/arrêté + durée en secondes
@@ -339,9 +335,9 @@ docker compose exec mulewatch s6-svc -u /etc/services.d/<svc>   # le relancer
 
 Deux choses à savoir avant de les utiliser :
 
-- Arrêter `mulewatch` (le crawler) laisse amuled et amuleweb en marche, ce qui est bien ce que vous
-  voulez pour une écriture de maintenance sur les bases. Arrêter `amuled` rend le crawler aveugle :
-  il journalisera des échecs EC et fera du backoff jusqu'au retour d'amuled.
+- Arrêter `mulewatch` (le crawler) laisse amuled en marche, ce qui est bien ce que vous voulez pour
+  une écriture de maintenance sur les bases. Arrêter `amuled` rend le crawler aveugle, et emporte
+  amuleapi avec lui : il journalisera des échecs et fera du backoff jusqu'au retour d'amuled.
 - Une sortie **non nulle** du crawler couche tout le conteneur, à dessein. `s6-svc -d` est un arrêt
   propre, donc il ne le fait pas.
 

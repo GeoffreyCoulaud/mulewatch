@@ -15,8 +15,8 @@ description: "Vue d'ensemble du crawler : sous-systèmes, interactions et cycles
 
 ## 1. En une phrase
 
-`mulewatch` surveille en continu le réseau eMule (eD2k + Kad, via un `amuled` piloté par le protocole
-**EC**) pour retrouver les épisodes perdus du doublage français de *Keroro mission Titar*, en
+`mulewatch` surveille en continu le réseau eMule (eD2k + Kad, via un `amuled` piloté par l'API REST
+d'**amuleapi**) pour retrouver les épisodes perdus du doublage français de *Keroro mission Titar*, en
 cataloguant au passage chaque métadonnée croisée. **Le sujet du catalogue est le fichier, jamais la
 personne.**
 
@@ -25,16 +25,17 @@ personne.**
 Un **workspace uv** de trois paquets, plus des dépendances externes.
 
 **Contexte : le nœud et le monde extérieur.** Depuis le 2026-09-16, un nœud est **un seul
-conteneur** : le crawler, `amuled` et `amuleweb` sont trois processus d'une même image, supervisés
-par **s6** (`s6-svscan` est PID 1). Sous la pile VPN, tout ce conteneur partage le namespace réseau
-de gluetun, donc tout son trafic passe par le tunnel.
+conteneur** : le crawler, `amuled` et `amuleapi` sont trois processus d'une même image. **s6**
+(`s6-svscan` est PID 1) en supervise deux, le crawler et `amuled` ; c'est `amuled` qui démarre
+`amuleapi`, et qui l'emporte avec lui en s'arrêtant. Sous la pile VPN, tout ce conteneur partage le
+namespace réseau de gluetun, donc tout son trafic passe par le tunnel.
 
 ```mermaid
 flowchart LR
   subgraph node["one container · s6"]
     crawler["mulewatch · crawler + webui"]
     amuled["amuled"]
-    amuleweb["amuleweb"]
+    amuleapi["amuleapi · REST + web UI"]
   end
   gluetun["gluetun · VPN"]
   ed2k(("eD2k / Kad"))
@@ -42,8 +43,9 @@ flowchart LR
   notif["Mail / Slack / Discord"]
   out[("./downloads/incoming")]
 
-  crawler -->|"EC · 127.0.0.1:4712"| amuled
-  amuleweb -->|EC| amuled
+  crawler -->|"REST · 127.0.0.1:4711"| amuleapi
+  amuled -->|"starts, one-off EC token"| amuleapi
+  amuleapi -->|"EC · 127.0.0.1:4712"| amuled
   node -->|"all traffic"| gluetun
   gluetun --> ed2k
   amuled -->|"finished files"| out
@@ -54,13 +56,15 @@ flowchart LR
 
 Conséquences de cette forme, chacune porteuse ailleurs dans ce document :
 
-- **Le point d'accès EC est une constante de code** (`127.0.0.1:4712`, nom d'instance `amuled`),
+- **Le point d'accès est une constante de code** (`127.0.0.1:4711`, nom d'instance `amuled`),
   comme le bind `0.0.0.0:8080` de la webui. `crawler.yml` ne configure que le mot de passe, depuis
-  `${AMULE_EC_PASSWORD}`.
+  `${AMULE_API_PASSWORD}` : c'est le mot de passe admin d'amuleapi, le même que celui de son
+  interface web. `${AMULE_EC_PASSWORD}` ne sert plus qu'au lien interne amuleapi ↔ amuled.
 - **Redémarrer `amuled`, c'est `s6-svc -r`**, un redémarrage de processus local, pas un redémarrage
-  de conteneur (§9).
-- **Les trois processus démarrent en même temps**, donc le crawler atteint couramment EC avant
-  qu'`amuled` n'écoute ; « démon injoignable au démarrage » est toléré et absorbé par le backoff.
+  de conteneur (§9). `amuleapi` suit, puisque `amuled` le relance.
+- **Les processus démarrent en même temps**, donc le crawler frappe couramment à la porte avant
+  qu'`amuled` n'ait démarré `amuleapi` ; « démon injoignable au démarrage » est toléré et absorbé
+  par le backoff.
 - **PID 1 est root** (il crée l'utilisateur `amule` depuis `PUID`/`PGID` et prend les bind mounts),
   puis chaque service abandonne ses privilèges avec `setpriv`. `user:`, `read_only:` et
   `cap_drop: ALL` ne s'appliquent donc plus au service livré ; `no-new-privileges`, `pids_limit` et
@@ -92,7 +96,7 @@ flowchart RL
 
 | Paquet | Dist | Rôle |
 |---|---|---|
-| `mulewatch` | `mulewatch` | **Crawler** : pilote `amuled` par EC, fait tourner les boucles de recherche et de téléchargement, la persistance, l'observabilité. Contient le sous-paquet webui in-process `mulewatch.webui` (visualiseur de catalogue en lecture seule). |
+| `mulewatch` | `mulewatch` | **Crawler** : pilote `amuled` par amuleapi, fait tourner les boucles de recherche et de téléchargement, la persistance, l'observabilité. Contient le sous-paquet webui in-process `mulewatch.webui` (visualiseur de catalogue en lecture seule). |
 | `catalog_matching` | `catalog-matching` | **Moteur de matching** (bibliothèque partagée) : politique déclarative fichier vers épisode. Importé par le crawler et par la webui. |
 | `vex_guards` | `vex-guards` | **Outillage dev/CI** : garde honnêtes nos affirmations OpenVEX. Jamais livré dans une image de prod. |
 
@@ -223,17 +227,18 @@ sequenceDiagram
   W->>A: stop_search()
 ```
 
-- Un résultat EC devient une `FileObservation` via `adapters/mule_ec/mapping.py` (capture
-  exhaustive : le hash MD4, le nom, la taille, le nombre de sources, plus chaque tag brut). **EC
-  n'expose aucune métadonnée média sur les résultats de recherche** : il n'y a nulle part de durée,
-  de codec ni de bitrate, et depuis que la vérification de contenu est sortie du périmètre, rien en
-  aval ne les fournit non plus. Le catalogue contient donc exactement ce que la recherche eD2k
-  rapporte.
+- Un résultat devient une `FileObservation` via `adapters/mule_api/mapping.py` (capture
+  exhaustive : le hash MD4, le nom, la taille, le nombre de sources, plus chaque clé non mappée).
+  **La durée, le débit et le codec arrivent maintenant avec le résultat**, quand le serveur qui
+  répond les annonce : c'est une déclaration du réseau, jamais une mesure locale, et le champ vaut
+  `null` sur la plupart des résultats globaux et Kad. Rien n'ouvre jamais le fichier pour en savoir
+  plus. Un fichier annoncé sous plusieurs noms arrive **replié** en un seul résultat ; le mapper le
+  redéplie en une observation par nom, comme l'EC en produisait une par entrée.
 - L'observation est écrite (`files` + `file_observations`) **puis** matchée. La décision
   (`target_id`, `rule_name`, `tier`) va dans `match_decisions`. En mode téléchargement, un tier
   `download` *pousse* la boucle de téléchargement pour qu'elle réagisse sans attendre son intervalle.
-- Un échec applicatif EC (`EC_OP_FAILED`) met ce **canal** en **backoff** (base × factor^échecs +
-  jitter), persisté en fin de cycle.
+- Une opération que le démon refuse (`400 amuled_rejected`) met ce **canal** en **backoff**
+  (base × factor^échecs + jitter), persisté en fin de cycle.
 
 ## 6. Du fichier à la décision : le moteur de matching
 
@@ -276,7 +281,7 @@ flowchart LR
 ## 7. Du téléchargement à la complétion
 
 Actif en mode téléchargement seulement. Une itération de `run_download_cycle` enchaîne trois étapes
-sur une seule connexion EC.
+sur une seule session amuleapi.
 
 ```mermaid
 flowchart TD
@@ -370,7 +375,7 @@ niveau ne soit condamnée au premier démarrage.
 
 Derrière un VPN, le port entrant change ; sans High-ID, la connectabilité (et donc la couverture) se
 dégrade. La boucle de port-sync lit le **port forwardé courant** de gluetun et, s'il diffère du port
-d'`amuled`, appelle `set_listen_port` par EC, puis **redémarre le processus `amuled`** pour qu'il se
+d'`amuled`, appelle `set_listen_port`, puis **redémarre le processus `amuled`** pour qu'il se
 rebinde, puis revérifie le High-ID. Elle est limitée en débit (au plus un redémarrage par fenêtre) ;
 si le port reste faux, une alerte déclenchée sur front part (audience OPERATIONS). *Risque accepté :
 un High-ID augmente l'exposition, voir [Devenir High-ID](../high-id.md).*
@@ -405,7 +410,8 @@ dispatcher **adapter** les applique. Le point d'accès Prometheus est servi par 
 sur `observability.metrics.port` (`9090` par défaut) ; rien ne le scrape par défaut, donc publiez ce
 port et pointez-y votre propre Prometheus si vous voulez des tableaux de bord.
 
-**Discipline de frontière (E-D13)** : les échecs de notifieur (apprise) et les échecs EC sont
+**Discipline de frontière (E-D13)** : les échecs de notifieur (apprise) et les échecs d'appel au
+démon sont
 **absorbés** (dégradation) ; un échec dans un composant in-process testé à 100 % (par exemple
 `PrometheusSink`) **crashe bruyamment**, parce que c'est un bug, pas un transitoire.
 
@@ -434,7 +440,7 @@ port et pointez-y votre propre Prometheus si vous voulez des tableaux de bord.
 | Cas d'usage | `application/run_search_cycle.py`, `run_download_cycle.py`, `port_sync_loop.py` |
 | Recherche (pure) | `domain/search/` (`keywords`, `cycle`, `backoff`, `coverage`) |
 | Matching | `packages/matching/src/catalog_matching/` (moteur + politique `deploy/matcher.yml`) |
-| Frontière EC | `adapters/mule_ec/` (codec / transport / client) ; ports `ports/mule_client.py`, `ports/mule_download_client.py` |
+| Frontière amuleapi | `adapters/mule_api/` (client / mapping / erreurs) ; ports `ports/mule_client.py`, `ports/mule_download_client.py` |
 | Persistance | `adapters/persistence_sqlite/` (migrations `.sql`, repos) |
 | Observabilité | `domain/observability/`, `adapters/observability/` |
 | WebUI | `webui/` (in-process, thread dédié) |

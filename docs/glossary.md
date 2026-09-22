@@ -33,14 +33,18 @@ IncomingDir
     `downloads/incoming` dans votre dossier de travail.
 
 s6
-:   Le petit superviseur qui, à l'intérieur du conteneur, fait tourner les trois programmes
-    (`amuled`, `amuleweb`, `mulewatch`) et en relance un s'il meurt. Vous le croisez surtout dans
-    les journaux.
+:   Le petit superviseur qui, à l'intérieur du conteneur, fait tourner deux programmes (`amuled` et
+    `mulewatch`) et en relance un s'il meurt. Vous le croisez surtout dans les journaux.
+
+amuleapi
+:   L'interface web et REST livrée avec aMule, qu'`amuled` démarre et arrête avec lui. C'est elle
+    que vous ouvrez sur le port 4711, et c'est par elle que `mulewatch` pilote le client eMule :
+    lancer une recherche, mettre un fichier en file, lire l'état. Une erreur d'authentification
+    signifie presque toujours un `AMULE_API_PASSWORD` qui ne correspond pas.
 
 EC
-:   *External Connection*, le canal par lequel `mulewatch` pilote le client eMule : lancer une
-    recherche, mettre un fichier en file, lire l'état. Une erreur d'authentification EC signifie
-    presque toujours un `AMULE_EC_PASSWORD` qui ne correspond pas.
+:   *External Connection*, le canal interne par lequel `amuleapi` parle à `amuled`. Les deux sont
+    dans le même conteneur ; `AMULE_EC_PASSWORD` est ce qui les relie.
 
 ## Vocabulaire du projet
 
