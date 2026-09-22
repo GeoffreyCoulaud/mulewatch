@@ -265,6 +265,37 @@ async def test_start_search_sends_the_query_and_the_channel() -> None:
 
 
 @pytest.mark.asyncio
+async def test_start_search_stops_the_previous_one_first() -> None:
+    """Observed on the image: Kad refuses a keyword still on its search list (§7.2 neighbour).
+
+    Only `POST /search/{id}/stop` takes the keyword off Kademlia's list; freeing the search with
+    a DELETE does not. Stopping first is also what EC did, where starting wiped the previous.
+    """
+    api = FakeAmuleApi()
+    client = await _connected(api)
+
+    await client.start_search("keroro", SearchChannel.KAD)
+    await client.start_search("keroro", SearchChannel.KAD)
+    await client.close()
+
+    paths = [request.url.path for request in api.requests]
+    assert paths.index("/api/v1/search/42/stop") < paths.index("/api/v1/search", 2)
+
+
+@pytest.mark.asyncio
+async def test_a_previous_search_already_gone_does_not_block_the_next() -> None:
+    api = FakeAmuleApi()
+    client = await _connected(api)
+    await client.start_search("keroro", SearchChannel.KAD)
+    api.overrides[("POST", "/api/v1/search/42/stop")] = lambda _: error(404, "not_found")
+
+    await client.start_search("titar", SearchChannel.KAD)
+    await client.close()
+
+    assert api.requests[-2].url.path == "/api/v1/search"
+
+
+@pytest.mark.asyncio
 async def test_a_search_the_daemon_refuses_is_a_channel_failure() -> None:
     api = FakeAmuleApi()
     client = await _connected(api)

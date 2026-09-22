@@ -492,6 +492,26 @@ async def test_shared_hash_still_in_the_download_queue_is_not_a_completion() -> 
 
 
 @pytest.mark.asyncio
+async def test_a_completed_queue_entry_awaiting_clear_is_still_a_completion() -> None:
+    # `download_queue()` asks for `status=all`, so amuled's completed-but-not-yet-cleared
+    # entries are IN the snapshot. Reading "present in the queue" as "still transferring" would
+    # leave every finished download stuck in `downloading` until the operator cleared it.
+    client = FakeDownloadClient(
+        queue=[(DownloadEntry(ed2k_hash=_A, size_done=100, size_full=100),)],
+        shared=[(SharedFileEntry(ed2k_hash=_A),)],
+    )
+    downloads = FakeDownloadRepo()
+    downloads.states[_A] = DownloadState.DOWNLOADING
+    deps = _deps(
+        client=client,
+        downloads=downloads,
+        catalog=FakeCatalogReads(),
+    )
+    await run_download_cycle(deps)
+    assert downloads.states[_A] is DownloadState.COMPLETED
+
+
+@pytest.mark.asyncio
 async def test_shared_hash_absent_from_the_download_queue_is_a_completion() -> None:
     # The positive case of the same rule, with a NON-empty queue (the completing hash is not in
     # it): a finished download is shared and gone from the queue, while other downloads keep

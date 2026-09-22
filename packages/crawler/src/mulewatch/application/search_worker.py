@@ -1,7 +1,7 @@
 """Search worker: owns 1 ``MuleClient``, drains the queue (spec §4).
 
 APPLICATION layer. One worker per ``amuled`` instance (spec §3: N workers = N
-EC connections = real parallelism; degenerates to a sequential loop at N=1). Per item
+sessions = real parallelism; degenerates to a sequential loop at N=1). Per item
 ``(keyword, channel)`` pulled from the shared queue:
 
   consults the backoff (SKIPS the item if the instance OR the channel is backed off until its
@@ -11,7 +11,7 @@ EC connections = real parallelism; degenerates to a sequential loop at N=1). Per
 
 Error handling (spec §7, "the client signals, Plan C decides") - the application catches
 ONLY PORT exceptions (never an adapter's, dependency rule §4):
-- ``MuleUnreachableError`` (dead stream: connection/timeout/unreadable frame on the EC side) →
+- ``MuleUnreachableError`` (the daemon is out of reach: refused, timed out, or degraded) →
   instance DOWN: we drop the client, PER-INSTANCE reconnection BACKOFF (``retry_after``
   set); the other workers continue; the item is ABANDONED.
 - ``MuleSearchFailedError`` (application failure of a channel) → BACKOFF PER (instance, channel).
@@ -54,7 +54,7 @@ from mulewatch.ports.telemetry import Telemetry
 
 _logger = logging.getLogger("mulewatch.application.search_worker")
 
-_PROGRESS_DONE = 100  # search_progress() at 100 % → we stop polling (EC handoff)
+_PROGRESS_DONE = 100  # search_progress() at 100 % → we stop polling
 
 
 def _iso(moment: datetime) -> str:
@@ -231,7 +231,7 @@ class SearchWorker:
         """Bounded polling (config budget) then ``fetch_results`` → per-obs pipeline.
 
         Returns the number of CHANGED verdicts (logging). Polling stops at 100 % or when the
-        budget is exhausted; ``fetch_results`` returns the cumulative snapshot (EC handoff). A
+        budget is exhausted; ``fetch_results`` returns the cumulative snapshot. A
         ``RepositoryError`` per obs is ABSORBED (logged + counted) INSIDE
         ``record_observation`` → the cycle continues (spec §7), a single corrupt obs does not
         bring down the whole sweep. Emits ``SearchExecuted`` (network label + number of
@@ -298,7 +298,7 @@ class SearchWorker:
             self._connected = False
             delay = self._deps.backoff.record_failure(self._instance)
             _logger.warning(
-                "instance %s: dead EC stream (%s), instance down, backoff %.1fs",
+                "instance %s unreachable (%s), instance down, backoff %.1fs",
                 self._instance,
                 error,
                 delay,

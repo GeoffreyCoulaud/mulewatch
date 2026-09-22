@@ -1,20 +1,20 @@
 """The download loop: monitor → completions → new candidates → sleep/nudge (§5).
 
-APPLICATION layer. A SINGLE task, serial, on the sole download EC connection (spec §3/§5):
-no frame interleaving. ``run_download_cycle`` runs ONE iteration (testable without a
+APPLICATION layer. A SINGLE task, serial, on the sole download session (spec §3/§5):
+no interleaving. ``run_download_cycle`` runs ONE iteration (testable without a
 shutdown event); ``download_loop`` repeats it then waits ``poll_interval`` OR the nudge
 (``DecisionSignal``), until a shutdown event - wired by ``CrawlerApp``.
 
 Flow of one iteration (spec §5, DECISION D8):
   0. CONNECT + QUEUE SNAPSHOT: ``connect()`` (idempotent, and the ONLY thing that re-arms a
-     transport the adapter threw away after a dead EC stream) then ONE ``download_queue()`` read,
-     shared by steps 1 and 2.
+     session after the daemon went away) then ONE ``download_queue()`` read, shared by steps 1
+     and 2.
   1. MONITOR: for each queue entry KNOWN to ``downloads``, reconciles ``downloading``
      (QUEUED→DOWNLOADING); an unknown entry (download outside the crawler) is ignored.
      Completion is NO LONGER inferred from bytes (see ``_monitor``).
   2. COMPLETIONS: ``shared_files()`` → each tracked hash present in amuled's SHARED files AND
-     absent from the queue (amuled shares PARTIAL downloads too, so the queue is what separates a
-     completion from a partial, see ``_handle_completions``) → ``set_state(completed)``. The file
+     no longer transferring (amuled shares PARTIAL downloads too, so the queue is what separates
+     a completion from a partial, see ``_handle_completions``) → ``set_state(completed)``. The file
      stays where amuled put it: nothing moves it, nothing reads it. Already ``completed`` →
      skipped, so the completion notification fires once.
   2b. PRESENCE + TTL: every hash amuled still knows (queue OR shared files) gets its
@@ -27,11 +27,11 @@ Flow of one iteration (spec §5, DECISION D8):
      ``outstanding`` is carried IN MEMORY as the cycle proceeds (a candidate admitted now is
      not in amuled's queue yet).
 
-Errors (Plan C contracts, spec §9): ``MuleUnreachableError`` (EC stream dead) → tolerate, skip
+Errors (Plan C contracts, spec §9): ``MuleUnreachableError`` (daemon out of reach) → tolerate, skip
 the iteration. ``OSError`` on the disk measurement (output mount gone) → tolerate, admit
 nothing. Step 0 re-arms the connection on EVERY iteration (``connect()`` is idempotent):
 that is what makes "the client reconnects next round" true. Without it the loop stayed wedged on
-"EC client not connected (call connect() first)" forever after any amuled restart (field,
+"client not connected (call connect() first)" forever after any amuled restart (field,
 2026-09-04 to 09-11: 7 days of a dead download loop, one warning per 30 s).
 ``RepositoryError`` → absorbed (log + continue).
 NEVER abandon a stalled download. Determinism: ``Clock``/``sleep`` injected.
@@ -195,17 +195,17 @@ async def _record_completion(
 async def _handle_completions(
     deps: DownloadDeps,
     states: dict[str, DownloadState],
-    queued: frozenset[str],
+    transferring: frozenset[str],
     shared: tuple[SharedFileEntry, ...],
 ) -> None:
-    """Completes each tracked hash that is SHARED **and** gone from the download queue (step 2, §5).
+    """Completes each tracked hash that is SHARED **and** no longer transferring (step 2, §5).
 
     Presence in the shared files ALONE is not a completion: amuled shares PARTIAL downloads too
     (standard eMule: you upload what you have downloaded). The discriminator is the queue, which
-    a finished file leaves (its entry goes away when it reaches ``PS_COMPLETE``), while a running
-    one stays in it. Field 2026-09-02: without the queue check the crawler stamped 065B
-    ``completed`` at 20.1 %. ``completed`` hashes are ignored; a ``failed`` one is NOT, so a
-    download the TTL condemned that turns out to be shared completes and notifies.
+    a finished file leaves, minus the entries it holds complete until they are cleared. Field
+    2026-09-02: without that check the crawler stamped 065B ``completed`` at 20.1 %.
+    ``completed`` hashes are ignored; a ``failed`` one is NOT, so a download the TTL condemned
+    that turns out to be shared completes and notifies.
 
     The queue was read in step 0, BEFORE this shared snapshot: a file completing in between is
     therefore seen as "still queued" and completed on the NEXT cycle (30 s later). The shared
@@ -222,7 +222,7 @@ async def _handle_completions(
             continue  # shared file outside the crawler: ignored
         if current is DownloadState.COMPLETED:
             continue  # already completed: the notification fired once
-        if entry.ed2k_hash in queued:
+        if entry.ed2k_hash in transferring:
             continue  # still downloading (partial): NOT a completion
         try:
             await _record_completion(deps, entry.ed2k_hash, states)
@@ -293,7 +293,7 @@ async def _queue_new_candidates(deps: DownloadDeps, outstanding: int) -> None:
 
 
 async def _add_links(deps: DownloadDeps) -> None:
-    """Emits the EC ``add_link`` calls for ``queued`` downloads with no link sent yet.
+    """Emits the ``add_link`` calls for ``queued`` downloads with no link sent yet.
 
     Split from ``_queue_new_candidates`` so the (sync) DB write precedes the (async) network
     I/O: a ``MuleUnreachableError`` at ``add_link`` leaves the download ``queued`` in the DB
@@ -303,7 +303,7 @@ async def _add_links(deps: DownloadDeps) -> None:
       - ``MuleSearchFailedError`` (the daemon answered ``EC_OP_FAILED`` - link explicitly
         REJECTED): we mark THIS hash ``failed`` (log + ``set_state``) and ``continue`` to the
         next. Retrying would only re-emit the same rejected link in a loop.
-      - ``MuleUnreachableError`` (EC stream dead): we let it PROPAGATE - the top capture of
+      - ``MuleUnreachableError`` (daemon out of reach): we let it PROPAGATE - the top capture of
         ``run_download_cycle`` skips the whole iteration (a dead daemon makes everything fail).
     """
     # FRESH re-read of active_states: _queue_new_candidates wrote new QUEUED rows this cycle,
@@ -330,7 +330,7 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
 
     Two distinct error DOCTRINES (item I2 - anti-starvation):
 
-    - ``MuleUnreachableError`` (EC stream dead, from step 0, ``_handle_completions`` or
+    - ``MuleUnreachableError`` (daemon out of reach, from step 0, ``_handle_completions`` or
       ``_add_links``) = dead daemon → ABORT the iteration ("a dead daemon makes everything
       fail", cf. ``_add_links``). We skip the rest; the next iteration retries (amuled persists
       the downloads).
@@ -354,7 +354,7 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
     # ``connect()`` is IDEMPOTENT (the adapter no-ops when its transport is live) and is the ONLY
     # thing that re-arms a stream the adapter discarded after a failed read. SKIPPING IT WEDGES
     # THE LOOP: amuled is restarted by the port-sync on every VPN renegotiation, and nothing else
-    # in this loop ever reconnects (field, 2026-09-04: 7 days of "EC client not connected").
+    # in this loop ever reconnects (field, 2026-09-04: 7 days of "client not connected").
     # Same guard as ``SearchWorker._ensure_connected`` and ``run_port_sync_cycle``.
     try:
         await deps.client.connect()
@@ -363,6 +363,10 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
         _logger.warning("download daemon unreachable (%s): iteration skipped, retry", error)
         return
     queued = frozenset(entry.ed2k_hash for entry in queue)
+    # `status=all` puts amuled's completed-but-not-yet-cleared entries in the snapshot too, so
+    # "in the queue" is no longer "still transferring". The completion rule needs the narrower
+    # set; presence (step 2b) and the disk cap keep the whole queue.
+    transferring = frozenset(entry.ed2k_hash for entry in queue if not entry.is_complete)
     outstanding = sum(entry.remaining_bytes for entry in queue)
     # Step 1 - MONITOR: NO client I/O left (the queue came from step 0) → only RepositoryError.
     # Steps 1 and 2 share that ONE snapshot: a second read could only contradict the first.
@@ -385,7 +389,7 @@ async def run_download_cycle(deps: DownloadDeps) -> None:
         return
     try:
         fresh_states = deps.downloads.active_states()
-        await _handle_completions(deps, fresh_states, queued, shared)
+        await _handle_completions(deps, fresh_states, transferring, shared)
     except RepositoryError as error:
         _logger.error("download completions repo failure (%s): step skipped, continues", error)
     # Step 2b - PRESENCE + TTL: stamp FIRST, condemn after. The reverse order would fail a row
@@ -436,7 +440,7 @@ async def download_loop(deps: DownloadLoopDeps) -> None:
     """Repeats ``run_download_cycle`` then waits (poll/nudge) until shutdown (DECISION D12).
 
     Wired by ``CrawlerApp`` into the ``TaskGroup``; cancellation (shutdown) lands
-    at the next ``await`` (EC poll or sleep/nudge wait), never mid DB write.
+    at the next ``await`` (a poll or the sleep/nudge wait), never mid DB write.
     """
     while not deps.shutdown.is_set():
         await run_download_cycle(deps)
