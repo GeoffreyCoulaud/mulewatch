@@ -1,14 +1,9 @@
-"""``MuleClient`` port: what the crawler expects from an eMule client (cf. spec adapter §4).
+"""What the crawler expects from an eMule client, plus the error contract it decides on.
 
-The port imports ONLY the domain. The Protocol stubs fit on ONE line (the ``def`` runs at
-class creation: covered). Polling belongs to the caller (spec §3), so no ``search_and_wait``
-convenience lives here.
-
-The port also declares the client's ERROR CONTRACT (spec orchestration §7, "the client
-reports, plan C decides"): ``MuleUnreachableError`` (the daemon is out of reach → reconnection
-by the caller) vs ``MuleSearchFailedError`` (application failure of a channel → backoff). The
-adapter makes its ``ApiError`` inherit from these classes (adapter→port dependency, allowed),
-so that the APPLICATION NEVER depends on an adapter (dependency rule §4).
+``MuleUnreachableError`` means the instance is down (reconnect), ``MuleSearchFailedError`` that
+one channel failed (backoff). The adapter's errors inherit them, so the application never
+imports an adapter. Protocol stubs stay on ONE line: a body on a second one is an uncovered
+branch.
 """
 
 from dataclasses import dataclass
@@ -31,10 +26,7 @@ class MuleSearchFailedError(MuleClientError):
 
 
 class SearchChannel(StrEnum):
-    """Search channel (closed enum, spec §4): eD2k servers or Kad.
-
-    The values are the tokens ``POST /search`` takes for its ``type`` field.
-    """
+    """eD2k servers or Kad. The values are the tokens ``POST /search`` takes verbatim."""
 
     GLOBAL = "global"
     KAD = "kad"
@@ -51,12 +43,8 @@ class KadStatus(StrEnum):
 
 @dataclass(frozen=True)
 class NetworkStatus:
-    """Network status (spec §4) — exactly what the metrics (§13 MVP) will consume.
-
-    ``ed2k_id`` is ``None`` when the client is not connected to an eD2k server.
-    ``ed2k_high``: ``True`` = HighID (reachable), ``False`` = LowID,
-    i.e. ID < 16777216 (HIGHEST_LOWID_ED2K_KAD).
-    """
+    """``ed2k_id`` is ``None`` while not connected to a server, which is what keeps a false
+    ``ed2k_high`` (LowID, id < 16777216) apart from "no id yet"."""
 
     ed2k_id: int | None
     ed2k_high: bool
@@ -66,11 +54,8 @@ class NetworkStatus:
 
 
 class MuleClient(Protocol):
-    """Async contract of the eMule client. UNIT actions: no sleep/retry/loop here.
-
-    ``fetch_results`` returns the CUMULATIVE snapshot accumulated by the daemon;
-    ``search_progress`` returns a percentage if the daemon reports one, otherwise ``None``.
-    """
+    """UNIT actions only: no sleep, no retry, no loop. ``fetch_results`` returns the daemon's
+    CUMULATIVE snapshot, and ``search_progress`` is ``None`` when it reports no percentage."""
 
     async def connect(self) -> None: ...
 

@@ -1,10 +1,9 @@
 """UNIFIED crawler config (``crawler.yml``, versioned — deploy-simplification design).
 
 Merges the former POLICY config (cadences, polling budgets, jitter, backoff, shutdown
-deadline) and the former LOCAL config (EC endpoints + secrets + DB paths + download/port-sync
-wiring). Parsed from the YAML dict already loaded by ``load_yaml`` (the file I/O is in
-``yaml_loader``) into FROZEN dataclasses, with FAIL-FAST validation (consistent bounds,
-fields present → ``ConfigError`` otherwise, refuse to start, spec §5/§14).
+deadline) and the former LOCAL config (secrets + DB paths + download/port-sync wiring). Parsed
+from the dict ``load_yaml`` returns into FROZEN dataclasses, with FAIL-FAST validation: a bound
+that does not hold or a missing field is a ``ConfigError`` and the crawler refuses to start.
 
 Deployment-sensitive values (secrets, URLs) are interpolated from the environment via
 ``${NAME}`` (substring, LAZY: a disabled section requires no variable, D1). The
@@ -62,16 +61,8 @@ class NotificationTarget:
 
 @dataclass(frozen=True)
 class DownloadConfig:
-    """Download policy + wiring (download spec §3/§7). Present ⟺ ``enabled``.
-
-    ``poll_interval_seconds``: cadence for polling the download queue (the nudge wakes it
-    earlier). ``min_free_bytes``: free-space floor on the output filesystem, below which a
-    candidate is deferred. ``lost_after_seconds``: a queued/downloading row amuled has not shown
-    for that long becomes ``failed``. ``output_dir``: the directory measured by ``statvfs``
-    (no file is ever opened there). The download loop still gets its OWN EC connection
-    (DECISION D3), now built from the shared constants like every other one. amuled writes the
-    finished file into its own IncomingDir and nothing here ever touches it.
-    """
+    """Download policy and wiring, present ⟺ ``enabled``. ``output_dir`` is measured with
+    ``statvfs`` and never opened: amuled writes the finished file, nothing here touches it."""
 
     poll_interval_seconds: float
     min_free_bytes: int
@@ -315,7 +306,7 @@ def _parse_observability(raw: dict[str, Any], env: Mapping[str, str]) -> Observa
 
 
 # The three download knobs of 2026-09-13 default rather than fail fast: an operator config
-# written before them must still boot. 24 h absorbs an amuled restart or a night of EC downtime.
+# written before them must still boot. 24 h absorbs an amuled restart or a night of downtime.
 _DEFAULT_MIN_FREE_BYTES = 10_737_418_240  # 10 GiB
 _DEFAULT_LOST_AFTER_SECONDS = 86_400.0
 _DEFAULT_OUTPUT_DIR = "/downloads"  # the bind mount in deploy/base.compose.yml

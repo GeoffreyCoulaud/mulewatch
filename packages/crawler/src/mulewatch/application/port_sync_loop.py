@@ -1,13 +1,10 @@
 """The UNIFIED port-sync loop (boot + mid-life): read the forwarded port, align amuled, restart.
 
-APPLICATION layer (High-ID port-sync, design §4). ONE algorithm covers both "the port is wrong
-at startup" AND "the port became wrong along the way" (VPN renegotiation): we read the live
-forwarded port (gluetun), compare it to amuled's listen port (EC), and if they differ we
-``SetPort`` + restart amuled (the port is NOT re-bindable at runtime, so the DAEMON has to
-come back; s6 does it in place, the container stays up). Guards: restart
-rate-limit (≤ 1 / window); High-ID re-check after restart WITHOUT looping; edge-triggered
-fallback alert (OPERATIONS) when the port stays wrong. The degraded mode (Low-ID) is tolerated:
-any defensive parse (port 0 / control-server unreachable / EC dead) → "not ready", backoff.
+ONE algorithm covers both "the port is wrong at startup" and "the port became wrong along the
+way" (VPN renegotiation): read gluetun's live forwarded port, compare it to amuled's listen
+port, and on a difference write it and restart amuled, because the port is NOT re-bindable at
+runtime. Guards: a restart rate-limit, a High-ID re-check that does not loop, and an
+edge-triggered alert when the port stays wrong. Low-ID is a tolerated degraded mode.
 
 ``run_port_sync_cycle`` NEVER RAISES (top-level net like ``run_download_cycle``); every
 re-looping path sleeps ``poll_interval_seconds`` (no busy-spin). ``port_sync_loop`` repeats
@@ -39,11 +36,7 @@ _MISMATCH = "port_mismatch"
 
 
 class PortPreferences(Protocol):
-    """Subset of ``MuleClient`` consumed by the loop (local typing, design §4.2).
-
-    The real ``AmuleApiClient`` (connect, get/set_listen_port, network_status) AND a
-    minimal fake satisfy it. Stubs on ONE line.
-    """
+    """The subset of the client this loop needs, declared here rather than widening the port."""
 
     async def connect(self) -> None: ...
 

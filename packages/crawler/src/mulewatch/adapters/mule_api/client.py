@@ -1,11 +1,7 @@
-"""High-level amuleapi client: auth, search, status, preferences, download (spec §4).
+"""Drives ``amuled`` over amuleapi, satisfying ``MuleClient`` and ``MuleDownloadClient``.
 
-STRUCTURALLY implements ``MuleClient`` AND ``MuleDownloadClient`` (without importing them, same
-structural typing the EC adapter used). NO sleep, retry or reconnection here beyond the single
-re-login a ``401`` mandates: the adapter signals, the caller decides.
-
-The ports have no notion of a ``search_id``, so the client holds the id of the ONE search in
-flight, reproducing exactly what EC allowed. Several concurrent searches are lot 2.
+The ports know no ``search_id``, so the client holds the one in flight. No sleep and no retry
+beyond the single re-login a ``401`` mandates: the adapter signals, the caller decides.
 """
 
 import json
@@ -39,12 +35,8 @@ _MAX_PROGRESS_PERCENT = 100
 
 
 class AmuleApiClient:
-    """Drives an ``amuled`` through ``amuleapi``'s REST surface.
-
-    ``skipped_entries_total`` accumulates result entries discarded by the mapper. It is an EVENT
-    counter: since the readout is cumulative, the same unusable entry re-seen on every readout
-    counts each time - do not read it as "unique lost entries".
-    """
+    """``skipped_entries_total`` counts discard EVENTS, not unique entries: the readout is
+    cumulative, so one unusable entry re-seen every cycle counts every time."""
 
     def __init__(
         self,
@@ -65,12 +57,8 @@ class AmuleApiClient:
         self.skipped_entries_total = 0
 
     async def connect(self) -> None:
-        """Opens the HTTP session and logs in. Failure → exception, NO retry.
-
-        IDEMPOTENT: a second call on an already-connected client is a no-op. Essential to the
-        pool: the composition root connects at wiring time, then the worker re-calls
-        ``connect()`` in its ``_ensure_connected()``.
-        """
+        """Opens the session and logs in. IDEMPOTENT: the worker re-calls this on every task,
+        and composition has already connected once at wiring time."""
         if self._http is not None:
             return
         if not self._password:
@@ -88,11 +76,8 @@ class AmuleApiClient:
         self._http = http
 
     async def close(self) -> None:
-        """Revokes the token, then closes the session.
-
-        Deliberately bypasses the 401 rule of ``_request``: a rejected logout means the session
-        is already gone, and logging back in to end it would burn a login for nothing.
-        """
+        """Revokes the token, then closes the session. Bypasses the 401 rule on purpose: a
+        rejected logout means the session is already gone, so re-logging in to end it is waste."""
         http, self._http = self._http, None
         if http is None:
             return
@@ -104,12 +89,8 @@ class AmuleApiClient:
     async def start_search(self, keyword: str, channel: SearchChannel) -> None:
         """Stops the search in flight, then starts a new one and keeps its id.
 
-        The stop is what EC's start did implicitly, and it is not optional: Kademlia refuses a
-        keyword still on its search list, so a node that re-searches a keyword within one Kad
-        lifetime would get `400 amuled_rejected` for as long as the old search lives. Only
-        `POST /search/{id}/stop` takes it off that list; freeing the search does not. Observed
-        on the image, 2026-09-22. A stop that fails changes nothing: the search is gone either
-        way, and the start below reports whatever the daemon actually thinks.
+        The stop is not optional: Kademlia refuses a keyword still on its search list, and only
+        ``POST /search/{id}/stop`` takes it off (freeing the search does not, measured 2026-09-22).
         """
         if self._search_id is not None:
             with suppress(ApiError):
@@ -132,15 +113,12 @@ class AmuleApiClient:
         return observations
 
     async def stop_search(self) -> None:
-        """Stops the search. Its results stay readable, unlike a DELETE."""
+        """Stops the search. Its results stay readable, unlike after a DELETE."""
         await self._call("POST", f"/search/{self._require_search()}/stop")
 
     async def search_progress(self) -> int | None:
-        """Percentage 0-100, or ``None`` when the daemon reports none (port contract).
-
-        Asks for zero rows: the progress envelope travels with the results, and this is polled
-        on a timer while the result set grows.
-        """
+        """Percentage, or ``None`` when the daemon reports none. Asks for zero rows: the
+        progress envelope travels with the results, and this is polled while they pile up."""
         if self._search_id is None:
             return None
         payload = await self._call("GET", f"/search/{self._search_id}/results", params={"limit": 0})
@@ -164,20 +142,15 @@ class AmuleApiClient:
         return port
 
     async def set_listen_port(self, port: int) -> None:
-        """Updates the TCP AND UDP listen ports, which the EC adapter also moved together.
-
-        The preference is written, not rebound: a restart is what makes amuled listen there.
-        """
+        """Writes the TCP and UDP port preferences together, as EC did. A preference is not a
+        rebind: amuled listens on the new port only after a restart."""
         await self._call(
             "PATCH", "/preferences", body={"connection": {"tcp_port": port, "udp_port": port}}
         )
 
     async def add_link(self, ed2k_link: str) -> None:
-        """Adds an ed2k link to amuled's download queue.
-
-        The route is a bulk one: a link the daemon refuses comes back inside a 2xx, per item,
-        so the envelope is what reports the failure, not the status code.
-        """
+        """Queues an ed2k link. The route is a bulk one, so a refused link comes back per item
+        INSIDE a 2xx: the envelope reports the failure, never the status code."""
         payload = await self._call("POST", "/downloads", body={"links": [ed2k_link]})
         results = payload.get("results")
         outcome = results[0] if isinstance(results, list) and results else None
@@ -185,11 +158,8 @@ class AmuleApiClient:
             raise ApiRejectedError(f"POST /downloads refused the link: {_outcome_reason(outcome)}")
 
     async def download_queue(self) -> tuple[DownloadEntry, ...]:
-        """Snapshot of the download queue. NEVER reads the bytes.
-
-        ``status=all`` on purpose: the default hides completed entries, and the disk-cap
-        admission rule sums the whole queue's remaining bytes (§4.3).
-        """
+        """The queue INCLUDING what amuled holds complete until it is cleared (``status=all``),
+        which is why the caller cannot read "in the queue" as "still transferring"."""
         rows = await self._collect("/downloads", "downloads", params={"status": "all"})
         return tuple(entry for row in rows if (entry := map_download_entry(row)) is not None)
 
@@ -228,11 +198,8 @@ class AmuleApiClient:
         body: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Sends, renewing the token ONCE on a 401 (§7.3: retrying one only burns the limiter).
-
-        A second 401 is terminal for the session and comes back as an unreachable daemon: only
-        a successful login clears that state, and hammering it locks our IP out for 300 s.
-        """
+        """Sends, renewing the token ONCE on a 401. Never twice: amuleapi locks an IP out for
+        300 s after 30 rejected tokens, and only a successful login clears that state."""
         response = await _send(http, method, path, body=body, params=params)
         if response.status_code == httpx.codes.UNAUTHORIZED:
             await self._login(http)
@@ -262,12 +229,8 @@ class AmuleApiClient:
     async def _collect(
         self, path: str, envelope: str, *, params: dict[str, Any] | None = None
     ) -> list[Any]:
-        """Sweeps a whole list route by KEYSET paging (§7.5).
-
-        Never ``offset``: it is a position, so a row deleted below the cursor shifts the window
-        and the row that slides past it is returned by nothing, ever. ``hash`` is the identity
-        column of all three list routes we read, which is what ``after`` requires.
-        """
+        """Sweeps a whole list route by KEYSET paging on ``hash``. Never ``offset``: it is a
+        position, so a row deleted below the cursor is skipped and then reported by nothing."""
         rows: list[Any] = []
         page_params = {**(params or {}), "sort": "hash", "limit": _PAGE_SIZE}
         while True:
@@ -305,7 +268,7 @@ def _decode(response: httpx.Response) -> dict[str, Any]:
         return {}
     try:
         payload = json.loads(response.content)
-    except (json.JSONDecodeError, ValueError) as failure:
+    except ValueError as failure:  # JSONDecodeError is one
         raise ApiUnreachableError(f"{response.request.url.path}: unreadable body") from failure
     return payload if isinstance(payload, dict) else {}
 

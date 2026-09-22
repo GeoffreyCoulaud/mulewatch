@@ -1,14 +1,8 @@
-"""Listen-port get/set integration against a REAL amuleapi (High-ID port-sync, design §4.2).
+"""Listen-port get/set against a REAL amuleapi (High-ID port-sync).
 
 Dedicated run: uv run pytest -m api_integration --no-cov
-
-EMPIRICALLY validates against the real daemon:
-  - that ``GET /preferences`` really carries ``connection.tcp_port`` on this build;
-  - the set -> get ROUND-TRIP: ``set_listen_port(N)`` then ``get_listen_port()`` returns ``N``
-    (the preference is updated; the actual re-bind requires a restart, not tested here).
-
-NOTE: the real restart + the real High-ID are covered by the layer-B e2e suite, outside this
-file.
+Proves the round-trip only: writing the preference is not a rebind, and the real restart and
+the real High-ID belong to the e2e suite.
 """
 
 import pytest

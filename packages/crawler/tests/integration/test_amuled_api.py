@@ -1,9 +1,7 @@
-"""Integration against a REAL amuleapi (spec amuleapi §4.4).
+"""Login, refused login, network status and the full search cycle, against a REAL amuleapi.
 
 Dedicated run: uv run pytest -m api_integration --no-cov
-Validates: a real login, a refused login, the network status, and the full start/fetch/stop
-CYCLE. The results may be empty without eD2k network access: it is the cycle that is validated
-(spec §7.3).
+Without eD2k access the results are empty: what is validated is the cycle, not their richness.
 """
 
 import pytest
