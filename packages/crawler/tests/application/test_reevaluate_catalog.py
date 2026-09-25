@@ -176,3 +176,18 @@ async def test_backfill_ignores_the_legacy_empty_sentinel(
         ).fetchone()[0]
         == 1
     )
+
+
+@pytest.mark.asyncio
+async def test_backfill_judges_a_hash_on_all_its_names_not_only_the_latest(
+    catalog: SqliteCatalogRepository, engine: MatchingEngine
+) -> None:
+    catalog.record_observation(_obs(_HASH_DL, _DL_NAME))
+    catalog.record_observation(_obs(_HASH_DL, "random.txt"))  # latest name matches nothing
+    summary = await reevaluate_catalog(
+        catalog=catalog, engine=engine, signal=RecordingSignal(), telemetry=RecordingTelemetry()
+    )
+    assert summary == ReevalSummary(evaluated=1, written=1)
+    assert catalog.last_decisions(_HASH_DL) == {
+        "062A": DecisionRecord(target_id="062A", rule_name="id_segment_exact", tier="download")
+    }

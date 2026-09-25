@@ -1,17 +1,19 @@
 """Shared decision helper: evaluate → set-diff → record / retract → emit → nudge (spec §7).
 
-APPLICATION layer, PURE orchestration (no ``try/except`` here — a ``RepositoryError`` is a
+APPLICATION layer, PURE orchestration (no ``try/except`` here: a ``RepositoryError`` is a
 port contract each CALLER absorbs on its own terms, cf. ``record_observation`` and the backfill
 use-case). Used by BOTH the per-observation pipeline (``record_observations.py``) and the
 startup catalogue re-evaluation, so the set-diff + retraction + nudge logic is written once.
 
-Set diff keyed by ``(ed2k_hash, target_id)`` (spec §7). ``engine.evaluate`` returns a LIST of
-:class:`MatchDecision` — one per segment target the file covers, empty = discarded. A fresh
-decision is persisted (and nudged) only when it differs from the file's LATEST persisted
-:class:`DecisionRecord` for THAT target; a target that dropped out of the fresh set (was
-matched, now absent) is retracted — unless it is already retracted (no-op). Returns the number
-of rows written (0..N; a decision OR a retraction each counts as one).
+Set diff keyed by ``(ed2k_hash, target_id)`` (spec §7). The file is judged on EVERY name the
+catalog knows for it (``engine.evaluate_all``, spec amuleapi-migration §8.4), so its names no
+longer retract each other. A fresh decision is persisted (and nudged) only when it differs from
+the file's LATEST persisted :class:`DecisionRecord` for THAT target; a target that dropped out
+of the fresh set is retracted, unless it is already retracted (no-op). Returns the number of
+rows written (0..N; a decision OR a retraction each counts as one).
 """
+
+from dataclasses import replace
 
 from catalog_matching.engine import MatchingEngine, to_record
 from catalog_matching.models import FileCandidate
@@ -32,11 +34,12 @@ async def record_decision_if_changed(
     signal: DecisionSignal,
     telemetry: Telemetry,
 ) -> int:
-    """Evaluate ``candidate``; append new/changed decisions and retract dropped targets.
+    """Judge the file on all its known names (``candidate`` gives the other fields).
 
     Returns the number of rows written (0..N). May propagate ``RepositoryError`` (pure
     orchestration; the caller absorbs it)."""
-    fresh = engine.evaluate(candidate)
+    names = catalog.known_filenames(ed2k_hash)
+    fresh = engine.evaluate_all(replace(candidate, filename=name) for name in names)
     persisted = catalog.last_decisions(ed2k_hash)
     written = 0
     fresh_ids: set[str] = set()

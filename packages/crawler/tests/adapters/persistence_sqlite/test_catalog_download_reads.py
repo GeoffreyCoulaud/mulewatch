@@ -150,3 +150,17 @@ def test_last_observation_returns_the_most_recent(
 
 def test_last_observation_unknown_hash_is_none(repository: SqliteCatalogRepository) -> None:
     assert repository.last_observation(_A) is None
+
+
+def test_known_filenames_are_the_distinct_sorted_names_of_that_hash_only(
+    repository: SqliteCatalogRepository,
+) -> None:
+    repository.record_observation(_obs(_A, name="b.avi", size=1))
+    repository.record_observation(_obs(_A, name="a.avi", size=1))
+    repository.record_observation(_obs(_A, name="b.avi", size=1))
+    repository.record_observation(_obs(_B, name="other.avi", size=1))
+    assert repository.known_filenames(_A) == ("a.avi", "b.avi")
+
+
+def test_known_filenames_of_an_unknown_hash_is_empty(repository: SqliteCatalogRepository) -> None:
+    assert repository.known_filenames(_A) == ()

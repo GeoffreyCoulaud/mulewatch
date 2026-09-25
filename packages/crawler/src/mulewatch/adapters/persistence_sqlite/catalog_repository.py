@@ -93,6 +93,11 @@ ORDER BY observed_at DESC, id DESC
 LIMIT 1
 """
 
+# Every name a hash was ever observed under (decisions judge the file on all of them).
+_SELECT_KNOWN_FILENAMES = """
+SELECT DISTINCT filename FROM file_observations WHERE ed2k_hash = ? ORDER BY filename
+"""
+
 # Every hash's LATEST observation (re-evaluation backfill spec §6), one row per hash:
 # a correlated anti-join keeps only the observation with no strictly-later observation for
 # the same hash (ties broken by id, the most recent INSERT). Stable sort by hash for a
@@ -225,6 +230,12 @@ class SqliteCatalogRepository:
         if row is None:
             return None
         return ObservedFile(filename=row[0], size_bytes=row[1])
+
+    def known_filenames(self, ed2k_hash: str) -> tuple[str, ...]:
+        """Every distinct name this hash was observed under, sorted (read)."""
+        with wrap_sqlite_errors():
+            rows = self._connection.execute(_SELECT_KNOWN_FILENAMES, (ed2k_hash,)).fetchall()
+        return tuple(row[0] for row in rows)
 
     def iter_reevaluation_rows(self) -> Iterator[ReevalRow]:
         """Every hash's latest observation, streamed via the cursor (backfill spec §6) — READ."""

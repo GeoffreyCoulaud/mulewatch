@@ -400,3 +400,68 @@ def test_evaluate_lettered_segment_pins_that_segment_only() -> None:
     # §3 row 4: a lettered number (N°062A) is segment-level -> only that segment (rule 1).
     decisions = _fanout_engine().evaluate(FileCandidate(filename="Keroro N°062A.avi"))
     assert _triples(decisions) == [("062A", "download", "id_segment_exact")]
+
+
+# --- evaluate_all: one file known under several names (spec amuleapi-migration §8.4) ---
+
+
+def _union(*names: str) -> list[tuple[str, str, str]]:
+    engine = _fanout_engine()
+    forward = engine.evaluate_all([FileCandidate(filename=name) for name in names])
+    backward = engine.evaluate_all([FileCandidate(filename=name) for name in reversed(names)])
+    assert _triples(forward) == _triples(backward)
+    return _triples(forward)
+
+
+def test_evaluate_all_same_target_keeps_the_highest_tier_whatever_the_name_order() -> None:
+    # title_review (notify) and title_confirmed (download) both on 062A: download wins.
+    assert _union(
+        "Keroro Les demoiselles cambrioleuses.avi",
+        "Keroro Les demoiselles cambrioleuses teletoon.avi",
+    ) == [("062A", "download", "title_confirmed")]
+
+
+def test_evaluate_all_same_target_same_tier_keeps_the_smallest_rule_index() -> None:
+    # id_segment_exact (index 0) and title_confirmed (index 1), both download on 062A.
+    assert _union("Keroro Les demoiselles cambrioleuses teletoon.avi", "Keroro N°062A.avi") == [
+        ("062A", "download", "id_segment_exact")
+    ]
+
+
+def test_evaluate_all_attribution_from_one_name_drops_another_names_catch_all() -> None:
+    # "Keroro rediffusion.mkv" alone is catch-all 062A; the other name attributes 062B.
+    assert _union("Keroro N°062B.avi", "Keroro rediffusion.mkv") == [
+        ("062B", "download", "id_segment_exact")
+    ]
+
+
+def test_evaluate_all_without_attribution_yields_one_catch_all_winner() -> None:
+    assert _union("Keroro rediffusion.mkv", "random.txt") == [("062A", "catalog", "keroro_large")]
+
+
+def test_evaluate_all_segment_signal_of_one_name_cuts_the_fan_out_of_another() -> None:
+    # Same per-episode rule as a single name: a segment-level signal pins that segment only.
+    assert _union("Keroro 62.avi", "Keroro Les demoiselles cambrioleuses.avi") == [
+        ("062A", "notify", "title_review")
+    ]
+
+
+def test_evaluate_all_skips_an_over_long_name_but_keeps_the_others() -> None:
+    config = parse_matcher_config(_CANONICAL_RAW)
+    engine = MatchingEngine(config, (_TARGET_62A,), max_filename_length=20)
+    decisions = engine.evaluate_all(
+        [FileCandidate(filename="Keroro N°062A.avi"), FileCandidate(filename="x" * 21)]
+    )
+    assert _triples(decisions) == [("062A", "download", "id_segment_exact")]
+
+
+def test_evaluate_all_explains_with_the_winning_name() -> None:
+    winner = FileCandidate(filename="Keroro N°062A.avi")
+    decisions = _fanout_engine().evaluate_all(
+        [FileCandidate(filename="Keroro rediffusion.mkv"), winner]
+    )
+    assert decisions[0].explanation == _fanout_engine().explain(winner, "062A")
+
+
+def test_evaluate_all_of_no_name_is_a_discard() -> None:
+    assert _fanout_engine().evaluate_all([]) == []

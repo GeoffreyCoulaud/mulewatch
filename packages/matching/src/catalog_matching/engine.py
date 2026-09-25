@@ -8,7 +8,7 @@ PURE domain. Takes an already-validated :class:`MatcherConfig` (Plan 2b) and som
 later plan.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from catalog_matching.config import TIER_RANK, MatcherConfig
@@ -108,6 +108,9 @@ _SEGMENT_LEVEL: frozenset[str] = frozenset({"id_segment_exact", "title_confirmed
 _EPISODE_LEVEL: frozenset[str] = frozenset({"numero_nu_confirmed", "numero_nu"})
 _ATTRIBUTABLE: frozenset[str] = _SEGMENT_LEVEL | _EPISODE_LEVEL
 
+# (resolved target, rule index, rule name, tier, the name that fired it)
+_Match = tuple[ResolvedTarget, int, str, str, FileCandidate]
+
 
 def _first_matching_rule(
     config: MatcherConfig,
@@ -194,82 +197,78 @@ class MatchingEngine:
         return _explain(self._config, resolved, candidate)
 
     def evaluate(self, candidate: FileCandidate) -> list[MatchDecision]:
-        """All decisions for ``candidate`` (spec §4); ``[]`` = file discarded.
+        """All decisions for ``candidate`` (spec §4); ``[]`` = file discarded."""
+        return self.evaluate_all((candidate,))
 
-        Length-bound first. Then, per target, its first true rule. The attributable matches
-        (number/title video rules) fan out per episode: a segment-level signal on any segment
-        of an episode emits only those segments, otherwise the episode-level signal emits
-        every segment (spec §3). With no attributable match, the single-winner min-key over
-        ALL matches yields one catch-all decision (the ``keroro_large`` catalog row or an
-        ``archive_candidate`` row), or ``[]`` if nothing matched at all.
+    def evaluate_all(self, candidates: Iterable[FileCandidate]) -> list[MatchDecision]:
+        """All decisions for ONE file known under every name in ``candidates``; ``[]`` = discard.
+
+        Per target, the best rule over all names (min-key below, over-long names skipped).
+        The attributable matches (number/title video rules) fan out per episode: a
+        segment-level signal on any segment of an episode emits only those segments,
+        otherwise the episode-level signal emits every segment (spec §3). With no
+        attributable match, the single-winner min-key over ALL matches yields one catch-all
+        decision (the ``keroro_large`` catalog row or an ``archive_candidate`` row), or ``[]``.
         """
-        if len(candidate.filename) > self._max_filename_length:
-            return []
-        # entry = (resolved_target, rule_index, rule_name, tier)
-        matches: list[tuple[ResolvedTarget, int, str, str]] = []
-        for resolved in self._resolved:
-            outcome = _first_matching_rule(self._config, resolved, candidate)
-            if outcome is None:
+        best: dict[str, _Match] = {}
+        for candidate in candidates:
+            if len(candidate.filename) > self._max_filename_length:
                 continue
-            index, rule_name, tier = outcome
-            matches.append((resolved, index, rule_name, tier))
-        attributable = self._fan_out(candidate, matches)
+            for resolved in self._resolved:
+                outcome = _first_matching_rule(self._config, resolved, candidate)
+                if outcome is None:
+                    continue
+                index, rule_name, tier = outcome
+                target_id = resolved.target.target_id
+                current = best.get(target_id)
+                if current is None or (-_TIER_RANK[tier], index) < (
+                    -_TIER_RANK[current[3]],
+                    current[1],
+                ):
+                    best[target_id] = (resolved, index, rule_name, tier, candidate)
+        matches = list(best.values())
+        attributable = self._fan_out(matches)
         if attributable:
             return attributable
-        return self._single_winner(candidate, matches)
+        return self._single_winner(matches)
 
-    def _fan_out(
-        self,
-        candidate: FileCandidate,
-        matches: list[tuple[ResolvedTarget, int, str, str]],
-    ) -> list[MatchDecision]:
+    def _fan_out(self, matches: list[_Match]) -> list[MatchDecision]:
         """Selects the emitted segments from the attributable matches (spec §3/§4)."""
-        by_episode: dict[int, list[tuple[ResolvedTarget, int, str, str]]] = {}
+        by_episode: dict[int, list[_Match]] = {}
         for entry in matches:
             if entry[2] not in _ATTRIBUTABLE:
                 continue
             by_episode.setdefault(entry[0].target.absolute_number, []).append(entry)
-        emitted: list[tuple[ResolvedTarget, int, str, str]] = []
+        emitted: list[_Match] = []
         for group in by_episode.values():
             segment_level = [entry for entry in group if entry[2] in _SEGMENT_LEVEL]
             emitted.extend(segment_level or group)
         emitted.sort(key=lambda entry: entry[0].target.target_id)
-        return [
-            MatchDecision(
-                target_id=resolved.target.target_id,
-                rule_name=rule_name,
-                tier=tier,
-                explanation=_explain(self._config, resolved, candidate),
-            )
-            for resolved, _index, rule_name, tier in emitted
-        ]
+        return [self._decision(entry) for entry in emitted]
 
-    def _single_winner(
-        self,
-        candidate: FileCandidate,
-        matches: list[tuple[ResolvedTarget, int, str, str]],
-    ) -> list[MatchDecision]:
+    def _single_winner(self, matches: list[_Match]) -> list[MatchDecision]:
         """Existing min-key: one catch-all decision over ALL matches, or ``[]`` (spec §4 step 6).
 
         Key = (highest tier, smallest rule index, smallest ``target_id``); ``target_id`` is
         unique, so the key is a strict total order -> a unique, target-order-independent winner.
         """
         best: tuple[int, int, str] | None = None
-        best_entry: tuple[ResolvedTarget, int, str, str] | None = None
+        best_entry: _Match | None = None
         for entry in matches:
-            resolved, index, _rule_name, tier = entry
+            resolved, index, _rule_name, tier, _candidate = entry
             key = (-_TIER_RANK[tier], index, resolved.target.target_id)
             if best is None or key < best:
                 best = key
                 best_entry = entry
         if best_entry is None:
             return []
-        resolved, _index, rule_name, tier = best_entry
-        return [
-            MatchDecision(
-                target_id=resolved.target.target_id,
-                rule_name=rule_name,
-                tier=tier,
-                explanation=_explain(self._config, resolved, candidate),
-            )
-        ]
+        return [self._decision(best_entry)]
+
+    def _decision(self, entry: _Match) -> MatchDecision:
+        resolved, _index, rule_name, tier, candidate = entry
+        return MatchDecision(
+            target_id=resolved.target.target_id,
+            rule_name=rule_name,
+            tier=tier,
+            explanation=_explain(self._config, resolved, candidate),
+        )
