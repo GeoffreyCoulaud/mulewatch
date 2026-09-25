@@ -81,6 +81,18 @@ class SearchCapabilitySampled:
 
 
 @dataclass(frozen=True)
+class FreeSpaceSampled:
+    free_bytes: int  # the download cycle's statvfs on the output directory
+
+
+@dataclass(frozen=True)
+class DiskSpaceLow:
+    # Emitted only on the crossing below the floor: the download loop owns the edge.
+    free_bytes: int
+    min_free_bytes: int
+
+
+@dataclass(frozen=True)
 class CrawlerStarted:
     mode: str
 
@@ -116,6 +128,8 @@ type Event = (
     | DownloadCompleted
     | ConnectedInstancesSampled
     | SearchCapabilitySampled
+    | FreeSpaceSampled
+    | DiskSpaceLow
     | CrawlerStarted
     | PortSyncTriggered
     | HighIdRecovered

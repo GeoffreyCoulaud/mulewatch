@@ -157,6 +157,23 @@ CASES: list[tuple[ev.Event, Report]] = [
         ),
     ),
     (
+        ev.FreeSpaceSampled(free_bytes=5_000),
+        Report(
+            Severity.DEBUG,
+            "download disk free: 5000 bytes",
+            (MetricInstruction(MetricName.DISK_FREE_BYTES, "set", (), 5_000.0),),
+        ),
+    ),
+    (
+        ev.DiskSpaceLow(free_bytes=3 * 2**29, min_free_bytes=10 * 2**30),
+        Report(
+            Severity.WARNING,
+            "download disk low: 1.5 GiB free, under the 10.0 GiB floor (no new download)",
+            (),
+            _OPERATIONS,
+        ),
+    ),
+    (
         ev.CrawlerStarted(mode="full"),
         Report(
             Severity.INFO,
