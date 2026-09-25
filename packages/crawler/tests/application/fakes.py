@@ -98,6 +98,7 @@ class FakeMuleClient:
     (exhausted → empty tuple). ``connect_failures``: exceptions to raise on the first N
     ``connect`` calls (then success). ``search_failures``: exceptions to raise on the first N
     ``start_search`` calls (then success). ``status``: the ``NetworkStatus`` returned.
+    ``widen_answers``: what the next ``widen_search`` calls return or raise (then ``False``).
     """
 
     def __init__(
@@ -118,6 +119,8 @@ class FakeMuleClient:
         self.close_calls = 0
         self.searches: list[tuple[str, SearchChannel]] = []
         self.fetch_calls = 0
+        self.widen_answers: list[bool | Exception] = []
+        self.widen_calls = 0
 
     async def connect(self) -> None:
         self.connect_calls += 1
@@ -143,6 +146,13 @@ class FakeMuleClient:
 
     async def search_progress(self) -> int | None:
         return 100  # "done": polling stops immediately (determinism)
+
+    async def widen_search(self) -> bool:
+        self.widen_calls += 1
+        answer = self.widen_answers.pop(0) if self.widen_answers else False
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
     async def network_status(self) -> NetworkStatus:
         return self._status

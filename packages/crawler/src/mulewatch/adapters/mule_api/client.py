@@ -13,6 +13,7 @@ import httpx
 from mulewatch.adapters.mule_api.errors import (
     ApiAuthError,
     ApiError,
+    ApiKadExhaustedError,
     ApiRejectedError,
     ApiUnreachableError,
     error_from_response,
@@ -115,6 +116,15 @@ class AmuleApiClient:
     async def stop_search(self) -> None:
         """Stops the search. Its results stay readable, unlike after a DELETE."""
         await self._call("POST", f"/search/{self._require_search()}/stop")
+
+    async def widen_search(self) -> bool:
+        """Asks Kad for more results; ``True`` once it refuses for good. A ``202`` only means
+        "not exhausted": a daemon predating the feature answers it every time."""
+        try:
+            await self._call("POST", f"/search/{self._require_search()}/more")
+        except ApiKadExhaustedError:
+            return True
+        return False
 
     async def search_progress(self) -> int | None:
         """Percentage, or ``None`` when the daemon reports none. Asks for zero rows: the

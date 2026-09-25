@@ -35,6 +35,10 @@ class ApiRejectedError(ApiError, MuleSearchFailedError):
     """The daemon refused the operation and said so cleanly; carries its message."""
 
 
+class ApiKadExhaustedError(ApiRejectedError):
+    """``409 kad_more_exhausted``: Kad will not widen this search again."""
+
+
 def error_from_response(response: httpx.Response) -> ApiError:
     """A non-2xx response -> the adapter error the port contract calls for."""
     code, message = _envelope(response)
@@ -46,6 +50,8 @@ def error_from_response(response: httpx.Response) -> ApiError:
         # The adapter never sleeps (the caller owns the backoff), so honouring Retry-After
         # means surfacing it rather than acting on it.
         detail += f" (retry after {response.headers.get('Retry-After', 'an unstated delay')}s)"
+    if code == "kad_more_exhausted":
+        return ApiKadExhaustedError(detail)
     if code in _OPERATION_CODES:
         return ApiRejectedError(detail)
     return ApiUnreachableError(detail)

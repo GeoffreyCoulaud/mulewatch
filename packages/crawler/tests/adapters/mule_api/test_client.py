@@ -411,6 +411,47 @@ async def test_stop_search_without_a_search_is_a_channel_failure() -> None:
         await client.stop_search()
 
 
+@pytest.mark.asyncio
+async def test_widen_search_asks_kad_for_more_on_the_search_it_started() -> None:
+    api = FakeAmuleApi()
+    client = await _connected(api)
+
+    await client.start_search("keroro", SearchChannel.KAD)
+    assert await client.widen_search() is False
+    await client.close()
+
+    assert _paths(api, "/api/v1/search/42/more") != []
+
+
+@pytest.mark.asyncio
+async def test_a_kad_search_past_its_last_reask_reports_it_is_exhausted() -> None:
+    api = FakeAmuleApi()
+    client = await _connected(api)
+    await client.start_search("keroro", SearchChannel.KAD)
+    api.overrides[("POST", "/api/v1/search/42/more")] = lambda _: error(409, "kad_more_exhausted")
+
+    assert await client.widen_search() is True
+
+
+@pytest.mark.asyncio
+async def test_widening_a_search_the_daemon_evicted_is_a_channel_failure() -> None:
+    api = FakeAmuleApi()
+    client = await _connected(api)
+    await client.start_search("keroro", SearchChannel.KAD)
+    api.overrides[("POST", "/api/v1/search/42/more")] = lambda _: error(404, "not_found")
+
+    with pytest.raises(ApiRejectedError):
+        await client.widen_search()
+
+
+@pytest.mark.asyncio
+async def test_widen_search_without_a_search_is_a_channel_failure() -> None:
+    client = await _connected(FakeAmuleApi())
+
+    with pytest.raises(ApiRejectedError):
+        await client.widen_search()
+
+
 # --- status and preferences ----------------------------------------------------------------
 
 
