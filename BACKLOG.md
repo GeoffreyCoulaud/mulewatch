@@ -9,7 +9,3 @@ dropped, never annotated with what became of it. The history is in git and in
 `agents/handoffs/`.
 
 An agent adds an entry only after the operator has agreed to it.
-
-- **Widen a Kad search instead of starting a new one.** aMule can re-ask the peers it already
-  queried for more results, which surfaces files a fresh search would not find.
-  Detail: `agents/specs/2026-09-22-amuleapi-migration.md` §8.1
