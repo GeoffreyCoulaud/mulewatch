@@ -77,6 +77,9 @@ class _ShutdownAfterFirstCycleClient:
     async def search_progress(self) -> int | None:
         return await self._inner.search_progress()  # type: ignore[attr-defined,no-any-return]
 
+    async def widen_search(self) -> bool:
+        return await self._inner.widen_search()  # type: ignore[attr-defined,no-any-return]
+
     async def network_status(self) -> NetworkStatus:
         status = await self._inner.network_status()  # type: ignore[attr-defined]
         self._status_calls += 1

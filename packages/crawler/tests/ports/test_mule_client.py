@@ -66,6 +66,9 @@ class _StubClient:
     async def search_progress(self) -> int | None:
         return None
 
+    async def widen_search(self) -> bool:
+        return False
+
     async def network_status(self) -> NetworkStatus:
         return NetworkStatus(ed2k_id=None, ed2k_high=False, kad_status=KadStatus.OFF)
 
@@ -78,6 +81,7 @@ async def test_stub_client_satisfies_mule_client_protocol() -> None:
     await client.start_search("keroro", SearchChannel.GLOBAL)
     assert await client.fetch_results() == ()
     assert await client.search_progress() is None
+    assert await client.widen_search() is False
     assert (await client.network_status()).kad_status is KadStatus.OFF
     await client.stop_search()
     await client.close()

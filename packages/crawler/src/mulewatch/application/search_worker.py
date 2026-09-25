@@ -238,10 +238,13 @@ class SearchWorker:
         results) then ``ObservationRecorded``/``DecisionRecorded`` via ``record_observation``.
         """
         waited = 0.0
+        widen = channel is SearchChannel.KAD
         while waited < self._deps.policy.poll_budget_seconds:
             progress = await self._client.search_progress()
             if progress is not None and progress >= _PROGRESS_DONE:
                 break
+            if widen:
+                widen = await self._widen()
             await self._deps.clock.sleep(self._deps.policy.poll_interval_seconds)
             waited += self._deps.policy.poll_interval_seconds
         results = await self._client.fetch_results()
@@ -259,6 +262,15 @@ class SearchWorker:
             ):
                 changed += 1
         return changed
+
+    async def _widen(self) -> bool:
+        """Re-asks Kad for more results; ``False`` once it is exhausted or failed (not retried).
+        A failure is absorbed: the search itself still stands."""
+        try:
+            return not await self._client.widen_search()
+        except (MuleSearchFailedError, MuleUnreachableError) as error:
+            _logger.info("instance %s: widening the Kad search failed (%s)", self._instance, error)
+            return False
 
     async def run_task(self, task: SearchTask) -> None:
         """Runs ONE ``SearchTask`` (spec §4). Never raises: signals via backoff/log.

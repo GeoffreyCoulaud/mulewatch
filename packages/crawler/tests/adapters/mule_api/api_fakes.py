@@ -102,6 +102,9 @@ class FakeAmuleApi:
     def _stop_search(self, request: httpx.Request) -> httpx.Response:
         return httpx.Response(204)
 
+    def _more_search(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(202)
+
     def _get_status(self, request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=self.status)
 
@@ -143,6 +146,7 @@ _ROUTES: dict[tuple[str, str], Callable[[FakeAmuleApi, httpx.Request], httpx.Res
     ("POST", "/api/v1/search"): FakeAmuleApi._start_search,
     ("GET", "/api/v1/search/42/results"): FakeAmuleApi._search_results,
     ("POST", "/api/v1/search/42/stop"): FakeAmuleApi._stop_search,
+    ("POST", "/api/v1/search/42/more"): FakeAmuleApi._more_search,
     ("GET", "/api/v1/status"): FakeAmuleApi._get_status,
     ("GET", "/api/v1/preferences"): FakeAmuleApi._get_preferences,
     ("PATCH", "/api/v1/preferences"): FakeAmuleApi._patch_preferences,

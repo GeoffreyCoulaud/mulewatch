@@ -55,7 +55,8 @@ class NetworkStatus:
 
 class MuleClient(Protocol):
     """UNIT actions only: no sleep, no retry, no loop. ``fetch_results`` returns the daemon's
-    CUMULATIVE snapshot, and ``search_progress`` is ``None`` when it reports no percentage."""
+    CUMULATIVE snapshot, ``search_progress`` is ``None`` when it reports no percentage, and
+    ``widen_search`` (Kad only) is ``True`` once the search can no longer be widened."""
 
     async def connect(self) -> None: ...
 
@@ -68,5 +69,7 @@ class MuleClient(Protocol):
     async def stop_search(self) -> None: ...
 
     async def search_progress(self) -> int | None: ...
+
+    async def widen_search(self) -> bool: ...
 
     async def network_status(self) -> NetworkStatus: ...

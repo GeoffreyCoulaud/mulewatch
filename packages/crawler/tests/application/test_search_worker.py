@@ -376,6 +376,62 @@ async def test_poll_stops_when_progress_is_none_but_budget_bounds_it(
     assert clock.sleeps == [5.0, 5.0]
 
 
+class _NeverDone(FakeMuleClient):
+    async def search_progress(self) -> int | None:
+        return 10
+
+
+# budget 20 / step 5 → four polling ticks.
+_FOUR_TICKS = dataclasses.replace(_POLICY, poll_budget_seconds=20.0)
+
+
+@pytest.mark.asyncio
+async def test_a_kad_search_is_widened_on_each_tick_until_kad_refuses(
+    catalog: SqliteCatalogRepository, engine: MatchingEngine
+) -> None:
+    clock = FakeClock()
+    client = _NeverDone(results=[()])
+    client.widen_answers = [False, False, True]
+    deps = _deps(catalog, engine, clock, _registry(clock), policy=_FOUR_TICKS)
+    worker = SearchWorker("amule-1", client, deps)
+    await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.KAD))
+    assert len(clock.sleeps) == 4
+    assert client.widen_calls == 3  # exhausted on the 3rd tick: never asked on the 4th
+
+
+@pytest.mark.asyncio
+async def test_a_global_search_is_never_widened(
+    catalog: SqliteCatalogRepository, engine: MatchingEngine
+) -> None:
+    clock = FakeClock()
+    client = _NeverDone(results=[()])
+    deps = _deps(catalog, engine, clock, _registry(clock), policy=_FOUR_TICKS)
+    worker = SearchWorker("amule-1", client, deps)
+    await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.GLOBAL))
+    assert len(clock.sleeps) == 4
+    assert client.widen_calls == 0
+
+
+@pytest.mark.parametrize("failure", [make_unreachable(), make_search_failed()])
+@pytest.mark.asyncio
+async def test_a_failed_widening_leaves_the_search_intact(
+    catalog: SqliteCatalogRepository, engine: MatchingEngine, failure: Exception
+) -> None:
+    clock = FakeClock()
+    telemetry = RecordingTelemetry()
+    registry = _registry(clock)
+    client = _NeverDone(results=[(_obs(),)])
+    client.widen_answers = [failure]
+    deps = _deps(catalog, engine, clock, registry, policy=_FOUR_TICKS, telemetry=telemetry)
+    worker = SearchWorker("amule-1", client, deps)
+    await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.KAD))
+    assert client.widen_calls == 1  # not asked again after the failure
+    assert len(clock.sleeps) == 4
+    assert client.fetch_calls == 1
+    assert telemetry.events[0] == SearchExecuted(network="kad", n_results=1)
+    assert registry.snapshot() == {}
+
+
 # --- observability event emission (Plan E.2) ---
 
 
