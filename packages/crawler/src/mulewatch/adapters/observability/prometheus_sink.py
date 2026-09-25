@@ -29,6 +29,7 @@ _GAUGES: tuple[tuple[MetricName, str, tuple[str, ...]], ...] = (
     (MetricName.CONNECTED_INSTANCES, "Search-capable instances", ("network",)),
     (MetricName.SEARCH_CAPABLE, "Search-capable now (1)", ()),
     (MetricName.CRAWLER_UP, "Crawler running (1)", ()),
+    (MetricName.DISK_FREE_BYTES, "Free bytes on the download filesystem", ()),
 )
 _HISTOGRAMS: tuple[tuple[MetricName, str], ...] = (
     (MetricName.SEARCH_CYCLE_DURATION, "Search cycle duration (s)"),

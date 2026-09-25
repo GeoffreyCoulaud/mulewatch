@@ -19,9 +19,11 @@ from mulewatch.domain.observability.events import (
     ConnectedInstancesSampled,
     CrawlerStarted,
     DecisionRecorded,
+    DiskSpaceLow,
     DownloadCompleted,
     DownloadQueued,
     Event,
+    FreeSpaceSampled,
     HighIdRecovered,
     InstanceUnreachable,
     ObservationRecorded,
@@ -67,6 +69,7 @@ class MetricName(StrEnum):
     DOWNLOADS_QUEUED = "emule_downloads_queued"
     DOWNLOADS_COMPLETED = "emule_downloads_completed"
     CONNECTED_INSTANCES = "emule_connected_instances"
+    DISK_FREE_BYTES = "emule_download_disk_free_bytes"
     CRAWLER_UP = "emule_crawler_up"
     PORT_SYNC_TRIGGERED = "emule_port_sync_triggered"
     HIGH_ID_RECOVERED = "emule_high_id_recovered"
@@ -211,6 +214,24 @@ def describe(event: Event) -> Report:
                 Severity.DEBUG,
                 f"search-capable: {'yes' if event.capable else 'no'}",
                 (MetricInstruction(MetricName.SEARCH_CAPABLE, "set", (), float(event.capable)),),
+            )
+        case FreeSpaceSampled():
+            return Report(
+                Severity.DEBUG,
+                f"download disk free: {event.free_bytes} bytes",
+                (
+                    MetricInstruction(
+                        MetricName.DISK_FREE_BYTES, "set", (), float(event.free_bytes)
+                    ),
+                ),
+            )
+        case DiskSpaceLow():
+            return Report(
+                Severity.WARNING,
+                f"download disk low: {event.free_bytes / 2**30:.1f} GiB free, "
+                f"under the {event.min_free_bytes / 2**30:.1f} GiB floor (no new download)",
+                (),
+                frozenset({Audience.OPERATIONS}),
             )
         case CrawlerStarted():
             return Report(

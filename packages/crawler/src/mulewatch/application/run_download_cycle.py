@@ -21,15 +21,21 @@ import asyncio
 import logging
 from collections.abc import Iterable, Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from catalog_matching.ed2k_link import build_ed2k_link
 from catalog_matching.engine import DownloadCandidate
 from catalog_matching.models import TargetSegment
+from mulewatch.application.edge_state import EdgeState
 from mulewatch.domain.download.policy import DownloadVerdict, download_policy
 from mulewatch.domain.download.states import DownloadState
-from mulewatch.domain.observability.events import DownloadCompleted, DownloadQueued
+from mulewatch.domain.observability.events import (
+    DiskSpaceLow,
+    DownloadCompleted,
+    DownloadQueued,
+    FreeSpaceSampled,
+)
 from mulewatch.ports.catalog_repository import ObservedFile
 from mulewatch.ports.clock import Clock
 from mulewatch.ports.decision_signal import DecisionSignal
@@ -109,6 +115,7 @@ class DownloadDeps:
     lost_after_seconds: float
     clock: Clock
     telemetry: Telemetry
+    edge: EdgeState = field(default_factory=EdgeState, kw_only=True)  # low-disk warning
 
 
 @dataclass
@@ -217,6 +224,11 @@ async def _queue_new_candidates(deps: DownloadDeps, outstanding: int) -> None:
     snapshot; ``free`` is read once here. Both are MEASURED, never declared.
     """
     free = deps.disk.free_bytes()
+    await deps.telemetry.emit(FreeSpaceSampled(free_bytes=free))
+    if free >= deps.min_free_bytes:
+        deps.edge.leave("disk_low")
+    elif deps.edge.enter("disk_low"):
+        await deps.telemetry.emit(DiskSpaceLow(free_bytes=free, min_free_bytes=deps.min_free_bytes))
     for candidate in deps.catalog.download_decisions():
         if deps.downloads.is_downloaded(candidate.ed2k_hash):
             continue

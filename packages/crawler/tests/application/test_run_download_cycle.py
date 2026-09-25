@@ -8,7 +8,12 @@ from catalog_matching.engine import DownloadCandidate
 from catalog_matching.models import TargetSegment
 from mulewatch.application.run_download_cycle import DownloadDeps, run_download_cycle
 from mulewatch.domain.download.states import DownloadState
-from mulewatch.domain.observability.events import DownloadCompleted, DownloadQueued
+from mulewatch.domain.observability.events import (
+    DiskSpaceLow,
+    DownloadCompleted,
+    DownloadQueued,
+    FreeSpaceSampled,
+)
 from mulewatch.ports.catalog_repository import ObservedFile
 from mulewatch.ports.mule_client import (
     KadStatus,
@@ -1174,8 +1179,48 @@ async def test_an_unmeasurable_output_directory_admits_nothing_and_does_not_rais
         candidates=(_candidate(_A, "062A"),),
         observations={_A: ObservedFile(filename="x", size_bytes=100)},
     )
-    deps = _deps(client=client, downloads=downloads, catalog=catalog)
+    telemetry = RecordingTelemetry()
+    deps = _deps(client=client, downloads=downloads, catalog=catalog, telemetry=telemetry)
     deps.disk = _BrokenDisk()
     await run_download_cycle(deps)
     assert client.added_links == []
     assert _A not in downloads.states
+    assert not [e for e in telemetry.events if isinstance(e, FreeSpaceSampled | DiskSpaceLow)]
+
+
+@pytest.mark.asyncio
+async def test_each_cycle_reports_the_measured_free_space() -> None:
+    telemetry = RecordingTelemetry()
+    deps = _deps(
+        client=FakeDownloadClient(),
+        downloads=FakeDownloadRepo(),
+        catalog=FakeCatalogReads(),
+        free=4_242,
+        telemetry=telemetry,
+    )
+    await run_download_cycle(deps)
+    assert FreeSpaceSampled(free_bytes=4_242) in telemetry.events
+
+
+@pytest.mark.asyncio
+async def test_low_disk_warns_once_per_crossing_and_rearms_at_the_floor() -> None:
+    telemetry = RecordingTelemetry()
+    disk = FakeDiskSpace(500)
+    deps = _deps(
+        client=FakeDownloadClient(),
+        downloads=FakeDownloadRepo(),
+        catalog=FakeCatalogReads(),
+        min_free=600,
+        telemetry=telemetry,
+    )
+    deps.disk = disk
+    warnings_per_cycle: list[int] = []
+    for free in (500, 400, 600, 599):  # cross down, stay low, back AT the floor, cross again
+        disk.free = free
+        before = len(telemetry.events)
+        await run_download_cycle(deps)
+        warnings_per_cycle.append(
+            sum(isinstance(e, DiskSpaceLow) for e in telemetry.events[before:])
+        )
+    assert warnings_per_cycle == [1, 0, 0, 1]
+    assert DiskSpaceLow(free_bytes=500, min_free_bytes=600) in telemetry.events
