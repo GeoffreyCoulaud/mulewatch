@@ -13,6 +13,3 @@ An agent adds an entry only after the operator has agreed to it.
 - **Widen a Kad search instead of starting a new one.** aMule can re-ask the peers it already
   queried for more results, which surfaces files a fresh search would not find.
   Detail: `agents/specs/2026-09-22-amuleapi-migration.md` §8.1
-- **Warn when the disk is filling up.** The daemon reports free space on the download volumes
-  and nothing watches it, so a full disk is discovered by its consequences.
-  Detail: `agents/specs/2026-09-22-amuleapi-migration.md` §8.1
