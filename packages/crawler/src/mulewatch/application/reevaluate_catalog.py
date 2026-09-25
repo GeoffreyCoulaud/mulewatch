@@ -3,9 +3,10 @@
 APPLICATION layer. Iterates every catalogued hash's LATEST observation
 (``catalog.iter_reevaluation_rows()``), rebuilds a :class:`FileCandidate` via
 ``candidate_from_fields`` (the single conversion, spec re-evaluation §6), and delegates to
-the shared ``record_decision_if_changed`` helper (``decisions.py``) so retraction + notify/
-download nudges happen identically to the live per-observation path (spec §4). Only the
-counting + per-row error absorption are specific to the backfill.
+the shared ``record_decision_if_changed`` helper (``decisions.py``, which judges the hash on
+all its known names) so retraction + notify/download nudges happen identically to the live
+per-observation path (spec §4). Only the counting + per-row error absorption are specific
+to the backfill.
 
 A per-row ``RepositoryError`` is logged (error level) and absorbed here: one bad file must
 not abort the whole sweep (spec §7, same discipline as ``record_observation``).

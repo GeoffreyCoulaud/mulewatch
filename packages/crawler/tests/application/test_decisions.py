@@ -1,16 +1,15 @@
 """Tests for the shared decision helper (spec §7): set diff keyed by (hash, target_id).
 
 Real engine + real SQLite catalog repo (mirrors ``test_record_observations.py``: "real repos
-on tmp_path"); only ``signal``/``telemetry`` are fakes. ``record_decision_if_changed`` writes
-to ``match_decisions`` (FK-constrained on ``files``), so each hash is seeded via
-``record_observation`` first, EXCEPT the never-matched case (never writes → FK never applies).
+on tmp_path"); only ``signal``/``telemetry`` are fakes. ``_record`` observes the name first:
+the helper judges the file on every name the catalog knows for it.
 """
 
 import sqlite3
 
 import pytest
 
-from catalog_matching.engine import DecisionRecord, MatchingEngine
+from catalog_matching.engine import DecisionRecord, Explanation, MatchDecision, MatchingEngine
 from mulewatch.adapters.persistence_sqlite.catalog_repository import SqliteCatalogRepository
 from mulewatch.application.decisions import record_decision_if_changed
 from mulewatch.application.record_observations import record_observation
@@ -45,6 +44,15 @@ def _obs(ed2k_hash: str, filename: str) -> FileObservation:
     )
 
 
+def _seed_decision(catalog: SqliteCatalogRepository, ed2k_hash: str, target_id: str) -> None:
+    explanation = Explanation(
+        target_id=target_id, rules_fired=(), tokens_matched=(), coverage_values=()
+    )
+    catalog.record_decision(
+        ed2k_hash, MatchDecision(target_id, "title_review", "notify", explanation)
+    )
+
+
 async def _record(
     ed2k_hash: str,
     filename: str,
@@ -53,6 +61,7 @@ async def _record(
     signal: RecordingSignal,
     telemetry: RecordingTelemetry,
 ) -> int:
+    catalog.record_observation(_obs(ed2k_hash, filename))
     return await record_decision_if_changed(
         ed2k_hash,
         _obs(ed2k_hash, filename).to_candidate(),
@@ -69,7 +78,6 @@ async def test_new_decision_is_recorded_emitted_signalled_and_nudged(
     catalog_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
-    catalog.record_observation(_obs(_HASH_DL, _DL_NAME))
     telemetry, signal = RecordingTelemetry(), RecordingSignal()
     written = await _record(_HASH_DL, _DL_NAME, catalog, engine, signal, telemetry)
     assert written == 1
@@ -87,7 +95,6 @@ async def test_multi_segment_file_records_both_segments_then_is_idempotent(
     catalog_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
-    catalog.record_observation(_obs(_HASH_MULTI, _MULTI_NAME))
     telemetry, signal = RecordingTelemetry(), RecordingSignal()
     written = await _record(_HASH_MULTI, _MULTI_NAME, catalog, engine, signal, telemetry)
     assert written == 2
@@ -118,7 +125,6 @@ async def test_changed_decision_is_reappended_emitted_and_nudged(
     catalog_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
-    catalog.record_observation(_obs(_HASH_DL, _NOTIFY_NAME))
     telemetry, signal = RecordingTelemetry(), RecordingSignal()
     await _record(_HASH_DL, _NOTIFY_NAME, catalog, engine, signal, telemetry)
     written = await _record(_HASH_DL, _DL_NAME, catalog, engine, signal, telemetry)
@@ -140,7 +146,6 @@ async def test_unchanged_decision_is_not_reappended_emitted_or_signalled(
     catalog_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
-    catalog.record_observation(_obs(_HASH_CAT, _CAT_NAME))
     telemetry, signal = RecordingTelemetry(), RecordingSignal()
     first = await _record(_HASH_CAT, _CAT_NAME, catalog, engine, signal, telemetry)
     second = await _record(_HASH_CAT, _CAT_NAME, catalog, engine, signal, telemetry)
@@ -151,63 +156,51 @@ async def test_unchanged_decision_is_not_reappended_emitted_or_signalled(
 
 
 @pytest.mark.asyncio
-async def test_was_matched_then_none_retracts_that_target_without_nudge(
+async def test_a_target_no_name_supports_is_retracted_without_nudge(
     catalog: SqliteCatalogRepository,
     engine: MatchingEngine,
 ) -> None:
-    catalog.record_observation(_obs(_HASH_CAT, _NOTIFY_NAME))
+    catalog.record_observation(_obs(_HASH_CAT, _DISCARD_NAME))
+    _seed_decision(catalog, _HASH_CAT, "062A")
     telemetry, signal = RecordingTelemetry(), RecordingSignal()
-    await _record(_HASH_CAT, _NOTIFY_NAME, catalog, engine, signal, telemetry)
-    signalled_before = list(signal.signalled)
     written = await _record(_HASH_CAT, _DISCARD_NAME, catalog, engine, signal, telemetry)
     assert written == 1
     assert catalog.last_decisions(_HASH_CAT) == {
         "062A": DecisionRecord(target_id="062A", rule_name="", tier=RETRACTED_TIER)
     }
-    assert telemetry.events[-1] == DecisionRecorded(target_id="062A", tier=RETRACTED_TIER)
-    assert signal.signalled == signalled_before
-    assert DOWNLOAD_NUDGE_SUBJECT not in signal.signalled
+    assert telemetry.events == [DecisionRecorded(target_id="062A", tier=RETRACTED_TIER)]
+    assert signal.signalled == []
 
 
 @pytest.mark.asyncio
-async def test_multi_segment_then_discard_retracts_both_segments(
+async def test_every_unsupported_target_is_retracted(
     catalog: SqliteCatalogRepository,
     engine: MatchingEngine,
 ) -> None:
-    catalog.record_observation(_obs(_HASH_MULTI, _MULTI_NAME))
+    catalog.record_observation(_obs(_HASH_MULTI, _DISCARD_NAME))
+    _seed_decision(catalog, _HASH_MULTI, "062A")
+    _seed_decision(catalog, _HASH_MULTI, "062B")
     telemetry, signal = RecordingTelemetry(), RecordingSignal()
-    await _record(_HASH_MULTI, _MULTI_NAME, catalog, engine, signal, telemetry)
     written = await _record(_HASH_MULTI, _DISCARD_NAME, catalog, engine, signal, telemetry)
     assert written == 2
     assert catalog.last_decisions(_HASH_MULTI) == {
         "062A": DecisionRecord(target_id="062A", rule_name="", tier=RETRACTED_TIER),
         "062B": DecisionRecord(target_id="062B", rule_name="", tier=RETRACTED_TIER),
     }
-    assert telemetry.events[-2:] == [
-        DecisionRecorded(target_id="062A", tier=RETRACTED_TIER),
-        DecisionRecorded(target_id="062B", tier=RETRACTED_TIER),
-    ]
 
 
 @pytest.mark.asyncio
 async def test_already_retracted_then_none_is_a_no_op(
     catalog: SqliteCatalogRepository,
-    catalog_connection: sqlite3.Connection,
     engine: MatchingEngine,
 ) -> None:
-    catalog.record_observation(_obs(_HASH_CAT, _CAT_NAME))
+    catalog.record_observation(_obs(_HASH_CAT, _DISCARD_NAME))
+    _seed_decision(catalog, _HASH_CAT, "062A")
+    catalog.record_retraction(_HASH_CAT, "062A")
     telemetry, signal = RecordingTelemetry(), RecordingSignal()
-    await _record(_HASH_CAT, _CAT_NAME, catalog, engine, signal, telemetry)
-    await _record(_HASH_CAT, _DISCARD_NAME, catalog, engine, signal, telemetry)
-    rows_after = catalog_connection.execute("SELECT count(*) FROM match_decisions").fetchone()[0]
-    events_after = len(telemetry.events)
     written = await _record(_HASH_CAT, _DISCARD_NAME, catalog, engine, signal, telemetry)
     assert written == 0
-    assert (
-        catalog_connection.execute("SELECT count(*) FROM match_decisions").fetchone()[0]
-        == rows_after
-    )
-    assert len(telemetry.events) == events_after
+    assert telemetry.events == []
 
 
 @pytest.mark.asyncio
@@ -228,7 +221,6 @@ async def test_never_matched_then_none_is_a_no_op(
 async def test_non_download_tier_decision_does_not_nudge_the_download_subject(
     catalog: SqliteCatalogRepository, engine: MatchingEngine
 ) -> None:
-    catalog.record_observation(_obs(_HASH_CAT, _CAT_NAME))
     telemetry, signal = RecordingTelemetry(), RecordingSignal()
     written = await _record(_HASH_CAT, _CAT_NAME, catalog, engine, signal, telemetry)
     assert written == 1
@@ -237,30 +229,38 @@ async def test_non_download_tier_decision_does_not_nudge_the_download_subject(
 
 
 @pytest.mark.asyncio
-async def test_record_observation_retracts_a_reobserved_now_discarded_file(
+async def test_a_second_name_that_matches_nothing_does_not_retract_the_first(
     catalog: SqliteCatalogRepository,
-    catalog_connection: sqlite3.Connection,
+    engine: MatchingEngine,
+) -> None:
+    # Regression (spec amuleapi-migration §8.4): names of one hash used to alternate verdicts.
+    telemetry, signal = RecordingTelemetry(), RecordingSignal()
+    written = [
+        await record_observation(
+            _obs(_HASH_DL, name),
+            catalog=catalog,
+            engine=engine,
+            signal=signal,
+            telemetry=telemetry,
+            network="ed2k",
+        )
+        for name in (_DL_NAME, _DISCARD_NAME, _DL_NAME, _DISCARD_NAME)
+    ]
+    assert written == [1, 0, 0, 0]
+    assert catalog.last_decisions(_HASH_DL) == {
+        "062A": DecisionRecord(target_id="062A", rule_name="id_segment_exact", tier="download")
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_weaker_name_seen_again_does_not_downgrade_the_verdict(
+    catalog: SqliteCatalogRepository,
     engine: MatchingEngine,
 ) -> None:
     telemetry, signal = RecordingTelemetry(), RecordingSignal()
-    first = await record_observation(
-        _obs(_HASH_DL, _DL_NAME),
-        catalog=catalog,
-        engine=engine,
-        signal=signal,
-        telemetry=telemetry,
-        network="ed2k",
-    )
-    second = await record_observation(
-        _obs(_HASH_DL, _DISCARD_NAME),
-        catalog=catalog,
-        engine=engine,
-        signal=signal,
-        telemetry=telemetry,
-        network="ed2k",
-    )
-    assert (first, second) == (1, 1)
-    assert catalog.last_decisions(_HASH_DL) == {
-        "062A": DecisionRecord(target_id="062A", rule_name="", tier=RETRACTED_TIER)
-    }
-    assert catalog_connection.execute("SELECT count(*) FROM file_observations").fetchone()[0] == 2
+    written = [
+        await _record(_HASH_DL, name, catalog, engine, signal, telemetry)
+        for name in (_NOTIFY_NAME, _DL_NAME, _NOTIFY_NAME, _DL_NAME)
+    ]
+    assert written == [1, 1, 0, 0]
+    assert catalog.last_decisions(_HASH_DL)["062A"].tier == "download"
