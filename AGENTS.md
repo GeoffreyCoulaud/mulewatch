@@ -41,15 +41,13 @@ The crawler is Clean/Hexagonal: `domain/` pure, `application/` async use-cases, 
 ## Design invariants (do not violate)
 
 - **The catalog's subject is the file, never the person** — no tracking, no deanonymization.
-- **The crawler PROD never reads downloaded bytes, and never touches the filesystem of the output directory.** amuled writes a finished file straight into its own IncomingDir; nothing moves it, opens it or inspects it afterwards. Completion is a *positive signal* (amuled's shared-files list), never byte-inference.
-- **`docs/` is the Zensical root and is published in full** (decided 2026-09-17): every `.md` under it becomes a page on https://geoffreycoulaud.github.io/mulewatch/, because Zensical builds every file in `docs_dir` whether or not the nav references it. Anything that should not be published goes in `agents/` (specs, plans, handoffs, reference notes), never in `docs/`. The site is built by `uv run poe docs-build`, which passes `--strict` so a broken link or a dead anchor fails the build instead of shipping silently.
+- **The crawler never reads downloaded bytes, and never touches the filesystem of the output directory.**
+- **`docs/` is the Zensical root and is published in full**: every `.md` under it becomes a page on https://geoffreycoulaud.github.io/mulewatch/, because Zensical builds every file in `docs_dir` whether or not the nav references it. Anything that should not be published goes in `agents/` (specs, plans, handoffs, reference notes), never in `docs/`. The site is built by `uv run poe docs-build`, which passes `--strict` so a broken link or a dead anchor fails the build instead of shipping silently.
 - **Package boundary:** `catalog_matching` is a pure shared library imported by the crawler (and by its in-process webui), never the reverse. `vex_guards` is dev/CI tooling and is never imported by shipped code, nor installed in the prod image.
 - **Two run modes, one topology:** `download.enabled: true` (the shipped default) wires the download loop live; `download.enabled: false` or an absent `download:` section is crawl-only. This is a **config flag**, not two ways of assembling the stack: both compose stacks start every service unconditionally, and there is no compose profile anywhere.
 - **Standalone tools** (`merge`, `compact`) never touch prod code or mutate a DB in place — they read a source and write a NEW file.
-- **`deploy/` is the operator-owned single source of truth for config (decided 2026-07-01, relocated from `deploy/config/crawler/` to the `deploy/` root 2026-09-16)** — `deploy/crawler.yml` / `deploy/matcher.yml` / `deploy/targets.yml` stay editable-by-operator deployment config, next to the compose files that mount them; it is **forbidden to canonicalize them as code artifacts** (package data, inline policy dicts, or duplicate test fixtures that shadow them). Every consumer *derives from* `deploy/`, never the reverse: the matcher policy has exactly ONE copy (`deploy/matcher.yml`), read by the matching golden corpus + engine unit tests via `parents[N]` — a test-time path coupling to `deploy/`, deliberately accepted (test-only, not an import; the code DAG is unchanged). Do not reintroduce a `canonical_config.yaml` fixture or an inline `_CANONICAL_RAW` policy dict.
-- **Boundary discipline (E-D13):** absorb failures from external I/O (an apprise notifier, a call to the daemon → degrade), but let in-process 100%-tested code crash loudly (a `PrometheusSink` failure is a bug, not a transient).
-- **Confinement posture (decided 2026-06-17, updated 2026-06-29, narrowed 2026-09-13, REVERSED for the crawler 2026-09-16):** the portable floor is container hardening, and it is the whole story — but the single-container image reduced what that floor can hold. PID 1 of the `mulewatch` service is `s6-svscan`, preceded by a root one-shot that creates the `amule` user from `PUID`/`PGID`, chowns the bind mounts, writes `amule.conf` and hands amuleapi its admin password; each service then drops privileges with `setpriv`, and amuleapi inherits amuled's. **`user:`, `read_only:` and `cap_drop: ALL` therefore no longer apply to any shipped service** (spec `agents/specs/2026-09-16-single-container-embedded-amule.md` §9, with operator sign-off): the crawler descended to amuled's confinement level rather than amuled rising to the crawler's. What remains, and is what the compose files must keep: `security_opt: no-new-privileges:true`, `pids_limit: 512` and `mem_limit: 2g`. `no-new-privileges` alongside `setpriv` is **not yet validated on real hardware** (spec §13). Kernel namespaces stay a deliberate non-goal, and that reasoning still binds: `net=none`, bwrap and mount namespaces require either `CAP_SYS_ADMIN` or unprivileged user namespaces (host-sysctl-dependent, conflicts with Docker's default seccomp). The per-child seccomp blocklist and rlimits left the project with the analysis child they confined (scope reduction, 2026-09-13); nothing in the crawler spawns a subprocess over untrusted input any more. Same reasoning summarized for operators in `docs/limits.md`. Historical record (gVisor deprecated 2026-06-29 as YAGNI, per-child ring): `agents/specs/2026-06-15-ring-noyau-design.md`.
-- **amuled is no longer a third-party container: it is a process of our own image** (2026-09-16), so the 2026-06-17 carve-out for it is gone — there is nothing left to exempt, because the whole service shares the posture above. Documented in `docs/troubleshooting.md` § Stockage & droits and `docs/limits.md`. Residual risk still accepted, and now wider: a compromise of any of the three processes (amuled, amuleapi since 2026-09-22, and the crawler) reaches the bind-mounted `deploy/downloads/{incoming,temp}`, `deploy/data/` (the catalog) and `deploy/amule/`. Do not "fix" this without revisiting the decision record.
+- **`deploy/` is the operator-owned single source of truth for config** — `deploy/crawler.yml` / `deploy/matcher.yml` / `deploy/targets.yml` stay editable-by-operator deployment config, next to the compose files that mount them; it is **forbidden to canonicalize them as code artifacts** (package data, inline policy dicts, or duplicate test fixtures that shadow them). Every consumer *derives from* `deploy/`, never the reverse: the matcher policy has exactly ONE copy (`deploy/matcher.yml`), read by the matching golden corpus + engine unit tests via `parents[N]` — a test-time path coupling to `deploy/`, deliberately accepted (test-only, not an import; the code DAG is unchanged). Do not reintroduce a `canonical_config.yaml` fixture or an inline `_CANONICAL_RAW` policy dict.
+- **Boundary discipline** absorb failures from external I/O (an apprise notifier, a call to the daemon → degrade), but let in-process 100%-tested code crash loudly (a `PrometheusSink` failure is a bug, not a transient).
 
 ## Commands
 
@@ -84,32 +82,31 @@ Integration suites (Docker / ffmpeg, deselected by default, excluded from covera
 - **Python only** (>=3.13). Conventional commits (`feat(domain):`, `fix(domain):`, `test:`, `chore:`, `docs:`).
 - **Language: all code is English** (decided 2026-07-02) — identifiers AND prose: comments, docstrings, runtime-emitted messages/logs, CI step names, and commit messages. `.gitignore` is the one deliberate exception, decided 2026-09-17: it is operator-facing housekeeping, and it is consistently French. The only other French in the codebase is genuine *domain data* (real VF episode titles like `La Grenouille Cosmique`, eMule filenames, non-ASCII test fixtures) — data, not prose. **New docs under `agents/specs/`, `agents/plans/` and `agents/handoffs/` are written in English** (decided 2026-07-03); past docs keep their original language (no retro-translation). **Everything under `docs/` is French** (decided 2026-09-17), contributor section included: `docs/` is the published documentation site and its readers are operators. Conversational replies to the operator stay in their chosen language.
 - **Subagent-driven execution** (Act phase) + **holistic review** (Verify phase): the cross-cutting review regularly catches bugs — don't skip it.
-- For library/framework/CLI questions, use the **context7 MCP** (current docs), not recalled knowledge.
+- For library/framework/CLI questions, use the current docs, not recalled knowledge.
 
-## Workflow — Discuss → Spec → Act → Verify → Wrap
+## Workflow
 
-Five phases, always in order. **Committing is cheap** — you're allowed to commit autonomously.
+- **Committing is cheap**, you're allowed to commit autonomously.
 
 ### 1. Discuss
 
-**Free-form text** discussion with the user. Use `brainstorm` or `pick-my-brain` skills if clarification is needed. **No `AskUserQuestion` tool** — ask the question in the message directly. No code, no plan — just understanding.
+**Free-form text** discussion with the user. No code, no plan — just understanding.
 
 ### 2. Spec
 
 Two forms, depending on complexity:
 
 - **Simple / obvious** : inline spec in the conversation, a few paragraphs.
-- **Structured** : spec markdown (`agents/specs/<date>-<slug>.md`) + plan markdown (`agents/plans/<date>-<slug>.md`) if needed.
+- **Structured** : spec markdown (`agents/specs/<date>-<slug>.md`)
 
-**The spec is reviewed and approved by the user** before writing plans (if any). Plans are not reviewed — they follow from the approved spec.
-
-**Do not use `EnterPlanMode`.** The project workflow is self-contained, not coupled to Claude Code's plan-mode feature.
+**The spec is reviewed and approved by the user**.
 
 ### 3. Act
 
-`main` is **integration-only** ; never edit directly on it. As soon as code or docs will be modified, **branch first**.
+`main` is **integration-only** ; never edit directly on it. 
+As soon as code or docs will be modified, **branch first**.
 
-**Branching :** ask the user (4 options) :
+**Branching :** ask the user :
 1. Stay on current branch
 2. New branch **in-place** (`git switch -c <branch>`) — suggested default for edits the user follows in their editor
 3. New **worktree** (`EnterWorktree`) — suggested default when dispatching coding agents
@@ -117,9 +114,7 @@ Two forms, depending on complexity:
 
 Naming: `<type>/<kebab-slug>` (conventional-commit types: `feat`, `fix`, `docs`, `chore`, `test`, `refactor`).
 
-**Execution: subagent-driven by default.** Delegate work to subagents (`Agent`) to keep the main context clean. Exception: very simple, short, localized action (e.g. one file, one change) → do inline. Use the `subagent-driven-development` or `dispatching-parallel-agents` skill as appropriate.
-
-**Worktrees:** `EnterWorktree` creates `.claude/worktrees/<name>`, moves the agent session there, the user's editor stays on `main`. `.claude/worktrees/` is gitignored. `worktree.baseRef = "head"`.
+**Execution: subagent-driven by default.** Delegate work to teammates or subagents to keep the main context clean. Exception: very simple, short, localized action (e.g. one file, one change) → do inline.
 
 ### 4. Verify
 
@@ -131,12 +126,10 @@ Any non-documentation change reaches `main` **through a PR** (see Wrap) so CI's 
 
 Once the gate is green and code reviewed:
 
-1. **Write the handoff** in `agents/handoffs/<ISO date> - handoff - <context>.md`: current state, what was just built, learned pitfalls, suggested next step, what is NOT validated against real hardware. The handoff is committed before continuing the wrap phase.
+1. **Write a handoff** in `agents/handoffs/<ISO date> - handoff - <context>.md`: current state, what was just built, learned pitfalls. The handoff is committed before continuing the wrap phase.
 2. **Integrate.** **Push the branch and open a PR** for any change touching code, config, tests, `deploy/`, or CI: `main`'s branch protection requires the `validate / gate` check, but `enforce_admins: false` means a local admin merge silently bypasses CI — don't. Wait for the gate green, then merge (linear history is required → **squash or rebase**, not a merge commit). **Exception — documentation-only** (diff touches only `docs/**` + root `*.md`): a local merge/commit to `main` is fine, no PR needed. "Leave as-is" stays available when the user wants to handle it later.
 3. **Tag** annotated `vX.Y.Z`, first line `vX.Y.Z - <milestone name>`, then what shipped. **Push it** — that is what builds and signs the versioned image.
 4. **Clean up** branch and/or worktree if applicable.
-
-Use the `finishing-a-development-branch` skill to guide this phase.
 
 ## Architecture — the matching engine
 
@@ -169,7 +162,6 @@ Invariants: the decision is order-independent (target_ids are unique); `MatchDec
 
 **Matching engine (stdlib `re`, `re.ASCII`):**
 - Regex tokens compile with `re.compile(pattern, re.ASCII)` (`matchers.py`, `validation.py`). `re.ASCII` keeps `\b \d \s \w` ASCII — matching the pre-2026-07-03 RE2 default the existing policy relies on (`fold()` does not reduce non-Latin scripts to ASCII). Case-insensitivity is a leading `(?i)` prefix (not a flag arg). An invalid pattern raises **`re.error`** (caught in `validation.py` → `ConfigError` "not compilable").
-- **Why `re` and not RE2** (decided 2026-07-03, re-examined 2026-09-16): the original reasons were that `google-re2` shipped no musllinux wheels (which blocked Alpine) and was a native C++ dependency (CVE surface). **The musllinux half of that is now dead**: the single-container image moved the runtime to `debian:trixie-slim`, where manylinux wheels are available, so Alpine no longer blocks anything. The decision stands anyway, on the reasons that survive: stdlib `re` works, the ReDoS risk below was accepted on its merits, `matcher.yml` stays operator-owned, and re-adding a native C++ dependency to buy back a guarantee we decided we did not need would be a regression, not a fix. Re-adding RE2 is explicitly out of scope (`agents/specs/2026-09-16-single-container-embedded-amule.md` §14/§15). Trade-off: RE2's *structural* linear-time guarantee is gone. **No anti-ReDoS guardrail** — residual risk accepted because `matcher.yml` is operator-owned, version-controlled and reviewed (the attacker controls the filename, never the pattern). Consequence: lookaround/backreferences are now syntactically permitted (were impossible under RE2). Full record: `agents/specs/2026-07-03-drop-google-re2-alpine-migration.md`.
 - Coverage idioms: a `Protocol` stub `def m(...) -> bool: ...` must be **one line** (a body with `...` on a second line counts as an uncovered branch under `branch=true`). A `case _: assert_never(x)` arm — i.e. the "unreachable default" of a `match` over a closed tagged-union — needs `# pragma: no cover` because it is unreachable by design but the branch counter doesn't know that.
 - Don't validate config order-dependently (parse pass = structural; graph pass = full table). Recursive validators need an explicit depth guard → a clean `DepthExceededError`, not `RecursionError` (which is a Python runtime artifact, not a domain error).
 
