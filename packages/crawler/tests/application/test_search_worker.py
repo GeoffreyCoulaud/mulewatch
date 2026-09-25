@@ -377,26 +377,38 @@ async def test_poll_stops_when_progress_is_none_but_budget_bounds_it(
 
 
 class _NeverDone(FakeMuleClient):
+    """Never completes, and records on which poll tick (1-based) each widening was asked."""
+
+    def __init__(self, clock: FakeClock, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._clock = clock
+        self.widened_on_ticks: list[int] = []
+
     async def search_progress(self) -> int | None:
         return 10
 
+    async def widen_search(self) -> bool:
+        self.widened_on_ticks.append(len(self._clock.sleeps) + 1)
+        return await super().widen_search()
 
-# budget 20 / step 5 → four polling ticks.
-_FOUR_TICKS = dataclasses.replace(_POLICY, poll_budget_seconds=20.0)
+
+# budget 25 / step 5 → five polling ticks.
+_FIVE_TICKS = dataclasses.replace(_POLICY, poll_budget_seconds=25.0)
 
 
 @pytest.mark.asyncio
-async def test_a_kad_search_is_widened_on_each_tick_until_kad_refuses(
+async def test_a_kad_search_is_widened_from_the_second_tick_until_kad_refuses(
     catalog: SqliteCatalogRepository, engine: MatchingEngine
 ) -> None:
+    # Tick 1 comes right after POST /search: Kad has queried nobody yet, a reask would be wasted.
     clock = FakeClock()
-    client = _NeverDone(results=[()])
-    client.widen_answers = [False, False, True]
-    deps = _deps(catalog, engine, clock, _registry(clock), policy=_FOUR_TICKS)
+    client = _NeverDone(clock, results=[()])
+    client.widen_answers = [False, True]
+    deps = _deps(catalog, engine, clock, _registry(clock), policy=_FIVE_TICKS)
     worker = SearchWorker("amule-1", client, deps)
     await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.KAD))
-    assert len(clock.sleeps) == 4
-    assert client.widen_calls == 3  # exhausted on the 3rd tick: never asked on the 4th
+    assert len(clock.sleeps) == 5
+    assert client.widened_on_ticks == [2, 3]  # exhausted on tick 3: never asked on 4 and 5
 
 
 @pytest.mark.asyncio
@@ -404,12 +416,12 @@ async def test_a_global_search_is_never_widened(
     catalog: SqliteCatalogRepository, engine: MatchingEngine
 ) -> None:
     clock = FakeClock()
-    client = _NeverDone(results=[()])
-    deps = _deps(catalog, engine, clock, _registry(clock), policy=_FOUR_TICKS)
+    client = _NeverDone(clock, results=[()])
+    deps = _deps(catalog, engine, clock, _registry(clock), policy=_FIVE_TICKS)
     worker = SearchWorker("amule-1", client, deps)
     await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.GLOBAL))
-    assert len(clock.sleeps) == 4
-    assert client.widen_calls == 0
+    assert len(clock.sleeps) == 5
+    assert client.widened_on_ticks == []
 
 
 @pytest.mark.parametrize("failure", [make_unreachable(), make_search_failed()])
@@ -420,13 +432,13 @@ async def test_a_failed_widening_leaves_the_search_intact(
     clock = FakeClock()
     telemetry = RecordingTelemetry()
     registry = _registry(clock)
-    client = _NeverDone(results=[(_obs(),)])
+    client = _NeverDone(clock, results=[(_obs(),)])
     client.widen_answers = [failure]
-    deps = _deps(catalog, engine, clock, registry, policy=_FOUR_TICKS, telemetry=telemetry)
+    deps = _deps(catalog, engine, clock, registry, policy=_FIVE_TICKS, telemetry=telemetry)
     worker = SearchWorker("amule-1", client, deps)
     await worker.run_task(SearchTask(keyword="keroro", channel=SearchChannel.KAD))
-    assert client.widen_calls == 1  # not asked again after the failure
-    assert len(clock.sleeps) == 4
+    assert client.widened_on_ticks == [2]  # not asked again after the failure
+    assert len(clock.sleeps) == 5
     assert client.fetch_calls == 1
     assert telemetry.events[0] == SearchExecuted(network="kad", n_results=1)
     assert registry.snapshot() == {}

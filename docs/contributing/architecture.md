@@ -237,9 +237,11 @@ sequenceDiagram
   `null` sur la plupart des résultats globaux et Kad. Rien n'ouvre jamais le fichier pour en savoir
   plus. Un fichier annoncé sous plusieurs noms arrive **replié** en un seul résultat ; le mapper le
   redéplie en une observation par nom, comme l'EC en produisait une par entrée.
-- Une recherche **Kad** est élargie à chaque tour de sondage (`POST /search/{id}/more`, le bouton
-  « More » d'aMule) jusqu'à ce que Kad réponde `409 kad_more_exhausted`. Un échec de cet appel
-  n'arrête jamais la recherche : on cesse simplement de l'élargir.
+- Une recherche **Kad** est élargie à chaque tour de sondage à partir du deuxième
+  (`POST /search/{id}/more`, le bouton « More » d'aMule) jusqu'à ce que Kad réponde
+  `409 kad_more_exhausted`. Au premier tour, Kad n'a encore interrogé personne : relancer
+  gaspillerait l'une de ses 4 relances. Un échec de cet appel n'arrête jamais la recherche : on
+  cesse simplement de l'élargir.
 - L'observation est écrite (`files` + `file_observations`) **puis** matchée. La décision
   (`target_id`, `rule_name`, `tier`) va dans `match_decisions`. En mode téléchargement, un tier
   `download` *pousse* la boucle de téléchargement pour qu'elle réagisse sans attendre son intervalle.

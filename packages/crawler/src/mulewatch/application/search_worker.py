@@ -243,7 +243,7 @@ class SearchWorker:
             progress = await self._client.search_progress()
             if progress is not None and progress >= _PROGRESS_DONE:
                 break
-            if widen:
+            if widen and waited > 0:  # tick 1: Kad has queried nobody yet, a reask is wasted
                 widen = await self._widen()
             await self._deps.clock.sleep(self._deps.policy.poll_interval_seconds)
             waited += self._deps.policy.poll_interval_seconds
